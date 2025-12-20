@@ -21,7 +21,7 @@ pipeworks_mud_server/
 │   ├── db/                # Database layer
 │   │   └── database.py    # SQLite operations
 │   └── client/            # Frontend
-│       └── gradio_client.py  # Gradio web interface
+│       └── app.py         # Gradio web interface
 ├── data/                  # Data files
 │   ├── world_data.json    # Room and item definitions
 │   └── mud.db             # SQLite database (generated)
@@ -69,7 +69,7 @@ PYTHONPATH=src python3 -m mud_server.db.database
 PYTHONPATH=src python3 src/mud_server/api/server.py
 
 # Run client only (ensure server is running first)
-PYTHONPATH=src python3 src/mud_server/client/gradio_client.py
+PYTHONPATH=src python3 src/mud_server/client/app.py
 
 # Check server health
 curl http://localhost:8000/health
@@ -90,7 +90,7 @@ export MUD_SERVER_URL="http://localhost:8000"
 
 ### Three-Tier Design
 
-**Client Layer (src/mud_server/client/gradio_client.py)**
+**Client Layer (src/mud_server/client/app.py)**
 - Gradio web interface with login, game, and help tabs
 - Stateful session management using `gr.State`
 - HTTP requests to backend API endpoints
@@ -257,7 +257,7 @@ World is defined in `data/world_data.json`:
 - JSON serialization for inventory
 
 ### Client Layer (src/mud_server/client/)
-**gradio_client.py**
+**app.py**
 - Gradio interface components
 - Tab layouts (login, game, help)
 - Event handlers for buttons and inputs

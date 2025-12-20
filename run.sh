@@ -5,8 +5,10 @@
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Activate virtual environment
-source "$SCRIPT_DIR/venv/bin/activate"
+# Activate virtual environment if it exists
+if [ -f "$SCRIPT_DIR/venv/bin/activate" ]; then
+    source "$SCRIPT_DIR/venv/bin/activate"
+fi
 
 # Set environment variables
 export MUD_HOST="0.0.0.0"
@@ -42,7 +44,7 @@ sleep 2
 
 # Start the client
 echo "[$(date)] Starting Gradio client..."
-python3 "$SCRIPT_DIR/src/mud_server/client/gradio_client.py" > "$SCRIPT_DIR/logs/client.log" 2>&1 &
+python3 "$SCRIPT_DIR/src/mud_server/client/app.py" > "$SCRIPT_DIR/logs/client.log" 2>&1 &
 CLIENT_PID=$!
 echo "Client PID: $CLIENT_PID"
 
