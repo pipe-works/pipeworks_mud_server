@@ -63,3 +63,20 @@ class StatusResponse(BaseModel):
 
 class UserListResponse(BaseModel):
     users: List[Dict[str, Any]]
+
+
+class DatabasePlayersResponse(BaseModel):
+    players: List[Dict[str, Any]]
+
+
+class DatabaseSessionsResponse(BaseModel):
+    sessions: List[Dict[str, Any]]
+
+
+class DatabaseChatResponse(BaseModel):
+    messages: List[Dict[str, Any]]
+
+
+class UserManagementResponse(BaseModel):
+    success: bool
+    message: str

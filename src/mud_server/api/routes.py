@@ -15,6 +15,10 @@ from mud_server.api.models import (
     CommandResponse,
     StatusResponse,
     UserListResponse,
+    DatabasePlayersResponse,
+    DatabaseSessionsResponse,
+    DatabaseChatResponse,
+    UserManagementResponse,
 )
 from mud_server.api.auth import validate_session, active_sessions, validate_session_with_permission
 from mud_server.api.permissions import Permission, has_permission, can_manage_role
@@ -234,6 +238,116 @@ def register_routes(app: FastAPI, engine: GameEngine):
             return {"success": True, "message": "Password changed successfully!"}
         else:
             raise HTTPException(status_code=500, detail="Failed to change password")
+
+    @app.get("/admin/database/players", response_model=DatabasePlayersResponse)
+    async def get_database_players(session_id: str):
+        """Get all players from the database (Admin only)."""
+        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+
+        players = database.get_all_players_detailed()
+        return DatabasePlayersResponse(players=players)
+
+    @app.get("/admin/database/sessions", response_model=DatabaseSessionsResponse)
+    async def get_database_sessions(session_id: str):
+        """Get all active sessions from the database (Admin only)."""
+        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+
+        sessions = database.get_all_sessions()
+        return DatabaseSessionsResponse(sessions=sessions)
+
+    @app.get("/admin/database/chat-messages", response_model=DatabaseChatResponse)
+    async def get_database_chat_messages(session_id: str, limit: int = 100):
+        """Get recent chat messages from the database (Admin only)."""
+        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+
+        messages = database.get_all_chat_messages(limit=limit)
+        return DatabaseChatResponse(messages=messages)
+
+    @app.post("/admin/user/manage", response_model=UserManagementResponse)
+    async def manage_user(request: UserManagementRequest):
+        """Manage users: change role, ban, or unban (Admin only)."""
+        username, role = validate_session_with_permission(
+            request.session_id, Permission.MANAGE_USERS
+        )
+
+        target_username = request.target_username
+        action = request.action.lower()
+
+        # Check if target user exists
+        if not database.player_exists(target_username):
+            raise HTTPException(status_code=404, detail=f"User '{target_username}' not found")
+
+        # Get target user's role
+        target_role = database.get_player_role(target_username)
+
+        # Prevent self-management
+        if username == target_username:
+            raise HTTPException(status_code=400, detail="Cannot manage your own account")
+
+        # Check permission hierarchy
+        if not can_manage_role(role, target_role):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Insufficient permissions to manage user with role '{target_role}'",
+            )
+
+        # Perform action
+        if action == "change_role":
+            if not request.new_role:
+                raise HTTPException(status_code=400, detail="new_role is required for change_role action")
+
+            new_role = request.new_role.lower()
+            valid_roles = ["player", "worldbuilder", "admin", "superuser"]
+
+            if new_role not in valid_roles:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid role. Valid roles: {', '.join(valid_roles)}",
+                )
+
+            # Check if admin can assign the new role
+            if not can_manage_role(role, new_role):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Insufficient permissions to assign role '{new_role}'",
+                )
+
+            if database.set_player_role(target_username, new_role):
+                return UserManagementResponse(
+                    success=True,
+                    message=f"Successfully changed {target_username}'s role to {new_role}",
+                )
+            else:
+                raise HTTPException(status_code=500, detail="Failed to change role")
+
+        elif action == "ban":
+            if database.deactivate_player(target_username):
+                # Also remove their session if active
+                database.remove_session(target_username)
+                # Remove from active_sessions memory
+                for sid, (uname, _) in list(active_sessions.items()):
+                    if uname == target_username:
+                        del active_sessions[sid]
+
+                return UserManagementResponse(
+                    success=True, message=f"Successfully banned {target_username}"
+                )
+            else:
+                raise HTTPException(status_code=500, detail="Failed to ban user")
+
+        elif action == "unban":
+            if database.activate_player(target_username):
+                return UserManagementResponse(
+                    success=True, message=f"Successfully unbanned {target_username}"
+                )
+            else:
+                raise HTTPException(status_code=500, detail="Failed to unban user")
+
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid action '{action}'. Valid actions: change_role, ban, unban",
+            )
 
     @app.get("/health")
     async def health_check():

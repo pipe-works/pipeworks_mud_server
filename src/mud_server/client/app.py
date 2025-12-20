@@ -231,6 +231,191 @@ def change_password(old_password: str, new_password: str, confirm_password: str)
         return f"Error: {str(e)}"
 
 
+def get_database_players() -> str:
+    """Fetch and format players table for display (Admin only)."""
+    if not session_data["logged_in"]:
+        return "You are not logged in."
+
+    role = session_data.get("role", "player")
+    if role not in ["admin", "superuser"]:
+        return "Access Denied: Admin or Superuser role required."
+
+    try:
+        response = requests.get(
+            f"{SERVER_URL}/admin/database/players",
+            params={"session_id": session_data["session_id"]},
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            players = data["players"]
+
+            if not players:
+                return "No players found in database."
+
+            # Format as text table
+            output = [f"=== PLAYERS TABLE ({len(players)} records) ===\n"]
+            for player in players:
+                status = "ACTIVE" if player["is_active"] else "BANNED"
+                output.append(f"ID: {player['id']}")
+                output.append(f"  Username: {player['username']}")
+                output.append(f"  Role: {player['role']}")
+                output.append(f"  Status: {status}")
+                output.append(f"  Room: {player['current_room']}")
+                output.append(f"  Inventory: {player['inventory']}")
+                output.append(f"  Created: {player['created_at']}")
+                output.append(f"  Last Login: {player['last_login']}")
+                output.append(f"  Password Hash: {player['password_hash']}")
+                output.append("")
+
+            return "\n".join(output)
+
+        elif response.status_code == 403:
+            return "Access Denied: Insufficient permissions."
+        else:
+            error = response.json().get("detail", "Failed to fetch players")
+            return f"Error: {error}"
+
+    except requests.exceptions.ConnectionError:
+        return f"Cannot connect to server at {SERVER_URL}"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+def get_database_sessions() -> str:
+    """Fetch and format sessions table for display (Admin only)."""
+    if not session_data["logged_in"]:
+        return "You are not logged in."
+
+    role = session_data.get("role", "player")
+    if role not in ["admin", "superuser"]:
+        return "Access Denied: Admin or Superuser role required."
+
+    try:
+        response = requests.get(
+            f"{SERVER_URL}/admin/database/sessions",
+            params={"session_id": session_data["session_id"]},
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            sessions = data["sessions"]
+
+            if not sessions:
+                return "No active sessions in database."
+
+            # Format as text table
+            output = [f"=== SESSIONS TABLE ({len(sessions)} records) ===\n"]
+            for session in sessions:
+                output.append(f"ID: {session['id']}")
+                output.append(f"  Username: {session['username']}")
+                output.append(f"  Session ID: {session['session_id']}")
+                output.append(f"  Connected: {session['connected_at']}")
+                output.append(f"  Last Activity: {session['last_activity']}")
+                output.append("")
+
+            return "\n".join(output)
+
+        elif response.status_code == 403:
+            return "Access Denied: Insufficient permissions."
+        else:
+            error = response.json().get("detail", "Failed to fetch sessions")
+            return f"Error: {error}"
+
+    except requests.exceptions.ConnectionError:
+        return f"Cannot connect to server at {SERVER_URL}"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+def get_database_chat(limit: int = 100) -> str:
+    """Fetch and format chat messages for display (Admin only)."""
+    if not session_data["logged_in"]:
+        return "You are not logged in."
+
+    role = session_data.get("role", "player")
+    if role not in ["admin", "superuser"]:
+        return "Access Denied: Admin or Superuser role required."
+
+    try:
+        response = requests.get(
+            f"{SERVER_URL}/admin/database/chat-messages",
+            params={"session_id": session_data["session_id"], "limit": limit},
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            messages = data["messages"]
+
+            if not messages:
+                return "No chat messages in database."
+
+            # Format as text table (reverse order to show newest first)
+            output = [f"=== CHAT MESSAGES ({len(messages)} recent messages) ===\n"]
+            for msg in messages:
+                output.append(f"ID: {msg['id']} | Room: {msg['room']} | Time: {msg['timestamp']}")
+                output.append(f"  [{msg['username']}]: {msg['message']}")
+                output.append("")
+
+            return "\n".join(output)
+
+        elif response.status_code == 403:
+            return "Access Denied: Insufficient permissions."
+        else:
+            error = response.json().get("detail", "Failed to fetch chat messages")
+            return f"Error: {error}"
+
+    except requests.exceptions.ConnectionError:
+        return f"Cannot connect to server at {SERVER_URL}"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+def manage_user(target_username: str, action: str, new_role: str = "") -> str:
+    """Perform user management action (Admin only)."""
+    if not session_data["logged_in"]:
+        return "You are not logged in."
+
+    role = session_data.get("role", "player")
+    if role not in ["admin", "superuser"]:
+        return "Access Denied: Admin or Superuser role required."
+
+    if not target_username or not target_username.strip():
+        return "Target username is required."
+
+    if not action:
+        return "Action is required."
+
+    try:
+        request_data = {
+            "session_id": session_data["session_id"],
+            "target_username": target_username.strip(),
+            "action": action,
+        }
+
+        if action == "change_role":
+            if not new_role or not new_role.strip():
+                return "New role is required for change_role action."
+            request_data["new_role"] = new_role.strip().lower()
+
+        response = requests.post(
+            f"{SERVER_URL}/admin/user/manage",
+            json=request_data,
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            return f"✅ {data['message']}"
+        else:
+            error = response.json().get("detail", "Failed to manage user")
+            return f"❌ {error}"
+
+    except requests.exceptions.ConnectionError:
+        return f"Cannot connect to server at {SERVER_URL}"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
 # Create Gradio interface
 def create_interface():
     """Create the Gradio interface."""
@@ -486,6 +671,111 @@ def create_interface():
                             confirm_new_password_input,
                         ],
                         outputs=[change_password_output],
+                    )
+
+            # Database Tab (Admin/Superuser only)
+            with gr.Tab("Database"):
+                with gr.Column():
+                    gr.Markdown("### Database Viewer & User Management")
+                    gr.Markdown("*Admin and Superuser only*")
+
+                    # Players Table Section
+                    gr.Markdown("#### Players Table")
+                    with gr.Row():
+                        refresh_players_btn = gr.Button("Refresh Players", variant="secondary")
+                    players_display = gr.Textbox(
+                        label="Players Database",
+                        interactive=False,
+                        lines=20,
+                        max_lines=30,
+                    )
+
+                    # Sessions Table Section
+                    gr.Markdown("#### Active Sessions")
+                    with gr.Row():
+                        refresh_sessions_btn = gr.Button("Refresh Sessions", variant="secondary")
+                    sessions_display = gr.Textbox(
+                        label="Sessions Database",
+                        interactive=False,
+                        lines=15,
+                        max_lines=25,
+                    )
+
+                    # Chat Messages Section
+                    gr.Markdown("#### Chat Messages")
+                    with gr.Row():
+                        chat_limit_dropdown = gr.Dropdown(
+                            choices=[50, 100, 200, 500],
+                            value=100,
+                            label="Message Limit",
+                            scale=1,
+                        )
+                        refresh_chat_btn = gr.Button("Refresh Chat", variant="secondary", scale=1)
+                    chat_db_display = gr.Textbox(
+                        label="Chat Messages Database",
+                        interactive=False,
+                        lines=15,
+                        max_lines=25,
+                    )
+
+                    # User Management Section
+                    gr.Markdown("---")
+                    gr.Markdown("#### User Management")
+                    with gr.Row():
+                        target_username_input = gr.Textbox(
+                            label="Target Username",
+                            placeholder="Enter username to manage",
+                            scale=2,
+                        )
+                        action_dropdown = gr.Dropdown(
+                            choices=["change_role", "ban", "unban"],
+                            label="Action",
+                            scale=1,
+                        )
+                    with gr.Row():
+                        new_role_input = gr.Textbox(
+                            label="New Role (for change_role only)",
+                            placeholder="player, worldbuilder, admin, or superuser",
+                            scale=2,
+                        )
+                        manage_user_btn = gr.Button("Execute Action", variant="primary", scale=1)
+
+                    management_output = gr.Textbox(
+                        label="Management Result",
+                        interactive=False,
+                        lines=5,
+                    )
+
+                    # Event handlers for Database tab
+                    refresh_players_btn.click(
+                        get_database_players,
+                        outputs=[players_display],
+                    )
+
+                    refresh_sessions_btn.click(
+                        get_database_sessions,
+                        outputs=[sessions_display],
+                    )
+
+                    def refresh_chat_with_limit(limit):
+                        return get_database_chat(limit)
+
+                    refresh_chat_btn.click(
+                        refresh_chat_with_limit,
+                        inputs=[chat_limit_dropdown],
+                        outputs=[chat_db_display],
+                    )
+
+                    def execute_manage_user(target, action, new_role):
+                        result = manage_user(target, action, new_role)
+                        # Also refresh players table after management action
+                        players = get_database_players()
+                        return result, players, "", ""
+
+                    manage_user_btn.click(
+                        execute_manage_user,
+                        inputs=[target_username_input, action_dropdown, new_role_input],
+                        outputs=[management_output, players_display, target_username_input, new_role_input],
                     )
 
             # Help Tab

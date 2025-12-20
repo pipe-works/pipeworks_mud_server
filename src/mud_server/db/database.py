@@ -448,6 +448,97 @@ def update_session_activity(username: str) -> bool:
         return False
 
 
+def get_all_players_detailed() -> List[Dict[str, Any]]:
+    """Get detailed list of all players including password hash prefix."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, username, password_hash, role, current_room, inventory,
+               created_at, last_login, is_active
+        FROM players
+        ORDER BY created_at DESC
+    """
+    )
+    results = cursor.fetchall()
+    conn.close()
+
+    players = []
+    for row in results:
+        players.append(
+            {
+                "id": row[0],
+                "username": row[1],
+                "password_hash": row[2][:20] + "..." if len(row[2]) > 20 else row[2],
+                "role": row[3],
+                "current_room": row[4],
+                "inventory": row[5],
+                "created_at": row[6],
+                "last_login": row[7],
+                "is_active": bool(row[8]),
+            }
+        )
+    return players
+
+
+def get_all_sessions() -> List[Dict[str, Any]]:
+    """Get all active sessions."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, username, session_id, connected_at, last_activity
+        FROM sessions
+        ORDER BY connected_at DESC
+    """
+    )
+    results = cursor.fetchall()
+    conn.close()
+
+    sessions = []
+    for row in results:
+        sessions.append(
+            {
+                "id": row[0],
+                "username": row[1],
+                "session_id": row[2],
+                "connected_at": row[3],
+                "last_activity": row[4],
+            }
+        )
+    return sessions
+
+
+def get_all_chat_messages(limit: int = 100) -> List[Dict[str, Any]]:
+    """Get recent chat messages across all rooms."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, username, message, room, timestamp
+        FROM chat_messages
+        ORDER BY timestamp DESC
+        LIMIT ?
+    """,
+        (limit,),
+    )
+    results = cursor.fetchall()
+    conn.close()
+
+    messages = []
+    for row in results:
+        messages.append(
+            {
+                "id": row[0],
+                "username": row[1],
+                "message": row[2],
+                "room": row[3],
+                "timestamp": row[4],
+            }
+        )
+    return messages
+
+
 if __name__ == "__main__":
     init_database()
     print(f"Database initialized at {DB_PATH}")
