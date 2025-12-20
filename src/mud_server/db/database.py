@@ -7,7 +7,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-DB_PATH = Path(__file__).parent / "mud.db"
+# Path to database file
+DB_PATH = Path(__file__).parent.parent.parent.parent / "data" / "mud.db"
 
 
 def init_database():
@@ -159,9 +160,9 @@ def get_room_messages(room: str, limit: int = 50) -> List[Dict[str, Any]]:
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT username, message, timestamp FROM chat_messages 
-        WHERE room = ? 
-        ORDER BY timestamp DESC 
+        SELECT username, message, timestamp FROM chat_messages
+        WHERE room = ?
+        ORDER BY timestamp DESC
         LIMIT ?
     """,
         (room, limit),

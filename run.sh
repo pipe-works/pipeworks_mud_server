@@ -12,6 +12,7 @@ source "$SCRIPT_DIR/venv/bin/activate"
 export MUD_HOST="0.0.0.0"
 export MUD_PORT=8000
 export MUD_SERVER_URL="http://localhost:8000"
+export PYTHONPATH="$SCRIPT_DIR/src"
 
 # Create a temporary directory for logs
 mkdir -p "$SCRIPT_DIR/logs"
@@ -32,7 +33,7 @@ echo ""
 
 # Start the server in the background
 echo "[$(date)] Starting FastAPI server..."
-python3 "$SCRIPT_DIR/server.py" > "$SCRIPT_DIR/logs/server.log" 2>&1 &
+python3 "$SCRIPT_DIR/src/mud_server/api/server.py" > "$SCRIPT_DIR/logs/server.log" 2>&1 &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
 
@@ -41,7 +42,7 @@ sleep 2
 
 # Start the client
 echo "[$(date)] Starting Gradio client..."
-python3 "$SCRIPT_DIR/client.py" > "$SCRIPT_DIR/logs/client.log" 2>&1 &
+python3 "$SCRIPT_DIR/src/mud_server/client/gradio_client.py" > "$SCRIPT_DIR/logs/client.log" 2>&1 &
 CLIENT_PID=$!
 echo "Client PID: $CLIENT_PID"
 

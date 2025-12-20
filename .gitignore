@@ -208,3 +208,8 @@ __marimo__/
 
 # OSX
 .DS_Store
+
+# MUD Server specific
+data/*.db
+data/*.db-journal
+logs/*.log
