@@ -36,14 +36,17 @@ This repository contains a **working MUD server** that validates the technical a
 ### ✅ Currently Implemented
 
 - **FastAPI REST API** - High-performance backend on port 8000
-- **Gradio Web Interface** - User-friendly client on port 7860
+- **Gradio Web Interface** - Modular, professional client on port 7860
 - **SQLite Database** - Player state, sessions, and chat persistence
 - **Authentication System** - Password-based auth with bcrypt hashing
 - **Role-Based Access Control** - 4 user types (Player, WorldBuilder, Admin, Superuser)
 - **Room Navigation** - Basic MUD-style movement and exploration
 - **Inventory System** - Pick up and drop items
-- **Room-Based Chat** - Location-specific messaging
+- **Room-Based Chat** - Location-specific messaging with whisper/yell support
 - **JSON World Data** - Flexible world definition system
+- **Ollama Integration** - AI model management and conversational interface (admin/superuser)
+- **Modular Client Architecture** - Clean separation: API client, UI tabs, CSS, utilities
+- **Centralized CSS** - External stylesheet with Safari-compatible dark mode
 
 ### ⏳ Designed But Not Yet Implemented
 
