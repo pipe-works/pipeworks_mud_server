@@ -28,7 +28,7 @@ from mud_server.db import database
 @pytest.mark.game
 def test_login_success(mock_engine, test_db, temp_db_path, db_with_users):
     """Test successful player login."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         success, message, role = mock_engine.login("testplayer", "password123", "session-123")
 
         assert success is True
@@ -41,7 +41,7 @@ def test_login_success(mock_engine, test_db, temp_db_path, db_with_users):
 @pytest.mark.game
 def test_login_wrong_password(mock_engine, test_db, temp_db_path, db_with_users):
     """Test login with incorrect password."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         success, message, role = mock_engine.login("testplayer", "wrongpassword", "session-123")
 
         assert success is False
@@ -53,7 +53,7 @@ def test_login_wrong_password(mock_engine, test_db, temp_db_path, db_with_users)
 @pytest.mark.game
 def test_login_nonexistent_user(mock_engine, test_db, temp_db_path):
     """Test login with non-existent username."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         success, message, role = mock_engine.login("nonexistent", "password", "session-123")
 
         assert success is False
@@ -65,7 +65,7 @@ def test_login_nonexistent_user(mock_engine, test_db, temp_db_path):
 @pytest.mark.game
 def test_login_inactive_account(mock_engine, test_db, temp_db_path, db_with_users):
     """Test login with deactivated account."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.deactivate_player("testplayer")
         success, message, role = mock_engine.login("testplayer", "password123", "session-123")
 
@@ -78,7 +78,7 @@ def test_login_inactive_account(mock_engine, test_db, temp_db_path, db_with_user
 @pytest.mark.game
 def test_logout(mock_engine, test_db, temp_db_path, db_with_users):
     """Test player logout."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         # Create session
         database.create_session("testplayer", "session-123")
 
@@ -100,7 +100,7 @@ def test_logout(mock_engine, test_db, temp_db_path, db_with_users):
 @pytest.mark.game
 def test_move_valid_direction(mock_engine, test_db, temp_db_path, db_with_users):
     """Test moving in a valid direction."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         # Set player in spawn
         database.set_player_room("testplayer", "spawn")
 
@@ -119,7 +119,7 @@ def test_move_valid_direction(mock_engine, test_db, temp_db_path, db_with_users)
 @pytest.mark.game
 def test_move_invalid_direction(mock_engine, test_db, temp_db_path, db_with_users):
     """Test moving in an invalid direction."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
         success, message = mock_engine.move("testplayer", "west")
@@ -135,13 +135,13 @@ def test_move_invalid_direction(mock_engine, test_db, temp_db_path, db_with_user
 @pytest.mark.game
 def test_move_from_invalid_room(mock_engine, test_db, temp_db_path, db_with_users):
     """Test movement when player is not in a valid room."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         # Set invalid room (non-existent room ID)
         conn = database.get_connection()
         cursor = conn.cursor()
         cursor.execute(
             "UPDATE players SET current_room = ? WHERE username = ?",
-            ("invalid_room_xyz", "testplayer")
+            ("invalid_room_xyz", "testplayer"),
         )
         conn.commit()
         conn.close()
@@ -161,7 +161,7 @@ def test_move_from_invalid_room(mock_engine, test_db, temp_db_path, db_with_user
 @pytest.mark.game
 def test_chat_success(mock_engine, test_db, temp_db_path, db_with_users):
     """Test sending a chat message."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
         success, message = mock_engine.chat("testplayer", "Hello everyone!")
@@ -180,7 +180,7 @@ def test_chat_success(mock_engine, test_db, temp_db_path, db_with_users):
 @pytest.mark.game
 def test_yell_sends_to_adjacent_rooms(mock_engine, test_db, temp_db_path, db_with_users):
     """Test yelling sends message to current and adjacent rooms."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
         success, message = mock_engine.yell("testplayer", "Can anyone hear me?")
@@ -205,7 +205,7 @@ def test_yell_sends_to_adjacent_rooms(mock_engine, test_db, temp_db_path, db_wit
 @pytest.mark.game
 def test_whisper_success(mock_engine, test_db, temp_db_path, db_with_users):
     """Test whispering to another player in same room."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         # Both players in spawn
         database.set_player_room("testplayer", "spawn")
         database.set_player_room("testadmin", "spawn")
@@ -225,7 +225,7 @@ def test_whisper_success(mock_engine, test_db, temp_db_path, db_with_users):
 @pytest.mark.game
 def test_whisper_target_not_online(mock_engine, test_db, temp_db_path, db_with_users):
     """Test whispering to offline player."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
         # testadmin exists but is not online (no session)
@@ -239,7 +239,7 @@ def test_whisper_target_not_online(mock_engine, test_db, temp_db_path, db_with_u
 @pytest.mark.game
 def test_whisper_target_different_room(mock_engine, test_db, temp_db_path, db_with_users):
     """Test whispering to player in different room."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         # Players in different rooms
         database.set_player_room("testplayer", "spawn")
         database.set_player_room("testadmin", "forest")
@@ -258,7 +258,7 @@ def test_whisper_target_different_room(mock_engine, test_db, temp_db_path, db_wi
 @pytest.mark.game
 def test_whisper_nonexistent_target(mock_engine, test_db, temp_db_path, db_with_users):
     """Test whispering to non-existent player."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
         success, message = mock_engine.whisper("testplayer", "nonexistent", "Hello")
@@ -276,7 +276,7 @@ def test_whisper_nonexistent_target(mock_engine, test_db, temp_db_path, db_with_
 @pytest.mark.game
 def test_pickup_item_success(mock_engine, test_db, temp_db_path, db_with_users):
     """Test picking up an item from room."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
         success, message = mock_engine.pickup_item("testplayer", "torch")
@@ -294,7 +294,7 @@ def test_pickup_item_success(mock_engine, test_db, temp_db_path, db_with_users):
 @pytest.mark.game
 def test_pickup_item_not_in_room(mock_engine, test_db, temp_db_path, db_with_users):
     """Test picking up item not in current room."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.set_player_room("testplayer", "forest")  # No items in forest
 
         success, message = mock_engine.pickup_item("testplayer", "torch")
@@ -308,7 +308,7 @@ def test_pickup_item_not_in_room(mock_engine, test_db, temp_db_path, db_with_use
 @pytest.mark.game
 def test_pickup_item_case_insensitive(mock_engine, test_db, temp_db_path, db_with_users):
     """Test that item pickup is case-insensitive."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
         success, message = mock_engine.pickup_item("testplayer", "TORCH")
@@ -321,7 +321,7 @@ def test_pickup_item_case_insensitive(mock_engine, test_db, temp_db_path, db_wit
 @pytest.mark.game
 def test_drop_item_success(mock_engine, test_db, temp_db_path, db_with_users):
     """Test dropping an item from inventory."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         # Add item to inventory
         database.set_player_inventory("testplayer", ["torch", "rope"])
 
@@ -341,7 +341,7 @@ def test_drop_item_success(mock_engine, test_db, temp_db_path, db_with_users):
 @pytest.mark.game
 def test_drop_item_not_in_inventory(mock_engine, test_db, temp_db_path, db_with_users):
     """Test dropping item not in inventory."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         success, message = mock_engine.drop_item("testplayer", "sword")
 
         assert success is False
@@ -353,7 +353,7 @@ def test_drop_item_not_in_inventory(mock_engine, test_db, temp_db_path, db_with_
 @pytest.mark.game
 def test_get_inventory_empty(mock_engine, test_db, temp_db_path, db_with_users):
     """Test getting empty inventory."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         inventory_text = mock_engine.get_inventory("testplayer")
 
         assert "empty" in inventory_text.lower()
@@ -363,7 +363,7 @@ def test_get_inventory_empty(mock_engine, test_db, temp_db_path, db_with_users):
 @pytest.mark.game
 def test_get_inventory_with_items(mock_engine, test_db, temp_db_path, db_with_users):
     """Test getting inventory with items."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.set_player_inventory("testplayer", ["torch", "rope"])
 
         inventory_text = mock_engine.get_inventory("testplayer")
@@ -382,8 +382,8 @@ def test_get_inventory_with_items(mock_engine, test_db, temp_db_path, db_with_us
 @pytest.mark.game
 def test_look_in_room(mock_engine, test_db, temp_db_path, db_with_users):
     """Test looking around in a room."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
-        with patch('mud_server.core.world.database.get_players_in_room', return_value=[]):
+    with patch.object(database, "DB_PATH", temp_db_path):
+        with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
             database.set_player_room("testplayer", "spawn")
 
             description = mock_engine.look("testplayer")
@@ -396,13 +396,13 @@ def test_look_in_room(mock_engine, test_db, temp_db_path, db_with_users):
 @pytest.mark.game
 def test_look_invalid_room(mock_engine, test_db, temp_db_path, db_with_users):
     """Test looking when not in a valid room."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         # Set invalid room (non-existent room ID)
         conn = database.get_connection()
         cursor = conn.cursor()
         cursor.execute(
             "UPDATE players SET current_room = ? WHERE username = ?",
-            ("invalid_room_xyz", "testplayer")
+            ("invalid_room_xyz", "testplayer"),
         )
         conn.commit()
         conn.close()
@@ -421,7 +421,7 @@ def test_look_invalid_room(mock_engine, test_db, temp_db_path, db_with_users):
 @pytest.mark.game
 def test_get_active_players(mock_engine, test_db, temp_db_path, db_with_users):
     """Test getting list of active players."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         # Create sessions
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
@@ -437,7 +437,7 @@ def test_get_active_players(mock_engine, test_db, temp_db_path, db_with_users):
 @pytest.mark.game
 def test_get_active_players_empty(mock_engine, test_db, temp_db_path):
     """Test getting active players when none are online."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         active = mock_engine.get_active_players()
         assert len(active) == 0
 
@@ -451,7 +451,7 @@ def test_get_active_players_empty(mock_engine, test_db, temp_db_path):
 @pytest.mark.game
 def test_get_room_chat_with_messages(mock_engine, test_db, temp_db_path, db_with_users):
     """Test getting room chat history."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
         # Add some messages
@@ -469,7 +469,7 @@ def test_get_room_chat_with_messages(mock_engine, test_db, temp_db_path, db_with
 @pytest.mark.game
 def test_get_room_chat_empty(mock_engine, test_db, temp_db_path, db_with_users):
     """Test getting chat when room has no messages."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
         chat_text = mock_engine.get_room_chat("testplayer", limit=10)

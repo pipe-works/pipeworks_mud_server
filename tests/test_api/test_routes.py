@@ -50,12 +50,15 @@ def test_health_endpoint(test_client):
 @pytest.mark.api
 def test_register_success(test_client, test_db, temp_db_path):
     """Test successful user registration."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
-        response = test_client.post("/register", json={
-            "username": "newuser",
-            "password": "password123",
-            "password_confirm": "password123"
-        })
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+        response = test_client.post(
+            "/register",
+            json={
+                "username": "newuser",
+                "password": "password123",
+                "password_confirm": "password123",
+            },
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -66,11 +69,10 @@ def test_register_success(test_client, test_db, temp_db_path):
 @pytest.mark.api
 def test_register_username_too_short(test_client):
     """Test registration with username too short."""
-    response = test_client.post("/register", json={
-        "username": "a",
-        "password": "password123",
-        "password_confirm": "password123"
-    })
+    response = test_client.post(
+        "/register",
+        json={"username": "a", "password": "password123", "password_confirm": "password123"},
+    )
 
     assert response.status_code == 400
     assert "2-20 characters" in response.json()["detail"]
@@ -79,11 +81,10 @@ def test_register_username_too_short(test_client):
 @pytest.mark.api
 def test_register_username_too_long(test_client):
     """Test registration with username too long."""
-    response = test_client.post("/register", json={
-        "username": "a" * 30,
-        "password": "password123",
-        "password_confirm": "password123"
-    })
+    response = test_client.post(
+        "/register",
+        json={"username": "a" * 30, "password": "password123", "password_confirm": "password123"},
+    )
 
     assert response.status_code == 400
 
@@ -91,11 +92,9 @@ def test_register_username_too_long(test_client):
 @pytest.mark.api
 def test_register_password_too_short(test_client):
     """Test registration with password too short."""
-    response = test_client.post("/register", json={
-        "username": "newuser",
-        "password": "short",
-        "password_confirm": "short"
-    })
+    response = test_client.post(
+        "/register", json={"username": "newuser", "password": "short", "password_confirm": "short"}
+    )
 
     assert response.status_code == 400
     assert "at least 8 characters" in response.json()["detail"]
@@ -104,11 +103,10 @@ def test_register_password_too_short(test_client):
 @pytest.mark.api
 def test_register_passwords_dont_match(test_client):
     """Test registration when passwords don't match."""
-    response = test_client.post("/register", json={
-        "username": "newuser",
-        "password": "password123",
-        "password_confirm": "different123"
-    })
+    response = test_client.post(
+        "/register",
+        json={"username": "newuser", "password": "password123", "password_confirm": "different123"},
+    )
 
     assert response.status_code == 400
     assert "do not match" in response.json()["detail"].lower()
@@ -117,12 +115,15 @@ def test_register_passwords_dont_match(test_client):
 @pytest.mark.api
 def test_register_duplicate_username(test_client, test_db, temp_db_path, db_with_users):
     """Test registration with existing username."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
-        response = test_client.post("/register", json={
-            "username": "testplayer",
-            "password": "password123",
-            "password_confirm": "password123"
-        })
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+        response = test_client.post(
+            "/register",
+            json={
+                "username": "testplayer",
+                "password": "password123",
+                "password_confirm": "password123",
+            },
+        )
 
         assert response.status_code == 400
         assert "already taken" in response.json()["detail"].lower()
@@ -136,11 +137,10 @@ def test_register_duplicate_username(test_client, test_db, temp_db_path, db_with
 @pytest.mark.api
 def test_login_success(test_client, test_db, temp_db_path, db_with_users):
     """Test successful login."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
-        response = test_client.post("/login", json={
-            "username": "testplayer",
-            "password": "password123"
-        })
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+        response = test_client.post(
+            "/login", json={"username": "testplayer", "password": "password123"}
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -153,11 +153,10 @@ def test_login_success(test_client, test_db, temp_db_path, db_with_users):
 @pytest.mark.api
 def test_login_wrong_password(test_client, test_db, temp_db_path, db_with_users):
     """Test login with incorrect password."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
-        response = test_client.post("/login", json={
-            "username": "testplayer",
-            "password": "wrongpassword"
-        })
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+        response = test_client.post(
+            "/login", json={"username": "testplayer", "password": "wrongpassword"}
+        )
 
         assert response.status_code == 401
         assert "Invalid username or password" in response.json()["detail"]
@@ -166,11 +165,10 @@ def test_login_wrong_password(test_client, test_db, temp_db_path, db_with_users)
 @pytest.mark.api
 def test_login_nonexistent_user(test_client, test_db, temp_db_path):
     """Test login with non-existent username."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
-        response = test_client.post("/login", json={
-            "username": "nonexistent",
-            "password": "password123"
-        })
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+        response = test_client.post(
+            "/login", json={"username": "nonexistent", "password": "password123"}
+        )
 
         assert response.status_code == 401
 
@@ -178,11 +176,10 @@ def test_login_nonexistent_user(test_client, test_db, temp_db_path):
 @pytest.mark.api
 def test_login_creates_session(test_client, test_db, temp_db_path, db_with_users):
     """Test that login creates session in active_sessions."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
-        response = test_client.post("/login", json={
-            "username": "testplayer",
-            "password": "password123"
-        })
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+        response = test_client.post(
+            "/login", json={"username": "testplayer", "password": "password123"}
+        )
 
         session_id = response.json()["session_id"]
         assert session_id in active_sessions
@@ -192,10 +189,7 @@ def test_login_creates_session(test_client, test_db, temp_db_path, db_with_users
 @pytest.mark.api
 def test_login_username_too_short(test_client):
     """Test login with username too short."""
-    response = test_client.post("/login", json={
-        "username": "a",
-        "password": "password123"
-    })
+    response = test_client.post("/login", json={"username": "a", "password": "password123"})
 
     assert response.status_code == 400
 
@@ -208,7 +202,7 @@ def test_login_username_too_short(test_client):
 @pytest.mark.api
 def test_logout_success(authenticated_client, test_db, temp_db_path):
     """Test successful logout."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
@@ -244,15 +238,12 @@ def test_logout_invalid_session(test_client):
 @pytest.mark.game
 def test_command_look(authenticated_client, test_db, temp_db_path):
     """Test /command endpoint with 'look' command."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
-        with patch('mud_server.core.world.database.get_players_in_room', return_value=[]):
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+        with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
             session_id = authenticated_client["session_id"]
             client = authenticated_client["client"]
 
-            response = client.post("/command", json={
-                "session_id": session_id,
-                "command": "look"
-            })
+            response = client.post("/command", json={"session_id": session_id, "command": "look"})
 
             assert response.status_code == 200
             data = response.json()
@@ -265,14 +256,11 @@ def test_command_look(authenticated_client, test_db, temp_db_path):
 @pytest.mark.game
 def test_command_inventory(authenticated_client, test_db, temp_db_path):
     """Test /command endpoint with 'inventory' command."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
-        response = client.post("/command", json={
-            "session_id": session_id,
-            "command": "inventory"
-        })
+        response = client.post("/command", json={"session_id": session_id, "command": "inventory"})
 
         assert response.status_code == 200
         data = response.json()
@@ -284,14 +272,11 @@ def test_command_inventory(authenticated_client, test_db, temp_db_path):
 @pytest.mark.game
 def test_command_move_valid(authenticated_client, test_db, temp_db_path):
     """Test /command endpoint with valid movement."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
-        response = client.post("/command", json={
-            "session_id": session_id,
-            "command": "north"
-        })
+        response = client.post("/command", json={"session_id": session_id, "command": "north"})
 
         assert response.status_code == 200
         data = response.json()
@@ -303,14 +288,11 @@ def test_command_move_valid(authenticated_client, test_db, temp_db_path):
 @pytest.mark.game
 def test_command_move_invalid(authenticated_client, test_db, temp_db_path):
     """Test /command endpoint with invalid movement."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
-        response = client.post("/command", json={
-            "session_id": session_id,
-            "command": "west"
-        })
+        response = client.post("/command", json={"session_id": session_id, "command": "west"})
 
         assert response.status_code == 200
         data = response.json()
@@ -322,14 +304,13 @@ def test_command_move_invalid(authenticated_client, test_db, temp_db_path):
 @pytest.mark.game
 def test_command_say(authenticated_client, test_db, temp_db_path):
     """Test /command endpoint with 'say' command."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
-        response = client.post("/command", json={
-            "session_id": session_id,
-            "command": "say Hello everyone!"
-        })
+        response = client.post(
+            "/command", json={"session_id": session_id, "command": "say Hello everyone!"}
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -344,10 +325,7 @@ def test_command_empty(authenticated_client):
     session_id = authenticated_client["session_id"]
     client = authenticated_client["client"]
 
-    response = client.post("/command", json={
-        "session_id": session_id,
-        "command": ""
-    })
+    response = client.post("/command", json={"session_id": session_id, "command": ""})
 
     assert response.status_code == 200
     data = response.json()
@@ -358,10 +336,9 @@ def test_command_empty(authenticated_client):
 @pytest.mark.game
 def test_command_invalid_session(test_client):
     """Test /command endpoint with invalid session."""
-    response = test_client.post("/command", json={
-        "session_id": "invalid-session",
-        "command": "look"
-    })
+    response = test_client.post(
+        "/command", json={"session_id": "invalid-session", "command": "look"}
+    )
 
     assert response.status_code == 401
 
@@ -374,7 +351,7 @@ def test_command_invalid_session(test_client):
 @pytest.mark.api
 def test_status_endpoint(authenticated_client, test_db, temp_db_path):
     """Test /status endpoint returns player status."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
@@ -393,7 +370,7 @@ def test_status_endpoint(authenticated_client, test_db, temp_db_path):
 @pytest.mark.game
 def test_chat_endpoint(authenticated_client, test_db, temp_db_path):
     """Test /chat endpoint returns room messages."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
@@ -412,49 +389,46 @@ def test_chat_endpoint(authenticated_client, test_db, temp_db_path):
 @pytest.mark.api
 def test_full_user_flow(test_client, test_db, temp_db_path):
     """Integration test of complete user flow: register -> login -> play -> logout."""
-    with patch('mud_server.db.database.DB_PATH', temp_db_path):
-        with patch('mud_server.core.world.database.get_players_in_room', return_value=[]):
+    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+        with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
             # 1. Register
-            register_response = test_client.post("/register", json={
-                "username": "flowuser",
-                "password": "password123",
-                "password_confirm": "password123"
-            })
+            register_response = test_client.post(
+                "/register",
+                json={
+                    "username": "flowuser",
+                    "password": "password123",
+                    "password_confirm": "password123",
+                },
+            )
             assert register_response.status_code == 200
 
             # 2. Login
-            login_response = test_client.post("/login", json={
-                "username": "flowuser",
-                "password": "password123"
-            })
+            login_response = test_client.post(
+                "/login", json={"username": "flowuser", "password": "password123"}
+            )
             assert login_response.status_code == 200
             session_id = login_response.json()["session_id"]
 
             # 3. Look around
-            look_response = test_client.post("/command", json={
-                "session_id": session_id,
-                "command": "look"
-            })
+            look_response = test_client.post(
+                "/command", json={"session_id": session_id, "command": "look"}
+            )
             assert look_response.status_code == 200
 
             # 4. Move
-            move_response = test_client.post("/command", json={
-                "session_id": session_id,
-                "command": "north"
-            })
+            move_response = test_client.post(
+                "/command", json={"session_id": session_id, "command": "north"}
+            )
             assert move_response.status_code == 200
 
             # 5. Say something
-            say_response = test_client.post("/command", json={
-                "session_id": session_id,
-                "command": "say Testing!"
-            })
+            say_response = test_client.post(
+                "/command", json={"session_id": session_id, "command": "say Testing!"}
+            )
             assert say_response.status_code == 200
 
             # 6. Logout
-            logout_response = test_client.post("/logout", json={
-                "session_id": session_id
-            })
+            logout_response = test_client.post("/logout", json={"session_id": session_id})
             assert logout_response.status_code == 200
 
             # Session should be gone

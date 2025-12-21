@@ -52,7 +52,7 @@ def temp_db_path() -> Generator[Path, None, None]:
     temp_db = Path(temp_dir) / "test_mud.db"
 
     # Patch the database path before any imports
-    with patch.object(database, 'DB_PATH', temp_db):
+    with patch.object(database, "DB_PATH", temp_db):
         yield temp_db
 
     # Cleanup
@@ -74,12 +74,13 @@ def test_db(temp_db_path: Path) -> Generator[None, None, None]:
         None (database is initialized and ready to use)
     """
     # Patch database.DB_PATH to use temp path
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         conn = sqlite3.connect(str(temp_db_path))
         cursor = conn.cursor()
 
         # Create tables (same as init_database but without default admin)
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS players (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
@@ -91,9 +92,11 @@ def test_db(temp_db_path: Path) -> Generator[None, None, None]:
                 last_login TIMESTAMP,
                 is_active INTEGER DEFAULT 1
             )
-        """)
+        """
+        )
 
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS chat_messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL,
@@ -102,9 +105,11 @@ def test_db(temp_db_path: Path) -> Generator[None, None, None]:
                 recipient TEXT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """)
+        """
+        )
 
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
@@ -112,7 +117,8 @@ def test_db(temp_db_path: Path) -> Generator[None, None, None]:
                 connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """)
+        """
+        )
 
         conn.commit()
         conn.close()
@@ -177,35 +183,27 @@ def mock_world_data() -> dict:
                 "name": "Test Spawn",
                 "description": "A test spawn room",
                 "exits": {"north": "forest", "south": "desert"},
-                "items": ["torch", "rope"]
+                "items": ["torch", "rope"],
             },
             {
                 "id": "forest",
                 "name": "Test Forest",
                 "description": "A dark forest",
                 "exits": {"south": "spawn"},
-                "items": []
+                "items": [],
             },
             {
                 "id": "desert",
                 "name": "Test Desert",
                 "description": "A sandy desert",
                 "exits": {"north": "spawn"},
-                "items": []
-            }
+                "items": [],
+            },
         ],
         "items": [
-            {
-                "id": "torch",
-                "name": "Torch",
-                "description": "A wooden torch"
-            },
-            {
-                "id": "rope",
-                "name": "Rope",
-                "description": "A sturdy rope"
-            }
-        ]
+            {"id": "torch", "name": "Torch", "description": "A wooden torch"},
+            {"id": "rope", "name": "Rope", "description": "A sturdy rope"},
+        ],
     }
 
 
@@ -227,11 +225,14 @@ def mock_world(mock_world_data: dict) -> World:
     mock_json = json.dumps({"rooms": {}, "items": {}})
 
     # Mock the file opening and JSON loading
-    with patch('builtins.open', mock_open(read_data=mock_json)):
-        with patch('json.load', return_value={
-            "rooms": {room["id"]: room for room in mock_world_data["rooms"]},
-            "items": {item["id"]: item for item in mock_world_data["items"]}
-        }):
+    with patch("builtins.open", mock_open(read_data=mock_json)):
+        with patch(
+            "json.load",
+            return_value={
+                "rooms": {room["id"]: room for room in mock_world_data["rooms"]},
+                "items": {item["id"]: item for item in mock_world_data["items"]},
+            },
+        ):
             world = World()
             return world
 
@@ -250,7 +251,7 @@ def mock_engine(test_db, mock_world) -> GameEngine:
     Returns:
         GameEngine instance configured for testing
     """
-    with patch.object(GameEngine, '__init__', lambda self: None):
+    with patch.object(GameEngine, "__init__", lambda self: None):
         engine = GameEngine()
         engine.world = mock_world
         return engine
@@ -298,12 +299,15 @@ def test_client(test_db, mock_world_data) -> TestClient:
     mock_json = json.dumps({"rooms": {}, "items": {}})
 
     # Create engine with mocked World loading
-    with patch('builtins.open', mock_open(read_data=mock_json)):
-        with patch('json.load', return_value={
-            "rooms": {room["id"]: room for room in mock_world_data["rooms"]},
-            "items": {item["id"]: item for item in mock_world_data["items"]}
-        }):
-            with patch.object(database, 'init_database'):
+    with patch("builtins.open", mock_open(read_data=mock_json)):
+        with patch(
+            "json.load",
+            return_value={
+                "rooms": {room["id"]: room for room in mock_world_data["rooms"]},
+                "items": {item["id"]: item for item in mock_world_data["items"]},
+            },
+        ):
+            with patch.object(database, "init_database"):
                 engine = GameEngine()
 
     # Register routes
@@ -332,10 +336,9 @@ def authenticated_client(test_client: TestClient, db_with_users: dict[str, str])
         - role: User role ("player")
     """
     # Login as testplayer
-    response = test_client.post("/login", json={
-        "username": "testplayer",
-        "password": "password123"
-    })
+    response = test_client.post(
+        "/login", json={"username": "testplayer", "password": "password123"}
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -344,7 +347,7 @@ def authenticated_client(test_client: TestClient, db_with_users: dict[str, str])
         "client": test_client,
         "session_id": data["session_id"],
         "username": "testplayer",
-        "role": "player"
+        "role": "player",
     }
 
 
@@ -361,18 +364,14 @@ def sample_room() -> Room:
         name="Test Room",
         description="A room for testing",
         exits={"north": "other_room"},
-        items=["torch"]
+        items=["torch"],
     )
 
 
 @pytest.fixture
 def sample_item() -> Item:
     """Create a sample Item instance for testing."""
-    return Item(
-        id="test_item",
-        name="Test Item",
-        description="An item for testing"
-    )
+    return Item(id="test_item", name="Test Item", description="An item for testing")
 
 
 @pytest.fixture

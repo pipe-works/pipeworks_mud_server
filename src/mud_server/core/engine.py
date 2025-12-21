@@ -27,7 +27,6 @@ Architecture:
     - Database provides persistent player state
 """
 
-
 from mud_server.core.world import World
 from mud_server.db import database
 
@@ -124,7 +123,11 @@ class GameEngine:
 
         # Check if player is active (not banned)
         if not database.is_player_active(username):
-            return False, "This account has been deactivated. Please contact an administrator.", None
+            return (
+                False,
+                "This account has been deactivated. Please contact an administrator.",
+                None,
+            )
 
         # Get player role
         role = database.get_player_role(username)
@@ -230,11 +233,11 @@ class GameEngine:
         message = f"You move {direction}.\n{room_desc}"
 
         # Notify other players
+        self._broadcast_to_room(current_room, f"{username} leaves {direction}.", exclude=username)
         self._broadcast_to_room(
-            current_room, f"{username} leaves {direction}.", exclude=username
-        )
-        self._broadcast_to_room(
-            destination, f"{username} arrives from {self._opposite_direction(direction)}.", exclude=username
+            destination,
+            f"{username} arrives from {self._opposite_direction(direction)}.",
+            exclude=username,
         )
 
         return True, message
@@ -385,6 +388,7 @@ class GameEngine:
             (False, "Player 'Player2' is not in this room.")
         """
         import logging
+
         logger = logging.getLogger(__name__)
 
         sender_room = database.get_player_room(username)
@@ -666,9 +670,7 @@ class GameEngine:
         """
         return database.get_active_players()
 
-    def _broadcast_to_room(
-        self, room_id: str, message: str, exclude: str | None = None
-    ):
+    def _broadcast_to_room(self, room_id: str, message: str, exclude: str | None = None):
         """
         Broadcast a message to all players in a room.
 

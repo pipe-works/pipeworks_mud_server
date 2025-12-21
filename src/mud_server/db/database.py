@@ -105,7 +105,8 @@ def init_database():
     # CREATE PLAYERS TABLE
     # Stores user accounts with authentication and game state
     # ========================================================================
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS players (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,           -- Unique username (case-sensitive)
@@ -117,13 +118,15 @@ def init_database():
             last_login TIMESTAMP,
             is_active INTEGER DEFAULT 1              -- Account status (1=active, 0=banned)
         )
-    """)
+    """
+    )
 
     # ========================================================================
     # CREATE CHAT_MESSAGES TABLE
     # Stores all chat messages with room and optional recipient (for whispers)
     # ========================================================================
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS chat_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,        -- Message sender
@@ -132,13 +135,15 @@ def init_database():
             recipient TEXT,                -- NULL for public, username for whispers
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """)
+    """
+    )
 
     # ========================================================================
     # CREATE SESSIONS TABLE
     # Tracks active login sessions with activity timestamps
     # ========================================================================
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,  -- One session per player (enforced by UNIQUE)
@@ -146,7 +151,8 @@ def init_database():
             connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """)
+    """
+    )
 
     # Commit table creation
     conn.commit()
@@ -335,9 +341,7 @@ def verify_password_for_user(username: str, password: str) -> bool:
 
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "SELECT password_hash FROM players WHERE username = ?", (username,)
-    )
+    cursor.execute("SELECT password_hash FROM players WHERE username = ?", (username,))
     result = cursor.fetchone()
     conn.close()
 
@@ -386,9 +390,7 @@ def set_player_role(username: str, role: str) -> bool:
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE players SET role = ? WHERE username = ?", (role, username)
-        )
+        cursor.execute("UPDATE players SET role = ? WHERE username = ?", (role, username))
         conn.commit()
         conn.close()
         return True
@@ -448,9 +450,7 @@ def deactivate_player(username: str) -> bool:
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE players SET is_active = 0 WHERE username = ?", (username,)
-        )
+        cursor.execute("UPDATE players SET is_active = 0 WHERE username = ?", (username,))
         conn.commit()
         conn.close()
         return True
@@ -466,9 +466,7 @@ def activate_player(username: str) -> bool:
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE players SET is_active = 1 WHERE username = ?", (username,)
-        )
+        cursor.execute("UPDATE players SET is_active = 1 WHERE username = ?", (username,))
         conn.commit()
         conn.close()
         return True
@@ -533,9 +531,7 @@ def set_player_room(username: str, room: str) -> bool:
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE players SET current_room = ? WHERE username = ?", (room, username)
-        )
+        cursor.execute("UPDATE players SET current_room = ? WHERE username = ?", (room, username))
         conn.commit()
         conn.close()
         return True
@@ -597,7 +593,9 @@ def add_chat_message(username: str, message: str, room: str, recipient: str | No
         return False
 
 
-def get_room_messages(room: str, limit: int = 50, username: str | None = None) -> list[dict[str, Any]]:
+def get_room_messages(
+    room: str, limit: int = 50, username: str | None = None
+) -> list[dict[str, Any]]:
     """Get recent messages from a room. Filters whispers based on username."""
     conn = get_connection()
     cursor = conn.cursor()
@@ -634,9 +632,7 @@ def get_room_messages(room: str, limit: int = 50, username: str | None = None) -
 
     messages = []
     for user, message, timestamp in reversed(results):
-        messages.append(
-            {"username": user, "message": message, "timestamp": timestamp}
-        )
+        messages.append({"username": user, "message": message, "timestamp": timestamp})
     return messages
 
 

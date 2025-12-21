@@ -26,7 +26,6 @@ Future Improvements:
 - Implement "remember me" functionality
 """
 
-
 from fastapi import HTTPException
 
 from mud_server.api.permissions import Permission, has_permission

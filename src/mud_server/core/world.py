@@ -326,9 +326,7 @@ class World:
 
         # Add players section (query database for active players in this room)
         # Exclude the requesting player from the list
-        other_players = [
-            p for p in database.get_players_in_room(room_id) if p != username
-        ]
+        other_players = [p for p in database.get_players_in_room(room_id) if p != username]
         if other_players:
             desc += "\n[Players here]:\n"
             for player in other_players:
@@ -340,7 +338,7 @@ class World:
             for direction, destination in room.exits.items():
                 # Resolve destination room name
                 dest_room = self.get_room(destination)
-                dest_name = dest_room.name if dest_room else 'Unknown'
+                dest_name = dest_room.name if dest_room else "Unknown"
                 desc += f"  - {direction}: {dest_name}\n"
 
         return desc

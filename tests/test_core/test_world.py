@@ -171,7 +171,7 @@ def test_can_move_from_nonexistent_room(mock_world):
 @pytest.mark.unit
 def test_get_room_description_basic(mock_world):
     """Test generating basic room description."""
-    with patch('mud_server.core.world.database.get_players_in_room', return_value=[]):
+    with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
         desc = mock_world.get_room_description("spawn", "testplayer")
 
         # Check room name and description
@@ -182,7 +182,7 @@ def test_get_room_description_basic(mock_world):
 @pytest.mark.unit
 def test_get_room_description_with_items(mock_world):
     """Test room description includes items."""
-    with patch('mud_server.core.world.database.get_players_in_room', return_value=[]):
+    with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
         desc = mock_world.get_room_description("spawn", "testplayer")
 
         # Check items section
@@ -194,7 +194,7 @@ def test_get_room_description_with_items(mock_world):
 @pytest.mark.unit
 def test_get_room_description_with_exits(mock_world):
     """Test room description includes exits."""
-    with patch('mud_server.core.world.database.get_players_in_room', return_value=[]):
+    with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
         desc = mock_world.get_room_description("spawn", "testplayer")
 
         # Check exits section
@@ -208,8 +208,10 @@ def test_get_room_description_with_exits(mock_world):
 @pytest.mark.unit
 def test_get_room_description_with_other_players(mock_world):
     """Test room description includes other players."""
-    with patch('mud_server.core.world.database.get_players_in_room',
-               return_value=["testplayer", "otherplayer", "admin"]):
+    with patch(
+        "mud_server.core.world.database.get_players_in_room",
+        return_value=["testplayer", "otherplayer", "admin"],
+    ):
         desc = mock_world.get_room_description("spawn", "testplayer")
 
         # Check players section
@@ -217,14 +219,16 @@ def test_get_room_description_with_other_players(mock_world):
         assert "otherplayer" in desc
         assert "admin" in desc
         # Requesting player should be excluded
-        assert desc.count("testplayer") == 0 or "testplayer" not in desc.split("[Players here]:")[1].split("\n")[0:5]
+        assert (
+            desc.count("testplayer") == 0
+            or "testplayer" not in desc.split("[Players here]:")[1].split("\n")[0:5]
+        )
 
 
 @pytest.mark.unit
 def test_get_room_description_no_other_players(mock_world):
     """Test room description when player is alone."""
-    with patch('mud_server.core.world.database.get_players_in_room',
-               return_value=["testplayer"]):
+    with patch("mud_server.core.world.database.get_players_in_room", return_value=["testplayer"]):
         desc = mock_world.get_room_description("spawn", "testplayer")
 
         # Players section should not appear when alone
@@ -241,7 +245,7 @@ def test_get_room_description_nonexistent_room(mock_world):
 @pytest.mark.unit
 def test_get_room_description_no_items(mock_world):
     """Test room description for room without items."""
-    with patch('mud_server.core.world.database.get_players_in_room', return_value=[]):
+    with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
         desc = mock_world.get_room_description("forest", "testplayer")
 
         # Items section should not appear

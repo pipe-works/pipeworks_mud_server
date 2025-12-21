@@ -401,10 +401,7 @@ def require_role(min_role: Role):
 
             # Ensure role exists in kwargs
             if not role:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Role not found in session"
-                )
+                raise HTTPException(status_code=403, detail="Role not found in session")
 
             # Compare hierarchy levels
             if get_role_hierarchy_level(role) < get_role_hierarchy_level(min_role.value):
