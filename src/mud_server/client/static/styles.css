@@ -1,0 +1,106 @@
+/* ============================================================================
+   MUD Client - Centralized Styles
+   ============================================================================
+
+   This stylesheet provides custom styling for the Gradio-based MUD client
+   interface. Primary focus is on preventing jarring UI changes in dark mode.
+
+   Author: Claude Code
+   Last Updated: 2025-12-21
+   ============================================================================ */
+
+
+/* ============================================================================
+   Input Focus Styling
+   ============================================================================
+   Prevents jarring white background flash on focus in dark mode while
+   maintaining clear visual feedback for focused elements.
+   ============================================================================ */
+
+/* Target all input types and textareas */
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible {
+    background-color: inherit !important;
+    outline: none !important;
+    box-shadow: 0 0 0 2px var(--primary-500) !important;
+}
+
+/* Target Gradio-specific input containers and wrappers */
+.gr-textbox:focus,
+.gr-textbox:focus-within,
+.gr-textbox input:focus,
+.gr-textbox textarea:focus,
+.gr-box:focus-within input,
+.gr-box:focus-within textarea,
+.gr-form:focus-within input,
+.gr-form:focus-within textarea,
+.gr-input:focus,
+.gr-input input:focus,
+.gr-input textarea:focus {
+    background-color: inherit !important;
+    box-shadow: 0 0 0 2px var(--primary-500) !important;
+}
+
+/* Target password inputs specifically */
+input[type="password"]:focus,
+input[type="password"]:focus-visible {
+    background-color: inherit !important;
+    box-shadow: 0 0 0 2px var(--primary-500) !important;
+}
+
+/* Target dropdowns */
+.gr-dropdown:focus,
+.gr-dropdown:focus-within {
+    background-color: inherit !important;
+}
+
+
+/* ============================================================================
+   Transitions
+   ============================================================================
+   Smooth transitions for interactive elements to provide professional feel.
+   ============================================================================ */
+
+input,
+textarea,
+select,
+.gr-textbox,
+.gr-textbox input,
+.gr-textbox textarea,
+.gr-dropdown,
+.gr-input {
+    transition: box-shadow 0.2s ease !important;
+}
+
+
+/* ============================================================================
+   Browser Default Overrides
+   ============================================================================
+   Remove default browser styling that conflicts with our design.
+   ============================================================================ */
+
+/* Remove default browser focus rings and outlines */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+    outline: none !important;
+}
+
+
+/* ============================================================================
+   State Styles
+   ============================================================================
+   Consistent styling for disabled and readonly states.
+   ============================================================================ */
+
+/* Ensure consistent behavior for disabled/readonly states */
+input:disabled,
+textarea:disabled,
+input:read-only,
+textarea:read-only {
+    opacity: 0.6;
+}
