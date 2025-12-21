@@ -115,6 +115,54 @@ Password: admin123
 
 ---
 
+## Ollama Integration
+
+The Ollama tab provides AI model management and conversational interface for **Admin** and **Superuser** accounts only.
+
+### Features
+
+- **Model Management** - List, pull, and run Ollama models
+- **Conversational Mode** - Natural chat interface with AI models
+- **Slash Commands** - Command-line style interaction
+- **Server Configuration** - Connect to local or remote Ollama servers
+
+### Slash Commands
+
+The Ollama tab supports these commands:
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `/list` or `/ls` | List all available models | `/list` |
+| `/ps` | Show currently running models | `/ps` |
+| `/pull <model>` | Download a new model | `/pull llama2` |
+| `/run <model> [prompt]` | Run a model with optional prompt | `/run llama2 Write a haiku` |
+| `/show <model>` | Show detailed model information | `/show llama2` |
+
+### Conversational Mode
+
+After starting a model with `/run <model> [prompt]`, you can continue chatting naturally without repeating the `/run` prefix:
+
+```
+> /run llama2 Hello, who are you?
+[Model responds...]
+
+> What can you help me with?
+[Model continues conversation...]
+
+> Tell me a joke
+[Model continues conversation...]
+```
+
+The system remembers your active model until you start a new `/run` command with a different model.
+
+### Configuration
+
+**Default Ollama Server**: `http://localhost:11434`
+
+To use a remote Ollama server, change the Server URL in the Ollama tab interface.
+
+---
+
 ## Documentation
 
 Comprehensive design documentation is in the `docs/` directory:
@@ -131,6 +179,23 @@ Comprehensive design documentation is in the `docs/` directory:
 ---
 
 ## Architecture
+
+### Modular Client Design
+
+The Gradio web client uses a modular architecture for maintainability and scalability:
+
+- **app.py** (~150 lines) - Clean entry point that assembles the interface
+- **api_client.py** - All HTTP communication with the FastAPI backend
+- **utils.py** - Shared utilities (CSS loading, session state initialization)
+- **static/styles.css** - Centralized CSS with Safari-compatible dark mode
+- **tabs/** - Individual modules for each interface tab (login, game, settings, database, ollama, help)
+
+**Benefits:**
+- Clear separation of concerns
+- Easy to test individual components
+- Simple to add new tabs or features
+- Better code organization and navigation
+- Externalized CSS for better syntax highlighting and maintenance
 
 ### Three-Tier Design
 
@@ -177,8 +242,21 @@ pipeworks_mud_server/
 │   │   └── world.py             # World management
 │   ├── db/                      # Database layer
 │   │   └── database.py          # SQLite operations
-│   └── client/                  # Frontend
-│       └── app.py               # Gradio interface
+│   └── client/                  # Frontend (modular architecture)
+│       ├── app.py               # Main entry point (~150 lines)
+│       ├── api_client.py        # All API communication functions
+│       ├── utils.py             # Shared utilities (CSS loading, state)
+│       ├── static/              # Static assets
+│       │   └── styles.css       # Centralized CSS (Safari-compatible)
+│       └── tabs/                # UI tab modules
+│           ├── __init__.py      # Package initialization
+│           ├── login_tab.py     # Login interface
+│           ├── register_tab.py  # Registration interface
+│           ├── game_tab.py      # Main gameplay interface
+│           ├── settings_tab.py  # Settings and server control
+│           ├── database_tab.py  # Database viewer and user management
+│           ├── ollama_tab.py    # Ollama AI model management
+│           └── help_tab.py      # Help documentation
 ├── data/                        # Data files
 │   ├── world_data.json          # Room and item definitions
 │   └── mud.db                   # SQLite database (generated)
@@ -213,6 +291,13 @@ black src/ tests/
 # Type checking
 mypy src/ --ignore-missing-imports
 ```
+
+**Note on Client Architecture**: The Gradio client (`src/mud_server/client/`) uses a modular design. When adding new features:
+- Add API calls to `api_client.py`
+- Create new tabs in `tabs/` directory
+- Add shared utilities to `utils.py`
+- Update CSS in `static/styles.css`
+- Wire everything together in `app.py`
 
 ### Running Components Separately
 
@@ -354,6 +439,8 @@ Contributions are welcome! This project is in active development.
 - Test coverage expansion
 - Documentation improvements
 - Performance optimizations
+- UI/UX enhancements for existing tabs
+- Additional Ollama features and integrations
 
 **Planned Features:**
 - Character issuance system implementation
