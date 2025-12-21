@@ -1052,7 +1052,84 @@ def create_interface():
         are defined inline to capture the session_state from the closure.
     """
 
-    with gr.Blocks(title="MUD Client", theme=gr.themes.Soft()) as interface:
+    # Custom CSS to prevent jarring background color changes on focus in dark mode
+    # This targets all input elements across all tabs
+    custom_css = """
+    /* ========================================================================
+       CENTRALIZED CSS - Input Focus Styling
+       Prevents jarring white background flash on focus in dark mode
+       ======================================================================== */
+
+    /* Target all input types and textareas */
+    input:focus,
+    input:focus-visible,
+    textarea:focus,
+    textarea:focus-visible,
+    select:focus,
+    select:focus-visible {
+        background-color: inherit !important;
+        outline: none !important;
+        box-shadow: 0 0 0 2px var(--primary-500) !important;
+    }
+
+    /* Target Gradio-specific input containers and wrappers */
+    .gr-textbox:focus,
+    .gr-textbox:focus-within,
+    .gr-textbox input:focus,
+    .gr-textbox textarea:focus,
+    .gr-box:focus-within input,
+    .gr-box:focus-within textarea,
+    .gr-form:focus-within input,
+    .gr-form:focus-within textarea,
+    .gr-input:focus,
+    .gr-input input:focus,
+    .gr-input textarea:focus {
+        background-color: inherit !important;
+        box-shadow: 0 0 0 2px var(--primary-500) !important;
+    }
+
+    /* Target password inputs specifically */
+    input[type="password"]:focus,
+    input[type="password"]:focus-visible {
+        background-color: inherit !important;
+        box-shadow: 0 0 0 2px var(--primary-500) !important;
+    }
+
+    /* Target dropdowns */
+    .gr-dropdown:focus,
+    .gr-dropdown:focus-within {
+        background-color: inherit !important;
+    }
+
+    /* Smooth transitions for all interactive elements */
+    input,
+    textarea,
+    select,
+    .gr-textbox,
+    .gr-textbox input,
+    .gr-textbox textarea,
+    .gr-dropdown,
+    .gr-input {
+        transition: box-shadow 0.2s ease !important;
+    }
+
+    /* Remove default browser focus rings and outlines */
+    input:focus-visible,
+    textarea:focus-visible,
+    select:focus-visible {
+        outline: none !important;
+    }
+
+    /* Ensure consistent behavior for disabled/readonly states */
+    input:disabled,
+    textarea:disabled,
+    input:read-only,
+    textarea:read-only {
+        opacity: 0.6;
+    }
+    """
+
+    with gr.Blocks(title="MUD Client", theme=gr.themes.Soft(), css=custom_css) as interface:
         gr.Markdown("# MUD Client")
         gr.Markdown("A simple Multi-User Dungeon client")
 
