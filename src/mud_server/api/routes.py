@@ -548,9 +548,7 @@ Note: Commands can be used with or without the / prefix
         Sends commands to the Ollama server API and returns the output.
         Supports any ollama CLI command via the API.
         """
-        username, role = validate_session_with_permission(
-            request.session_id, Permission.VIEW_LOGS
-        )
+        username, role = validate_session_with_permission(request.session_id, Permission.VIEW_LOGS)
 
         import json
 
@@ -660,9 +658,7 @@ Note: Commands can be used with or without the / prefix
                     ollama_conversation_history[session_id] = []
 
                 # Add user message to conversation history
-                ollama_conversation_history[session_id].append(
-                    {"role": "user", "content": prompt}
-                )
+                ollama_conversation_history[session_id].append({"role": "user", "content": prompt})
 
                 # Call Ollama's /api/chat endpoint with full conversation history
                 response = req.post(
@@ -747,9 +743,7 @@ Note: Commands can be used with or without the / prefix
 
         Removes all stored conversation history, allowing a fresh start with the model.
         """
-        username, role = validate_session_with_permission(
-            request.session_id, Permission.VIEW_LOGS
-        )
+        username, role = validate_session_with_permission(request.session_id, Permission.VIEW_LOGS)
 
         session_id = request.session_id
 
