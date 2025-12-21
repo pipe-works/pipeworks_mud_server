@@ -675,6 +675,9 @@ def create_interface():
                     refresh_btn = gr.Button("Refresh Display", variant="secondary")
                     logout_btn = gr.Button("Logout", variant="stop")
 
+                # Auto-refresh timer (game clock)
+                game_timer = gr.Timer(value=3.0, active=True)  # Refresh every 3 seconds
+
                 # Command handlers
                 def handle_command(cmd: str, session_st: dict):
                     result = send_command(cmd, session_st)
@@ -693,6 +696,13 @@ def create_interface():
                 def handle_logout(session_st: dict):
                     result = logout(session_st)
                     return result[1], "", "", "", ""  # return message only
+
+                def auto_refresh(session_st: dict):
+                    """Auto-refresh game state every tick."""
+                    if session_st.get("logged_in"):
+                        room, chat = refresh_display(session_st)
+                        return room, chat, get_status(session_st)
+                    return gr.update(), gr.update(), gr.update()  # No updates if not logged in
 
                 # Button click handlers
                 north_btn.click(
@@ -753,6 +763,13 @@ def create_interface():
                     handle_logout,
                     inputs=[session_state],
                     outputs=[command_input, room_display, chat_display, status_display, chat_input],
+                )
+
+                # Wire up auto-refresh timer
+                game_timer.tick(
+                    auto_refresh,
+                    inputs=[session_state],
+                    outputs=[room_display, chat_display, status_display],
                 )
 
             # Settings Tab (visible only when logged in)
