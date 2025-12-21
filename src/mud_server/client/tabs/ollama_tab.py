@@ -23,19 +23,26 @@ def create(session_state):
         with gr.Column():
             gr.Markdown("### Ollama Management")
             gr.Markdown("*Admin and Superuser only*")
-            gr.Markdown(
-                """
+
+            # Collapsible documentation section
+            with gr.Accordion("Documentation & Commands", open=False):
+                gr.Markdown(
+                    """
 Control and interact with your Ollama server. This tab allows you to manage AI models,
 run inference, and monitor running models.
 
 **Supported Commands:**
-- `list` or `ls` - List all available models
-- `ps` - Show currently running models
-- `pull <model>` - Download a new model (e.g., `pull llama2`)
-- `run <model> [prompt]` - Run a model with optional prompt (e.g., `run llama2 Write a haiku`)
-- `show <model>` - Show detailed model information
-                """
-            )
+- `/list` or `/ls` - List all available models
+- `/ps` - Show currently running models
+- `/pull <model>` - Download a new model (e.g., `/pull llama2`)
+- `/run <model> [prompt]` - Run a model with optional prompt (e.g., `/run llama2 Write a haiku`)
+- `/show <model>` - Show detailed model information
+
+**Conversational Mode:**
+After running a model with `/run`, you can continue chatting naturally without the `/run` prefix.
+The system will remember your active model until you start a new `/run` command.
+                    """
+                )
 
             # Server URL Input
             gr.Markdown("#### Server Configuration")
@@ -46,24 +53,7 @@ run inference, and monitor running models.
                 max_lines=1,
             )
 
-            # Command Input
-            gr.Markdown("#### Command")
-            with gr.Row():
-                ollama_command_input = gr.Textbox(
-                    label="Command",
-                    placeholder="Enter Ollama command (e.g., 'list', 'run llama2 Hello')",
-                    max_lines=1,
-                    scale=4,
-                )
-                execute_ollama_btn = gr.Button("Execute", variant="primary", scale=1)
-
-            # Quick action buttons
-            gr.Markdown("#### Quick Actions")
-            with gr.Row():
-                list_models_btn = gr.Button("List Models", scale=1)
-                show_running_btn = gr.Button("Show Running", scale=1)
-
-            # Output Console
+            # Output Console (moved above command input)
             gr.Markdown("#### Console Output")
             ollama_output = gr.Textbox(
                 label="Output",
@@ -73,42 +63,75 @@ run inference, and monitor running models.
                 placeholder="Command output will appear here...",
             )
 
+            # Command Input (moved below console output)
+            gr.Markdown("#### Command")
+            with gr.Row():
+                ollama_command_input = gr.Textbox(
+                    label="Command",
+                    placeholder="Enter Ollama command (e.g., '/list', '/run llama2 Hello') or continue conversation",
+                    max_lines=1,
+                    scale=4,
+                )
+                execute_ollama_btn = gr.Button("Execute", variant="primary", scale=1)
+
+            # Hidden state to track active model for conversational mode
+            active_model = gr.State(None)
+
             # Event handlers for Ollama tab
-            def handle_execute_ollama(url, cmd, session_st):
-                """Execute Ollama command and return output."""
-                return execute_ollama_command(url, cmd, session_st)
+            def handle_execute_ollama(url, cmd, current_model, session_st):
+                """
+                Execute Ollama command with slash command support and conversational mode.
 
-            def handle_list_models(url, session_st):
-                """Quick action: List models."""
-                return execute_ollama_command(url, "list", session_st)
+                Handles:
+                - Slash commands (/list, /ps, /pull, /run, /show)
+                - Conversational continuation (auto-uses active model)
+                - Model tracking for conversation mode
+                """
+                # Strip leading/trailing whitespace
+                cmd = cmd.strip() if cmd else ""
 
-            def handle_show_running(url, session_st):
-                """Quick action: Show running models."""
-                return execute_ollama_command(url, "ps", session_st)
+                if not cmd:
+                    return "Please enter a command.", current_model
+
+                # Check if it's a slash command
+                if cmd.startswith("/"):
+                    # Remove the slash
+                    cmd = cmd[1:]
+
+                    # Check if it's a run command to track the model
+                    if cmd.startswith("run "):
+                        parts = cmd.split(maxsplit=2)
+                        if len(parts) >= 2:
+                            new_model = parts[1]  # Extract model name
+                            output = execute_ollama_command(url, cmd, session_st)
+                            return output, new_model  # Update active model
+
+                    # Execute the command
+                    output = execute_ollama_command(url, cmd, session_st)
+                    return output, current_model
+
+                # If no slash and we have an active model, continue conversation
+                elif current_model:
+                    # Continue conversation with active model
+                    continuation_cmd = f"run {current_model} {cmd}"
+                    output = execute_ollama_command(url, continuation_cmd, session_st)
+                    return output, current_model
+
+                # No slash, no active model - inform user
+                else:
+                    return "Please use a slash command (e.g., /list, /run llama2 Hello) or start a conversation with /run first.", current_model
 
             execute_ollama_btn.click(
                 handle_execute_ollama,
-                inputs=[ollama_url_input, ollama_command_input, session_state],
-                outputs=[ollama_output],
+                inputs=[ollama_url_input, ollama_command_input, active_model, session_state],
+                outputs=[ollama_output, active_model],
             )
 
             # Also submit on Enter key in command input
             ollama_command_input.submit(
                 handle_execute_ollama,
-                inputs=[ollama_url_input, ollama_command_input, session_state],
-                outputs=[ollama_output],
-            )
-
-            list_models_btn.click(
-                handle_list_models,
-                inputs=[ollama_url_input, session_state],
-                outputs=[ollama_output],
-            )
-
-            show_running_btn.click(
-                handle_show_running,
-                inputs=[ollama_url_input, session_state],
-                outputs=[ollama_output],
+                inputs=[ollama_url_input, ollama_command_input, active_model, session_state],
+                outputs=[ollama_output, active_model],
             )
 
     return ollama_tab

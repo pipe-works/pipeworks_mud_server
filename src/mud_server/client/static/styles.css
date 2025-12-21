@@ -17,45 +17,96 @@
    maintaining clear visual feedback for focused elements.
    ============================================================================ */
 
-/* Target all input types and textareas */
-input:focus,
-input:focus-visible,
-textarea:focus,
-textarea:focus-visible,
-select:focus,
-select:focus-visible {
-    background-color: inherit !important;
-    outline: none !important;
-    box-shadow: 0 0 0 2px var(--primary-500) !important;
+/* Target ALL input elements - most aggressive approach */
+* input,
+* textarea,
+* select {
+    background-color: var(--input-background-fill, rgb(31, 41, 55)) !important;
 }
 
-/* Target Gradio-specific input containers and wrappers */
+/* Override focus states comprehensively - Safari-friendly */
+* input:focus,
+* input:focus-visible,
+* input:focus-within,
+* textarea:focus,
+* textarea:focus-visible,
+* textarea:focus-within,
+* select:focus,
+* select:focus-visible,
+* select:focus-within {
+    background-color: var(--input-background-fill, rgb(31, 41, 55)) !important;
+    outline: none !important;
+    box-shadow: 0 0 0 2px var(--primary-500, rgb(99, 102, 241)) !important;
+    -webkit-appearance: none !important;
+}
+
+/* Safari-specific fixes */
+@supports (-webkit-hyphens:none) {
+    input:focus,
+    textarea:focus {
+        background-color: rgb(31, 41, 55) !important;
+    }
+}
+
+/* Target all Gradio input variations */
+.gr-textbox,
+.gr-textbox input,
+.gr-textbox textarea,
+.gr-input,
+.gr-input input,
+.gr-input textarea,
+.gr-box input,
+.gr-box textarea,
+.gr-form input,
+.gr-form textarea,
+label input,
+label textarea {
+    background-color: var(--input-background-fill, rgb(31, 41, 55)) !important;
+}
+
+/* Focus states for Gradio components */
 .gr-textbox:focus,
 .gr-textbox:focus-within,
 .gr-textbox input:focus,
+.gr-textbox input:focus-visible,
 .gr-textbox textarea:focus,
+.gr-textbox textarea:focus-visible,
+.gr-input:focus,
+.gr-input:focus-within,
+.gr-input input:focus,
+.gr-input textarea:focus,
 .gr-box:focus-within input,
 .gr-box:focus-within textarea,
 .gr-form:focus-within input,
 .gr-form:focus-within textarea,
-.gr-input:focus,
-.gr-input input:focus,
-.gr-input textarea:focus {
-    background-color: inherit !important;
-    box-shadow: 0 0 0 2px var(--primary-500) !important;
+label:focus-within input,
+label:focus-within textarea {
+    background-color: var(--input-background-fill, rgb(31, 41, 55)) !important;
+    box-shadow: 0 0 0 2px var(--primary-500, rgb(99, 102, 241)) !important;
 }
 
-/* Target password inputs specifically */
+/* Specific input types */
+input[type="text"]:focus,
 input[type="password"]:focus,
-input[type="password"]:focus-visible {
-    background-color: inherit !important;
-    box-shadow: 0 0 0 2px var(--primary-500) !important;
+input[type="email"]:focus,
+input[type="url"]:focus,
+input[type="search"]:focus,
+input[type="number"]:focus,
+input[type="text"]:focus-visible,
+input[type="password"]:focus-visible,
+input[type="email"]:focus-visible,
+input[type="url"]:focus-visible,
+input[type="search"]:focus-visible,
+input[type="number"]:focus-visible {
+    background-color: var(--input-background-fill, rgb(31, 41, 55)) !important;
+    box-shadow: 0 0 0 2px var(--primary-500, rgb(99, 102, 241)) !important;
+    -webkit-appearance: none !important;
 }
 
 /* Target dropdowns */
 .gr-dropdown:focus,
 .gr-dropdown:focus-within {
-    background-color: inherit !important;
+    background-color: var(--input-background-fill, rgb(31, 41, 55)) !important;
 }
 
 
