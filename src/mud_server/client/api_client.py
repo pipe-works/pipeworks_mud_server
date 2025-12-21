@@ -758,7 +758,7 @@ def execute_ollama_command(server_url: str, command: str, session_state: dict) -
 
         if response.status_code == 200:
             data = response.json()
-            return data.get("output", "No output returned")
+            return str(data.get("output", "No output returned"))
         elif response.status_code == 403:
             return "Access Denied: Insufficient permissions."
         else:
