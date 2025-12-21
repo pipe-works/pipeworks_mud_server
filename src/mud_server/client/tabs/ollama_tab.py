@@ -78,6 +78,9 @@ The system will remember your active model until you start a new `/run` command.
             # Hidden state to track active model for conversational mode
             active_model = gr.State(None)
 
+            # Add a Clear Context button
+            clear_context_btn = gr.Button("Clear Conversation Context", variant="secondary")
+
             # Event handlers for Ollama tab
             def handle_execute_ollama(url, cmd, current_model, session_st):
                 """
@@ -125,6 +128,18 @@ The system will remember your active model until you start a new `/run` command.
                         current_model,
                     )
 
+            def handle_clear_context(session_st):
+                """
+                Clear conversation context for the current session.
+
+                Returns:
+                    Tuple of (output_message, cleared_model)
+                """
+                from mud_server.client.api_client import clear_ollama_context
+
+                result = clear_ollama_context(session_st)
+                return result, None  # Also clear the active model
+
             execute_ollama_btn.click(
                 handle_execute_ollama,
                 inputs=[ollama_url_input, ollama_command_input, active_model, session_state],
@@ -135,6 +150,13 @@ The system will remember your active model until you start a new `/run` command.
             ollama_command_input.submit(
                 handle_execute_ollama,
                 inputs=[ollama_url_input, ollama_command_input, active_model, session_state],
+                outputs=[ollama_output, active_model],
+            )
+
+            # Wire up clear context button
+            clear_context_btn.click(
+                handle_clear_context,
+                inputs=[session_state],
                 outputs=[ollama_output, active_model],
             )
 

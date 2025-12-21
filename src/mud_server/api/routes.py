@@ -50,6 +50,8 @@ from fastapi import FastAPI, HTTPException
 from mud_server.api.auth import active_sessions, validate_session, validate_session_with_permission
 from mud_server.api.models import (
     ChangePasswordRequest,
+    ClearOllamaContextRequest,
+    ClearOllamaContextResponse,
     CommandRequest,
     CommandResponse,
     DatabaseChatResponse,
@@ -85,6 +87,10 @@ def register_routes(app: FastAPI, engine: GameEngine):
         app: FastAPI application instance
         engine: GameEngine instance for game logic
     """
+
+    # Ollama conversation history storage (per session_id)
+    # Structure: {session_id: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
+    ollama_conversation_history: dict[str, list[dict[str, str]]] = {}
 
     # ========================================================================
     # PUBLIC ENDPOINTS
@@ -543,7 +549,7 @@ Note: Commands can be used with or without the / prefix
         Supports any ollama CLI command via the API.
         """
         username, role = validate_session_with_permission(
-            request.session_id, Permission.MANAGE_USERS
+            request.session_id, Permission.VIEW_LOGS
         )
 
         import json
@@ -639,7 +645,7 @@ Note: Commands can be used with or without the / prefix
                     )
 
             elif cmd_verb == "run":
-                # Run a model with a prompt
+                # Run a model with a prompt (uses conversation history)
                 if len(cmd_parts) < 2:
                     return OllamaCommandResponse(
                         success=False, output="Usage: run <model_name> [prompt]"
@@ -648,18 +654,45 @@ Note: Commands can be used with or without the / prefix
                 model_name = cmd_parts[1]
                 prompt = " ".join(cmd_parts[2:]) if len(cmd_parts) > 2 else "Hello"
 
+                # Initialize conversation history for this session if not exists
+                session_id = request.session_id
+                if session_id not in ollama_conversation_history:
+                    ollama_conversation_history[session_id] = []
+
+                # Add user message to conversation history
+                ollama_conversation_history[session_id].append(
+                    {"role": "user", "content": prompt}
+                )
+
+                # Call Ollama's /api/chat endpoint with full conversation history
                 response = req.post(
-                    f"{server_url}/api/generate",
-                    json={"model": model_name, "prompt": prompt, "stream": False},
+                    f"{server_url}/api/chat",
+                    json={
+                        "model": model_name,
+                        "messages": ollama_conversation_history[session_id],
+                        "stream": False,
+                    },
                     timeout=120,
                 )
 
                 if response.status_code == 200:
                     data = response.json()
-                    generated_text = data.get("response", "")
-                    output = f"Model: {model_name}\nPrompt: {prompt}\n\nResponse:\n{generated_text}"
+                    assistant_message = data.get("message", {})
+                    generated_text = assistant_message.get("content", "")
+
+                    # Add assistant response to conversation history
+                    ollama_conversation_history[session_id].append(
+                        {"role": "assistant", "content": generated_text}
+                    )
+
+                    # Show conversation context info
+                    msg_count = len(ollama_conversation_history[session_id])
+                    output = f"Model: {model_name} (Context: {msg_count} messages)\n"
+                    output += f"You: {prompt}\n\nResponse:\n{generated_text}"
                     return OllamaCommandResponse(success=True, output=output)
                 else:
+                    # Remove the user message if the request failed
+                    ollama_conversation_history[session_id].pop()
                     error_detail = response.text
                     return OllamaCommandResponse(
                         success=False,
@@ -706,6 +739,32 @@ Note: Commands can be used with or without the / prefix
             )
         except Exception as e:
             return OllamaCommandResponse(success=False, output=f"Error: {str(e)}")
+
+    @app.post("/admin/ollama/clear-context", response_model=ClearOllamaContextResponse)
+    async def clear_ollama_context(request: ClearOllamaContextRequest):
+        """
+        Clear Ollama conversation context for the current session (Admin and Superuser only).
+
+        Removes all stored conversation history, allowing a fresh start with the model.
+        """
+        username, role = validate_session_with_permission(
+            request.session_id, Permission.VIEW_LOGS
+        )
+
+        session_id = request.session_id
+
+        # Check if there's any context to clear
+        if session_id in ollama_conversation_history:
+            msg_count = len(ollama_conversation_history[session_id])
+            ollama_conversation_history[session_id] = []
+            return ClearOllamaContextResponse(
+                success=True,
+                message=f"Conversation context cleared ({msg_count} messages removed).",
+            )
+        else:
+            return ClearOllamaContextResponse(
+                success=True, message="No conversation context to clear."
+            )
 
     @app.get("/health")
     async def health_check():

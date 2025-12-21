@@ -330,7 +330,7 @@ class OllamaCommandRequest(BaseModel):
     """
     Request to execute an Ollama command.
 
-    Requires MANAGE_USERS permission (admin or superuser only).
+    Requires VIEW_LOGS permission (admin or superuser only).
 
     Attributes:
         session_id: Active session ID (must have appropriate permission)
@@ -354,3 +354,29 @@ class OllamaCommandResponse(BaseModel):
 
     success: bool
     output: str
+
+
+class ClearOllamaContextRequest(BaseModel):
+    """
+    Request to clear Ollama conversation context for the current session.
+
+    Requires VIEW_LOGS permission (admin or superuser only).
+
+    Attributes:
+        session_id: Active session ID (must have appropriate permission)
+    """
+
+    session_id: str
+
+
+class ClearOllamaContextResponse(BaseModel):
+    """
+    Response to clear Ollama context request.
+
+    Attributes:
+        success: True if context was cleared successfully
+        message: Confirmation message
+    """
+
+    success: bool
+    message: str

@@ -771,3 +771,44 @@ def execute_ollama_command(server_url: str, command: str, session_state: dict) -
         return "Request timed out. Long operations like 'pull' may still be running. Check 'ps' to verify."
     except Exception as e:
         return f"Error: {str(e)}"
+
+
+def clear_ollama_context(session_state: dict) -> str:
+    """
+    Clear Ollama conversation context for the current session (Admin/Superuser only).
+
+    Args:
+        session_state: User's session state dictionary
+
+    Returns:
+        Confirmation message or error message
+    """
+    if not session_state.get("logged_in"):
+        return "You are not logged in."
+
+    role = session_state.get("role", "player")
+    if role not in ["admin", "superuser"]:
+        return "Access Denied: Admin or Superuser role required."
+
+    try:
+        response = requests.post(
+            f"{SERVER_URL}/admin/ollama/clear-context",
+            json={"session_id": session_state.get("session_id")},
+            timeout=10,
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            return str(data.get("message", "Context cleared."))
+        elif response.status_code == 403:
+            return "Access Denied: Insufficient permissions."
+        else:
+            error = response.json().get("detail", "Failed to clear context")
+            return f"Error: {error}"
+
+    except requests.exceptions.ConnectionError:
+        return f"Cannot connect to server at {SERVER_URL}"
+    except requests.exceptions.Timeout:
+        return "Request timed out."
+    except Exception as e:
+        return f"Error: {str(e)}"
