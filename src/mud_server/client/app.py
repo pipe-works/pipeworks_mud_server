@@ -13,13 +13,33 @@ SERVER_URL = os.getenv("MUD_SERVER_URL", "http://localhost:8000")
 session_data = {"session_id": None, "username": None, "role": None, "logged_in": False}
 
 
-def login(username: str, password: str) -> Tuple[str, str, str, bool]:
-    """Handle login with password."""
+def login(username: str, password: str):
+    """Handle login with password and update tab visibility."""
     if not username or len(username.strip()) < 2:
-        return "Username must be at least 2 characters.", "", "", False
+        return (
+            "Username must be at least 2 characters.",
+            "",
+            "",
+            gr.update(visible=True),  # login tab
+            gr.update(visible=True),  # register tab
+            gr.update(visible=False),  # game tab
+            gr.update(visible=False),  # settings tab
+            gr.update(visible=False),  # database tab
+            gr.update(visible=False),  # help tab
+        )
 
     if not password:
-        return "Password is required.", "", "", False
+        return (
+            "Password is required.",
+            "",
+            "",
+            gr.update(visible=True),  # login tab
+            gr.update(visible=True),  # register tab
+            gr.update(visible=False),  # game tab
+            gr.update(visible=False),  # settings tab
+            gr.update(visible=False),  # database tab
+            gr.update(visible=False),  # help tab
+        )
 
     try:
         response = requests.post(
@@ -34,15 +54,58 @@ def login(username: str, password: str) -> Tuple[str, str, str, bool]:
             session_data["role"] = data.get("role", "player")
             session_data["logged_in"] = True
 
-            return data["message"], "", "", True
+            # Determine if user has admin/superuser access
+            has_admin_access = session_data["role"] in ["admin", "superuser"]
+
+            return (
+                data["message"],
+                "",
+                "",
+                gr.update(visible=True),  # login tab (keep visible for logout message)
+                gr.update(visible=False),  # register tab (hide after login)
+                gr.update(visible=True),  # game tab
+                gr.update(visible=True),  # settings tab
+                gr.update(visible=has_admin_access),  # database tab (admin/superuser only)
+                gr.update(visible=True),  # help tab
+            )
         else:
             error = response.json().get("detail", "Login failed")
-            return f"Login failed: {error}", "", "", False
+            return (
+                f"Login failed: {error}",
+                "",
+                "",
+                gr.update(visible=True),  # login tab
+                gr.update(visible=True),  # register tab
+                gr.update(visible=False),  # game tab
+                gr.update(visible=False),  # settings tab
+                gr.update(visible=False),  # database tab
+                gr.update(visible=False),  # help tab
+            )
 
     except requests.exceptions.ConnectionError:
-        return f"Cannot connect to server at {SERVER_URL}", "", "", False
+        return (
+            f"Cannot connect to server at {SERVER_URL}",
+            "",
+            "",
+            gr.update(visible=True),  # login tab
+            gr.update(visible=True),  # register tab
+            gr.update(visible=False),  # game tab
+            gr.update(visible=False),  # settings tab
+            gr.update(visible=False),  # database tab
+            gr.update(visible=False),  # help tab
+        )
     except Exception as e:
-        return f"Error: {str(e)}", "", "", False
+        return (
+            f"Error: {str(e)}",
+            "",
+            "",
+            gr.update(visible=True),  # login tab
+            gr.update(visible=True),  # register tab
+            gr.update(visible=False),  # game tab
+            gr.update(visible=False),  # settings tab
+            gr.update(visible=False),  # database tab
+            gr.update(visible=False),  # help tab
+        )
 
 
 def register(username: str, password: str, password_confirm: str) -> str:
@@ -79,10 +142,19 @@ def register(username: str, password: str, password_confirm: str) -> str:
         return f"Error: {str(e)}"
 
 
-def logout() -> Tuple[str, str, bool]:
-    """Handle logout."""
+def logout():
+    """Handle logout and reset tab visibility."""
     if not session_data["logged_in"]:
-        return "Not logged in.", "", False
+        return (
+            "Not logged in.",
+            "",
+            gr.update(visible=True),  # login tab
+            gr.update(visible=True),  # register tab
+            gr.update(visible=False),  # game tab
+            gr.update(visible=False),  # settings tab
+            gr.update(visible=False),  # database tab
+            gr.update(visible=False),  # help tab
+        )
 
     try:
         response = requests.post(
@@ -92,12 +164,31 @@ def logout() -> Tuple[str, str, bool]:
 
         session_data["session_id"] = None
         session_data["username"] = None
+        session_data["role"] = None
         session_data["logged_in"] = False
 
-        return "You have been logged out.", "", False
+        return (
+            "You have been logged out.",
+            "",
+            gr.update(visible=True),  # login tab
+            gr.update(visible=True),  # register tab
+            gr.update(visible=False),  # game tab
+            gr.update(visible=False),  # settings tab
+            gr.update(visible=False),  # database tab
+            gr.update(visible=False),  # help tab
+        )
 
     except Exception as e:
-        return f"Error: {str(e)}", "", False
+        return (
+            f"Error: {str(e)}",
+            "",
+            gr.update(visible=True),  # login tab
+            gr.update(visible=True),  # register tab
+            gr.update(visible=False),  # game tab
+            gr.update(visible=False),  # settings tab
+            gr.update(visible=False),  # database tab
+            gr.update(visible=False),  # help tab
+        )
 
 
 def send_command(command: str) -> str:
@@ -425,8 +516,8 @@ def create_interface():
         gr.Markdown("A simple Multi-User Dungeon client")
 
         with gr.Tabs():
-            # Login Tab
-            with gr.Tab("Login"):
+            # Login Tab (always visible)
+            with gr.Tab("Login", visible=True) as login_tab:
                 with gr.Column():
                     gr.Markdown("### Login to your account")
                     login_username_input = gr.Textbox(
@@ -445,19 +536,8 @@ def create_interface():
                         label="Login Status", interactive=False, lines=10
                     )
 
-                    login_btn.click(
-                        login,
-                        inputs=[login_username_input, login_password_input],
-                        outputs=[
-                            login_output,
-                            login_username_input,
-                            login_password_input,
-                            gr.State(False),
-                        ],
-                    )
-
-            # Register Tab
-            with gr.Tab("Register"):
+            # Register Tab (visible only when not logged in)
+            with gr.Tab("Register", visible=True) as register_tab:
                 with gr.Column():
                     gr.Markdown("### Create a new account")
                     gr.Markdown("*Default role: Player*")
@@ -493,8 +573,8 @@ def create_interface():
                         outputs=[register_output],
                     )
 
-            # Game Tab
-            with gr.Tab("Game"):
+            # Game Tab (visible only when logged in)
+            with gr.Tab("Game", visible=False) as game_tab:
                 with gr.Row():
                     with gr.Column(scale=2):
                         gr.Markdown("### World")
@@ -634,8 +714,8 @@ def create_interface():
                     outputs=[command_input, room_display, chat_display, status_display, chat_input],
                 )
 
-            # Settings Tab
-            with gr.Tab("Settings"):
+            # Settings Tab (visible only when logged in)
+            with gr.Tab("Settings", visible=False) as settings_tab:
                 with gr.Column():
                     gr.Markdown("### Change Password")
                     gr.Markdown("Update your account password")
@@ -673,8 +753,8 @@ def create_interface():
                         outputs=[change_password_output],
                     )
 
-            # Database Tab (Admin/Superuser only)
-            with gr.Tab("Database"):
+            # Database Tab (visible only for admin/superuser)
+            with gr.Tab("Database", visible=False) as database_tab:
                 with gr.Column():
                     gr.Markdown("### Database Viewer & User Management")
                     gr.Markdown("*Admin and Superuser only*")
@@ -778,8 +858,8 @@ def create_interface():
                         outputs=[management_output, players_display, target_username_input, new_role_input],
                     )
 
-            # Help Tab
-            with gr.Tab("Help"):
+            # Help Tab (visible only when logged in)
+            with gr.Tab("Help", visible=False) as help_tab:
                 gr.Markdown("""
 # MUD Client Help
 
@@ -812,6 +892,42 @@ Each zone contains items you can collect.
 - Chat messages are visible to all players in the same room
 - You can pick up items and carry them in your inventory
                 """)
+
+        # Wire up login event handler
+        login_btn.click(
+            login,
+            inputs=[login_username_input, login_password_input],
+            outputs=[
+                login_output,
+                login_username_input,
+                login_password_input,
+                login_tab,
+                register_tab,
+                game_tab,
+                settings_tab,
+                database_tab,
+                help_tab,
+            ],
+        )
+
+        # Wire up logout button to update tab visibility
+        # This needs to be separate from the Game tab handler because tabs aren't defined yet there
+        def logout_and_hide_tabs():
+            result = logout()
+            return result[0], result[2], result[3], result[4], result[5], result[6], result[7]
+
+        logout_btn.click(
+            logout_and_hide_tabs,
+            outputs=[
+                login_output,
+                login_tab,
+                register_tab,
+                game_tab,
+                settings_tab,
+                database_tab,
+                help_tab,
+            ],
+        )
 
     return interface
 
