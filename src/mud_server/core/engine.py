@@ -27,7 +27,6 @@ Architecture:
     - Database provides persistent player state
 """
 
-from typing import List, Optional, Tuple
 from mud_server.core.world import World
 from mud_server.db import database
 
@@ -76,7 +75,7 @@ class GameEngine:
         # Initialize database schema (creates tables, default admin)
         database.init_database()
 
-    def login(self, username: str, password: str, session_id: str) -> Tuple[bool, str, Optional[str]]:
+    def login(self, username: str, password: str, session_id: str) -> tuple[bool, str, str | None]:
         """
         Handle player login with authentication and session creation.
 
@@ -124,7 +123,11 @@ class GameEngine:
 
         # Check if player is active (not banned)
         if not database.is_player_active(username):
-            return False, "This account has been deactivated. Please contact an administrator.", None
+            return (
+                False,
+                "This account has been deactivated. Please contact an administrator.",
+                None,
+            )
 
         # Get player role
         role = database.get_player_role(username)
@@ -173,7 +176,7 @@ class GameEngine:
         """
         return database.remove_session(username)
 
-    def move(self, username: str, direction: str) -> Tuple[bool, str]:
+    def move(self, username: str, direction: str) -> tuple[bool, str]:
         """
         Handle player movement between rooms.
 
@@ -218,7 +221,7 @@ class GameEngine:
             return False, "You are not in a valid room."
 
         can_move, destination = self.world.can_move(current_room, direction)
-        if not can_move:
+        if not can_move or destination is None:
             return False, f"You cannot move {direction} from here."
 
         # Update player room
@@ -230,16 +233,16 @@ class GameEngine:
         message = f"You move {direction}.\n{room_desc}"
 
         # Notify other players
+        self._broadcast_to_room(current_room, f"{username} leaves {direction}.", exclude=username)
         self._broadcast_to_room(
-            current_room, f"{username} leaves {direction}.", exclude=username
-        )
-        self._broadcast_to_room(
-            destination, f"{username} arrives from {self._opposite_direction(direction)}.", exclude=username
+            destination,
+            f"{username} arrives from {self._opposite_direction(direction)}.",
+            exclude=username,
         )
 
         return True, message
 
-    def chat(self, username: str, message: str) -> Tuple[bool, str]:
+    def chat(self, username: str, message: str) -> tuple[bool, str]:
         """
         Handle player chat messages within their current room.
 
@@ -276,7 +279,7 @@ class GameEngine:
 
         return True, f"You say: {message}"
 
-    def yell(self, username: str, message: str) -> Tuple[bool, str]:
+    def yell(self, username: str, message: str) -> tuple[bool, str]:
         """
         Yell a message to current room and all adjoining rooms.
 
@@ -329,12 +332,12 @@ class GameEngine:
             return False, "Failed to send message."
 
         # Send to all adjoining rooms
-        for direction, room_id in current_room.exits.items():
+        for _direction, room_id in current_room.exits.items():
             database.add_chat_message(username, yell_message, room_id)
 
         return True, f"You yell: {message}"
 
-    def whisper(self, username: str, target: str, message: str) -> Tuple[bool, str]:
+    def whisper(self, username: str, target: str, message: str) -> tuple[bool, str]:
         """
         Send a private whisper to a specific player in the same room.
 
@@ -385,6 +388,7 @@ class GameEngine:
             (False, "Player 'Player2' is not in this room.")
         """
         import logging
+
         logger = logging.getLogger(__name__)
 
         sender_room = database.get_player_room(username)
@@ -498,7 +502,7 @@ class GameEngine:
                 inv_text += f"  - {item.name}\n"
         return inv_text
 
-    def pickup_item(self, username: str, item_name: str) -> Tuple[bool, str]:
+    def pickup_item(self, username: str, item_name: str) -> tuple[bool, str]:
         """
         Pick up an item from the current room and add to inventory.
 
@@ -556,9 +560,10 @@ class GameEngine:
             database.set_player_inventory(username, inventory)
 
         item = self.world.get_item(matching_item)
-        return True, f"You picked up the {item.name}."
+        item_name_display = item.name if item else matching_item
+        return True, f"You picked up the {item_name_display}."
 
-    def drop_item(self, username: str, item_name: str) -> Tuple[bool, str]:
+    def drop_item(self, username: str, item_name: str) -> tuple[bool, str]:
         """
         Drop an item from player's inventory.
 
@@ -606,7 +611,8 @@ class GameEngine:
         database.set_player_inventory(username, inventory)
 
         item = self.world.get_item(matching_item)
-        return True, f"You dropped the {item.name}."
+        item_name_display = item.name if item else matching_item
+        return True, f"You dropped the {item_name_display}."
 
     def look(self, username: str) -> str:
         """
@@ -650,7 +656,7 @@ class GameEngine:
 
         return self.world.get_room_description(room_id, username)
 
-    def get_active_players(self) -> List[str]:
+    def get_active_players(self) -> list[str]:
         """
         Get list of all currently active (logged in) players.
 
@@ -666,9 +672,7 @@ class GameEngine:
         """
         return database.get_active_players()
 
-    def _broadcast_to_room(
-        self, room_id: str, message: str, exclude: Optional[str] = None
-    ):
+    def _broadcast_to_room(self, room_id: str, message: str, exclude: str | None = None):
         """
         Broadcast a message to all players in a room.
 

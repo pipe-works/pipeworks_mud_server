@@ -13,8 +13,9 @@ Models are organized into two categories:
 2. Response models: Data sent FROM the server TO the client
 """
 
+from typing import Any
+
 from pydantic import BaseModel
-from typing import List, Optional, Any, Dict
 
 # ============================================================================
 # REQUEST MODELS (Client → Server)
@@ -89,8 +90,8 @@ class UserManagementRequest(BaseModel):
     session_id: str
     target_username: str
     action: str  # "change_role", "ban", "deactivate", "unban", "change_password"
-    new_role: Optional[str] = None
-    new_password: Optional[str] = None
+    new_role: str | None = None
+    new_password: str | None = None
 
 
 class ServerStopRequest(BaseModel):
@@ -174,8 +175,8 @@ class LoginResponse(BaseModel):
 
     success: bool
     message: str
-    session_id: Optional[str] = None
-    role: Optional[str] = None
+    session_id: str | None = None
+    role: str | None = None
 
 
 class RegisterResponse(BaseModel):
@@ -220,8 +221,8 @@ class StatusResponse(BaseModel):
         inventory: Formatted inventory string (e.g., "Your inventory:\n  - Torch\n  - Rope")
     """
 
-    active_players: List[str]
-    current_room: Optional[str]
+    active_players: list[str]
+    current_room: str | None
     inventory: str
 
 
@@ -235,7 +236,7 @@ class UserListResponse(BaseModel):
         users: List of user data dictionaries with account information
     """
 
-    users: List[Dict[str, Any]]
+    users: list[dict[str, Any]]
 
 
 class DatabasePlayersResponse(BaseModel):
@@ -258,7 +259,7 @@ class DatabasePlayersResponse(BaseModel):
             - is_active: Account status (True=active, False=banned)
     """
 
-    players: List[Dict[str, Any]]
+    players: list[dict[str, Any]]
 
 
 class DatabaseSessionsResponse(BaseModel):
@@ -276,7 +277,7 @@ class DatabaseSessionsResponse(BaseModel):
             - last_activity: Most recent API request timestamp
     """
 
-    sessions: List[Dict[str, Any]]
+    sessions: list[dict[str, Any]]
 
 
 class DatabaseChatResponse(BaseModel):
@@ -294,7 +295,7 @@ class DatabaseChatResponse(BaseModel):
             - timestamp: Message timestamp
     """
 
-    messages: List[Dict[str, Any]]
+    messages: list[dict[str, Any]]
 
 
 class UserManagementResponse(BaseModel):

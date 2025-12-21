@@ -26,10 +26,10 @@ Future Improvements:
 - Implement "remember me" functionality
 """
 
-from typing import Dict, Optional, Tuple
 from fastapi import HTTPException
-from mud_server.db import database
+
 from mud_server.api.permissions import Permission, has_permission
+from mud_server.db import database
 
 # ============================================================================
 # SESSION STORAGE
@@ -44,7 +44,7 @@ from mud_server.api.permissions import Permission, has_permission
 #
 # IMPORTANT: All sessions are lost when the server restarts since this is
 # not persisted to disk. Users will need to log in again after a restart.
-active_sessions: Dict[str, Tuple[str, str]] = {}
+active_sessions: dict[str, tuple[str, str]] = {}
 
 
 # ============================================================================
@@ -52,7 +52,7 @@ active_sessions: Dict[str, Tuple[str, str]] = {}
 # ============================================================================
 
 
-def get_username_from_session(session_id: str) -> Optional[str]:
+def get_username_from_session(session_id: str) -> str | None:
     """
     Get username from session ID (backward compatibility function).
 
@@ -78,7 +78,7 @@ def get_username_from_session(session_id: str) -> Optional[str]:
     return None
 
 
-def get_username_and_role_from_session(session_id: str) -> Optional[Tuple[str, str]]:
+def get_username_and_role_from_session(session_id: str) -> tuple[str, str] | None:
     """
     Get both username and role from session ID.
 
@@ -102,7 +102,7 @@ def get_username_and_role_from_session(session_id: str) -> Optional[Tuple[str, s
 # ============================================================================
 
 
-def validate_session(session_id: str) -> Tuple[str, str]:
+def validate_session(session_id: str) -> tuple[str, str]:
     """
     Validate session and return user information.
 
@@ -148,7 +148,7 @@ def validate_session(session_id: str) -> Tuple[str, str]:
     return username, role
 
 
-def validate_session_with_permission(session_id: str, permission: Permission) -> Tuple[str, str]:
+def validate_session_with_permission(session_id: str, permission: Permission) -> tuple[str, str]:
     """
     Validate session and check if user has required permission.
 

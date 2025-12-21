@@ -41,33 +41,32 @@ Design Notes:
     - All database operations through database module
 """
 
-import uuid
 import os
 import signal
-from fastapi import FastAPI, HTTPException
-from typing import List
+import uuid
 
+from fastapi import FastAPI, HTTPException
+
+from mud_server.api.auth import active_sessions, validate_session, validate_session_with_permission
 from mud_server.api.models import (
-    LoginRequest,
-    RegisterRequest,
     ChangePasswordRequest,
-    UserManagementRequest,
-    ServerStopRequest,
-    LogoutRequest,
     CommandRequest,
-    LoginResponse,
-    RegisterResponse,
     CommandResponse,
-    StatusResponse,
-    UserListResponse,
+    DatabaseChatResponse,
     DatabasePlayersResponse,
     DatabaseSessionsResponse,
-    DatabaseChatResponse,
-    UserManagementResponse,
+    LoginRequest,
+    LoginResponse,
+    LogoutRequest,
+    RegisterRequest,
+    RegisterResponse,
+    ServerStopRequest,
     ServerStopResponse,
+    StatusResponse,
+    UserManagementRequest,
+    UserManagementResponse,
 )
-from mud_server.api.auth import validate_session, active_sessions, validate_session_with_permission
-from mud_server.api.permissions import Permission, has_permission, can_manage_role
+from mud_server.api.permissions import Permission, can_manage_role
 from mud_server.core.engine import GameEngine
 from mud_server.db import database
 
@@ -105,9 +104,7 @@ def register_routes(app: FastAPI, engine: GameEngine):
         password = request.password
 
         if not username or len(username) < 2 or len(username) > 20:
-            raise HTTPException(
-                status_code=400, detail="Username must be 2-20 characters"
-            )
+            raise HTTPException(status_code=400, detail="Username must be 2-20 characters")
 
         # Create session ID
         session_id = str(uuid.uuid4())
@@ -118,9 +115,7 @@ def register_routes(app: FastAPI, engine: GameEngine):
         if success and role:
             # Store session with role
             active_sessions[session_id] = (username, role)
-            return LoginResponse(
-                success=True, message=message, session_id=session_id, role=role
-            )
+            return LoginResponse(success=True, message=message, session_id=session_id, role=role)
         else:
             raise HTTPException(status_code=401, detail=message)
 
@@ -133,9 +128,7 @@ def register_routes(app: FastAPI, engine: GameEngine):
 
         # Validate username
         if not username or len(username) < 2 or len(username) > 20:
-            raise HTTPException(
-                status_code=400, detail="Username must be 2-20 characters"
-            )
+            raise HTTPException(status_code=400, detail="Username must be 2-20 characters")
 
         # Check if username already exists
         if database.player_exists(username):
@@ -147,9 +140,7 @@ def register_routes(app: FastAPI, engine: GameEngine):
 
         # Validate password strength
         if len(password) < 8:
-            raise HTTPException(
-                status_code=400, detail="Password must be at least 8 characters"
-            )
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
         # Create player with default 'player' role
         if database.create_player_with_password(username, password, role="player"):
@@ -260,11 +251,15 @@ def register_routes(app: FastAPI, engine: GameEngine):
 
         elif cmd in ["whisper", "w"]:
             if not args:
-                return CommandResponse(success=False, message="Whisper to whom? Usage: /whisper <player> <message>")
+                return CommandResponse(
+                    success=False, message="Whisper to whom? Usage: /whisper <player> <message>"
+                )
             # Parse whisper target and message
             whisper_parts = args.split(maxsplit=1)
             if len(whisper_parts) < 2:
-                return CommandResponse(success=False, message="Whisper what? Usage: /whisper <player> <message>")
+                return CommandResponse(
+                    success=False, message="Whisper what? Usage: /whisper <player> <message>"
+                )
             target = whisper_parts[0]
             msg = whisper_parts[1]
             # Send private whisper
@@ -410,9 +405,7 @@ Note: Commands can be used with or without the / prefix
             )
 
         # Validate session with appropriate permission
-        username, role = validate_session_with_permission(
-            request.session_id, required_permission
-        )
+        username, role = validate_session_with_permission(request.session_id, required_permission)
 
         target_username = request.target_username
 
@@ -422,6 +415,8 @@ Note: Commands can be used with or without the / prefix
 
         # Get target user's role
         target_role = database.get_player_role(target_username)
+        if not target_role:
+            raise HTTPException(status_code=404, detail="Target user not found")
 
         # Prevent self-management (except for password changes in the future)
         if username == target_username and action != "change_password":
@@ -437,7 +432,9 @@ Note: Commands can be used with or without the / prefix
         # Perform action
         if action == "change_role":
             if not request.new_role:
-                raise HTTPException(status_code=400, detail="new_role is required for change_role action")
+                raise HTTPException(
+                    status_code=400, detail="new_role is required for change_role action"
+                )
 
             new_role = request.new_role.lower()
             valid_roles = ["player", "worldbuilder", "admin", "superuser"]
@@ -490,11 +487,15 @@ Note: Commands can be used with or without the / prefix
             # Get new password from request
             new_password = request.new_password
             if not new_password:
-                raise HTTPException(status_code=400, detail="new_password is required for change_password action")
+                raise HTTPException(
+                    status_code=400, detail="new_password is required for change_password action"
+                )
 
             # Validate password length
             if len(new_password) < 8:
-                raise HTTPException(status_code=400, detail="Password must be at least 8 characters long")
+                raise HTTPException(
+                    status_code=400, detail="Password must be at least 8 characters long"
+                )
 
             # Change the password
             if database.change_password_for_user(target_username, new_password):
@@ -528,7 +529,7 @@ Note: Commands can be used with or without the / prefix
 
         return ServerStopResponse(
             success=True,
-            message=f"Server shutdown initiated by {username}. Server will stop in 0.5 seconds."
+            message=f"Server shutdown initiated by {username}. Server will stop in 0.5 seconds.",
         )
 
     @app.get("/health")

@@ -10,19 +10,19 @@ Tests cover:
 All tests use isolated session dictionaries and mocked database.
 """
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, Mock
 from fastapi import HTTPException
 
 from mud_server.api.auth import (
-    get_username_from_session,
+    active_sessions,
     get_username_and_role_from_session,
+    get_username_from_session,
     validate_session,
     validate_session_with_permission,
-    active_sessions
 )
 from mud_server.api.permissions import Permission
-
 
 # ============================================================================
 # SESSION RETRIEVAL TESTS
@@ -76,7 +76,7 @@ def test_validate_session_success(mock_session_data):
     """Test validating a valid session."""
     active_sessions.update(mock_session_data)
 
-    with patch('mud_server.api.auth.database.update_session_activity', return_value=True):
+    with patch("mud_server.api.auth.database.update_session_activity", return_value=True):
         username, role = validate_session("session-player")
 
         assert username == "testplayer"
@@ -100,7 +100,7 @@ def test_validate_session_updates_activity(mock_session_data):
     """Test that session validation updates activity timestamp."""
     active_sessions.update(mock_session_data)
 
-    with patch('mud_server.api.auth.database.update_session_activity') as mock_update:
+    with patch("mud_server.api.auth.database.update_session_activity") as mock_update:
         mock_update.return_value = True
 
         validate_session("session-player")
@@ -120,10 +120,8 @@ def test_validate_session_with_permission_success(mock_session_data):
     """Test validating session with sufficient permission."""
     active_sessions.update(mock_session_data)
 
-    with patch('mud_server.api.auth.database.update_session_activity', return_value=True):
-        username, role = validate_session_with_permission(
-            "session-admin", Permission.VIEW_LOGS
-        )
+    with patch("mud_server.api.auth.database.update_session_activity", return_value=True):
+        username, role = validate_session_with_permission("session-admin", Permission.VIEW_LOGS)
 
         assert username == "testadmin"
         assert role == "admin"
@@ -135,11 +133,9 @@ def test_validate_session_with_permission_insufficient(mock_session_data):
     """Test validating session with insufficient permission raises 403."""
     active_sessions.update(mock_session_data)
 
-    with patch('mud_server.api.auth.database.update_session_activity', return_value=True):
+    with patch("mud_server.api.auth.database.update_session_activity", return_value=True):
         with pytest.raises(HTTPException) as exc_info:
-            validate_session_with_permission(
-                "session-player", Permission.MANAGE_USERS
-            )
+            validate_session_with_permission("session-player", Permission.MANAGE_USERS)
 
         assert exc_info.value.status_code == 403
         assert "Insufficient permissions" in str(exc_info.value.detail)
@@ -150,9 +146,7 @@ def test_validate_session_with_permission_insufficient(mock_session_data):
 def test_validate_session_with_permission_invalid_session():
     """Test that invalid session raises 401 before checking permissions."""
     with pytest.raises(HTTPException) as exc_info:
-        validate_session_with_permission(
-            "invalid-session", Permission.VIEW_LOGS
-        )
+        validate_session_with_permission("invalid-session", Permission.VIEW_LOGS)
 
     assert exc_info.value.status_code == 401
 
@@ -163,7 +157,7 @@ def test_validate_session_with_permission_superuser_has_all(mock_session_data):
     """Test that superuser has all permissions."""
     active_sessions.update(mock_session_data)
 
-    with patch('mud_server.api.auth.database.update_session_activity', return_value=True):
+    with patch("mud_server.api.auth.database.update_session_activity", return_value=True):
         # Superuser should have any permission
         username, role = validate_session_with_permission(
             "session-superuser", Permission.MANAGE_USERS

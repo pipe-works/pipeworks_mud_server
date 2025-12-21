@@ -42,11 +42,10 @@ Design Notes:
     - Database viewer shows truncated password hashes for security
 """
 
+import os
+
 import gradio as gr
 import requests
-import json
-from typing import Optional, Tuple
-import os
 
 # ============================================================================
 # CONFIGURATION
@@ -274,7 +273,7 @@ def logout(session_state: dict):
         )
 
     try:
-        response = requests.post(
+        requests.post(
             f"{SERVER_URL}/logout",
             json={"session_id": session_state.get("session_id"), "command": "logout"},
         )
@@ -349,7 +348,7 @@ def send_command(command: str, session_state: dict) -> str:
 
         if response.status_code == 200:
             data = response.json()
-            return data["message"]
+            return str(data["message"])
         elif response.status_code == 401:
             session_state["logged_in"] = False
             return "Session expired. Please log in again."
@@ -390,13 +389,11 @@ def get_chat(session_state: dict) -> str:
         return "You are not logged in."
 
     try:
-        response = requests.get(
-            f"{SERVER_URL}/chat/{session_state.get('session_id')}"
-        )
+        response = requests.get(f"{SERVER_URL}/chat/{session_state.get('session_id')}")
 
         if response.status_code == 200:
             data = response.json()
-            return data["chat"]
+            return str(data["chat"])
         else:
             return "Failed to retrieve chat."
 
@@ -439,13 +436,11 @@ def get_status(session_state: dict) -> str:
         return "You are not logged in."
 
     try:
-        response = requests.get(
-            f"{SERVER_URL}/status/{session_state.get('session_id')}"
-        )
+        response = requests.get(f"{SERVER_URL}/status/{session_state.get('session_id')}")
 
         if response.status_code == 200:
             data = response.json()
-            role_display = session_state.get('role', 'player').capitalize()
+            role_display = session_state.get("role", "player").capitalize()
             status = f"""
 [Player Status]
 Username: {session_state.get('username')}
@@ -463,7 +458,7 @@ Active Players: {', '.join(data['active_players']) if data['active_players'] els
         return f"Error: {str(e)}"
 
 
-def refresh_display(session_state: dict) -> Tuple[str, str]:
+def refresh_display(session_state: dict) -> tuple[str, str]:
     """
     Refresh both room and chat displays by fetching current data.
 
@@ -491,7 +486,9 @@ def refresh_display(session_state: dict) -> Tuple[str, str]:
     return room_info, chat_info
 
 
-def change_password(old_password: str, new_password: str, confirm_password: str, session_state: dict) -> str:
+def change_password(
+    old_password: str, new_password: str, confirm_password: str, session_state: dict
+) -> str:
     """
     Change the current user's password.
 
@@ -971,7 +968,9 @@ def create_interface():
         gr.Markdown("A simple Multi-User Dungeon client")
 
         # Session state (per-user)
-        session_state = gr.State({"session_id": None, "username": None, "role": None, "logged_in": False})
+        session_state = gr.State(
+            {"session_id": None, "username": None, "role": None, "logged_in": False}
+        )
 
         with gr.Tabs():
             # Login Tab (always visible)
@@ -990,9 +989,7 @@ def create_interface():
                         max_lines=1,
                     )
                     login_btn = gr.Button("Login", variant="primary")
-                    login_output = gr.Textbox(
-                        label="Login Status", interactive=False, lines=10
-                    )
+                    login_output = gr.Textbox(label="Login Status", interactive=False, lines=10)
 
             # Register Tab (visible only when not logged in)
             with gr.Tab("Register", visible=True) as register_tab:
@@ -1195,14 +1192,26 @@ def create_interface():
                         Empty messages are ignored (no updates sent to UI).
                     """
                     if not msg or not msg.strip():
-                        return "", "", gr.update(), gr.update(), gr.update()  # Don't update if empty
+                        return (
+                            "",
+                            "",
+                            gr.update(),
+                            gr.update(),
+                            gr.update(),
+                        )  # Don't update if empty
                     result = send_command(msg, session_st)
                     room, chat_msgs = refresh_display(session_st)
 
                     # Append command result to chat for visibility
                     chat_with_result = chat_msgs + f"\n[SYSTEM] {result}"
 
-                    return "", result, room, chat_with_result, get_status(session_st)  # Clear chat input, show result
+                    return (
+                        "",
+                        result,
+                        room,
+                        chat_with_result,
+                        get_status(session_st),
+                    )  # Clear chat input, show result
 
                 # Button click handlers
                 north_btn.click(
@@ -1332,9 +1341,7 @@ def create_interface():
                         gr.Markdown("**Warning:** This will stop the entire server!")
 
                         stop_server_btn = gr.Button("Stop Server", variant="stop")
-                        stop_server_output = gr.Textbox(
-                            label="Status", interactive=False, lines=3
-                        )
+                        stop_server_output = gr.Textbox(label="Status", interactive=False, lines=3)
 
                         stop_server_btn.click(
                             stop_server,
@@ -1463,13 +1470,24 @@ def create_interface():
 
                     manage_user_btn.click(
                         execute_manage_user,
-                        inputs=[target_username_input, action_dropdown, new_role_input, session_state],
-                        outputs=[management_output, players_display, target_username_input, new_role_input],
+                        inputs=[
+                            target_username_input,
+                            action_dropdown,
+                            new_role_input,
+                            session_state,
+                        ],
+                        outputs=[
+                            management_output,
+                            players_display,
+                            target_username_input,
+                            new_role_input,
+                        ],
                     )
 
             # Help Tab (visible only when logged in)
             with gr.Tab("Help", visible=False) as help_tab:
-                gr.Markdown("""
+                gr.Markdown(
+                    """
 # MUD Client Help
 
 ## Getting Started
@@ -1515,7 +1533,8 @@ Each zone contains items you can collect.
 - Chat messages are visible to all players in the same room
 - Yells can be heard from any room
 - You can pick up items and carry them in your inventory
-                """)
+                """
+                )
 
         # Wire up login event handler
         login_btn.click(
@@ -1557,7 +1576,16 @@ Each zone contains items you can collect.
                 tuple structure from logout() function.
             """
             result = logout(session_st)
-            return result[0], result[1], result[3], result[4], result[5], result[6], result[7], result[8]
+            return (
+                result[0],
+                result[1],
+                result[3],
+                result[4],
+                result[5],
+                result[6],
+                result[7],
+                result[8],
+            )
 
         logout_btn.click(
             logout_and_hide_tabs,

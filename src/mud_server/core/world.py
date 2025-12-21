@@ -24,9 +24,9 @@ Design Notes:
 """
 
 import json
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
+from pathlib import Path
+
 from mud_server.db import database
 
 # ============================================================================
@@ -74,8 +74,8 @@ class Room:
     id: str
     name: str
     description: str
-    exits: Dict[str, str]  # direction -> destination room_id
-    items: List[str]  # List of item IDs
+    exits: dict[str, str]  # direction -> destination room_id
+    items: list[str]  # List of item IDs
 
     def __str__(self) -> str:
         """
@@ -155,8 +155,8 @@ class World:
             KeyError: If required fields are missing from JSON
         """
         # Initialize empty dictionaries for world data
-        self.rooms: Dict[str, Room] = {}  # room_id -> Room object
-        self.items: Dict[str, Item] = {}  # item_id -> Item object
+        self.rooms: dict[str, Room] = {}  # room_id -> Room object
+        self.items: dict[str, Item] = {}  # item_id -> Item object
 
         # Load world data from JSON file
         self._load_world()
@@ -197,7 +197,7 @@ class World:
             KeyError: If required fields are missing
         """
         # Read and parse JSON file
-        with open(WORLD_DATA_PATH, "r") as f:
+        with open(WORLD_DATA_PATH) as f:
             data = json.load(f)
 
         # Load all rooms from JSON
@@ -218,7 +218,7 @@ class World:
                 description=item_data["description"],
             )
 
-    def get_room(self, room_id: str) -> Optional[Room]:
+    def get_room(self, room_id: str) -> Room | None:
         """
         Retrieve a room by its ID.
 
@@ -236,7 +236,7 @@ class World:
         """
         return self.rooms.get(room_id)
 
-    def get_item(self, item_id: str) -> Optional[Item]:
+    def get_item(self, item_id: str) -> Item | None:
         """
         Retrieve an item by its ID.
 
@@ -326,9 +326,7 @@ class World:
 
         # Add players section (query database for active players in this room)
         # Exclude the requesting player from the list
-        other_players = [
-            p for p in database.get_players_in_room(room_id) if p != username
-        ]
+        other_players = [p for p in database.get_players_in_room(room_id) if p != username]
         if other_players:
             desc += "\n[Players here]:\n"
             for player in other_players:
@@ -340,12 +338,12 @@ class World:
             for direction, destination in room.exits.items():
                 # Resolve destination room name
                 dest_room = self.get_room(destination)
-                dest_name = dest_room.name if dest_room else 'Unknown'
+                dest_name = dest_room.name if dest_room else "Unknown"
                 desc += f"  - {direction}: {dest_name}\n"
 
         return desc
 
-    def can_move(self, room_id: str, direction: str) -> Tuple[bool, Optional[str]]:
+    def can_move(self, room_id: str, direction: str) -> tuple[bool, str | None]:
         """
         Check if movement in a direction is valid and get the destination.
 

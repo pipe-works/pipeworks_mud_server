@@ -62,7 +62,7 @@ def hash_password(password: str) -> str:
         >>> hash_password("my_secure_password")
         '$2b$12$xKzN8o5qCqKqV8xKzN8o5.U9vKzN8o5qCqKqV8xKzN8o5qCqKq'
     """
-    return pwd_context.hash(password)
+    return str(pwd_context.hash(password))
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -99,4 +99,4 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         >>> verify_password("wrong", pwd_hash)
         False
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    return bool(pwd_context.verify(plain_password, hashed_password))

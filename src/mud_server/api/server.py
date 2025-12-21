@@ -12,11 +12,12 @@ to allow network access from other machines.
 """
 
 import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from mud_server.core.engine import GameEngine
 from mud_server.api.routes import register_routes
+from mud_server.core.engine import GameEngine
 
 # ============================================================================
 # APPLICATION INITIALIZATION

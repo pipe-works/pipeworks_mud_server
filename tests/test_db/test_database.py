@@ -14,14 +14,11 @@ Tests cover:
 All tests use temporary databases for isolation.
 """
 
-import pytest
-import json
-from pathlib import Path
 from unittest.mock import patch
 
-from mud_server.db import database
-from mud_server.api.password import hash_password
+import pytest
 
+from mud_server.db import database
 
 # ============================================================================
 # DATABASE INITIALIZATION TESTS
@@ -32,28 +29,22 @@ from mud_server.api.password import hash_password
 @pytest.mark.db
 def test_init_database_creates_tables(temp_db_path):
     """Test that init_database creates all required tables."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.init_database()
 
         conn = database.get_connection()
         cursor = conn.cursor()
 
         # Check players table exists
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='players'"
-        )
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='players'")
         assert cursor.fetchone() is not None
 
         # Check sessions table exists
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'"
-        )
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'")
         assert cursor.fetchone() is not None
 
         # Check chat_messages table exists
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='chat_messages'"
-        )
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chat_messages'")
         assert cursor.fetchone() is not None
 
         conn.close()
@@ -63,7 +54,7 @@ def test_init_database_creates_tables(temp_db_path):
 @pytest.mark.db
 def test_init_database_creates_default_admin(temp_db_path):
     """Test that init_database creates default superuser when no players exist."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.init_database()
 
         # Check admin user was created
@@ -81,7 +72,7 @@ def test_init_database_creates_default_admin(temp_db_path):
 @pytest.mark.db
 def test_create_player_with_password_success(test_db, temp_db_path):
     """Test creating a new player with password."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         result = database.create_player_with_password("newuser", "password123", "player")
         assert result is True
 
@@ -99,7 +90,7 @@ def test_create_player_with_password_success(test_db, temp_db_path):
 @pytest.mark.db
 def test_create_player_duplicate_username(test_db, temp_db_path, db_with_users):
     """Test that creating a player with existing username fails."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         result = database.create_player_with_password("testplayer", "password", "player")
         assert result is False
 
@@ -108,7 +99,7 @@ def test_create_player_duplicate_username(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_player_exists(test_db, temp_db_path, db_with_users):
     """Test checking if player exists."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         assert database.player_exists("testplayer") is True
         assert database.player_exists("nonexistent") is False
 
@@ -117,7 +108,7 @@ def test_player_exists(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_verify_password_correct(test_db, temp_db_path, db_with_users):
     """Test password verification with correct password."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         assert database.verify_password_for_user("testplayer", "password123") is True
 
 
@@ -125,7 +116,7 @@ def test_verify_password_correct(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_verify_password_incorrect(test_db, temp_db_path, db_with_users):
     """Test password verification with incorrect password."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         assert database.verify_password_for_user("testplayer", "wrongpassword") is False
 
 
@@ -133,7 +124,7 @@ def test_verify_password_incorrect(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_verify_password_nonexistent_user(test_db, temp_db_path):
     """Test password verification for non-existent user."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         assert database.verify_password_for_user("nonexistent", "password") is False
 
 
@@ -146,7 +137,7 @@ def test_verify_password_nonexistent_user(test_db, temp_db_path):
 @pytest.mark.db
 def test_get_player_role(test_db, temp_db_path, db_with_users):
     """Test retrieving player role."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         assert database.get_player_role("testplayer") == "player"
         assert database.get_player_role("testadmin") == "admin"
         assert database.get_player_role("testsuperuser") == "superuser"
@@ -156,7 +147,7 @@ def test_get_player_role(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_get_player_role_nonexistent(test_db, temp_db_path):
     """Test getting role for non-existent player."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         assert database.get_player_role("nonexistent") is None
 
 
@@ -164,7 +155,7 @@ def test_get_player_role_nonexistent(test_db, temp_db_path):
 @pytest.mark.db
 def test_set_player_role(test_db, temp_db_path, db_with_users):
     """Test changing player role."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         result = database.set_player_role("testplayer", "admin")
         assert result is True
         assert database.get_player_role("testplayer") == "admin"
@@ -179,7 +170,7 @@ def test_set_player_role(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_is_player_active_default(test_db, temp_db_path, db_with_users):
     """Test that players are active by default."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         assert database.is_player_active("testplayer") is True
 
 
@@ -187,7 +178,7 @@ def test_is_player_active_default(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_deactivate_player(test_db, temp_db_path, db_with_users):
     """Test deactivating a player account."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         result = database.deactivate_player("testplayer")
         assert result is True
         assert database.is_player_active("testplayer") is False
@@ -197,7 +188,7 @@ def test_deactivate_player(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_activate_player(test_db, temp_db_path, db_with_users):
     """Test activating a deactivated player account."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.deactivate_player("testplayer")
         result = database.activate_player("testplayer")
         assert result is True
@@ -208,7 +199,7 @@ def test_activate_player(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_verify_password_inactive_account(test_db, temp_db_path, db_with_users):
     """Test that verify_password_for_user checks password only, not account status."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.deactivate_player("testplayer")
         # Password verification should succeed even for inactive accounts
         # Account status checking is done separately in the login flow
@@ -226,7 +217,7 @@ def test_verify_password_inactive_account(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_change_password(test_db, temp_db_path, db_with_users):
     """Test changing user password."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         result = database.change_password_for_user("testplayer", "newpassword")
         assert result is True
 
@@ -246,7 +237,7 @@ def test_change_password(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_get_player_room_default(test_db, temp_db_path, db_with_users):
     """Test getting player room returns spawn by default."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         assert database.get_player_room("testplayer") == "spawn"
 
 
@@ -254,7 +245,7 @@ def test_get_player_room_default(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_set_player_room(test_db, temp_db_path, db_with_users):
     """Test setting player room."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         result = database.set_player_room("testplayer", "forest")
         assert result is True
         assert database.get_player_room("testplayer") == "forest"
@@ -264,7 +255,7 @@ def test_set_player_room(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_get_player_room_nonexistent(test_db, temp_db_path):
     """Test getting room for non-existent player."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         assert database.get_player_room("nonexistent") is None
 
 
@@ -277,7 +268,7 @@ def test_get_player_room_nonexistent(test_db, temp_db_path):
 @pytest.mark.db
 def test_get_player_inventory_default(test_db, temp_db_path, db_with_users):
     """Test that new players have empty inventory."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         inventory = database.get_player_inventory("testplayer")
         assert inventory == []
 
@@ -286,7 +277,7 @@ def test_get_player_inventory_default(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_set_player_inventory(test_db, temp_db_path, db_with_users):
     """Test setting player inventory."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         inventory = ["torch", "rope", "sword"]
         result = database.set_player_inventory("testplayer", inventory)
         assert result is True
@@ -299,7 +290,7 @@ def test_set_player_inventory(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_get_player_inventory_nonexistent(test_db, temp_db_path):
     """Test getting inventory for non-existent player."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         inventory = database.get_player_inventory("nonexistent")
         assert inventory == []
 
@@ -313,7 +304,7 @@ def test_get_player_inventory_nonexistent(test_db, temp_db_path):
 @pytest.mark.db
 def test_add_chat_message(test_db, temp_db_path, db_with_users):
     """Test adding a chat message."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         result = database.add_chat_message("testplayer", "Hello world", "spawn")
         assert result is True
 
@@ -322,7 +313,7 @@ def test_add_chat_message(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_add_chat_message_with_recipient(test_db, temp_db_path, db_with_users):
     """Test adding a whisper message with recipient."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         result = database.add_chat_message(
             "testplayer", "[WHISPER] Secret message", "spawn", recipient="testadmin"
         )
@@ -333,7 +324,7 @@ def test_add_chat_message_with_recipient(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_get_room_messages(test_db, temp_db_path, db_with_users):
     """Test retrieving room messages."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         # Add some messages
         database.add_chat_message("testplayer", "Message 1", "spawn")
         database.add_chat_message("testadmin", "Message 2", "spawn")
@@ -350,14 +341,12 @@ def test_get_room_messages(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_get_room_messages_with_whisper_filtering(test_db, temp_db_path, db_with_users):
     """Test that whispers are filtered per user."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         # Public message
         database.add_chat_message("testplayer", "Public message", "spawn")
 
         # Whisper to testadmin
-        database.add_chat_message(
-            "testplayer", "[WHISPER] Secret", "spawn", recipient="testadmin"
-        )
+        database.add_chat_message("testplayer", "[WHISPER] Secret", "spawn", recipient="testadmin")
 
         # Get messages as testadmin (should see whisper)
         messages = database.get_room_messages("spawn", limit=10, username="testadmin")
@@ -378,7 +367,7 @@ def test_get_room_messages_with_whisper_filtering(test_db, temp_db_path, db_with
 @pytest.mark.db
 def test_create_session(test_db, temp_db_path, db_with_users):
     """Test creating a player session."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         result = database.create_session("testplayer", "session-123")
         assert result is True
 
@@ -387,7 +376,7 @@ def test_create_session(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_create_session_removes_old_session(test_db, temp_db_path, db_with_users):
     """Test that creating a new session removes the old one."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.create_session("testplayer", "session-1")
         database.create_session("testplayer", "session-2")
 
@@ -405,7 +394,7 @@ def test_create_session_removes_old_session(test_db, temp_db_path, db_with_users
 @pytest.mark.db
 def test_remove_session(test_db, temp_db_path, db_with_users):
     """Test removing a player session."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.create_session("testplayer", "session-123")
         result = database.remove_session("testplayer")
         assert result is True
@@ -424,7 +413,7 @@ def test_remove_session(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_get_active_players(test_db, temp_db_path, db_with_users):
     """Test getting list of active players."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
 
@@ -438,7 +427,7 @@ def test_get_active_players(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_get_players_in_room(test_db, temp_db_path, db_with_users):
     """Test getting players in a specific room."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         # Create sessions for online players
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
@@ -461,7 +450,7 @@ def test_get_players_in_room(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 def test_update_session_activity(test_db, temp_db_path, db_with_users):
     """Test updating session activity timestamp."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.create_session("testplayer", "session-123")
         result = database.update_session_activity("testplayer")
         assert result is True
@@ -477,7 +466,7 @@ def test_update_session_activity(test_db, temp_db_path, db_with_users):
 @pytest.mark.admin
 def test_get_all_players(test_db, temp_db_path, db_with_users):
     """Test getting all players list."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         players = database.get_all_players()
         assert len(players) == 4
 
@@ -491,7 +480,7 @@ def test_get_all_players(test_db, temp_db_path, db_with_users):
 @pytest.mark.admin
 def test_get_all_players_detailed(test_db, temp_db_path, db_with_users):
     """Test getting detailed players list with password hash prefix."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         players = database.get_all_players_detailed()
         assert len(players) == 4
 
@@ -505,7 +494,7 @@ def test_get_all_players_detailed(test_db, temp_db_path, db_with_users):
 @pytest.mark.admin
 def test_get_all_sessions(test_db, temp_db_path, db_with_users):
     """Test getting all active sessions."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
 
@@ -518,7 +507,7 @@ def test_get_all_sessions(test_db, temp_db_path, db_with_users):
 @pytest.mark.admin
 def test_get_all_chat_messages(test_db, temp_db_path, db_with_users):
     """Test getting all chat messages across rooms."""
-    with patch.object(database, 'DB_PATH', temp_db_path):
+    with patch.object(database, "DB_PATH", temp_db_path):
         database.add_chat_message("testplayer", "Message 1", "spawn")
         database.add_chat_message("testadmin", "Message 2", "forest")
         database.add_chat_message("testplayer", "Message 3", "spawn")

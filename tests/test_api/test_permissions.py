@@ -11,15 +11,15 @@ All tests are pure unit tests with no external dependencies.
 """
 
 import pytest
-from mud_server.api.permissions import (
-    Role,
-    Permission,
-    has_permission,
-    get_role_hierarchy_level,
-    can_manage_role,
-    ROLE_PERMISSIONS
-)
 
+from mud_server.api.permissions import (
+    ROLE_PERMISSIONS,
+    Permission,
+    Role,
+    can_manage_role,
+    get_role_hierarchy_level,
+    has_permission,
+)
 
 # ============================================================================
 # ROLE ENUM TESTS
