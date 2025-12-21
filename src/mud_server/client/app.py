@@ -348,7 +348,7 @@ def send_command(command: str, session_state: dict) -> str:
 
         if response.status_code == 200:
             data = response.json()
-            return data["message"]
+            return str(data["message"])
         elif response.status_code == 401:
             session_state["logged_in"] = False
             return "Session expired. Please log in again."
@@ -393,7 +393,7 @@ def get_chat(session_state: dict) -> str:
 
         if response.status_code == 200:
             data = response.json()
-            return data["chat"]
+            return str(data["chat"])
         else:
             return "Failed to retrieve chat."
 

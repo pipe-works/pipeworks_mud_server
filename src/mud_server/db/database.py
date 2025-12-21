@@ -552,7 +552,8 @@ def get_player_inventory(username: str) -> list[str]:
     result = cursor.fetchone()
     conn.close()
     if result:
-        return json.loads(result[0])
+        inventory: list[str] = json.loads(result[0])
+        return inventory
     return []
 
 

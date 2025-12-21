@@ -221,7 +221,7 @@ class GameEngine:
             return False, "You are not in a valid room."
 
         can_move, destination = self.world.can_move(current_room, direction)
-        if not can_move:
+        if not can_move or destination is None:
             return False, f"You cannot move {direction} from here."
 
         # Update player room
@@ -560,7 +560,8 @@ class GameEngine:
             database.set_player_inventory(username, inventory)
 
         item = self.world.get_item(matching_item)
-        return True, f"You picked up the {item.name}."
+        item_name_display = item.name if item else matching_item
+        return True, f"You picked up the {item_name_display}."
 
     def drop_item(self, username: str, item_name: str) -> tuple[bool, str]:
         """
@@ -610,7 +611,8 @@ class GameEngine:
         database.set_player_inventory(username, inventory)
 
         item = self.world.get_item(matching_item)
-        return True, f"You dropped the {item.name}."
+        item_name_display = item.name if item else matching_item
+        return True, f"You dropped the {item_name_display}."
 
     def look(self, username: str) -> str:
         """

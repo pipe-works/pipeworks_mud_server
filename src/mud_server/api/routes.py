@@ -415,6 +415,8 @@ Note: Commands can be used with or without the / prefix
 
         # Get target user's role
         target_role = database.get_player_role(target_username)
+        if not target_role:
+            raise HTTPException(status_code=404, detail="Target user not found")
 
         # Prevent self-management (except for password changes in the future)
         if username == target_username and action != "change_password":
