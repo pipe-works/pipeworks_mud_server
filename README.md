@@ -116,6 +116,44 @@ Password: admin123
 
 ---
 
+## Documentation
+
+Comprehensive documentation is available both locally and online:
+
+### Online Documentation
+
+- **ReadTheDocs** (Coming Soon): https://pipeworks-mud-server.readthedocs.io/
+- Full searchable documentation with API reference
+- Auto-generated from code docstrings
+- Always up-to-date with the latest release
+
+### Local Documentation
+
+Build and view the documentation locally:
+
+```bash
+# Install documentation dependencies
+pip install -r requirements-docs.txt
+
+# Build documentation
+PYTHONPATH=src mkdocs build
+
+# Serve documentation locally
+PYTHONPATH=src mkdocs serve
+# Then visit http://localhost:8000
+```
+
+### Documentation Sections
+
+- **[Getting Started](documentation/getting-started/index.md)** - Installation, quick start, first steps
+- **[Design Vision](documentation/design/index.md)** - Core design pillars and philosophy
+- **[Architecture](documentation/architecture/index.md)** - Technical architecture and system design
+- **[Implementation](documentation/implementation/index.md)** - Code examples and implementation details
+- **[API Reference](documentation/api/index.md)** - Complete API documentation
+- **[Developer Guide](documentation/developer/testing.md)** - Testing, contributing, code style
+
+---
+
 ## Ollama Integration
 
 The Ollama tab provides AI model management and conversational interface for **Admin** and **Superuser** accounts only.
@@ -561,10 +599,18 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 
 ## Links
 
-- **Documentation**: [docs/README.md](docs/README.md)
-- **Developer Guide**: [CLAUDE.md](CLAUDE.md)
-- **Issue Tracker**: [GitHub Issues](https://github.com/aa-parky/pipeworks_mud_server/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/aa-parky/pipeworks_mud_server/discussions)
+- **Documentation**:
+  - [ReadTheDocs](https://pipeworks-mud-server.readthedocs.io/) (Coming Soon)
+  - [Local Docs](documentation/) - Full documentation source
+  - [Original Design Docs](docs/README.md) - Original design documentation
+- **Developer Resources**:
+  - [Claude Code Guide](CLAUDE.md) - AI-assisted development guide
+  - [API Documentation](documentation/api/index.md) - Auto-generated API reference
+  - [Testing Guide](documentation/developer/testing.md) - Testing and code quality
+- **Community**:
+  - [GitHub Repository](https://github.com/aa-parky/pipeworks_mud_server)
+  - [Issue Tracker](https://github.com/aa-parky/pipeworks_mud_server/issues)
+  - [Discussions](https://github.com/aa-parky/pipeworks_mud_server/discussions)
 
 ---
 
