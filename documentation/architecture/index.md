@@ -169,7 +169,7 @@ graph LR
 - No password complexity requirements
 - No email verification
 
-See [Security Design](../developer/security.md) for details.
+See Security Design documentation for details (coming soon).
 
 ## Performance
 

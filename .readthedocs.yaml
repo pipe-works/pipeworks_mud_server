@@ -13,9 +13,6 @@ build:
     post_create_environment:
       # Install dependencies
       - pip install -r requirements-docs.txt
-    post_build:
-      # Generate API reference
-      - mkdocs build --verbose --strict
 
 # Build documentation with MkDocs
 mkdocs:
