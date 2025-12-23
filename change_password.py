@@ -2,8 +2,9 @@
 """Change a user's password."""
 
 import sys
+
 from mud_server.db import database
-from mud_server.api.password import hash_password
+
 
 def change_password(username: str, new_password: str):
     """Change password for a user."""
@@ -23,6 +24,7 @@ def change_password(username: str, new_password: str):
     else:
         print(f"❌ Failed to change password for user '{username}'.")
         return False
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:

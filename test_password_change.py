@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 """Test password change functionality."""
 
-import requests
 import json
+
+import requests
 
 SERVER_URL = "http://localhost:8000"
 
+
 def test_password_change():
     """Test the complete password change flow."""
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("Testing Password Change Feature")
-    print("="*50)
+    print("=" * 50)
 
     # Step 1: Login with current password
     print("\n1. Logging in with current password (NewSecurePassword123)...")
     response = requests.post(
-        f"{SERVER_URL}/login",
-        json={"username": "admin", "password": "NewSecurePassword123"}
+        f"{SERVER_URL}/login", json={"username": "admin", "password": "NewSecurePassword123"}
     )
 
     if response.status_code != 200:
@@ -35,8 +36,8 @@ def test_password_change():
         json={
             "session_id": session_id,
             "old_password": "NewSecurePassword123",
-            "new_password": "AnotherNewPass456"
-        }
+            "new_password": "AnotherNewPass456",
+        },
     )
 
     print(f"Status Code: {response.status_code}")
@@ -51,8 +52,7 @@ def test_password_change():
     # Step 3: Try to login with old password (should fail)
     print("\n3. Testing old password (should fail)...")
     response = requests.post(
-        f"{SERVER_URL}/login",
-        json={"username": "admin", "password": "NewSecurePassword123"}
+        f"{SERVER_URL}/login", json={"username": "admin", "password": "NewSecurePassword123"}
     )
 
     if response.status_code == 401:
@@ -64,8 +64,7 @@ def test_password_change():
     # Step 4: Login with new password (should work)
     print("\n4. Testing new password (should work)...")
     response = requests.post(
-        f"{SERVER_URL}/login",
-        json={"username": "admin", "password": "AnotherNewPass456"}
+        f"{SERVER_URL}/login", json={"username": "admin", "password": "AnotherNewPass456"}
     )
 
     if response.status_code == 200:
@@ -82,8 +81,8 @@ def test_password_change():
         json={
             "session_id": response.json()["session_id"],
             "old_password": "WrongPassword",
-            "new_password": "YetAnotherPass789"
-        }
+            "new_password": "YetAnotherPass789",
+        },
     )
 
     if response.status_code == 401:
@@ -92,10 +91,11 @@ def test_password_change():
         print("❌ Validation failed!")
         return False
 
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("🎉 ALL PASSWORD CHANGE TESTS PASSED!")
-    print("="*50)
+    print("=" * 50)
     return True
+
 
 if __name__ == "__main__":
     test_password_change()

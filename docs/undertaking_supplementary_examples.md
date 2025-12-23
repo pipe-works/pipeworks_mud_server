@@ -848,7 +848,7 @@ Edge cases in item creation.
 
 ```sql
 -- Get a complete character profile
-SELECT 
+SELECT
     c.*,
     GROUP_CONCAT(q.name) as quirk_names,
     GROUP_CONCAT(f.name) as failing_names,
@@ -871,7 +871,7 @@ GROUP BY c.character_id;
 
 ```sql
 -- Get last 10 actions for a character
-SELECT 
+SELECT
     l.*,
     n.headline,
     n.body_text,
@@ -887,7 +887,7 @@ LIMIT 10;
 
 ```sql
 -- Get all items created by a specific character
-SELECT 
+SELECT
     i.*,
     GROUP_CONCAT(iq.name) as quirk_names
 FROM items i
@@ -904,14 +904,14 @@ ORDER BY i.created_date DESC;
 ```sql
 -- Get all rooms connected to a room
 WITH room_connections AS (
-    SELECT 
+    SELECT
         room_id,
         json_each.key as direction,
         json_each.value as connected_room_id
     FROM rooms, json_each(connected_rooms)
     WHERE room_id = 'room_riverside_bend'
 )
-SELECT 
+SELECT
     r.room_id,
     r.name,
     rc.direction,
@@ -925,7 +925,7 @@ JOIN rooms r ON r.room_id = rc.connected_room_id;
 
 ```sql
 -- Find all characters with "Panics When Watched" quirk
-SELECT 
+SELECT
     c.character_id,
     c.given_name,
     c.family_name,
@@ -939,7 +939,7 @@ ORDER BY c.reputation_score DESC;
 
 ```sql
 -- Get statistics for a character's recent actions
-SELECT 
+SELECT
     c.character_id,
     c.given_name,
     c.family_name,
@@ -968,10 +968,10 @@ Test: Character issuance produces valid, immutable characters
 
 def test_character_issuance():
     issuer = CharacterIssuer(db, library)
-    
+
     # Issue a character
     character = issuer.issue_character('player_001', 'female')
-    
+
     # Verify all required fields
     assert character['character_id'] is not None
     assert character['sex'] == 'female'
@@ -982,14 +982,14 @@ def test_character_issuance():
     assert len(character['failings']) >= 0
     assert len(character['useless_bits']) >= 1
     assert character['reputation']['score'] is not None
-    
+
     # Verify immutability (character is sealed)
     assert character['is_active'] == True
-    
+
     # Verify attributes are in valid range
     for attr_name, attr_value in character['attributes'].items():
         assert 1 <= attr_value <= 10, f"{attr_name} out of range: {attr_value}"
-    
+
     print("✓ Character issuance test passed")
 ```
 
@@ -1002,7 +1002,7 @@ Test: Action resolution produces consistent outcomes
 
 def test_action_resolution():
     engine = ResolutionEngine(db)
-    
+
     # Resolve an action
     ledger_entry, newspaper = engine.resolve_action(
         character_id='char_a7f2c9e1',
@@ -1011,23 +1011,23 @@ def test_action_resolution():
         items_used=['item_f3a8c2b9'],
         seed='test_seed_001'
     )
-    
+
     # Verify ledger entry
     assert ledger_entry['ledger_id'] is not None
     assert ledger_entry['outcome'] in ['success', 'partial_success', 'failure']
     assert 0.0 <= ledger_entry['blame_weight'] <= 1.0
     assert ledger_entry['interpretation'] in ['avoidable', 'inevitable', 'fortunate']
-    
+
     # Verify all axes have deviations
     for axis_name in ['timing', 'precision', 'stability', 'visibility', 'interpretability', 'recovery_cost']:
         assert axis_name in ledger_entry['deviations']
-    
+
     # Verify newspaper article
     assert newspaper['article_id'] is not None
     assert newspaper['headline'] is not None
     assert newspaper['body_text'] is not None
     assert newspaper['tone'] in ['gossipy', 'formal', 'sympathetic']
-    
+
     # Verify deterministic replay
     ledger_entry_2, _ = engine.resolve_action(
         character_id='char_a7f2c9e1',
@@ -1036,11 +1036,11 @@ def test_action_resolution():
         items_used=['item_f3a8c2b9'],
         seed='test_seed_001'
     )
-    
+
     # Same seed should produce same outcome
     assert ledger_entry['outcome'] == ledger_entry_2['outcome']
     assert ledger_entry['deviations'] == ledger_entry_2['deviations']
-    
+
     print("✓ Action resolution test passed")
 ```
 
@@ -1053,26 +1053,26 @@ Test: Item quirks interact correctly with character quirks
 
 def test_item_quirk_interaction():
     forge = ItemForge(db, library)
-    
+
     # Create an item with delayed feedback
     item = forge.create_item(
         item_type='fishing_pole',
         creator_character_id='char_a7f2c9e1',
         custom_quirks=['item_quirk_delayed_feedback', 'item_quirk_loose_reel']
     )
-    
+
     # Verify quirks are assigned
     assert len(item['quirks']) >= 2
     assert any(q['quirk_id'] == 'item_quirk_delayed_feedback' for q in item['quirks'])
-    
+
     # Verify maker profile is captured
     assert item['maker_profile']['maker_attributes'] is not None
     assert item['maker_profile']['maker_quirks'] is not None
-    
+
     # Verify item is usable
     assert item['is_available'] == True
     assert item['current_location'] is None  # Not yet placed in world
-    
+
     print("✓ Item quirk interaction test passed")
 ```
 

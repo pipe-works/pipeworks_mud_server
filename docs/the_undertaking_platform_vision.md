@@ -110,15 +110,15 @@ The two proof-of-concepts are not separate ideas; they are a single, cohesive ar
 |                   Player Interface                   |
 |           (Web Client, Terminal, etc.)             |
 +-------------------------+--------------------------+
-                          |                          
+                          |
                           | HTTP/WebSockets
-                          |                          
+                          |
 +-------------------------v--------------------------+
 |                 API Gateway (FastAPI)                |
 | (Handles all incoming player requests)             |
 +-------------------------+--------------------------+
-                          |                          
-        +-----------------+-----------------+        
+                          |
+        +-----------------+-----------------+
         |                                 |
 +-------v----------+             +----------v-------+
 | The Undertaking  |             | The Creator's    |

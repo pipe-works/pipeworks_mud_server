@@ -290,4 +290,3 @@ A **procedural accountability system** where:
 - Goblins are specific, flawed, and yours
 
 It is a game about learning to survive as yourself, not about becoming powerful.
-

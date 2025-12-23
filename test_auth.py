@@ -1,39 +1,41 @@
 #!/usr/bin/env python3
 """Test authentication system."""
 
-import requests
 import json
+
+import requests
 
 SERVER_URL = "http://localhost:8000"
 
+
 def test_registration():
     """Test user registration."""
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("Testing Registration")
-    print("="*50)
+    print("=" * 50)
 
     response = requests.post(
         f"{SERVER_URL}/register",
         json={
             "username": "testplayer",
             "password": "testpass123",
-            "password_confirm": "testpass123"
-        }
+            "password_confirm": "testpass123",
+        },
     )
 
     print(f"Status Code: {response.status_code}")
     print(f"Response: {json.dumps(response.json(), indent=2)}")
     return response.status_code == 200
 
+
 def test_login(username, password):
     """Test user login."""
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print(f"Testing Login: {username}")
-    print("="*50)
+    print("=" * 50)
 
     response = requests.post(
-        f"{SERVER_URL}/login",
-        json={"username": username, "password": password}
+        f"{SERVER_URL}/login", json={"username": username, "password": password}
     )
 
     print(f"Status Code: {response.status_code}")
@@ -44,28 +46,28 @@ def test_login(username, password):
         return data.get("session_id"), data.get("role")
     return None, None
 
+
 def test_failed_login():
     """Test login with wrong password."""
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("Testing Failed Login (wrong password)")
-    print("="*50)
+    print("=" * 50)
 
     response = requests.post(
-        f"{SERVER_URL}/login",
-        json={"username": "testplayer", "password": "wrongpassword"}
+        f"{SERVER_URL}/login", json={"username": "testplayer", "password": "wrongpassword"}
     )
 
     print(f"Status Code: {response.status_code}")
     print(f"Response: {json.dumps(response.json(), indent=2)}")
     return response.status_code == 401
 
+
 def test_game_command(session_id, command):
     """Test a game command."""
     print(f"\nTesting command: {command}")
 
     response = requests.post(
-        f"{SERVER_URL}/command",
-        json={"session_id": session_id, "command": command}
+        f"{SERVER_URL}/command", json={"session_id": session_id, "command": command}
     )
 
     print(f"Status Code: {response.status_code}")
@@ -74,6 +76,7 @@ def test_game_command(session_id, command):
         print(f"Message: {data['message'][:100]}...")
     else:
         print(f"Error: {response.json()}")
+
 
 def test_status(session_id):
     """Test status endpoint."""
@@ -88,9 +91,10 @@ def test_status(session_id):
         print(f"Active Players: {data['active_players']}")
         print(f"Inventory: {data['inventory']}")
 
+
 if __name__ == "__main__":
     print("\n🔐 AUTHENTICATION SYSTEM TEST")
-    print("="*50)
+    print("=" * 50)
 
     # Test 1: Register new player
     success = test_registration()
@@ -126,6 +130,6 @@ if __name__ == "__main__":
     else:
         print("\n❌ Failed login test didn't work as expected!")
 
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("🎉 AUTHENTICATION TESTS COMPLETE")
-    print("="*50)
+    print("=" * 50)
