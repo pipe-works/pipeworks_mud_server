@@ -2,8 +2,8 @@
 
 > **A procedural, ledger-driven multiplayer interactive fiction system where characters are issued, not built, and failure is recorded as data.**
 
-[![Test and Lint](https://github.com/aa-parky/pipeworks_mud_server/actions/workflows/test-and-lint.yml/badge.svg)](https://github.com/aa-parky/pipeworks_mud_server/actions/workflows/test-and-lint.yml)
-[![codecov](https://codecov.io/gh/aa-parky/pipeworks_mud_server/branch/main/graph/badge.svg)](https://codecov.io/gh/aa-parky/pipeworks_mud_server)
+[![Test and Lint](https://github.com/pipe-works/pipeworks_mud_server/actions/workflows/test-and-lint.yml/badge.svg)](https://github.com/pipe-works/pipeworks_mud_server/actions/workflows/test-and-lint.yml)
+[![codecov](https://codecov.io/gh/pipe-works/pipeworks_mud_server/branch/main/graph/badge.svg)](https://codecov.io/gh/pipe-works/pipeworks_mud_server)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
