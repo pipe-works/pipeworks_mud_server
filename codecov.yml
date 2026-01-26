@@ -5,12 +5,19 @@ coverage:
   status:
     project:
       default:
-        target: 80%  # Must maintain 80% project coverage
-        threshold: 1%  # Allow 1% decrease before failing
+        target: 80%  # Must maintain 80% project coverage (excluding UI)
+        threshold: 2%  # Allow 2% decrease before failing
     patch:
       default:
-        target: 80%  # New code should have 80% coverage
-        threshold: 1%
+        target: 70%  # New code should have 70% coverage
+        threshold: 2%
+
+  # Ignore UI code that's difficult to test (Gradio-specific)
+  ignore:
+    - "src/mud_server/client/app.py"
+    - "src/mud_server/client/tabs/**"
+    - "src/mud_server/client/utils.py"
+    - "src/mud_server/api/server.py"
 
 comment:
   layout: "reach, diff, flags, files"

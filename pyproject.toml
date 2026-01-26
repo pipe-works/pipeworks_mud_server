@@ -151,6 +151,11 @@ omit = [
     "*/test_*.py",
     "*/__pycache__/*",
     "*/venv/*",
+    # UI entry points (difficult to test, Gradio-specific)
+    "*/client/app.py",
+    "*/client/tabs/*",
+    "*/client/utils.py",
+    "*/api/server.py",
 ]
 
 [tool.coverage.report]
