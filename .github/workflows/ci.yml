@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, develop]
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   ci:
     uses: pipe-works/.github/.github/workflows/reusable-python-ci.yml@main
