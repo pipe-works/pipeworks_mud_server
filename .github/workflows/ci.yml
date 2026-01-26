@@ -14,6 +14,6 @@ jobs:
       python-versions: '["3.12", "3.13"]'
       coverage-threshold: 80
       run-security: true
-      run-docs: false
+      run-docs: true
       requires-models: true
     secrets: inherit
