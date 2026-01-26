@@ -16,8 +16,7 @@ def create():
         gr.Tab: Configured Help tab component
     """
     with gr.Tab("Help", visible=False) as help_tab:
-        gr.Markdown(
-            """
+        gr.Markdown("""
 # MUD Client Help
 
 ## Getting Started
@@ -63,7 +62,6 @@ Each zone contains items you can collect.
 - Chat messages are visible to all players in the same room
 - Yells can be heard from any room
 - You can pick up items and carry them in your inventory
-            """
-        )
+            """)
 
     return help_tab

@@ -79,8 +79,7 @@ def test_db(temp_db_path: Path) -> Generator[None, None, None]:
         cursor = conn.cursor()
 
         # Create tables (same as init_database but without default admin)
-        cursor.execute(
-            """
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS players (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
@@ -92,11 +91,9 @@ def test_db(temp_db_path: Path) -> Generator[None, None, None]:
                 last_login TIMESTAMP,
                 is_active INTEGER DEFAULT 1
             )
-        """
-        )
+        """)
 
-        cursor.execute(
-            """
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS chat_messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL,
@@ -105,11 +102,9 @@ def test_db(temp_db_path: Path) -> Generator[None, None, None]:
                 recipient TEXT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """
-        )
+        """)
 
-        cursor.execute(
-            """
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
@@ -117,8 +112,7 @@ def test_db(temp_db_path: Path) -> Generator[None, None, None]:
                 connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """
-        )
+        """)
 
         conn.commit()
         conn.close()

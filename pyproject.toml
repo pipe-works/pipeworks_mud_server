@@ -33,9 +33,10 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "pytest-mock>=3.14.0",
     "httpx>=0.28.1",
-    "ruff>=0.8.4",
-    "black>=24.10.0",
-    "mypy>=1.13.0",
+    "ruff>=0.14.0",
+    "black==26.1.0",  # PINNED org-wide to prevent formatting drift
+    "mypy>=1.19.0",
+    "bandit[toml]>=1.7.0",
 ]
 
 [tool.black]
@@ -122,9 +123,10 @@ addopts = [
 ]
 
 markers = [
-    "unit: Unit tests (fast, isolated, mocked dependencies)",
-    "integration: Integration tests (database, external services)",
-    "slow: Slow running tests",
+    "unit: Fast unit tests (isolated, mocked dependencies)",
+    "integration: Integration tests requiring external resources (database, services)",
+    "slow: Tests that take >5 seconds (deselect with '-m \"not slow\"')",
+    "requires_model: Tests requiring ML model downloads (deselect with '-m \"not requires_model\"')",
     "api: API endpoint tests",
     "db: Database tests",
     "auth: Authentication and authorization tests",
@@ -153,3 +155,7 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "@abstractmethod",
 ]
+
+[tool.bandit]
+exclude_dirs = ["tests", "docs", "documentation"]
+skips = ["B101"]  # Skip assert_used check (assertions are fine in tests)

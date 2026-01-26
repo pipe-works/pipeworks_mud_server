@@ -105,8 +105,7 @@ def init_database():
     # CREATE PLAYERS TABLE
     # Stores user accounts with authentication and game state
     # ========================================================================
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS players (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,           -- Unique username (case-sensitive)
@@ -118,15 +117,13 @@ def init_database():
             last_login TIMESTAMP,
             is_active INTEGER DEFAULT 1              -- Account status (1=active, 0=banned)
         )
-    """
-    )
+    """)
 
     # ========================================================================
     # CREATE CHAT_MESSAGES TABLE
     # Stores all chat messages with room and optional recipient (for whispers)
     # ========================================================================
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS chat_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,        -- Message sender
@@ -135,15 +132,13 @@ def init_database():
             recipient TEXT,                -- NULL for public, username for whispers
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """
-    )
+    """)
 
     # ========================================================================
     # CREATE SESSIONS TABLE
     # Tracks active login sessions with activity timestamps
     # ========================================================================
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,  -- One session per player (enforced by UNIQUE)
@@ -151,8 +146,7 @@ def init_database():
             connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """
-    )
+    """)
 
     # Commit table creation
     conn.commit()
@@ -413,13 +407,11 @@ def get_all_players() -> list[dict[str, Any]]:
     """
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        """
+    cursor.execute("""
         SELECT username, role, created_at, last_login, is_active
         FROM players
         ORDER BY created_at DESC
-    """
-    )
+    """)
     results = cursor.fetchall()
     conn.close()
 
@@ -725,14 +717,12 @@ def get_all_players_detailed() -> list[dict[str, Any]]:
     """Get detailed player list including password hash prefix (for admin database viewer)."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        """
+    cursor.execute("""
         SELECT id, username, password_hash, role, current_room, inventory,
                created_at, last_login, is_active
         FROM players
         ORDER BY created_at DESC
-    """
-    )
+    """)
     results = cursor.fetchall()
     conn.close()
 
@@ -758,13 +748,11 @@ def get_all_sessions() -> list[dict[str, Any]]:
     """Get all active sessions."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        """
+    cursor.execute("""
         SELECT id, username, session_id, connected_at, last_activity
         FROM sessions
         ORDER BY connected_at DESC
-    """
-    )
+    """)
     results = cursor.fetchall()
     conn.close()
 

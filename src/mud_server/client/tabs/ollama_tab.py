@@ -115,8 +115,7 @@ def create(session_state):
 
             # Collapsible documentation section
             with gr.Accordion("Documentation & Commands", open=False):
-                gr.Markdown(
-                    """
+                gr.Markdown("""
 Control and interact with your Ollama server. This tab allows you to manage AI models,
 run inference, and monitor running models.
 
@@ -130,8 +129,7 @@ run inference, and monitor running models.
 **Conversational Mode:**
 After running a model with `/run`, you can continue chatting naturally without the `/run` prefix.
 The system will remember your active model until you start a new `/run` command.
-                    """
-                )
+                    """)
 
             # Server URL Input
             gr.Markdown("#### Server Configuration")
