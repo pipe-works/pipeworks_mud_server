@@ -128,6 +128,7 @@ addopts = [
     "--cov=mud_server",
     "--cov-report=term-missing",
     "--cov-report=html",
+    "--cov-report=xml",
     "--cov-fail-under=80",
 ]
 
