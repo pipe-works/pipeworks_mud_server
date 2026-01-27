@@ -8,6 +8,7 @@ version = "0.1.1"
 description = "A Python-based MUD (Multi-User Dungeon) server with web interface"
 readme = "README.md"
 requires-python = ">=3.12"
+license = {text = "GPL-3.0-or-later"}
 
 dependencies = [
     "gradio==6.2.0",
