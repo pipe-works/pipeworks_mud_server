@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.1.1...mud_server-v0.1.2) (2026-01-27)
+
+
+### Bug Fixes
+
+* **packaging:** exclude __pycache__ from distribution ([#7](https://github.com/pipe-works/pipeworks_mud_server/issues/7)) ([1048c66](https://github.com/pipe-works/pipeworks_mud_server/commit/1048c6653aad4e3ba935e46f74267b6f2c0bbfa7))
+
 ## [0.1.1](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.1.0...mud_server-v0.1.1) (2026-01-26)
 
 
