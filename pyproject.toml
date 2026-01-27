@@ -49,6 +49,13 @@ docs = [
     "pymdown-extensions>=10.12",
 ]
 
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["tests*", "docs*", "documentation*", "*__pycache__*"]
+
 [tool.black]
 line-length = 100
 target-version = ['py312']
