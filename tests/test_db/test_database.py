@@ -91,9 +91,7 @@ def test_init_database_no_superuser_without_env_vars(temp_db_path):
 def test_init_database_skips_short_password(temp_db_path, capsys):
     """Test that init_database skips superuser creation if password is too short."""
     with patch.object(database, "DB_PATH", temp_db_path):
-        with patch.dict(
-            "os.environ", {"MUD_ADMIN_USER": "admin", "MUD_ADMIN_PASSWORD": "short"}
-        ):
+        with patch.dict("os.environ", {"MUD_ADMIN_USER": "admin", "MUD_ADMIN_PASSWORD": "short"}):
             database.init_database()
 
             # No admin should be created due to short password
