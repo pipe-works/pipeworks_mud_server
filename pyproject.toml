@@ -29,14 +29,21 @@ Issues = "https://github.com/pipe-works/pipeworks_mud_server/issues"
 
 [project.scripts]
 mud-server = "mud_server.cli:main"
+pipeworks-admin-tui = "mud_server.admin_tui:main"
 
 [project.optional-dependencies]
+admin-tui = [
+    "textual>=0.47.0",
+    "httpx>=0.28.1",
+]
 dev = [
     "pytest>=8.3.4",
     "pytest-cov>=6.0.0",
     "pytest-asyncio>=0.24.0",
     "pytest-mock>=3.14.0",
     "httpx>=0.28.1",
+    "respx>=0.22.0",
+    "textual>=0.47.0",
     "ruff>=0.14.0",
     "black==26.1.0",  # PINNED org-wide to prevent formatting drift
     "mypy>=1.19.0",
@@ -119,6 +126,7 @@ strict_equality = true
 module = [
     "gradio.*",
     "passlib.*",
+    "textual.*",
 ]
 ignore_missing_imports = true
 
@@ -160,10 +168,12 @@ omit = [
     "*/test_*.py",
     "*/__pycache__/*",
     "*/venv/*",
-    # UI entry points (difficult to test, Gradio-specific)
-    "*/client/app.py",
-    "*/client/tabs/*",
-    "*/client/utils.py",
+    # UI entry points (difficult to test, framework-specific)
+    "*/admin_gradio/app.py",
+    "*/admin_gradio/tabs/*",
+    "*/admin_gradio/utils.py",
+    "*/admin_tui/app.py",
+    "*/admin_tui/screens/*",
     "*/api/server.py",
 ]
 

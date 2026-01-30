@@ -45,14 +45,14 @@ class TestRunUiClient:
 
     def test_calls_launch_client_with_host_and_port(self):
         """Should pass host and port to launch_client."""
-        with patch("mud_server.client.app.launch_client") as mock_launch:
+        with patch("mud_server.admin_gradio.app.launch_client") as mock_launch:
             _run_ui_client(host="127.0.0.1", port=8080)
 
             mock_launch.assert_called_once_with(host="127.0.0.1", port=8080)
 
     def test_calls_launch_client_with_none_values(self):
         """Should handle None values for host and port."""
-        with patch("mud_server.client.app.launch_client") as mock_launch:
+        with patch("mud_server.admin_gradio.app.launch_client") as mock_launch:
             _run_ui_client(host=None, port=None)
 
             mock_launch.assert_called_once_with(host=None, port=None)

@@ -1,0 +1,403 @@
+"""
+Tests for API client module.
+
+This module tests the AdminAPIClient class, including authentication,
+session management, and API operations. Uses respx for mocking HTTP requests.
+"""
+
+import pytest
+import respx
+from httpx import Response
+
+from mud_server.admin_tui.api.client import (
+    AdminAPIClient,
+    APIError,
+    AuthenticationError,
+    SessionState,
+)
+from mud_server.admin_tui.config import Config
+
+# =============================================================================
+# FIXTURES
+# =============================================================================
+
+
+@pytest.fixture
+def config() -> Config:
+    """Create a test configuration."""
+    return Config(server_url="http://test-server:8000", timeout=10.0)
+
+
+@pytest.fixture
+async def client(config: Config) -> AdminAPIClient:
+    """Create an API client for testing."""
+    async with AdminAPIClient(config) as client:
+        yield client
+
+
+# =============================================================================
+# SESSION STATE TESTS
+# =============================================================================
+
+
+class TestSessionState:
+    """Tests for SessionState dataclass."""
+
+    def test_initial_state_not_authenticated(self):
+        """Test that initial state is not authenticated."""
+        state = SessionState()
+
+        assert state.session_id is None
+        assert state.username is None
+        assert state.role is None
+        assert state.is_authenticated is False
+        assert state.is_admin is False
+        assert state.is_superuser is False
+
+    def test_authenticated_state(self):
+        """Test authenticated session state."""
+        state = SessionState(
+            session_id="abc123",
+            username="admin",
+            role="admin",
+        )
+
+        assert state.is_authenticated is True
+        assert state.is_admin is True
+        assert state.is_superuser is False
+
+    def test_superuser_state(self):
+        """Test superuser session state."""
+        state = SessionState(
+            session_id="abc123",
+            username="superadmin",
+            role="superuser",
+        )
+
+        assert state.is_authenticated is True
+        assert state.is_admin is True  # Superuser is also admin
+        assert state.is_superuser is True
+
+    def test_player_not_admin(self):
+        """Test that player role is not admin."""
+        state = SessionState(
+            session_id="abc123",
+            username="player1",
+            role="player",
+        )
+
+        assert state.is_authenticated is True
+        assert state.is_admin is False
+        assert state.is_superuser is False
+
+    def test_clear_state(self):
+        """Test clearing session state."""
+        state = SessionState(
+            session_id="abc123",
+            username="admin",
+            role="admin",
+        )
+
+        state.clear()
+
+        assert state.session_id is None
+        assert state.username is None
+        assert state.role is None
+        assert state.is_authenticated is False
+
+
+# =============================================================================
+# API CLIENT INITIALIZATION TESTS
+# =============================================================================
+
+
+class TestAdminAPIClientInit:
+    """Tests for AdminAPIClient initialization."""
+
+    def test_client_requires_context_manager(self, config: Config):
+        """Test that client must be used as context manager."""
+        client = AdminAPIClient(config)
+
+        with pytest.raises(RuntimeError, match="async context manager"):
+            _ = client.http_client
+
+    @pytest.mark.asyncio
+    async def test_client_context_manager(self, config: Config):
+        """Test client works as async context manager."""
+        async with AdminAPIClient(config) as client:
+            # Should not raise
+            assert client.http_client is not None
+
+    @pytest.mark.asyncio
+    async def test_client_has_initial_session_state(self, client: AdminAPIClient):
+        """Test client has initial unauthenticated session state."""
+        assert client.session.is_authenticated is False
+
+
+# =============================================================================
+# LOGIN TESTS
+# =============================================================================
+
+
+class TestAdminAPIClientLogin:
+    """Tests for login functionality."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_successful_login(self, client: AdminAPIClient):
+        """Test successful login updates session state."""
+        # Mock successful login response
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={
+                    "message": "Welcome, admin!",
+                    "session_id": "test-session-123",
+                    "role": "admin",
+                },
+            )
+        )
+
+        result = await client.login("admin", "password123")
+
+        # Check response
+        assert result["message"] == "Welcome, admin!"
+        assert result["session_id"] == "test-session-123"
+        assert result["role"] == "admin"
+
+        # Check session state updated
+        assert client.session.is_authenticated is True
+        assert client.session.session_id == "test-session-123"
+        assert client.session.username == "admin"
+        assert client.session.role == "admin"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_login_invalid_credentials(self, client: AdminAPIClient):
+        """Test login with invalid credentials raises AuthenticationError."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                401,
+                json={"detail": "Invalid username or password"},
+            )
+        )
+
+        with pytest.raises(AuthenticationError) as exc_info:
+            await client.login("admin", "wrongpassword")
+
+        assert exc_info.value.status_code == 401
+        assert "Invalid username or password" in exc_info.value.detail
+
+        # Session should remain unauthenticated
+        assert client.session.is_authenticated is False
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_login_server_error(self, client: AdminAPIClient):
+        """Test login with server error raises APIError."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                500,
+                json={"detail": "Internal server error"},
+            )
+        )
+
+        with pytest.raises(APIError) as exc_info:
+            await client.login("admin", "password123")
+
+        assert exc_info.value.status_code == 500
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_login_default_role(self, client: AdminAPIClient):
+        """Test login defaults to player role if not specified."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={
+                    "message": "Welcome!",
+                    "session_id": "test-session-123",
+                    # No role specified
+                },
+            )
+        )
+
+        await client.login("player", "password123")
+
+        assert client.session.role == "player"
+
+
+# =============================================================================
+# LOGOUT TESTS
+# =============================================================================
+
+
+class TestAdminAPIClientLogout:
+    """Tests for logout functionality."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_successful_logout(self, client: AdminAPIClient):
+        """Test successful logout clears session state."""
+        # First login
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        # Mock logout
+        respx.post("http://test-server:8000/logout").mock(
+            return_value=Response(200, json={"message": "Logged out"})
+        )
+
+        result = await client.logout()
+
+        assert result is True
+        assert client.session.is_authenticated is False
+
+    @pytest.mark.asyncio
+    async def test_logout_when_not_authenticated(self, client: AdminAPIClient):
+        """Test logout when not authenticated returns False."""
+        result = await client.logout()
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_logout_clears_state_even_on_error(self, client: AdminAPIClient):
+        """Test logout clears local state even if server request fails."""
+        # First login
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        # Mock logout failure
+        respx.post("http://test-server:8000/logout").mock(
+            return_value=Response(500, json={"detail": "Server error"})
+        )
+
+        result = await client.logout()
+
+        # Should still return True and clear local state
+        assert result is True
+        assert client.session.is_authenticated is False
+
+
+# =============================================================================
+# HEALTH CHECK TESTS
+# =============================================================================
+
+
+class TestAdminAPIClientHealth:
+    """Tests for health check functionality."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_health_success(self, client: AdminAPIClient):
+        """Test successful health check."""
+        respx.get("http://test-server:8000/health").mock(
+            return_value=Response(
+                200,
+                json={"status": "ok", "active_players": 5},
+            )
+        )
+
+        health = await client.get_health()
+
+        assert health["status"] == "ok"
+        assert health["active_players"] == 5
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_health_server_down(self, client: AdminAPIClient):
+        """Test health check when server returns error."""
+        respx.get("http://test-server:8000/health").mock(
+            return_value=Response(503, json={"detail": "Service unavailable"})
+        )
+
+        with pytest.raises(APIError) as exc_info:
+            await client.get_health()
+
+        assert exc_info.value.status_code == 503
+
+
+# =============================================================================
+# AUTHENTICATION REQUIRED TESTS
+# =============================================================================
+
+
+class TestAdminAPIClientAuthRequired:
+    """Tests for methods that require authentication."""
+
+    @pytest.mark.asyncio
+    async def test_get_players_requires_auth(self, client: AdminAPIClient):
+        """Test get_players raises error when not authenticated."""
+        with pytest.raises(AuthenticationError, match="Not authenticated"):
+            await client.get_players()
+
+    @pytest.mark.asyncio
+    async def test_get_sessions_requires_auth(self, client: AdminAPIClient):
+        """Test get_sessions raises error when not authenticated."""
+        with pytest.raises(AuthenticationError, match="Not authenticated"):
+            await client.get_sessions()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_players_permission_denied(self, client: AdminAPIClient):
+        """Test get_players with insufficient permissions."""
+        # Login as player (not admin)
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "player"},
+            )
+        )
+        await client.login("player", "password")
+
+        # Mock permission denied response
+        respx.get("http://test-server:8000/admin/database/players").mock(
+            return_value=Response(403, json={"detail": "Forbidden"})
+        )
+
+        with pytest.raises(AuthenticationError) as exc_info:
+            await client.get_players()
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_players_success(self, client: AdminAPIClient):
+        """Test successful get_players call."""
+        # Login as admin
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        # Mock players response
+        respx.get("http://test-server:8000/admin/database/players").mock(
+            return_value=Response(
+                200,
+                json={
+                    "players": [
+                        {"username": "player1", "role": "player"},
+                        {"username": "admin", "role": "admin"},
+                    ]
+                },
+            )
+        )
+
+        players = await client.get_players()
+
+        assert len(players) == 2
+        assert players[0]["username"] == "player1"
