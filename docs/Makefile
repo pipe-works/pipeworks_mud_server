@@ -1,18 +1,19 @@
-# Makefile wrapper for MkDocs documentation
-# This allows the docs build to work with the pipe-works CI workflow
-# which expects a Sphinx-style "make html" command
+# Minimal makefile for Sphinx documentation
 
-.PHONY: help html clean
+# You can set these variables from the command line, and also
+# from the environment for the first two.
+SPHINXOPTS    ?=
+SPHINXBUILD   ?= sphinx-build
+SOURCEDIR     = source
+BUILDDIR      = build
 
+# Put it first so that "make" without argument is like "make help".
 help:
-	@echo "Please use 'make <target>' where <target> is one of"
-	@echo "  html       to build documentation using MkDocs"
-	@echo "  clean      to remove built documentation"
+	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
-html:
-	@echo "Building documentation with MkDocs..."
-	cd .. && mkdocs build
+.PHONY: help Makefile
 
-clean:
-	@echo "Cleaning built documentation..."
-	cd .. && rm -rf site/
+# Catch-all target: route all unknown targets to Sphinx using the new
+# "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
+%: Makefile
+	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)

@@ -1,0 +1,274 @@
+Architecture
+============
+
+Technical architecture and system design of PipeWorks MUD Server.
+
+Overview
+--------
+
+PipeWorks MUD Server uses a modern three-tier architecture:
+
+* **FastAPI backend** - RESTful API server
+* **Gradio frontend** - Web-based client interface
+* **SQLite database** - Persistent data storage
+
+All components are written in Python 3.12+ using modern best practices.
+
+Three-Tier Design
+-----------------
+
+::
+
+    ┌─────────────────────────────────────────────────────────────┐
+    │                    Gradio Web Interface                      │
+    │                     (Client Layer)                           │
+    │              http://localhost:7860                           │
+    └────────────────────────┬────────────────────────────────────┘
+                             │ HTTP/HTTPS
+                             ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │                    FastAPI REST API                          │
+    │                    (Server Layer)                            │
+    │              http://localhost:8000                           │
+    └────────────────────────┬────────────────────────────────────┘
+                             │
+            ┌────────────────┴────────────────┐
+            ▼                                 ▼
+    ┌──────────────────┐           ┌──────────────────┐
+    │  Game Engine     │           │  SQLite Database │
+    │  (Core Layer)    │◄──────────┤  (Persistence)   │
+    │                  │           │                  │
+    │ - World/Rooms    │           │ - Players        │
+    │ - Items          │           │ - Sessions       │
+    │ - Actions        │           │ - Chat Messages  │
+    └──────────────────┘           └──────────────────┘
+
+Modular Client Architecture
+----------------------------
+
+The Gradio client uses a fully modular design::
+
+    src/mud_server/client/
+    ├── app.py                    # Main entry point (~180 lines)
+    ├── api/                      # API client layer
+    │   ├── base.py              # BaseAPIClient - common HTTP patterns
+    │   ├── auth.py              # Authentication operations
+    │   ├── game.py              # Game operations
+    │   ├── settings.py          # Settings and server control
+    │   ├── admin.py             # Admin operations
+    │   └── ollama.py            # Ollama AI integration
+    ├── ui/                       # UI utilities
+    │   ├── validators.py        # Input validation (100% coverage)
+    │   └── state.py             # Gradio state builders
+    ├── tabs/                     # Tab modules
+    │   ├── login_tab.py         # Login interface
+    │   ├── register_tab.py      # Registration interface
+    │   ├── game_tab.py          # Main gameplay interface
+    │   ├── settings_tab.py      # Settings and server control
+    │   ├── database_tab.py      # Admin database viewer
+    │   ├── ollama_tab.py        # AI model management
+    │   └── help_tab.py          # Help documentation
+    ├── utils.py                  # Shared utilities
+    └── static/styles.css        # Centralized CSS
+
+**Benefits:**
+
+* Clear separation between API logic, validation, and UI
+* 100% test coverage on API and UI utility modules (191 tests)
+* API clients work outside Gradio (CLI tools, tests, scripts)
+* Easy to extend with new features or tabs
+
+System Components
+-----------------
+
+Backend (FastAPI)
+~~~~~~~~~~~~~~~~~
+
+Located in ``src/mud_server/api/``:
+
+* ``server.py`` - App initialization, CORS, routing
+* ``routes.py`` - All API endpoints
+* ``models.py`` - Pydantic request/response models
+* ``auth.py`` - Session management
+* ``password.py`` - Bcrypt password hashing
+* ``permissions.py`` - Role-based access control
+
+Game Engine
+~~~~~~~~~~~
+
+Located in ``src/mud_server/core/``:
+
+* ``engine.py`` - GameEngine class with all game logic
+* ``world.py`` - World, Room, Item dataclasses
+
+Database Layer
+~~~~~~~~~~~~~~
+
+Located in ``src/mud_server/db/``:
+
+* ``database.py`` - SQLite operations, schema, CRUD
+
+Data Flow
+---------
+
+Request Flow:
+
+1. **Client** - User interacts with Gradio interface
+2. **API Call** - Client sends HTTP request to FastAPI
+3. **Session Validation** - Server validates session and permissions
+4. **Command Parsing** - Server parses command and arguments
+5. **Game Logic** - Engine executes command
+6. **Database** - Engine reads/writes to SQLite
+7. **Response** - Server returns result to client
+8. **Display** - Client updates interface
+
+Technology Stack
+----------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 20 60
+
+   * - Component
+     - Technology
+     - Purpose
+   * - Backend
+     - FastAPI 0.125+
+     - REST API framework
+   * - Frontend
+     - Gradio 6.2+
+     - Web interface
+   * - Server
+     - Uvicorn 0.38+
+     - ASGI server
+   * - Database
+     - SQLite 3
+     - Data persistence
+   * - Auth
+     - Passlib + Bcrypt
+     - Password hashing
+   * - Testing
+     - pytest 8.3+
+     - Test framework
+   * - Linting
+     - Ruff 0.8+
+     - Code quality
+   * - Formatting
+     - Black 24.10+
+     - Code style
+   * - Type Checking
+     - Mypy 1.13+
+     - Static analysis
+
+Key Design Patterns
+-------------------
+
+Session Management
+~~~~~~~~~~~~~~~~~~
+
+* UUID-based sessions stored in memory and database
+* Session tuples: ``(username: str, role: str)``
+* Activity tracking updated on each API call
+* Validation decorator: ``@validate_session()``
+
+Role-Based Access Control
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Four roles with hierarchical permissions:
+
+* **Player** - Basic gameplay
+* **WorldBuilder** - Player + content creation
+* **Admin** - WorldBuilder + user management
+* **Superuser** - Admin + role management, full access
+
+Command Pattern
+~~~~~~~~~~~~~~~
+
+* Command parsing splits into ``cmd`` and ``args``
+* Router delegates to appropriate engine method
+* Response model: ``CommandResponse`` with success/message
+* Error handling via HTTP exceptions
+
+Repository Pattern
+~~~~~~~~~~~~~~~~~~
+
+* Database layer isolated in ``database.py``
+* CRUD operations as separate functions
+* JSON serialization for complex types
+* Connection management via context managers
+
+Database Schema
+---------------
+
+Players Table
+~~~~~~~~~~~~~
+
+* ``username`` (TEXT, PRIMARY KEY)
+* ``password_hash`` (TEXT)
+* ``role`` (TEXT) - Player, WorldBuilder, Admin, Superuser
+* ``current_room`` (TEXT) - Current location
+* ``inventory`` (TEXT) - JSON array of item IDs
+* ``created_at`` (TIMESTAMP)
+* ``last_login`` (TIMESTAMP)
+
+Sessions Table
+~~~~~~~~~~~~~~
+
+* ``session_id`` (TEXT, PRIMARY KEY) - UUID
+* ``username`` (TEXT)
+* ``role`` (TEXT)
+* ``created_at`` (TIMESTAMP)
+* ``last_activity`` (TIMESTAMP)
+
+Chat Messages Table
+~~~~~~~~~~~~~~~~~~~~
+
+* ``id`` (INTEGER, PRIMARY KEY)
+* ``username`` (TEXT)
+* ``message`` (TEXT)
+* ``room_id`` (TEXT)
+* ``message_type`` (TEXT) - say, yell, whisper
+* ``target_username`` (TEXT) - for whispers
+* ``timestamp`` (TIMESTAMP)
+
+Security Considerations
+-----------------------
+
+Authentication
+~~~~~~~~~~~~~~
+
+* Password hashing: Bcrypt via passlib (intentionally slow)
+* Session IDs: UUID v4 (hard to guess)
+* Session validation on every API call
+* Role tracking in sessions
+
+Known Limitations
+~~~~~~~~~~~~~~~~~
+
+* Sessions not persisted (lost on restart)
+* No session expiration time
+* No rate limiting
+* No password complexity requirements
+* No email verification
+
+Performance
+-----------
+
+Current Capacity
+~~~~~~~~~~~~~~~~
+
+* ~50-100 concurrent players (SQLite limitation)
+* No caching (every request hits DB)
+* Synchronous DB operations
+* In-memory sessions (fast but not persistent)
+
+Scaling Considerations
+~~~~~~~~~~~~~~~~~~~~~~
+
+For larger deployments:
+
+* Migrate to PostgreSQL for concurrency
+* Add Redis for session storage
+* Implement caching layer
+* Use async database operations
+* Add load balancing
