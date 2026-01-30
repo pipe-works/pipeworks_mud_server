@@ -112,8 +112,8 @@ def cmd_create_superuser(args: argparse.Namespace) -> int:
     """
     from mud_server.db.database import create_player_with_password, init_database, player_exists
 
-    # Ensure database exists
-    init_database()
+    # Ensure database exists (skip superuser creation - we'll do it ourselves)
+    init_database(skip_superuser=True)
 
     # Try environment variables first
     env_creds = get_superuser_credentials_from_env()
