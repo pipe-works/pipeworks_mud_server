@@ -3,6 +3,7 @@
 > **A deterministic, procedural multiplayer text game engine for building accountable interactive fiction worlds.**
 
 [![CI](https://github.com/pipe-works/pipeworks_mud_server/actions/workflows/ci.yml/badge.svg)](https://github.com/pipe-works/pipeworks_mud_server/actions/workflows/ci.yml)
+[![Documentation](https://readthedocs.org/projects/pipeworks-mud-server/badge/?version=latest)](https://pipeworks-mud-server.readthedocs.io/en/latest/?badge=latest)
 [![codecov](https://codecov.io/gh/pipe-works/pipeworks_mud_server/branch/main/graph/badge.svg)](https://codecov.io/gh/pipe-works/pipeworks_mud_server)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
@@ -24,47 +25,7 @@ A **generic, extensible MUD (Multi-User Dungeon) server** for building text-base
 
 **Use it to build:** Fantasy MUDs, sci-fi adventures, educational games, procedural narratives, or any text-based multiplayer experience.
 
----
-
-## Current Implementation Status
-
-This repository contains a **working proof-of-concept** that validates the core architecture:
-
-### ✅ Implemented Features
-
-- **FastAPI REST API** - High-performance backend (port 8000)
-- **Gradio Web Interface** - Modular, professional client (port 7860)
-- **SQLite Database** - Player state, sessions, and chat persistence
-- **Authentication System** - Password-based auth with bcrypt hashing
-- **Role-Based Access Control (RBAC)** - 4 user types (Player, WorldBuilder, Admin, Superuser)
-- **Room Navigation** - Directional movement between connected rooms
-- **Inventory System** - Pick up and drop items in rooms
-- **Multi-Channel Chat** - Room-based `say`, area-wide `yell`, targeted `whisper`
-- **JSON World Definition** - Data-driven room and item configuration
-- **Ollama Integration** - AI model management interface (admin/superuser only)
-- **Modular Client Architecture** - Clean API/UI separation with 100% test coverage on core modules
-- **Centralized CSS** - External stylesheet with Safari-compatible dark mode
-
-### 🎯 Design Philosophy
-
-**Programmatic Authority:**
-
-- All game logic and state is deterministic and code-driven
-- Game mechanics are reproducible and testable
-- No LLM involvement in authoritative systems (state, logic, resolution)
-
-**Extensibility First:**
-
-- World data is JSON-driven (swap worlds without code changes)
-- Commands are extensible (add new actions without server rewrites)
-- Modular architecture supports plugins and custom mechanics
-
-**Clean Separation:**
-
-- **Client Layer** (Gradio) - UI and user interaction
-- **Server Layer** (FastAPI) - HTTP API and routing
-- **Game Layer** (Engine + World) - Core mechanics and state
-- **Persistence Layer** (SQLite) - Data storage
+**[Read the full documentation](https://pipeworks-mud-server.readthedocs.io/)**
 
 ---
 
@@ -80,7 +41,7 @@ This repository contains a **working proof-of-concept** that validates the core 
 
 ```bash
 # Clone the repository
-git clone https://github.com/aa-parky/pipeworks_mud_server.git
+git clone https://github.com/pipe-works/pipeworks_mud_server.git
 cd pipeworks_mud_server
 
 # Create and activate virtual environment
@@ -109,7 +70,7 @@ Press `Ctrl+C` to stop both services.
 
 ### First Login
 
-⚠️ **Default Superuser Credentials:**
+**Default Superuser Credentials:**
 
 ```text
 Username: admin
@@ -120,133 +81,41 @@ Password: admin123
 
 ---
 
-## Architecture
+## Features
 
-### Three-Tier Design
+### Implemented
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                    Gradio Web Interface                      │
-│                     (Client Layer)                           │
-│              http://localhost:7860                           │
-└────────────────────────┬────────────────────────────────────┘
-                         │ HTTP/HTTPS
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    FastAPI REST API                          │
-│                    (Server Layer)                            │
-│              http://localhost:8000                           │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-        ┌────────────────┴────────────────┐
-        ▼                                 ▼
-┌──────────────────┐           ┌──────────────────┐
-│  Game Engine     │           │  SQLite Database │
-│  (Core Layer)    │◄──────────┤  (Persistence)   │
-│                  │           │                  │
-│ - World/Rooms    │           │ - Players        │
-│ - Items          │           │ - Sessions       │
-│ - Actions        │           │ - Chat Messages  │
-└──────────────────┘           └──────────────────┘
-```
+- **FastAPI REST API** - High-performance backend (port 8000)
+- **Gradio Web Interface** - Modular, professional client (port 7860)
+- **SQLite Database** - Player state, sessions, and chat persistence
+- **Authentication System** - Password-based auth with bcrypt hashing
+- **Role-Based Access Control (RBAC)** - 4 user types (Player, WorldBuilder, Admin, Superuser)
+- **Room Navigation** - Directional movement between connected rooms
+- **Inventory System** - Pick up and drop items in rooms
+- **Multi-Channel Chat** - Room-based `say`, area-wide `yell`, targeted `whisper`
+- **JSON World Definition** - Data-driven room and item configuration
+- **Ollama Integration** - AI model management interface (admin/superuser only)
+- **Modular Client Architecture** - Clean API/UI separation with high test coverage
 
-### Modular Client Architecture
+### Design Philosophy
 
-The Gradio client uses a fully modular design for maintainability and testability:
+**Programmatic Authority:**
 
-```text
-src/mud_server/client/
-├── app.py                    # Main entry point (~180 lines)
-├── api/                      # API client layer
-│   ├── base.py              # BaseAPIClient - common HTTP patterns
-│   ├── auth.py              # Authentication operations
-│   ├── game.py              # Game operations
-│   ├── settings.py          # Settings and server control
-│   ├── admin.py             # Admin operations
-│   └── ollama.py            # Ollama AI integration
-├── ui/                       # UI utilities
-│   ├── validators.py        # Input validation (100% coverage)
-│   └── state.py             # Gradio state builders
-├── tabs/                     # Tab modules
-│   ├── login_tab.py         # Login interface
-│   ├── register_tab.py      # Registration interface
-│   ├── game_tab.py          # Main gameplay interface
-│   ├── settings_tab.py      # Settings and server control
-│   ├── database_tab.py      # Admin database viewer
-│   ├── ollama_tab.py        # AI model management
-│   └── help_tab.py          # Help documentation
-├── utils.py                  # Shared utilities
-└── static/styles.css        # Centralized CSS
-```
+- All game logic and state is deterministic and code-driven
+- Game mechanics are reproducible and testable
+- No LLM involvement in authoritative systems (state, logic, resolution)
 
-**Benefits:**
+**Extensibility First:**
 
-- Clear separation between API logic, validation, and UI
-- 100% test coverage on API and UI utility modules (191 tests)
-- API clients work outside Gradio (CLI tools, tests, scripts)
-- Easy to extend with new features or tabs
-
-### Project Structure
-
-```text
-pipeworks_mud_server/
-├── src/mud_server/              # Main application package
-│   ├── api/                     # FastAPI REST API (8 files, ~1200 LOC)
-│   │   ├── server.py            # App initialization, CORS, routing
-│   │   ├── routes.py            # API endpoints
-│   │   ├── models.py            # Pydantic request/response schemas
-│   │   ├── auth.py              # Session management
-│   │   ├── password.py          # Password hashing
-│   │   └── permissions.py       # RBAC system
-│   ├── core/                    # Game engine (2 files, ~390 LOC)
-│   │   ├── engine.py            # Game logic facade
-│   │   └── world.py             # World, Room, Item dataclasses
-│   ├── db/                      # Database layer (1 file, ~806 LOC)
-│   │   └── database.py          # SQLite operations, schema, CRUD
-│   └── client/                  # Gradio frontend (~5000+ LOC)
-│       └── [see structure above]
-├── data/                        # Data files
-│   ├── world_data.json          # Room and item definitions
-│   └── mud.db                   # SQLite database (generated)
-├── tests/                       # Test files
-├── logs/                        # Application logs
-├── requirements.txt             # Python dependencies
-└── run.sh                       # Startup script
-```
+- World data is JSON-driven (swap worlds without code changes)
+- Commands are extensible (add new actions without server rewrites)
+- Modular architecture supports plugins and custom mechanics
 
 ---
 
 ## Creating Your Own World
 
 The MUD server is **fully data-driven**. Create a custom world by editing `data/world_data.json`:
-
-### World Data Format
-
-```json
-{
-  "rooms": {
-    "room_id": {
-      "id": "room_id",
-      "name": "Room Name",
-      "description": "What the player sees when they look around.",
-      "exits": {
-        "north": "another_room_id",
-        "south": "yet_another_room"
-      },
-      "items": ["item_id_1", "item_id_2"]
-    }
-  },
-  "items": {
-    "item_id": {
-      "id": "item_id",
-      "name": "Item Name",
-      "description": "What the player sees when examining this item."
-    }
-  }
-}
-```
-
-### Example: Adding a New Room
 
 ```json
 {
@@ -278,16 +147,10 @@ The MUD server is **fully data-driven**. Create a custom world by editing `data/
 
 ## Available Commands
 
-Players can use these commands in the game interface:
-
 ### Movement
 
-- `north` / `n` - Move north
-- `south` / `s` - Move south
-- `east` / `e` - Move east
-- `west` / `w` - Move west
-- `up` / `u` - Move upward
-- `down` / `d` - Move downward
+- `north` / `n`, `south` / `s`, `east` / `e`, `west` / `w`
+- `up` / `u`, `down` / `d`
 
 ### Observation
 
@@ -303,7 +166,7 @@ Players can use these commands in the game interface:
 
 - `say <message>` - Speak to others in the same room
 - `yell <message>` - Shout to nearby areas
-- `whisper <username> <message>` - Send a private message to a specific player
+- `whisper <username> <message>` - Send a private message
 
 ### Utility
 
@@ -312,57 +175,62 @@ Players can use these commands in the game interface:
 
 ---
 
-## Ollama Integration
-
-The Ollama tab provides AI model management for **Admin** and **Superuser** accounts only.
-
-### Features
-
-- **Model Management** - List, pull, and run Ollama models
-- **Conversational Mode** - Natural chat interface with AI models
-- **Slash Commands** - Command-line style interaction
-- **Server Configuration** - Connect to local or remote Ollama servers
-
-### Slash Commands
-
-| Command                 | Description                      | Example                     |
-| ----------------------- | -------------------------------- | --------------------------- |
-| `/list` or `/ls`        | List all available models        | `/list`                     |
-| `/ps`                   | Show currently running models    | `/ps`                       |
-| `/pull <model>`         | Download a new model             | `/pull llama2`              |
-| `/run <model> [prompt]` | Run a model with optional prompt | `/run llama2 Write a haiku` |
-| `/show <model>`         | Show detailed model information  | `/show llama2`              |
-
-### Configuration
-
-**Default Ollama Server**: `http://localhost:11434`
-
-Change the Server URL in the Ollama tab interface to use a remote server.
-
----
-
 ## Development
 
-### Development Setup
+### Setup
 
 ```bash
-# Install development dependencies
+# Install with development dependencies
+pip install -e ".[dev]"
+
+# Or use requirements file
 pip install -r requirements-dev.txt
+```
 
-# Run tests
-pytest -v
+### Running Tests
 
-# Run tests with coverage
-pytest --cov=mud_server --cov-report=html
+```bash
+# Run all tests with coverage
+pytest
 
-# Lint code
+# Run specific test file
+pytest tests/test_api/test_auth.py -v
+
+# Run tests matching pattern
+pytest -k "test_login"
+
+# Skip coverage for faster iteration
+pytest --no-cov
+```
+
+### Code Quality
+
+```bash
+# Lint
 ruff check src/ tests/
 
-# Format code
+# Format
 black src/ tests/
 
-# Type checking
+# Type check
 mypy src/ --ignore-missing-imports
+```
+
+### Building Documentation
+
+Documentation is built with [Sphinx](https://www.sphinx-doc.org/) and hosted on [ReadTheDocs](https://pipeworks-mud-server.readthedocs.io/).
+
+```bash
+# Install docs dependencies
+pip install -e ".[docs]"
+
+# Build HTML documentation locally
+cd docs
+make html
+
+# View in browser
+open build/html/index.html  # macOS
+xdg-open build/html/index.html  # Linux
 ```
 
 ### Running Components Separately
@@ -394,7 +262,6 @@ sqlite3 data/mud.db "SELECT username, role, current_room FROM players;"
 ### Environment Variables
 
 ```bash
-# Server configuration
 export MUD_HOST="0.0.0.0"          # Bind address
 export MUD_PORT=8000                # API port
 export MUD_SERVER_URL="http://localhost:8000"  # Client API endpoint
@@ -402,136 +269,17 @@ export MUD_SERVER_URL="http://localhost:8000"  # Client API endpoint
 
 ---
 
-## Extending the Server
-
-### Adding New Commands
-
-Commands are parsed in [src/mud_server/api/routes.py](src/mud_server/api/routes.py) in the `/api/command` endpoint.
-
-**Example: Adding an "examine" command:**
-
-1. **Add method to GameEngine** ([src/mud_server/core/engine.py](src/mud_server/core/engine.py)):
-
-```python
-def examine(self, username: str, target: str) -> str:
-    """Examine an item or player in detail."""
-    player = self.db.get_player(username)
-    if not player:
-        return "You don't exist."
-
-    # Check inventory
-    if target in player["inventory"]:
-        item = self.world.get_item(target)
-        return f"You examine the {item.name}: {item.description}"
-
-    # Check room
-    room = self.world.get_room(player["current_room"])
-    if target in room.items:
-        item = self.world.get_item(target)
-        return f"You examine the {item.name}: {item.description}"
-
-    return f"You don't see '{target}' here."
-```
-
-1. **Add command handler to routes.py**:
-
-```python
-# In the command parser (around line 250):
-elif cmd in ["examine", "ex"]:
-    if not args:
-        return JSONResponse({"result": "Examine what?"})
-    target = args[0]
-    result = engine.examine(username, target)
-    return JSONResponse({"result": result})
-```
-
-1. **Restart the server**. The new command is now available.
-
-### Adding New World Features
-
-All world data comes from `data/world_data.json`. To extend world capabilities:
-
-1. **Update the JSON schema** - Add new fields to room or item definitions
-1. **Update the dataclasses** - Modify `Room` or `Item` in [src/mud_server/core/world.py](src/mud_server/core/world.py)
-1. **Update the World loader** - Modify `World.__init__()` to parse new fields
-1. **Use in game logic** - Access new fields in engine methods
-
-**Example: Adding room environmental effects:**
-
-```json
-{
-  "rooms": {
-    "dark_cave": {
-      "id": "dark_cave",
-      "name": "Dark Cave",
-      "description": "You can barely see in the darkness.",
-      "exits": {"south": "spawn"},
-      "items": [],
-      "environment": {
-        "light_level": "dark",
-        "temperature": "cold",
-        "hazards": ["slippery"]
-      }
-    }
-  }
-}
-```
-
-Then access in engine:
-
-```python
-room = self.world.get_room(player["current_room"])
-if hasattr(room, 'environment') and room.environment.get('light_level') == 'dark':
-    return "It's too dark to see anything!"
-```
-
----
-
-## Testing
-
-### Test Suite
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage report
-pytest --cov=mud_server --cov-report=html
-open htmlcov/index.html
-
-# Run specific test file
-pytest tests/test_database.py -v
-
-# Run tests matching pattern
-pytest -k "test_auth" -v
-```
-
-### Code Quality
-
-```bash
-# Linting (Ruff)
-ruff check src/ tests/
-
-# Formatting check (Black)
-black --check src/ tests/
-
-# Type checking (mypy)
-mypy src/ --ignore-missing-imports
-
-# Security audit
-pip install pip-audit
-pip-audit
-```
-
-### Continuous Integration
+## Continuous Integration
 
 Every push and pull request runs:
-- ✅ Tests on Python 3.12 and 3.13
-- ✅ Code linting with Ruff
-- ✅ Formatting check with Black
-- ✅ Type checking with mypy
-- ✅ Coverage reporting to Codecov
-- ✅ Security scanning with pip-audit
+
+- Tests on Python 3.12 and 3.13
+- Code linting with Ruff
+- Formatting check with Black
+- Type checking with mypy
+- Coverage reporting to Codecov
+- Security scanning with Bandit and Trivy
+- Documentation build with Sphinx
 
 ---
 
@@ -539,34 +287,22 @@ Every push and pull request runs:
 
 Contributions are welcome! This project is in active development.
 
-### Areas for Contribution
-
-- Bug fixes and stability improvements
-- Test coverage expansion
-- Documentation improvements
-- Performance optimizations
-- UI/UX enhancements
-- Additional commands and game mechanics
-- World builder tools
-- Plugin system architecture
-
 ### Development Process
 
 1. **Fork the repository**
-1. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
-1. **Make your changes** with tests
-1. **Ensure tests pass** (`pytest`)
-1. **Lint and format** (`ruff check`, `black`)
-1. **Commit your changes** (`git commit -m 'Add amazing feature'`)
-1. **Push to the branch** (`git push origin feature/amazing-feature`)
-1. **Open a Pull Request**
+2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
+3. **Make your changes** with tests
+4. **Ensure tests pass** (`pytest`)
+5. **Lint and format** (`ruff check`, `black`)
+6. **Commit your changes** (`git commit -m 'Add amazing feature'`)
+7. **Push to the branch** (`git push origin feature/amazing-feature`)
+8. **Open a Pull Request**
 
 ### Code Style
 
 - Follow PEP 8 (enforced by Black)
 - Use type hints (checked by mypy)
 - Write docstrings for public functions
-- Keep functions focused and testable
 - See [CLAUDE.md](CLAUDE.md) for architecture guidelines
 
 ---
@@ -577,20 +313,12 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 
 ---
 
-## Acknowledgments
-
-- Inspired by classic MUDs and the joy of procedural world-building
-- Built with [FastAPI](https://fastapi.tiangolo.com/), [Gradio](https://gradio.app/), and modern Python tooling
-- Documentation generated with assistance from Claude (Anthropic)
-
----
-
 ## Links
 
-- **Repository**: [GitHub](https://github.com/aa-parky/pipeworks_mud_server)
-- **Developer Guide**: [CLAUDE.md](CLAUDE.md) - AI-assisted development guide
-- **Issue Tracker**: [GitHub Issues](https://github.com/aa-parky/pipeworks_mud_server/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/aa-parky/pipeworks_mud_server/discussions)
+- **Documentation**: [ReadTheDocs](https://pipeworks-mud-server.readthedocs.io/)
+- **Repository**: [GitHub](https://github.com/pipe-works/pipeworks_mud_server)
+- **Issue Tracker**: [GitHub Issues](https://github.com/pipe-works/pipeworks_mud_server/issues)
+- **Developer Guide**: [CLAUDE.md](CLAUDE.md)
 
 ---
 
