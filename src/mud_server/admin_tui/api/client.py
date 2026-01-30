@@ -275,19 +275,19 @@ class AdminAPIClient:
                 message="Login failed",
                 status_code=0,
                 detail=f"Cannot connect to server at {self.config.server_url}: {e}",
-            )
+            ) from e
 
         # Try to parse JSON response, handle non-JSON gracefully
         try:
             data = response.json()
-        except Exception:
+        except Exception as e:
             # Response is not valid JSON (empty, HTML error page, etc.)
             raise APIError(
                 message="Login failed",
                 status_code=response.status_code,
                 detail=f"Server returned invalid response (status {response.status_code}). "
                 f"Check that the server is running at {self.config.server_url}",
-            )
+            ) from e
 
         if response.status_code == 401:
             raise AuthenticationError(
@@ -372,17 +372,17 @@ class AdminAPIClient:
                 message="Health check failed",
                 status_code=0,
                 detail=f"Cannot connect to server at {self.config.server_url}: {e}",
-            )
+            ) from e
 
         # Try to parse JSON response
         try:
             data = response.json()
-        except Exception:
+        except Exception as e:
             raise APIError(
                 message="Health check failed",
                 status_code=response.status_code,
                 detail=f"Server returned invalid response (status {response.status_code})",
-            )
+            ) from e
 
         if response.status_code != 200:
             raise APIError(
