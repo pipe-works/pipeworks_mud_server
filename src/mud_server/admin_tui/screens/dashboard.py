@@ -178,19 +178,25 @@ class DashboardScreen(Screen):
     def on_mount(self) -> None:
         """Initialize dashboard when mounted."""
         # Update user info from session
-        self._update_user_info()
-        # Start initial data refresh
-        self.refresh_status()
+        try:
+            self._update_user_info()
+        except Exception:
+            pass  # Widgets might not be ready
+        # Schedule initial data refresh after a brief delay to ensure widgets are ready
+        self.set_timer(0.1, self.refresh_status)
 
     def _update_user_info(self) -> None:
         """Update the user info display from session state."""
-        api_client = self.app.api_client  # type: ignore
-        if api_client and api_client.session.is_authenticated:
-            self.query_one("#user-name", Static).update(api_client.session.username or "Unknown")
-            self.query_one("#user-role", Static).update(api_client.session.role or "Unknown")
-        else:
-            self.query_one("#user-name", Static).update("Not logged in")
-            self.query_one("#user-role", Static).update("-")
+        try:
+            api_client = self.app.api_client  # type: ignore
+            if api_client and api_client.session.is_authenticated:
+                self.query_one("#user-name", Static).update(api_client.session.username or "Unknown")
+                self.query_one("#user-role", Static).update(api_client.session.role or "Unknown")
+            else:
+                self.query_one("#user-name", Static).update("Not logged in")
+                self.query_one("#user-role", Static).update("-")
+        except Exception:
+            pass  # Widgets might not be mounted yet
 
     @work(exclusive=True)
     async def refresh_status(self) -> None:
@@ -200,28 +206,39 @@ class DashboardScreen(Screen):
         This is a background worker that fetches server health
         and updates the display. Uses @work decorator for async execution.
         """
-        api_client = self.app.api_client  # type: ignore
-        config = self.app.config  # type: ignore
-
-        # Update server URL display
-        self.query_one("#server-url", Static).update(config.server_url)
-
         try:
-            health = await api_client.get_health()
-            status = health.get("status", "unknown")
-            players = health.get("active_players", 0)
+            api_client = self.app.api_client  # type: ignore
+            config = self.app.config  # type: ignore
 
-            # Update status display
-            if status == "ok":
-                self.query_one("#server-status", Static).update("[green]Online[/green]")
-            else:
-                self.query_one("#server-status", Static).update(f"[yellow]{status}[/yellow]")
+            # Safely update server URL display
+            try:
+                self.query_one("#server-url", Static).update(config.server_url)
+            except Exception:
+                pass  # Widget might not be mounted yet
 
-            self.query_one("#active-players", Static).update(str(players))
+            try:
+                health = await api_client.get_health()
+                status = health.get("status", "unknown")
+                players = health.get("active_players", 0)
 
-        except Exception as e:
-            self.query_one("#server-status", Static).update(f"[red]Error: {e}[/red]")
-            self.query_one("#active-players", Static).update("-")
+                # Update status display
+                if status == "ok":
+                    self.query_one("#server-status", Static).update("[green]Online[/green]")
+                else:
+                    self.query_one("#server-status", Static).update(f"[yellow]{status}[/yellow]")
+
+                self.query_one("#active-players", Static).update(str(players))
+
+            except Exception as e:
+                try:
+                    self.query_one("#server-status", Static).update(f"[red]Error: {e}[/red]")
+                    self.query_one("#active-players", Static).update("-")
+                except Exception:
+                    pass  # Widget might not be mounted yet
+
+        except Exception:
+            # Catch-all to prevent worker from crashing the app
+            pass
 
     # -------------------------------------------------------------------------
     # Button Handlers
