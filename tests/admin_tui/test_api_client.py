@@ -5,6 +5,8 @@ This module tests the AdminAPIClient class, including authentication,
 session management, and API operations. Uses respx for mocking HTTP requests.
 """
 
+from collections.abc import AsyncGenerator
+
 import pytest
 import respx
 from httpx import Response
@@ -29,7 +31,7 @@ def config() -> Config:
 
 
 @pytest.fixture
-async def client(config: Config) -> AdminAPIClient:
+async def client(config: Config) -> AsyncGenerator[AdminAPIClient, None]:
     """Create an API client for testing."""
     async with AdminAPIClient(config) as client:
         yield client
@@ -286,6 +288,70 @@ class TestAdminAPIClientLogout:
         result = await client.logout()
 
         # Should still return True and clear local state
+        assert result is True
+        assert client.session.is_authenticated is False
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_logout_handles_network_exception(self, client: AdminAPIClient):
+        """Test logout handles network exceptions gracefully.
+
+        This tests the exception handling path in logout() where the HTTP
+        request fails with a network error (e.g., connection refused, timeout).
+        The local session should still be cleared even when the server is unreachable.
+        """
+        # First login
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        # Verify we're authenticated
+        assert client.session.is_authenticated is True
+
+        # Mock logout to raise a network exception
+        import httpx
+
+        respx.post("http://test-server:8000/logout").mock(side_effect=httpx.ConnectError)
+
+        # Logout should still succeed (clearing local state)
+        result = await client.logout()
+
+        # Should return True and clear local state despite the exception
+        assert result is True
+        assert client.session.is_authenticated is False
+        assert client.session.session_id is None  # type: ignore[unreachable]
+        assert client.session.username is None
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_logout_handles_timeout_exception(self, client: AdminAPIClient):
+        """Test logout handles timeout exceptions gracefully.
+
+        The try/except/pass in logout is intentional - we don't want network
+        issues to prevent local session cleanup. This test ensures that
+        timeout errors are caught and local state is cleared.
+        """
+        # First login
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "superuser"},
+            )
+        )
+        await client.login("admin", "password")
+
+        # Mock logout to raise a timeout exception
+        import httpx
+
+        respx.post("http://test-server:8000/logout").mock(side_effect=httpx.TimeoutException)
+
+        # Logout should still succeed
+        result = await client.logout()
+
         assert result is True
         assert client.session.is_authenticated is False
 

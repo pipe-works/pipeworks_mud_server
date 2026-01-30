@@ -19,20 +19,49 @@ Port Configuration:
 
 import os
 import socket
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from mud_server.api.auth import clear_all_sessions
 from mud_server.api.routes import register_routes
 from mud_server.core.engine import GameEngine
+
+# ============================================================================
+# LIFESPAN EVENTS
+# ============================================================================
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Handle server startup and shutdown tasks.
+
+    Startup:
+        - Clears any stale sessions from previous runs to ensure a clean state.
+        - These may exist if the server crashed or was killed without proper shutdown.
+
+    Shutdown:
+        - Currently no cleanup needed (sessions cleared on next startup).
+    """
+    # Startup: Clear any orphaned sessions from previous runs
+    removed = clear_all_sessions()
+    if removed > 0:
+        print(f"Cleared {removed} orphaned session(s) from previous run")
+
+    yield  # Server runs here
+
+    # Shutdown: (nothing to do - sessions will be cleared on next startup)
+
 
 # ============================================================================
 # APPLICATION INITIALIZATION
 # ============================================================================
 
-# Initialize the FastAPI application with metadata
+# Initialize the FastAPI application with metadata and lifespan handler
 # This creates the main app instance that will handle all HTTP requests
-app = FastAPI(title="MUD Server", version="0.1.0")
+app = FastAPI(title="MUD Server", version="0.1.0", lifespan=lifespan)
 
 # ============================================================================
 # MIDDLEWARE CONFIGURATION
@@ -61,6 +90,7 @@ app.add_middleware(
 # - Database connections for persistence
 # The engine is passed to all route handlers that need game logic
 engine = GameEngine()
+
 
 # ============================================================================
 # ROUTE REGISTRATION
@@ -110,6 +140,7 @@ def is_port_available(port: int, host: str = "0.0.0.0") -> bool:
 
     Technical Details:
         - Uses a TCP socket (SOCK_STREAM) for the check
+        - Sets SO_REUSEADDR to handle TIME_WAIT state from recently closed sockets
         - The socket is automatically closed via context manager
         - Works correctly even if another process is listening on a different
           interface (e.g., 127.0.0.1 vs 0.0.0.0)
@@ -132,12 +163,16 @@ def is_port_available(port: int, host: str = "0.0.0.0") -> bool:
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         try:
+            # Set SO_REUSEADDR to allow binding to a port in TIME_WAIT state
+            # This matches uvicorn's behavior and prevents false negatives
+            # after a server is killed (socket may linger in TIME_WAIT for ~60s)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             # Attempt to bind - this is the definitive test for availability
             sock.bind((host, port))
             return True
         except OSError:
             # OSError is raised for various binding failures:
-            # - EADDRINUSE (98): Address already in use
+            # - EADDRINUSE (98): Address already in use (by active listener)
             # - EACCES (13): Permission denied (ports < 1024 on Unix)
             # - EADDRNOTAVAIL (99): Cannot assign requested address
             return False

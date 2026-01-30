@@ -497,6 +497,143 @@ def test_update_session_activity(test_db, temp_db_path, db_with_users):
 
 
 # ============================================================================
+# SESSION CLEANUP TESTS
+# ============================================================================
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_cleanup_stale_sessions_removes_old(test_db, temp_db_path, db_with_users):
+    """Test that cleanup_stale_sessions removes sessions older than threshold."""
+    with patch.object(database, "DB_PATH", temp_db_path):
+        # Create a session
+        database.create_session("testplayer", "session-123")
+
+        # Manually set last_activity to 60 minutes ago
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE sessions SET last_activity = datetime('now', '-60 minutes') "
+            "WHERE username = ?",
+            ("testplayer",),
+        )
+        conn.commit()
+        conn.close()
+
+        # Cleanup sessions older than 30 minutes
+        removed = database.cleanup_stale_sessions(max_inactive_minutes=30)
+
+        assert removed == 1
+
+        # Session should be gone
+        active = database.get_active_players()
+        assert "testplayer" not in active
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_cleanup_stale_sessions_keeps_active(test_db, temp_db_path, db_with_users):
+    """Test that cleanup_stale_sessions keeps recently active sessions."""
+    with patch.object(database, "DB_PATH", temp_db_path):
+        # Create a session (will have current timestamp)
+        database.create_session("testplayer", "session-123")
+
+        # Cleanup sessions older than 30 minutes
+        removed = database.cleanup_stale_sessions(max_inactive_minutes=30)
+
+        assert removed == 0
+
+        # Session should still exist
+        active = database.get_active_players()
+        assert "testplayer" in active
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_cleanup_stale_sessions_mixed(test_db, temp_db_path, db_with_users):
+    """Test cleanup with mix of stale and active sessions."""
+    with patch.object(database, "DB_PATH", temp_db_path):
+        # Create sessions for multiple users
+        database.create_session("testplayer", "session-1")
+        database.create_session("testadmin", "session-2")
+
+        # Set testplayer's session to be old
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE sessions SET last_activity = datetime('now', '-60 minutes') "
+            "WHERE username = ?",
+            ("testplayer",),
+        )
+        conn.commit()
+        conn.close()
+
+        # Cleanup sessions older than 30 minutes
+        removed = database.cleanup_stale_sessions(max_inactive_minutes=30)
+
+        assert removed == 1
+
+        # Only testadmin should remain
+        active = database.get_active_players()
+        assert "testplayer" not in active
+        assert "testadmin" in active
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_cleanup_stale_sessions_empty_db(test_db, temp_db_path):
+    """Test cleanup on empty sessions table returns 0."""
+    with patch.object(database, "DB_PATH", temp_db_path):
+        removed = database.cleanup_stale_sessions(max_inactive_minutes=30)
+        assert removed == 0
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_clear_all_sessions(test_db, temp_db_path, db_with_users):
+    """Test that clear_all_sessions removes all sessions."""
+    with patch.object(database, "DB_PATH", temp_db_path):
+        # Create multiple sessions
+        database.create_session("testplayer", "session-1")
+        database.create_session("testadmin", "session-2")
+        database.create_session("testsuperuser", "session-3")
+
+        # Verify sessions exist
+        assert len(database.get_active_players()) == 3
+
+        # Clear all sessions
+        removed = database.clear_all_sessions()
+
+        assert removed == 3
+
+        # All sessions should be gone
+        assert len(database.get_active_players()) == 0
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_clear_all_sessions_empty_db(test_db, temp_db_path):
+    """Test clear_all_sessions on empty sessions table returns 0."""
+    with patch.object(database, "DB_PATH", temp_db_path):
+        removed = database.clear_all_sessions()
+        assert removed == 0
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_clear_all_sessions_returns_count(test_db, temp_db_path, db_with_users):
+    """Test that clear_all_sessions returns accurate count of removed sessions."""
+    with patch.object(database, "DB_PATH", temp_db_path):
+        # Create exactly 2 sessions
+        database.create_session("testplayer", "session-1")
+        database.create_session("testadmin", "session-2")
+
+        removed = database.clear_all_sessions()
+
+        assert removed == 2
+
+
+# ============================================================================
 # ADMIN QUERY TESTS
 # ============================================================================
 

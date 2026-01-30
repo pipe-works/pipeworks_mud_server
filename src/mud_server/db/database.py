@@ -725,6 +725,123 @@ def update_session_activity(username: str) -> bool:
         return False
 
 
+def cleanup_stale_sessions(max_inactive_minutes: int = 30) -> int:
+    """
+    Remove sessions that have been inactive for longer than the specified time.
+
+    This function cleans up orphaned sessions that may have been left behind
+    when clients crash or disconnect without properly logging out. It's designed
+    to be called periodically (e.g., via a scheduled task) to prevent session
+    table bloat and ensure accurate active player counts.
+
+    The function uses SQLite's datetime functions to compare the last_activity
+    timestamp against the current time minus the threshold. Sessions older than
+    the threshold are deleted in a single SQL operation for efficiency.
+
+    Args:
+        max_inactive_minutes: Maximum time in minutes since last activity before
+            a session is considered stale. Defaults to 30 minutes. A session
+            is stale if: now - last_activity > max_inactive_minutes
+
+    Returns:
+        Number of sessions removed. Returns 0 if no sessions were removed or
+        if an error occurred during the operation.
+
+    Note:
+        This function only cleans up the database sessions table. The in-memory
+        active_sessions dict in auth.py is NOT updated by this function. For
+        full cleanup, use auth.clear_all_sessions() which handles both.
+
+    Example:
+        >>> # Remove sessions inactive for more than 30 minutes
+        >>> cleanup_stale_sessions(30)
+        3  # Removed 3 stale sessions
+
+        >>> # More aggressive cleanup (10 minute threshold)
+        >>> cleanup_stale_sessions(10)
+        5
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # Delete sessions where last_activity is older than max_inactive_minutes
+        # The negative sign creates a time offset in the past
+        # e.g., '-30 minutes' subtracts 30 minutes from 'now'
+        cursor.execute(
+            """
+            DELETE FROM sessions
+            WHERE datetime(last_activity) < datetime('now', ? || ' minutes')
+            """,
+            (f"-{max_inactive_minutes}",),
+        )
+
+        # Get the count of deleted rows before committing
+        removed_count: int = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return removed_count
+    except Exception:
+        # Silently fail and return 0 - this is a cleanup operation that
+        # shouldn't crash the server if it fails
+        return 0
+
+
+def clear_all_sessions() -> int:
+    """
+    Remove all sessions from the database.
+
+    This function performs a complete wipe of the sessions table, removing
+    all active sessions regardless of their last_activity timestamp. It is
+    designed to be called during server startup to ensure a clean slate.
+
+    Use Cases:
+        1. Server startup: Clear orphaned sessions from previous run
+        2. Emergency reset: Force all users to re-authenticate
+        3. Testing: Reset session state between tests
+
+    The function deletes all rows from the sessions table in a single SQL
+    DELETE operation. This is more efficient than iterating through sessions
+    individually.
+
+    Returns:
+        Number of sessions removed from the database. Returns 0 if no
+        sessions existed or if an error occurred.
+
+    Note:
+        This function only cleans up the database sessions table. For
+        complete session cleanup including in-memory state, use
+        auth.clear_all_sessions() which calls this function AND clears
+        the active_sessions dict.
+
+    Warning:
+        Calling this function will force all connected clients to re-login
+        on their next API request. Use with caution in production.
+
+    Example:
+        >>> # On server startup
+        >>> removed = clear_all_sessions()
+        >>> if removed > 0:
+        ...     print(f"Cleared {removed} orphaned sessions")
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # Delete all sessions - no WHERE clause means all rows
+        cursor.execute("DELETE FROM sessions")
+
+        # Get the count of deleted rows before committing
+        removed_count: int = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return removed_count
+    except Exception:
+        # Silently fail and return 0 - startup cleanup shouldn't
+        # prevent the server from starting
+        return 0
+
+
 # ============================================================================
 # ADMIN QUERIES (Detailed Information)
 # ============================================================================

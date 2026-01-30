@@ -17,8 +17,11 @@ from fastapi import HTTPException
 
 from mud_server.api.auth import (
     active_sessions,
+    clear_all_sessions,
+    get_active_session_count,
     get_username_and_role_from_session,
     get_username_from_session,
+    remove_session,
     validate_session,
     validate_session_with_permission,
 )
@@ -165,6 +168,114 @@ def test_validate_session_with_permission_superuser_has_all(mock_session_data):
 
         assert username == "testsuperuser"
         assert role == "superuser"
+
+
+# ============================================================================
+# SESSION LIFECYCLE TESTS
+# ============================================================================
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_clear_all_sessions_clears_memory():
+    """Test that clear_all_sessions clears in-memory sessions."""
+    # Add sessions directly to the dict
+    active_sessions["session-1"] = ("user1", "player")
+    active_sessions["session-2"] = ("user2", "admin")
+
+    assert len(active_sessions) == 2
+
+    with patch("mud_server.api.auth.database.clear_all_sessions", return_value=2):
+        result = clear_all_sessions()
+
+    assert result == 2
+    assert len(active_sessions) == 0
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_clear_all_sessions_calls_database():
+    """Test that clear_all_sessions calls database function."""
+    with patch("mud_server.api.auth.database.clear_all_sessions") as mock_db_clear:
+        mock_db_clear.return_value = 5
+
+        result = clear_all_sessions()
+
+        mock_db_clear.assert_called_once()
+        assert result == 5
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_remove_session_existing():
+    """Test removing an existing session."""
+    # Add a session
+    active_sessions["session-123"] = ("testuser", "player")
+
+    with patch("mud_server.api.auth.database.remove_session") as mock_db_remove:
+        mock_db_remove.return_value = True
+
+        result = remove_session("session-123")
+
+        assert result is True
+        assert "session-123" not in active_sessions
+        mock_db_remove.assert_called_once_with("testuser")
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_remove_session_nonexistent():
+    """Test removing a non-existent session returns False."""
+    result = remove_session("nonexistent-session")
+
+    assert result is False
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_remove_session_clears_from_memory():
+    """Test that remove_session removes from in-memory dict."""
+    active_sessions["session-abc"] = ("myuser", "admin")
+    active_sessions["session-xyz"] = ("otheruser", "player")
+
+    with patch("mud_server.api.auth.database.remove_session", return_value=True):
+        remove_session("session-abc")
+
+    assert "session-abc" not in active_sessions
+    assert "session-xyz" in active_sessions  # Other session should remain
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_get_active_session_count_empty():
+    """Test get_active_session_count with no sessions."""
+    assert get_active_session_count() == 0
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_get_active_session_count_with_sessions():
+    """Test get_active_session_count with multiple sessions."""
+    active_sessions["session-1"] = ("user1", "player")
+    active_sessions["session-2"] = ("user2", "admin")
+    active_sessions["session-3"] = ("user3", "superuser")
+
+    assert get_active_session_count() == 3
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_get_active_session_count_after_remove():
+    """Test get_active_session_count after removing a session."""
+    active_sessions["session-1"] = ("user1", "player")
+    active_sessions["session-2"] = ("user2", "admin")
+
+    assert get_active_session_count() == 2
+
+    with patch("mud_server.api.auth.database.remove_session", return_value=True):
+        remove_session("session-1")
+
+    assert get_active_session_count() == 1
 
 
 # ============================================================================

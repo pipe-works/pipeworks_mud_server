@@ -29,6 +29,7 @@ import sys
 from collections.abc import Sequence
 
 from textual.app import App
+from textual.binding import Binding
 
 from mud_server.admin_tui.api.client import AdminAPIClient
 from mud_server.admin_tui.config import Config
@@ -54,6 +55,10 @@ class AdminApp(App):
         3. do_logout: Clears session, returns to LoginScreen
         4. on_unmount: Closes API client
 
+    Key Bindings (App-level):
+        ctrl+c: Quit application (always available)
+        ctrl+q: Quit application (always available)
+
     Example:
         config = Config(server_url="http://localhost:8000", timeout=30.0)
         app = AdminApp(config)
@@ -63,6 +68,13 @@ class AdminApp(App):
     # Application metadata
     TITLE = "PipeWorks Admin"
     SUB_TITLE = "MUD Server Administration"
+
+    # App-level bindings with priority=True ensure these work regardless of
+    # which screen is active or which widget has focus
+    BINDINGS = [
+        Binding("ctrl+c", "quit", "Quit", priority=True, show=False),
+        Binding("ctrl+q", "quit", "Quit", priority=True, show=False),
+    ]
 
     # Default CSS for the application
     CSS = """
@@ -99,9 +111,19 @@ class AdminApp(App):
         """
         Called when the application is unmounted.
 
-        Ensures the API client is properly closed.
+        Logs out from server (if authenticated) and closes the API client.
+        This ensures the session is properly cleaned up on the server side,
+        keeping the active player count accurate.
         """
         if self.api_client:
+            # Logout from server if authenticated (clears server-side session)
+            if self.api_client.session.is_authenticated:
+                try:
+                    await self.api_client.logout()
+                except Exception:
+                    # Ignore logout errors on shutdown (server may be unavailable)
+                    pass
+            # Close the HTTP client
             await self.api_client.__aexit__(None, None, None)
             self.api_client = None
 
@@ -124,8 +146,8 @@ class AdminApp(App):
         # Attempt login (raises on failure)
         await self.api_client.login(username, password)
 
-        # Success - switch to dashboard
-        await self.switch_screen(DashboardScreen())
+        # Success - push dashboard on top of login screen
+        self.push_screen(DashboardScreen())
 
     async def do_logout(self) -> None:
         """
@@ -136,8 +158,8 @@ class AdminApp(App):
         if self.api_client:
             await self.api_client.logout()
 
-        # Return to login screen
-        await self.switch_screen(LoginScreen())
+        # Pop back to login screen
+        self.pop_screen()
 
 
 def main(args: Sequence[str] | None = None) -> int:

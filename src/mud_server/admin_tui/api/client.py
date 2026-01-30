@@ -308,7 +308,7 @@ class AdminAPIClient:
         self.session.username = username
         self.session.role = data.get("role", "player")
 
-        return data
+        return dict(data)
 
     async def logout(self) -> bool:
         """
@@ -330,14 +330,35 @@ class AdminAPIClient:
             return False
 
         try:
+            # Attempt to notify the server of logout
+            # This is a best-effort operation - the server will clean up
+            # stale sessions eventually even if this request fails
             await self.http_client.post(
                 "/logout",
                 json={"session_id": self.session.session_id},
             )
-        except Exception:
-            # Always clear local state, even on network errors
+        except Exception:  # noqa: S110  # nosec B110
+            # Intentionally catching all exceptions and ignoring them.
+            #
+            # We don't care if the server-side logout fails because:
+            # 1. The server has session cleanup mechanisms (cleanup_stale_sessions)
+            # 2. The user's intent is to end their local session
+            # 3. Network errors, timeouts, or server downtime shouldn't prevent
+            #    local logout from completing
+            #
+            # The pass is intentional (S110/B110 security warnings suppressed):
+            # - S110 (bandit): try-except-pass considered bad practice - but here
+            #   it's the correct behavior for graceful degradation
+            # - B110 (ruff): same as S110
+            #
+            # Common exception scenarios this handles:
+            # - httpx.ConnectError: Server is down or unreachable
+            # - httpx.TimeoutException: Server took too long to respond
+            # - httpx.HTTPStatusError: Server returned error status (4xx/5xx)
             pass
         finally:
+            # Always clear local state, regardless of server response
+            # This ensures the client can log in again with fresh credentials
             self.session.clear()
 
         return True
@@ -391,7 +412,7 @@ class AdminAPIClient:
                 detail=data.get("detail", "Server error"),
             )
 
-        return data
+        return dict(data)
 
     # -------------------------------------------------------------------------
     # Admin Methods (Require Authentication)
@@ -433,7 +454,7 @@ class AdminAPIClient:
 
         response = await self.http_client.get(
             "/admin/database/players",
-            headers={"X-Session-ID": self.session.session_id},
+            headers={"X-Session-ID": self.session.session_id or ""},
         )
 
         if response.status_code == 403:
@@ -452,7 +473,7 @@ class AdminAPIClient:
             )
 
         data = response.json()
-        return data.get("players", [])
+        return list(data.get("players", []))
 
     async def get_sessions(self) -> list[dict[str, Any]]:
         """
@@ -475,7 +496,7 @@ class AdminAPIClient:
 
         response = await self.http_client.get(
             "/admin/database/sessions",
-            headers={"X-Session-ID": self.session.session_id},
+            headers={"X-Session-ID": self.session.session_id or ""},
         )
 
         if response.status_code == 403:
@@ -494,4 +515,4 @@ class AdminAPIClient:
             )
 
         data = response.json()
-        return data.get("sessions", [])
+        return list(data.get("sessions", []))

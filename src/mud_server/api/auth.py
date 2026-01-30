@@ -48,6 +48,143 @@ active_sessions: dict[str, tuple[str, str]] = {}
 
 
 # ============================================================================
+# SESSION LIFECYCLE MANAGEMENT
+# ============================================================================
+
+
+def clear_all_sessions() -> int:
+    """
+    Clear all sessions from both memory and database.
+
+    This is the primary function for complete session cleanup. It handles
+    both the in-memory active_sessions dictionary AND the database sessions
+    table, ensuring consistency between the two storage layers.
+
+    This should be called:
+        1. On server startup (via lifespan context manager in server.py)
+        2. When performing emergency session resets
+        3. In test fixtures to ensure clean state
+
+    The function first clears the in-memory dict (which is authoritative for
+    fast lookups during request handling), then clears the database table
+    (which provides persistence and audit trail).
+
+    Returns:
+        Number of sessions removed from the database. Note that the in-memory
+        count may differ if sessions were inconsistent between memory and DB.
+
+    Side Effects:
+        - Clears active_sessions dict (immediate effect)
+        - Deletes all rows from sessions table (committed to database)
+
+    Thread Safety:
+        This function modifies global state (active_sessions dict). In a
+        multi-threaded environment, consider adding locking if concurrent
+        access is expected.
+
+    Example:
+        >>> # On server startup
+        >>> from mud_server.api.auth import clear_all_sessions
+        >>> removed = clear_all_sessions()
+        >>> print(f"Cleared {removed} orphaned session(s)")
+    """
+    # Clear memory sessions first - this is the authoritative source
+    # for active session lookups during API request handling
+    active_sessions.clear()
+
+    # Clear database sessions and return the count
+    # This ensures the persistent storage matches in-memory state
+    return database.clear_all_sessions()
+
+
+def remove_session(session_id: str) -> bool:
+    """
+    Remove a specific session from both memory and database.
+
+    This function handles targeted session removal, typically used when:
+        1. A user explicitly logs out (via logout endpoint)
+        2. An admin force-disconnects a user
+        3. A session is detected as invalid and needs cleanup
+
+    The function first removes from in-memory storage (which is checked
+    during request validation), then removes from database (which provides
+    the persistent record). The session is identified by session_id in
+    memory but by username in the database (since username is unique
+    in the sessions table).
+
+    Args:
+        session_id: The UUID session identifier to remove. This is the
+            key used in the active_sessions dict.
+
+    Returns:
+        True if the session was found in memory and removed from both
+        memory and database. False if the session_id was not found in
+        the active_sessions dict (in which case no database operation
+        is performed).
+
+    Side Effects:
+        - Removes entry from active_sessions dict
+        - Deletes row from sessions table (if session existed)
+
+    Note:
+        If a session exists in the database but not in memory (e.g., after
+        a server restart), this function will return False. Use
+        database.remove_session(username) directly for database-only cleanup.
+
+    Example:
+        >>> # User logs out
+        >>> from mud_server.api.auth import remove_session
+        >>> if remove_session(request.session_id):
+        ...     return {"message": "Logged out successfully"}
+    """
+    # Pop from memory - returns None if not found
+    # This atomically removes and returns the value
+    session_data = active_sessions.pop(session_id, None)
+
+    if session_data:
+        # Session existed in memory - extract username and remove from DB
+        # session_data is a (username, role) tuple
+        username = session_data[0]
+        database.remove_session(username)
+        return True
+
+    # Session not found in memory
+    return False
+
+
+def get_active_session_count() -> int:
+    """
+    Get the count of active sessions currently in memory.
+
+    This provides a quick way to check how many users are logged in without
+    querying the database. Since the in-memory active_sessions dict is the
+    authoritative source for session validation, this count reflects the
+    actual number of valid sessions.
+
+    This is useful for:
+        1. Health check endpoints (reporting active_players)
+        2. Admin dashboards showing current load
+        3. Rate limiting decisions based on server load
+        4. Logging and monitoring
+
+    Returns:
+        Number of active sessions in the in-memory dict. This represents
+        the count of currently authenticated users.
+
+    Note:
+        This counts sessions in memory only. If you need the database
+        count (which may differ after server restart), query the
+        sessions table directly.
+
+    Example:
+        >>> from mud_server.api.auth import get_active_session_count
+        >>> print(f"Active players: {get_active_session_count()}")
+        Active players: 42
+    """
+    return len(active_sessions)
+
+
+# ============================================================================
 # SESSION LOOKUP FUNCTIONS
 # ============================================================================
 
