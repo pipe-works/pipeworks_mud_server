@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.0...mud_server-v0.2.1) (2026-01-30)
+
+
+### Documentation
+
+* align ReadTheDocs with pipe-works organization standards ([#14](https://github.com/pipe-works/pipeworks_mud_server/issues/14)) ([8306b70](https://github.com/pipe-works/pipeworks_mud_server/commit/8306b703e4686cf2108f18e0fbdea1fa271e32b1))
+
 ## [0.2.0](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.1.2...mud_server-v0.2.0) (2026-01-30)
 
 
