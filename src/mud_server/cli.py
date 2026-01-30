@@ -345,7 +345,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     # Find an available port (may be different from api_port if it's in use)
     actual_api_port = find_api_port(api_port, host)
     if actual_api_port is None:
-        print("Error: No available port found for API server (8000-8099 all in use).", file=sys.stderr)
+        print(
+            "Error: No available port found for API server (8000-8099 all in use).", file=sys.stderr
+        )
         return 1
 
     if actual_api_port != api_port:
