@@ -4,15 +4,20 @@ Command-line interface for PipeWorks MUD Server.
 Provides CLI commands for server management:
 - init-db: Initialize the database schema
 - create-superuser: Create a superuser account interactively or via environment variables
+- run: Start the MUD server (API and web UI)
 
 Usage:
     mud-server init-db
     mud-server create-superuser
-    mud-server run
+    mud-server run [--port PORT] [--ui-port PORT] [--host HOST]
 
 Environment Variables:
     MUD_ADMIN_USER: Username for superuser (used by init-db if set)
     MUD_ADMIN_PASSWORD: Password for superuser (used by init-db if set)
+    MUD_HOST: Host to bind API server (default: 0.0.0.0)
+    MUD_PORT: Port for API server (default: 8000, auto-discovers if in use)
+    MUD_UI_HOST: Host to bind UI server (default: 0.0.0.0)
+    MUD_UI_PORT: Port for UI server (default: 7860, auto-discovers if in use)
 """
 
 import argparse
@@ -162,10 +167,20 @@ def cmd_run(args: argparse.Namespace) -> int:
     """
     Run the MUD server (both API and client).
 
+    Supports configurable ports via CLI arguments or environment variables.
+    If a port is in use, automatically finds an available port in the range.
+
+    Args:
+        args: Parsed arguments containing:
+            - port: API server port (optional)
+            - ui_port: UI server port (optional)
+            - host: Host to bind to (optional)
+            - api_only: Run only the API server (optional)
+
     Returns:
         0 on success, 1 on error
     """
-    import subprocess
+    import multiprocessing
 
     from mud_server.db.database import DB_PATH, init_database
 
@@ -174,21 +189,47 @@ def cmd_run(args: argparse.Namespace) -> int:
         print("Database not found. Initializing...")
         init_database()
 
-    # Start the server
-    try:
-        # Import and run the server directly
+    # Get port/host configuration from args
+    api_port = getattr(args, "port", None)
+    ui_port = getattr(args, "ui_port", None)
+    host = getattr(args, "host", None)
+    api_only = getattr(args, "api_only", False)
+
+    def run_api_server():
+        """Run the API server in a subprocess."""
         from mud_server.api.server import start_server
 
-        start_server()
+        start_server(host=host, port=api_port)
+
+    def run_ui_client():
+        """Run the Gradio UI client in a subprocess."""
+        from mud_server.client.app import launch_client
+
+        launch_client(host=host, port=ui_port)
+
+    try:
+        if api_only:
+            # Run only the API server
+            run_api_server()
+        else:
+            # Run both API server and UI client in parallel
+            api_process = multiprocessing.Process(target=run_api_server)
+            ui_process = multiprocessing.Process(target=run_ui_client)
+
+            api_process.start()
+            ui_process.start()
+
+            # Wait for both processes
+            api_process.join()
+            ui_process.join()
+
         return 0
-    except ImportError:
-        # Fall back to subprocess if direct import fails
-        print("Starting server...")
-        result = subprocess.run([sys.executable, "-m", "mud_server.api.server"])
-        return result.returncode
     except KeyboardInterrupt:
         print("\nServer stopped.")
         return 0
+    except Exception as e:
+        print(f"Error starting server: {e}", file=sys.stderr)
+        return 1
 
 
 def main() -> int:
@@ -226,7 +267,31 @@ def main() -> int:
     run_parser = subparsers.add_parser(
         "run",
         help="Run the MUD server",
-        description="Start both the API server and Gradio client.",
+        description=(
+            "Start both the API server and Gradio client. "
+            "If a port is in use, automatically finds an available port in the range."
+        ),
+    )
+    run_parser.add_argument(
+        "--port",
+        "-p",
+        type=int,
+        help="API server port (default: 8000, or MUD_PORT env var). Auto-discovers if in use.",
+    )
+    run_parser.add_argument(
+        "--ui-port",
+        type=int,
+        help="UI server port (default: 7860, or MUD_UI_PORT env var). Auto-discovers if in use.",
+    )
+    run_parser.add_argument(
+        "--host",
+        type=str,
+        help="Host to bind servers to (default: 0.0.0.0, or MUD_HOST env var)",
+    )
+    run_parser.add_argument(
+        "--api-only",
+        action="store_true",
+        help="Run only the API server (no Gradio UI)",
     )
     run_parser.set_defaults(func=cmd_run)
 

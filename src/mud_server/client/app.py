@@ -36,7 +36,15 @@ State Management:
 API Communication:
     All game operations communicate with the FastAPI backend via HTTP requests
     through the api_client module.
+
+Port Configuration:
+    --ui-port CLI argument: Specify exact port (no auto-discovery)
+    MUD_UI_PORT env var: Specify preferred port (will auto-discover if in use)
+    Default: 7860 (will auto-discover if in use)
 """
+
+import os
+import socket
 
 import gradio as gr
 
@@ -282,11 +290,126 @@ def create_interface():
     return interface
 
 
-if __name__ == "__main__":
+# ============================================================================
+# PORT DISCOVERY
+# ============================================================================
+
+DEFAULT_UI_PORT = 7860
+UI_PORT_RANGE_START = 7860
+UI_PORT_RANGE_END = 7899
+
+
+def is_port_available(port: int, host: str = "0.0.0.0") -> bool:
+    """
+    Check if a port is available for binding.
+
+    Args:
+        port: Port number to check
+        host: Host interface to check (default: all interfaces)
+
+    Returns:
+        True if port is available, False otherwise
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
+def find_available_port(
+    preferred_port: int = DEFAULT_UI_PORT,
+    host: str = "0.0.0.0",
+    range_start: int = UI_PORT_RANGE_START,
+    range_end: int = UI_PORT_RANGE_END,
+) -> int | None:
+    """
+    Find an available port, starting with the preferred port.
+
+    If the preferred port is available, returns it. Otherwise, scans the
+    specified range for the first available port.
+
+    Args:
+        preferred_port: First port to try (default: 7860)
+        host: Host interface to check (default: all interfaces)
+        range_start: Start of port range to scan (default: 7860)
+        range_end: End of port range to scan (default: 7899)
+
+    Returns:
+        Available port number, or None if no port is available in range
+    """
+    # Try preferred port first
+    if is_port_available(preferred_port, host):
+        return preferred_port
+
+    # Scan the range for an available port
+    for port in range(range_start, range_end + 1):
+        if port != preferred_port and is_port_available(port, host):
+            return port
+
+    return None
+
+
+# ============================================================================
+# CLIENT STARTUP
+# ============================================================================
+
+
+def launch_client(
+    host: str | None = None,
+    port: int | None = None,
+    auto_discover: bool = True,
+) -> None:
+    """
+    Launch the Gradio web client with configurable host and port.
+
+    Port resolution order:
+    1. Explicit port parameter (if provided)
+    2. MUD_UI_PORT environment variable
+    3. Default port (7860)
+
+    If auto_discover is True and the chosen port is in use, the client will
+    automatically find an available port in the 7860-7899 range.
+
+    Args:
+        host: Host interface to bind to. If None, uses MUD_UI_HOST env var or "0.0.0.0"
+        port: Port to bind to. If None, uses MUD_UI_PORT env var or 7860
+        auto_discover: If True, find available port if preferred port is in use.
+            Set to False to fail immediately if port is unavailable.
+
+    Raises:
+        RuntimeError: If no available port is found when auto_discover is True
+        OSError: If port is in use and auto_discover is False
+    """
+    # Resolve host
+    if host is None:
+        host = os.getenv("MUD_UI_HOST", "0.0.0.0")
+
+    # Resolve port
+    if port is None:
+        port = int(os.getenv("MUD_UI_PORT", DEFAULT_UI_PORT))
+
+    # Find available port if needed
+    if auto_discover:
+        available_port = find_available_port(port, host)
+        if available_port is None:
+            raise RuntimeError(
+                f"No available port found in range {UI_PORT_RANGE_START}-{UI_PORT_RANGE_END}"
+            )
+        if available_port != port:
+            print(f"Port {port} is in use. Using port {available_port} instead.")
+        port = available_port
+
+    print(f"Starting MUD client on {host}:{port}")
     interface = create_interface()
     interface.launch(
-        server_name="0.0.0.0",
-        server_port=7860,
+        server_name=host,
+        server_port=port,
         share=False,
         show_error=True,
     )
+
+
+if __name__ == "__main__":
+    launch_client()
