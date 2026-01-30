@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.2.0](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.1.2...mud_server-v0.2.0) (2026-01-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* No default admin user created on init. Use CLI or env vars.
+
+### Features
+
+* add CLI with secure superuser management ([#11](https://github.com/pipe-works/pipeworks_mud_server/issues/11)) ([a5f7321](https://github.com/pipe-works/pipeworks_mud_server/commit/a5f732197500c727b362bf28a5831bfe303e8d32))
+
+
+### Bug Fixes
+
+* **security:** upgrade python-multipart to 0.0.22 ([#12](https://github.com/pipe-works/pipeworks_mud_server/issues/12)) ([08d1eeb](https://github.com/pipe-works/pipeworks_mud_server/commit/08d1eeb3b4b26664aa09867bb2c39156b1dd7e9d))
+
+
+### Documentation
+
+* add pipe-works organization standards reference to CLAUDE.md ([#13](https://github.com/pipe-works/pipeworks_mud_server/issues/13)) ([853acb7](https://github.com/pipe-works/pipeworks_mud_server/commit/853acb7ce0f906bfbd4490129796b9f0224aa8b5))
+* rebrand as generic PipeWorks MUD Server framework ([#9](https://github.com/pipe-works/pipeworks_mud_server/issues/9)) ([f058b5d](https://github.com/pipe-works/pipeworks_mud_server/commit/f058b5d45046b1751e126d664d7754716322b3c3))
+
 ## [0.1.2](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.1.1...mud_server-v0.1.2) (2026-01-27)
 
 
