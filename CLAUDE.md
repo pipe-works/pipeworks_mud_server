@@ -146,3 +146,14 @@ When implementing planned features:
 - **Ledger is Truth**: Immutable records; everything else is interpretation
 
 See `docs/the_undertaking_articulation.md` for full design philosophy and `docs/undertaking_code_examples.md` for implementation patterns.
+
+## pipe-works Organization Standards
+
+This repository follows pipe-works organization standards.
+See https://github.com/pipe-works/pipe-works/blob/main/CLAUDE.md for full details.
+
+- Python 3.12+, pyenv virtualenvs
+- pytest >80% coverage (org minimum 50%)
+- black 26.1.0 (pinned org-wide) / ruff / mypy
+- Reusable CI workflow from pipe-works/.github
+- GPL-3.0-or-later license
