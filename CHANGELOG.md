@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.3](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.2...mud_server-v0.2.3) (2026-01-30)
+
+
+### Features
+
+* **admin:** add Textual TUI and reorganize admin interfaces ([#20](https://github.com/pipe-works/pipeworks_mud_server/issues/20)) ([75e6dae](https://github.com/pipe-works/pipeworks_mud_server/commit/75e6dae91bec4fecafe6fd0e8d4a609e444dd037))
+
+
+### Bug Fixes
+
+* **admin_tui:** improve error handling for server responses and dashboard ([#23](https://github.com/pipe-works/pipeworks_mud_server/issues/23)) ([67bcc8b](https://github.com/pipe-works/pipeworks_mud_server/commit/67bcc8b3bef5d6ac6ad4ba6e5bdfd17b6f025c06))
+* **admin_tui:** resolve TUI freeze and session management issues ([#24](https://github.com/pipe-works/pipeworks_mud_server/issues/24)) ([5ea542f](https://github.com/pipe-works/pipeworks_mud_server/commit/5ea542f5e68404f4a7d1d2c785189a5b879cc48d))
+
+
+### Documentation
+
+* add Admin TUI documentation to getting started guide ([#22](https://github.com/pipe-works/pipeworks_mud_server/issues/22)) ([96eab20](https://github.com/pipe-works/pipeworks_mud_server/commit/96eab20a63b35c80c49427e74e9df54f8d42033f))
+
 ## [0.2.2](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.1...mud_server-v0.2.2) (2026-01-30)
 
 
