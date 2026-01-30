@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.3...mud_server-v0.2.4) (2026-01-30)
+
+
+### Features
+
+* **admin_tui:** add database viewer screen for superusers ([#25](https://github.com/pipe-works/pipeworks_mud_server/issues/25)) ([872b4d5](https://github.com/pipe-works/pipeworks_mud_server/commit/872b4d5e12233a44e3b4f24ce1784d270068615e))
+
 ## [0.2.3](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.2...mud_server-v0.2.3) (2026-01-30)
 
 
