@@ -48,6 +48,57 @@ active_sessions: dict[str, tuple[str, str]] = {}
 
 
 # ============================================================================
+# SESSION LIFECYCLE MANAGEMENT
+# ============================================================================
+
+
+def clear_all_sessions() -> int:
+    """
+    Clear all sessions from both memory and database.
+
+    This should be called on server startup to ensure a clean slate.
+    Any sessions left over from a previous run (due to crash or improper shutdown)
+    will be removed.
+
+    Returns:
+        Number of sessions removed from database.
+    """
+    # Clear memory sessions
+    active_sessions.clear()
+
+    # Clear database sessions
+    return database.clear_all_sessions()
+
+
+def remove_session(session_id: str) -> bool:
+    """
+    Remove a specific session from both memory and database.
+
+    Args:
+        session_id: The session ID to remove.
+
+    Returns:
+        True if session was found and removed, False otherwise.
+    """
+    session_data = active_sessions.pop(session_id, None)
+    if session_data:
+        username = session_data[0]
+        database.remove_session(username)
+        return True
+    return False
+
+
+def get_active_session_count() -> int:
+    """
+    Get the count of active sessions in memory.
+
+    Returns:
+        Number of active sessions.
+    """
+    return len(active_sessions)
+
+
+# ============================================================================
 # SESSION LOOKUP FUNCTIONS
 # ============================================================================
 

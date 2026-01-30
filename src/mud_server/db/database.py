@@ -725,6 +725,65 @@ def update_session_activity(username: str) -> bool:
         return False
 
 
+def cleanup_stale_sessions(max_inactive_minutes: int = 30) -> int:
+    """
+    Remove sessions that have been inactive for longer than the specified time.
+
+    This function cleans up orphaned sessions that may have been left behind
+    when clients crash or disconnect without properly logging out.
+
+    Args:
+        max_inactive_minutes: Maximum time in minutes since last activity before
+            a session is considered stale. Defaults to 30 minutes.
+
+    Returns:
+        Number of sessions removed.
+
+    Example:
+        >>> cleanup_stale_sessions(30)
+        3  # Removed 3 stale sessions
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        # Delete sessions where last_activity is older than max_inactive_minutes
+        cursor.execute(
+            """
+            DELETE FROM sessions
+            WHERE datetime(last_activity) < datetime('now', ? || ' minutes')
+            """,
+            (f"-{max_inactive_minutes}",),
+        )
+        removed_count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return removed_count
+    except Exception:
+        return 0
+
+
+def clear_all_sessions() -> int:
+    """
+    Remove all sessions from the database.
+
+    This is typically called on server startup to clean up any orphaned
+    sessions from a previous run.
+
+    Returns:
+        Number of sessions removed.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM sessions")
+        removed_count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return removed_count
+    except Exception:
+        return 0
+
+
 # ============================================================================
 # ADMIN QUERIES (Detailed Information)
 # ============================================================================

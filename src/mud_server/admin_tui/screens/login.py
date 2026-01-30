@@ -10,6 +10,7 @@ login form with username and password inputs.
 
 from textual import on
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Center, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Input, Label, Static
@@ -23,6 +24,9 @@ class LoginScreen(Screen):
     it posts a LoginSuccess message that the main app handles to transition
     to the dashboard.
 
+    Key Bindings:
+        ctrl+q: Quit application
+
     CSS Classes:
         .login-box: The container for the login form.
         .login-title: The "Admin Login" heading.
@@ -34,6 +38,15 @@ class LoginScreen(Screen):
     Messages:
         LoginSuccess: Posted when login succeeds, contains username and role.
     """
+
+    # Allow quitting from login screen with Ctrl+Q
+    BINDINGS = [
+        Binding("ctrl+q", "quit", "Quit", priority=True),
+    ]
+
+    def action_quit(self) -> None:
+        """Quit the application."""
+        self.app.exit()
 
     # CSS styling for the login form
     CSS = """
@@ -164,9 +177,10 @@ class LoginScreen(Screen):
         # The app's api_client handles the actual HTTP request
         try:
             await self.app.do_login(username, password)  # type: ignore
-            status.update("[green]Login successful![/green]")
+            # Note: do_login calls switch_screen, so this screen is replaced
+            # Don't try to update widgets after this point
         except Exception as e:
-            # Show error message
+            # Show error message (only if login failed and screen is still active)
             error_msg = str(e)
             if "401" in error_msg or "Invalid" in error_msg.lower():
                 status.update("[red]Invalid username or password[/red]")

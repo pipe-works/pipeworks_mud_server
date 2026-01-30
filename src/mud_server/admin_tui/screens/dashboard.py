@@ -13,6 +13,7 @@ The DashboardScreen shows:
 
 from textual import on, work
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Static
@@ -30,7 +31,7 @@ class DashboardScreen(Screen):
         p: View players list
         s: View active sessions
         l: Logout
-        q: Quit application
+        q, ctrl+q: Quit application
 
     CSS Classes:
         .dashboard-container: Main content container.
@@ -41,12 +42,15 @@ class DashboardScreen(Screen):
     """
 
     # Key bindings for quick actions
+    # Using Binding class with priority=True to ensure bindings work even when
+    # child widgets (like Buttons) have focus
     BINDINGS = [
-        ("r", "refresh", "Refresh"),
-        ("p", "view_players", "Players"),
-        ("s", "view_sessions", "Sessions"),
-        ("l", "logout", "Logout"),
-        ("q", "quit", "Quit"),
+        Binding("r", "refresh", "Refresh", priority=True),
+        Binding("p", "view_players", "Players", priority=True),
+        Binding("s", "view_sessions", "Sessions", priority=True),
+        Binding("l", "logout", "Logout", priority=True),
+        Binding("q", "quit", "Quit", priority=True),
+        Binding("ctrl+q", "quit", "Quit", priority=True, show=False),
     ]
 
     CSS = """
@@ -178,29 +182,21 @@ class DashboardScreen(Screen):
     def on_mount(self) -> None:
         """Initialize dashboard when mounted."""
         # Update user info from session
-        try:
-            self._update_user_info()
-        except Exception:
-            pass  # Widgets might not be ready
-        # Schedule initial data refresh after a brief delay to ensure widgets are ready
-        self.set_timer(0.1, self.refresh_status)
+        self._update_user_info()
+        # Start initial refresh
+        self.refresh_status()
 
     def _update_user_info(self) -> None:
         """Update the user info display from session state."""
-        try:
-            api_client = self.app.api_client  # type: ignore
-            if api_client and api_client.session.is_authenticated:
-                self.query_one("#user-name", Static).update(
-                    api_client.session.username or "Unknown"
-                )
-                self.query_one("#user-role", Static).update(api_client.session.role or "Unknown")
-            else:
-                self.query_one("#user-name", Static).update("Not logged in")
-                self.query_one("#user-role", Static).update("-")
-        except Exception:
-            pass  # Widgets might not be mounted yet
+        api_client = self.app.api_client  # type: ignore
+        if api_client and api_client.session.is_authenticated:
+            self.query_one("#user-name", Static).update(api_client.session.username or "Unknown")
+            self.query_one("#user-role", Static).update(api_client.session.role or "Unknown")
+        else:
+            self.query_one("#user-name", Static).update("Not logged in")
+            self.query_one("#user-role", Static).update("-")
 
-    @work(exclusive=True)
+    @work(thread=False)
     async def refresh_status(self) -> None:
         """
         Refresh server status from API.
@@ -208,39 +204,28 @@ class DashboardScreen(Screen):
         This is a background worker that fetches server health
         and updates the display. Uses @work decorator for async execution.
         """
+        api_client = self.app.api_client  # type: ignore
+        config = self.app.config  # type: ignore
+
+        # Update server URL display
+        self.query_one("#server-url", Static).update(config.server_url)
+
         try:
-            api_client = self.app.api_client  # type: ignore
-            config = self.app.config  # type: ignore
+            health = await api_client.get_health()
+            status = health.get("status", "unknown")
+            players = health.get("active_players", 0)
 
-            # Safely update server URL display
-            try:
-                self.query_one("#server-url", Static).update(config.server_url)
-            except Exception:
-                pass  # Widget might not be mounted yet
+            # Update status display
+            if status == "ok":
+                self.query_one("#server-status", Static).update("[green]Online[/green]")
+            else:
+                self.query_one("#server-status", Static).update(f"[yellow]{status}[/yellow]")
 
-            try:
-                health = await api_client.get_health()
-                status = health.get("status", "unknown")
-                players = health.get("active_players", 0)
+            self.query_one("#active-players", Static).update(str(players))
 
-                # Update status display
-                if status == "ok":
-                    self.query_one("#server-status", Static).update("[green]Online[/green]")
-                else:
-                    self.query_one("#server-status", Static).update(f"[yellow]{status}[/yellow]")
-
-                self.query_one("#active-players", Static).update(str(players))
-
-            except Exception as e:
-                try:
-                    self.query_one("#server-status", Static).update(f"[red]Error: {e}[/red]")
-                    self.query_one("#active-players", Static).update("-")
-                except Exception:
-                    pass  # Widget might not be mounted yet
-
-        except Exception:
-            # Catch-all to prevent worker from crashing the app
-            pass
+        except Exception as e:
+            self.query_one("#server-status", Static).update(f"[red]Error: {e}[/red]")
+            self.query_one("#active-players", Static).update("-")
 
     # -------------------------------------------------------------------------
     # Button Handlers
