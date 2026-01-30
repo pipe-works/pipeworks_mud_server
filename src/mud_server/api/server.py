@@ -28,7 +28,6 @@ from mud_server.api.auth import clear_all_sessions
 from mud_server.api.routes import register_routes
 from mud_server.core.engine import GameEngine
 
-
 # ============================================================================
 # LIFESPAN EVENTS
 # ============================================================================
