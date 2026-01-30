@@ -26,48 +26,62 @@ Clone and Setup
     python3 -m venv venv
     source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-    # Install dependencies
-    pip install -r requirements.txt
+    # Install the package
+    pip install -e .
 
 Initialize Database
 ~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
-    PYTHONPATH=src python3 -m mud_server.db.database
+    # Initialize the database schema
+    mud-server init-db
 
 This creates the SQLite database with required tables.
+
+Create Superuser
+~~~~~~~~~~~~~~~~
+
+The server requires a superuser account for administration. Choose one method:
+
+**Interactive mode** (recommended for local development):
+
+.. code-block:: bash
+
+    mud-server create-superuser
+    # Follow prompts for username and password
+
+**Environment variables** (for CI/deployment):
+
+.. code-block:: bash
+
+    export MUD_ADMIN_USER=myadmin
+    export MUD_ADMIN_PASSWORD=mysecurepassword123
+    mud-server init-db
 
 Running the Server
 ------------------
 
-Start Both Services
-~~~~~~~~~~~~~~~~~~~
+Start the Server
+~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
-    ./run.sh
+    mud-server run
 
 This starts:
 
 * **API Server**: http://localhost:8000
 * **Web UI**: http://localhost:7860
 
-Press ``Ctrl+C`` to stop both services.
+Press ``Ctrl+C`` to stop the server.
 
 First Login
 -----------
 
-Default Superuser Credentials:
-
-* **Username**: ``admin``
-* **Password**: ``admin123``
-
-⚠️ **IMPORTANT**: Change this immediately after first login!
-
-1. Login with default credentials
-2. Navigate to user management interface
-3. Set a new secure password
+1. Open the web UI at http://localhost:7860
+2. Login with the superuser credentials you created
+3. Explore the interface and start building your world
 
 Creating Your First World
 --------------------------
@@ -115,7 +129,7 @@ For development work:
 .. code-block:: bash
 
     # Install development dependencies
-    pip install -r requirements-dev.txt
+    pip install -e ".[dev]"
 
     # Run tests
     pytest -v
@@ -140,14 +154,14 @@ API Server Only
 
 .. code-block:: bash
 
-    PYTHONPATH=src python3 src/mud_server/api/server.py
+    python -m mud_server.api.server
 
 Gradio Client Only
 ~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
-    PYTHONPATH=src python3 src/mud_server/client/app.py
+    python -m mud_server.client.app
 
 Requires API server to be running.
 
@@ -156,11 +170,46 @@ Environment Variables
 
 Optional configuration:
 
+.. list-table::
+   :header-rows: 1
+   :widths: 30 20 50
+
+   * - Variable
+     - Default
+     - Description
+   * - ``MUD_HOST``
+     - ``0.0.0.0``
+     - Server bind address
+   * - ``MUD_PORT``
+     - ``8000``
+     - API server port
+   * - ``MUD_SERVER_URL``
+     - ``http://localhost:8000``
+     - Client API endpoint
+   * - ``MUD_ADMIN_USER``
+     - (none)
+     - Superuser username for init-db
+   * - ``MUD_ADMIN_PASSWORD``
+     - (none)
+     - Superuser password for init-db
+
+CLI Reference
+-------------
+
+The ``mud-server`` CLI provides these commands:
+
+.. code-block:: text
+
+    mud-server init-db           Initialize database schema
+    mud-server create-superuser  Create a superuser account
+    mud-server run               Start the server
+
+For help on any command:
+
 .. code-block:: bash
 
-    export MUD_HOST="0.0.0.0"          # Bind address
-    export MUD_PORT=8000                # API port
-    export MUD_SERVER_URL="http://localhost:8000"  # Client API endpoint
+    mud-server --help
+    mud-server init-db --help
 
 Next Steps
 ----------
