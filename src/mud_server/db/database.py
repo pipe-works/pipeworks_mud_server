@@ -56,13 +56,17 @@ DB_PATH = Path(__file__).parent.parent.parent.parent / "data" / "mud.db"
 # ============================================================================
 
 
-def init_database():
+def init_database(*, skip_superuser: bool = False):
     """
     Initialize the SQLite database with required tables.
 
     Creates all necessary tables if they don't exist. If MUD_ADMIN_USER and
     MUD_ADMIN_PASSWORD environment variables are set and no players exist,
-    creates a superuser with those credentials.
+    creates a superuser with those credentials (unless skip_superuser=True).
+
+    Args:
+        skip_superuser: If True, skip superuser creation from env vars.
+            Used by create-superuser command to avoid duplicate creation.
 
     Tables Created:
         players: User accounts with authentication, role, state, and inventory
@@ -76,7 +80,7 @@ def init_database():
     Side Effects:
         - Creates data/mud.db file if it doesn't exist
         - Creates tables if they don't exist
-        - Creates superuser if env vars set and no players exist
+        - Creates superuser if env vars set and no players exist (unless skip_superuser)
         - Commits all changes to database
 
     Example:
@@ -148,6 +152,10 @@ def init_database():
     # ========================================================================
     # CREATE SUPERUSER FROM ENVIRONMENT VARIABLES (if no players exist)
     # ========================================================================
+    if skip_superuser:
+        conn.close()
+        return
+
     cursor.execute("SELECT COUNT(*) FROM players")
     player_count = cursor.fetchone()[0]
 
