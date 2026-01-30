@@ -754,7 +754,7 @@ def cleanup_stale_sessions(max_inactive_minutes: int = 30) -> int:
             """,
             (f"-{max_inactive_minutes}",),
         )
-        removed_count = cursor.rowcount
+        removed_count: int = cursor.rowcount
         conn.commit()
         conn.close()
         return removed_count
@@ -776,7 +776,7 @@ def clear_all_sessions() -> int:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM sessions")
-        removed_count = cursor.rowcount
+        removed_count: int = cursor.rowcount
         conn.commit()
         conn.close()
         return removed_count

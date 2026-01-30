@@ -176,7 +176,7 @@ class LoginScreen(Screen):
         # Attempt login through the app
         # The app's api_client handles the actual HTTP request
         try:
-            await self.app.do_login(username, password)  # type: ignore
+            await self.app.do_login(username, password)
             # Note: do_login calls switch_screen, so this screen is replaced
             # Don't try to update widgets after this point
         except Exception as e:

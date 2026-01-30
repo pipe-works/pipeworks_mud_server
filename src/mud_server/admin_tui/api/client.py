@@ -308,7 +308,7 @@ class AdminAPIClient:
         self.session.username = username
         self.session.role = data.get("role", "player")
 
-        return data
+        return dict(data)
 
     async def logout(self) -> bool:
         """
@@ -334,8 +334,9 @@ class AdminAPIClient:
                 "/logout",
                 json={"session_id": self.session.session_id},
             )
-        except Exception:
+        except Exception:  # noqa: S110  # nosec B110
             # Always clear local state, even on network errors
+            # The pass is intentional - we don't care if logout fails on server
             pass
         finally:
             self.session.clear()
@@ -391,7 +392,7 @@ class AdminAPIClient:
                 detail=data.get("detail", "Server error"),
             )
 
-        return data
+        return dict(data)
 
     # -------------------------------------------------------------------------
     # Admin Methods (Require Authentication)
@@ -433,7 +434,7 @@ class AdminAPIClient:
 
         response = await self.http_client.get(
             "/admin/database/players",
-            headers={"X-Session-ID": self.session.session_id},
+            headers={"X-Session-ID": self.session.session_id or ""},
         )
 
         if response.status_code == 403:
@@ -452,7 +453,7 @@ class AdminAPIClient:
             )
 
         data = response.json()
-        return data.get("players", [])
+        return list(data.get("players", []))
 
     async def get_sessions(self) -> list[dict[str, Any]]:
         """
@@ -475,7 +476,7 @@ class AdminAPIClient:
 
         response = await self.http_client.get(
             "/admin/database/sessions",
-            headers={"X-Session-ID": self.session.session_id},
+            headers={"X-Session-ID": self.session.session_id or ""},
         )
 
         if response.status_code == 403:
@@ -494,4 +495,4 @@ class AdminAPIClient:
             )
 
         data = response.json()
-        return data.get("sessions", [])
+        return list(data.get("sessions", []))

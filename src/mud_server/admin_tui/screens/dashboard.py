@@ -188,7 +188,7 @@ class DashboardScreen(Screen):
 
     def _update_user_info(self) -> None:
         """Update the user info display from session state."""
-        api_client = self.app.api_client  # type: ignore
+        api_client = self.app.api_client
         if api_client and api_client.session.is_authenticated:
             self.query_one("#user-name", Static).update(api_client.session.username or "Unknown")
             self.query_one("#user-role", Static).update(api_client.session.role or "Unknown")
@@ -204,8 +204,8 @@ class DashboardScreen(Screen):
         This is a background worker that fetches server health
         and updates the display. Uses @work decorator for async execution.
         """
-        api_client = self.app.api_client  # type: ignore
-        config = self.app.config  # type: ignore
+        api_client = self.app.api_client
+        config = self.app.config
 
         # Update server URL display
         self.query_one("#server-url", Static).update(config.server_url)
@@ -271,7 +271,7 @@ class DashboardScreen(Screen):
 
     async def action_logout(self) -> None:
         """Logout and return to login screen (key: l)."""
-        await self.app.do_logout()  # type: ignore
+        await self.app.do_logout()
 
     def action_quit(self) -> None:
         """Quit the application (key: q)."""
