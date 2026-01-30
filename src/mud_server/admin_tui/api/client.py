@@ -516,3 +516,49 @@ class AdminAPIClient:
 
         data = response.json()
         return list(data.get("sessions", []))
+
+    async def get_chat_messages(self, limit: int = 100) -> list[dict[str, Any]]:
+        """
+        Get recent chat messages from the database.
+
+        Requires admin privileges.
+
+        Args:
+            limit: Maximum number of messages to return (default 100).
+
+        Returns:
+            list: List of chat message dictionaries with username, message, etc.
+
+        Raises:
+            AuthenticationError: If not authenticated or lacks permission.
+            APIError: If the server returns an error.
+
+        Example:
+            messages = await client.get_chat_messages(limit=50)
+            for msg in messages:
+                print(f"{msg['username']}: {msg['message']}")
+        """
+        self._require_auth()
+
+        response = await self.http_client.get(
+            "/admin/database/chat-messages",
+            params={"session_id": self.session.session_id, "limit": limit},
+        )
+
+        if response.status_code == 403:
+            raise AuthenticationError(
+                message="Permission denied",
+                status_code=403,
+                detail="Admin privileges required",
+            )
+
+        if response.status_code != 200:
+            data = response.json()
+            raise APIError(
+                message="Failed to get chat messages",
+                status_code=response.status_code,
+                detail=data.get("detail", "Unknown error"),
+            )
+
+        data = response.json()
+        return list(data.get("messages", []))

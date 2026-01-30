@@ -467,3 +467,115 @@ class TestAdminAPIClientAuthRequired:
 
         assert len(players) == 2
         assert players[0]["username"] == "player1"
+
+    @pytest.mark.asyncio
+    async def test_get_chat_messages_requires_auth(self, client: AdminAPIClient):
+        """Test get_chat_messages raises error when not authenticated."""
+        with pytest.raises(AuthenticationError, match="Not authenticated"):
+            await client.get_chat_messages()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_chat_messages_permission_denied(self, client: AdminAPIClient):
+        """Test get_chat_messages with insufficient permissions."""
+        # Login as player (not admin)
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "player"},
+            )
+        )
+        await client.login("player", "password")
+
+        # Mock permission denied response
+        respx.get("http://test-server:8000/admin/database/chat-messages").mock(
+            return_value=Response(403, json={"detail": "Forbidden"})
+        )
+
+        with pytest.raises(AuthenticationError) as exc_info:
+            await client.get_chat_messages()
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_chat_messages_success(self, client: AdminAPIClient):
+        """Test successful get_chat_messages call."""
+        # Login as admin
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        # Mock chat messages response
+        respx.get("http://test-server:8000/admin/database/chat-messages").mock(
+            return_value=Response(
+                200,
+                json={
+                    "messages": [
+                        {"username": "player1", "message": "Hello", "room": "spawn"},
+                        {"username": "player2", "message": "Hi there", "room": "spawn"},
+                    ]
+                },
+            )
+        )
+
+        messages = await client.get_chat_messages()
+
+        assert len(messages) == 2
+        assert messages[0]["username"] == "player1"
+        assert messages[0]["message"] == "Hello"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_chat_messages_with_limit(self, client: AdminAPIClient):
+        """Test get_chat_messages respects limit parameter."""
+        # Login as admin
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        # Mock chat messages response - verify limit is passed in params
+        route = respx.get("http://test-server:8000/admin/database/chat-messages").mock(
+            return_value=Response(
+                200,
+                json={"messages": [{"username": "player1", "message": "Test"}]},
+            )
+        )
+
+        await client.get_chat_messages(limit=50)
+
+        # Verify the request was made with correct params
+        assert route.called
+        assert "limit=50" in str(route.calls[0].request.url)
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_chat_messages_server_error(self, client: AdminAPIClient):
+        """Test get_chat_messages handles server errors."""
+        # Login as admin
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        # Mock server error response
+        respx.get("http://test-server:8000/admin/database/chat-messages").mock(
+            return_value=Response(500, json={"detail": "Internal server error"})
+        )
+
+        with pytest.raises(APIError) as exc_info:
+            await client.get_chat_messages()
+
+        assert exc_info.value.status_code == 500
+        assert "Failed to get chat messages" in exc_info.value.message
