@@ -15,15 +15,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Setup
 ```bash
 python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-PYTHONPATH=src python3 -m mud_server.db.database  # Initialize DB
+pip install -e .                                  # Install package (enables mud-server CLI)
+mud-server init-db                                # Initialize DB (no default admin)
+mud-server create-superuser                       # Create admin interactively
 ```
 
 ### Running
 ```bash
-./run.sh                                          # Start both server (:8000) and client (:7860)
-PYTHONPATH=src python3 src/mud_server/api/server.py   # API server only
-PYTHONPATH=src python3 src/mud_server/client/app.py   # Gradio client only (server must be running)
+mud-server run                                    # Start both server (:8000) and client (:7860)
+./run.sh                                          # Alternative: shell script
 ```
 
 ### Testing
@@ -48,7 +48,8 @@ mypy src/ --ignore-missing-imports                # Type check
 
 ### Database
 ```bash
-rm data/mud.db && PYTHONPATH=src python3 -m mud_server.db.database  # Reset DB
+rm data/mud.db && mud-server init-db              # Reset DB
+mud-server create-superuser                       # Create admin after reset
 sqlite3 data/mud.db ".schema"                     # View schema
 sqlite3 data/mud.db "SELECT username, role, current_room FROM players;"
 ```
@@ -130,7 +131,9 @@ def test_authenticated(authenticated_client):
 
 **RBAC hierarchy**: Player < WorldBuilder < Admin < Superuser. Check permissions via `permissions.py:has_permission()`.
 
-**Default superuser**: `admin` / `admin123` - created on DB init. Change immediately in production.
+**Superuser creation**: No hardcoded default admin. Create via:
+- Interactive: `mud-server create-superuser`
+- Environment: `MUD_ADMIN_USER=admin MUD_ADMIN_PASSWORD=secret mud-server init-db`
 
 **World data**: Loaded from `data/world_data.json` at startup. Rooms define one-way exits unless both directions are specified.
 

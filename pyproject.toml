@@ -27,6 +27,9 @@ Homepage = "https://github.com/pipe-works/pipeworks_mud_server"
 Repository = "https://github.com/pipe-works/pipeworks_mud_server.git"
 Issues = "https://github.com/pipe-works/pipeworks_mud_server/issues"
 
+[project.scripts]
+mud-server = "mud_server.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3.4",
