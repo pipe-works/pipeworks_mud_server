@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.2](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.1...mud_server-v0.2.2) (2026-01-30)
+
+
+### Features
+
+* **cli:** add port auto-discovery for API server and UI client ([#18](https://github.com/pipe-works/pipeworks_mud_server/issues/18)) ([b31d8d1](https://github.com/pipe-works/pipeworks_mud_server/commit/b31d8d1cd322d4f26c0c201a585b823c34e9c7ea))
+* **security:** implement comprehensive NIST-aligned password policy ([#19](https://github.com/pipe-works/pipeworks_mud_server/issues/19)) ([2909143](https://github.com/pipe-works/pipeworks_mud_server/commit/2909143131a6ce46d84d6a5fe1879ac068b34bab))
+
+
+### Bug Fixes
+
+* **deps:** downgrade bcrypt to 3.2.2 for passlib compatibility ([#16](https://github.com/pipe-works/pipeworks_mud_server/issues/16)) ([22d1dca](https://github.com/pipe-works/pipeworks_mud_server/commit/22d1dca1182e7832ddbb5a572a59a07290436332))
+
 ## [0.2.1](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.0...mud_server-v0.2.1) (2026-01-30)
 
 
