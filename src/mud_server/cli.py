@@ -110,7 +110,6 @@ def cmd_create_superuser(args: argparse.Namespace) -> int:
     Returns:
         0 on success, 1 on error
     """
-    from mud_server.api.password import hash_password
     from mud_server.db.database import create_player_with_password, init_database, player_exists
 
     # Ensure database exists

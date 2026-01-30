@@ -9,12 +9,11 @@ Tests cover:
 """
 
 import argparse
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from mud_server import cli
-
 
 # ============================================================================
 # ENVIRONMENT VARIABLE TESTS
