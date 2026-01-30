@@ -16,14 +16,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 python3 -m venv venv && source venv/bin/activate
 pip install -e .                                  # Install package (enables mud-server CLI)
+pip install -e ".[admin-tui]"                     # Also install Terminal UI dependencies
 mud-server init-db                                # Initialize DB (no default admin)
 mud-server create-superuser                       # Create admin interactively
 ```
 
 ### Running
 ```bash
-mud-server run                                    # Start both server (:8000) and client (:7860)
+mud-server run                                    # Start both server (:8000) and Gradio client (:7860)
 ./run.sh                                          # Alternative: shell script
+pipeworks-admin-tui                               # Terminal UI (requires pip install -e ".[admin-tui]")
+pipeworks-admin-tui -s http://remote:8000         # Connect to remote server
 ```
 
 ### Testing
@@ -70,23 +73,32 @@ src/mud_server/
 │   └── world.py            # World, Room, Item dataclasses (loads from JSON)
 ├── db/
 │   └── database.py         # SQLite: players, sessions, chat_messages tables
-└── client/                 # Gradio web interface (port 7860)
-    ├── app.py              # Main entry, tab assembly
-    ├── api/                # API client layer (works outside Gradio)
-    │   ├── base.py         # BaseAPIClient with common HTTP patterns
-    │   ├── auth.py         # Login, register, logout
-    │   ├── game.py         # Commands, status, chat
-    │   ├── admin.py        # User management
-    │   ├── settings.py     # Server control
-    │   └── ollama.py       # AI model integration
-    ├── ui/                 # UI utilities
-    │   ├── state.py        # Gradio state builders
-    │   └── validators.py   # Input validation (100% coverage)
-    ├── tabs/               # Individual tab modules
-    │   ├── login_tab.py, register_tab.py, game_tab.py
-    │   ├── settings_tab.py, database_tab.py
-    │   ├── ollama_tab.py, help_tab.py
-    └── static/styles.css   # Centralized CSS
+├── admin_gradio/           # Gradio web interface (port 7860)
+│   ├── app.py              # Main entry, tab assembly
+│   ├── api/                # API client layer (works outside Gradio)
+│   │   ├── base.py         # BaseAPIClient with common HTTP patterns
+│   │   ├── auth.py         # Login, register, logout
+│   │   ├── game.py         # Commands, status, chat
+│   │   ├── admin.py        # User management
+│   │   ├── settings.py     # Server control
+│   │   └── ollama.py       # AI model integration
+│   ├── ui/                 # UI utilities
+│   │   ├── state.py        # Gradio state builders
+│   │   └── validators.py   # Input validation (100% coverage)
+│   ├── tabs/               # Individual tab modules
+│   │   ├── login_tab.py, register_tab.py, game_tab.py
+│   │   ├── settings_tab.py, database_tab.py
+│   │   ├── ollama_tab.py, help_tab.py
+│   └── static/styles.css   # Centralized CSS
+└── admin_tui/              # Textual terminal UI (SSH/tmux friendly)
+    ├── app.py              # Main Textual app, entry point
+    ├── config.py           # CLI args, env vars, defaults
+    ├── api/                # Async HTTP client (httpx)
+    │   └── client.py       # AdminAPIClient, SessionState, exceptions
+    ├── screens/            # Full-window Textual screens
+    │   ├── login.py        # Login form
+    │   └── dashboard.py    # Server status, quick actions
+    └── widgets/            # Reusable Textual widgets (planned)
 ```
 
 **Data Flow**: Client → HTTP → routes.py → auth.py (validate session) → engine.py → database.py → SQLite
@@ -101,8 +113,10 @@ src/mud_server/
 | Add new game command | `api/routes.py` (parsing), `core/engine.py` (logic) |
 | Add new room/item | `data/world_data.json` (no code changes needed) |
 | Add database table | `db/database.py` |
-| Add Gradio tab | `client/tabs/`, then register in `client/app.py` |
-| Add API client method | `client/api/` (pick appropriate module) |
+| Add Gradio tab | `admin_gradio/tabs/`, then register in `admin_gradio/app.py` |
+| Add API client method (Gradio) | `admin_gradio/api/` (pick appropriate module) |
+| Add TUI screen | `admin_tui/screens/`, then register in `admin_tui/app.py` |
+| Add TUI API method | `admin_tui/api/client.py` |
 
 ## Testing Patterns
 

@@ -243,7 +243,7 @@ xdg-open build/html/index.html  # Linux
 python -m mud_server.api.server
 
 # Run Gradio client only (requires server running)
-python -m mud_server.client.app
+python -m mud_server.admin_gradio.app
 
 # Check server health
 curl http://localhost:8000/health

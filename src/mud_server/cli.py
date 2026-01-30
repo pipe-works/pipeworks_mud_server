@@ -303,7 +303,7 @@ def _run_ui_client(host: str | None, port: int | None) -> None:
         The import is done inside the function to avoid import cycles and to
         ensure the client module is loaded fresh in the subprocess.
     """
-    from mud_server.client.app import launch_client
+    from mud_server.admin_gradio.app import launch_client
 
     launch_client(host=host, port=port)
 

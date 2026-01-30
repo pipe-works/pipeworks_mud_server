@@ -175,7 +175,7 @@ Gradio Client Only
 
 .. code-block:: bash
 
-    python -m mud_server.client.app
+    python -m mud_server.admin_gradio.app
 
 Requires API server to be running.
 
