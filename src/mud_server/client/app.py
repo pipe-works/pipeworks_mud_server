@@ -293,22 +293,50 @@ def create_interface():
 # ============================================================================
 # PORT DISCOVERY
 # ============================================================================
+# These functions handle automatic port discovery for the Gradio UI client.
+# This mirrors the API server's port discovery but uses the 7860-7899 range,
+# which is the standard range for Gradio applications.
+#
+# Rationale for separate implementation (not shared with server.py):
+# - Different default ports (7860 vs 8000)
+# - Different port ranges to avoid conflicts
+# - Keeps client and server modules independent
+# - Allows running multiple instances without conflicts
+# ============================================================================
 
+# Default port for Gradio UI (standard Gradio default)
 DEFAULT_UI_PORT = 7860
+
+# Port range for UI auto-discovery (40 ports should be sufficient)
 UI_PORT_RANGE_START = 7860
 UI_PORT_RANGE_END = 7899
 
 
 def is_port_available(port: int, host: str = "0.0.0.0") -> bool:
     """
-    Check if a port is available for binding.
+    Check if a TCP port is available for binding on the specified host.
+
+    This function is identical to the one in server.py but kept separate
+    to maintain module independence. The Gradio UI client should be able
+    to function without depending on the API server module.
+
+    Technical Details:
+        - Uses a TCP socket (SOCK_STREAM) for the availability check
+        - Socket is automatically closed via context manager
+        - Handles various OSError conditions (EADDRINUSE, EACCES, etc.)
 
     Args:
-        port: Port number to check
-        host: Host interface to check (default: all interfaces)
+        port: TCP port number to check (1-65535)
+        host: Host interface to check. Common values:
+            - "0.0.0.0": All interfaces (default)
+            - "127.0.0.1": Localhost only
 
     Returns:
-        True if port is available, False otherwise
+        True if the port is available for binding, False otherwise
+
+    Example:
+        >>> is_port_available(7860)
+        True  # Port 7860 is free for Gradio
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         try:
@@ -325,29 +353,40 @@ def find_available_port(
     range_end: int = UI_PORT_RANGE_END,
 ) -> int | None:
     """
-    Find an available port, starting with the preferred port.
+    Find an available TCP port for the Gradio UI, starting with preferred port.
 
-    If the preferred port is available, returns it. Otherwise, scans the
-    specified range for the first available port.
+    Implements sequential port scanning to find an available port:
+    1. Try the preferred port first (usually 7860)
+    2. If unavailable, scan 7860-7899 sequentially
+    3. Return None if no ports available (caller handles error)
 
     Args:
-        preferred_port: First port to try (default: 7860)
-        host: Host interface to check (default: all interfaces)
-        range_start: Start of port range to scan (default: 7860)
-        range_end: End of port range to scan (default: 7899)
+        preferred_port: The first port to try. Defaults to 7860 (Gradio default).
+        host: Host interface to check availability on. Defaults to "0.0.0.0".
+        range_start: First port in scan range (inclusive). Defaults to 7860.
+        range_end: Last port in scan range (inclusive). Defaults to 7899.
 
     Returns:
-        Available port number, or None if no port is available in range
+        int: An available port number within the range
+        None: If no ports are available (all 40 ports in use)
+
+    Example:
+        >>> find_available_port(7860)
+        7860  # Normal case - default port available
+
+        >>> find_available_port(7860)  # 7860 in use
+        7861  # Returns next available port
     """
-    # Try preferred port first
+    # Try preferred port first (common case - it's usually available)
     if is_port_available(preferred_port, host):
         return preferred_port
 
-    # Scan the range for an available port
+    # Sequential scan through the Gradio port range
     for port in range(range_start, range_end + 1):
         if port != preferred_port and is_port_available(port, host):
             return port
 
+    # No ports available in range
     return None
 
 
@@ -364,50 +403,101 @@ def launch_client(
     """
     Launch the Gradio web client with configurable host and port.
 
-    Port resolution order:
-    1. Explicit port parameter (if provided)
-    2. MUD_UI_PORT environment variable
-    3. Default port (7860)
+    This is the main entry point for running the Gradio-based web interface.
+    It handles configuration resolution and implements automatic port discovery
+    to avoid "address already in use" errors.
 
-    If auto_discover is True and the chosen port is in use, the client will
-    automatically find an available port in the 7860-7899 range.
+    Configuration Resolution Order:
+        For both host and port, configuration is resolved in this priority:
+        1. Explicit function parameter (highest priority)
+        2. Environment variable (MUD_UI_HOST, MUD_UI_PORT)
+        3. Default value (0.0.0.0:7860)
+
+    Auto-Discovery Behavior:
+        When auto_discover=True (default):
+        - If port 7860 is in use, scans 7860-7899 for an available port
+        - Prints a message when using an alternate port
+        - Raises RuntimeError only if ALL ports in range are unavailable
+
+        When auto_discover=False:
+        - Fails immediately if the specified port is unavailable
+        - Useful when port must match external configuration (proxy, etc.)
 
     Args:
-        host: Host interface to bind to. If None, uses MUD_UI_HOST env var or "0.0.0.0"
-        port: Port to bind to. If None, uses MUD_UI_PORT env var or 7860
-        auto_discover: If True, find available port if preferred port is in use.
-            Set to False to fail immediately if port is unavailable.
+        host: Network interface to bind to. Common values:
+            - None: Use MUD_UI_HOST env var, or "0.0.0.0" (all interfaces)
+            - "0.0.0.0": Accept connections from any network interface
+            - "127.0.0.1": Accept only local connections (localhost)
+        port: TCP port number for the web UI. Values:
+            - None: Use MUD_UI_PORT env var, or 7860 (Gradio default)
+            - Integer: Use this specific port (subject to auto_discover)
+        auto_discover: Enable automatic port discovery. Defaults to True.
 
     Raises:
-        RuntimeError: If no available port is found when auto_discover is True
-        OSError: If port is in use and auto_discover is False
+        RuntimeError: When auto_discover=True but no port is available in
+            the 7860-7899 range.
+        OSError: When auto_discover=False and the specified port is in use.
+
+    Example:
+        # Default configuration
+        launch_client()  # Uses 0.0.0.0:7860 with auto-discovery
+
+        # Custom port for development
+        launch_client(port=8080)
+
+        # Local development only
+        launch_client(host="127.0.0.1")
+
+    Note:
+        This function blocks until the Gradio server is stopped.
+        The interface is accessible at http://{host}:{port} once started.
     """
-    # Resolve host
+    # ========================================================================
+    # CONFIGURATION RESOLUTION
+    # ========================================================================
+
+    # Resolve host: parameter > env var > default
     if host is None:
         host = os.getenv("MUD_UI_HOST", "0.0.0.0")
 
-    # Resolve port
+    # Resolve port: parameter > env var > default
     if port is None:
         port = int(os.getenv("MUD_UI_PORT", DEFAULT_UI_PORT))
 
-    # Find available port if needed
+    # ========================================================================
+    # PORT AUTO-DISCOVERY
+    # ========================================================================
+
     if auto_discover:
         available_port = find_available_port(port, host)
+
         if available_port is None:
             raise RuntimeError(
-                f"No available port found in range {UI_PORT_RANGE_START}-{UI_PORT_RANGE_END}"
+                f"No available port found in range {UI_PORT_RANGE_START}-{UI_PORT_RANGE_END}. "
+                "This may indicate too many Gradio instances running."
             )
+
         if available_port != port:
             print(f"Port {port} is in use. Using port {available_port} instead.")
+
         port = available_port
 
+    # ========================================================================
+    # GRADIO STARTUP
+    # ========================================================================
+
     print(f"Starting MUD client on {host}:{port}")
+
+    # Create the Gradio interface
     interface = create_interface()
+
+    # Launch the Gradio server
+    # This blocks until the server is stopped (Ctrl+C or programmatic stop)
     interface.launch(
         server_name=host,
         server_port=port,
-        share=False,
-        show_error=True,
+        share=False,  # Don't create a public Gradio link
+        show_error=True,  # Display errors in the UI for debugging
     )
 
 

@@ -163,71 +163,259 @@ def cmd_create_superuser(args: argparse.Namespace) -> int:
         return 1
 
 
+# ============================================================================
+# SERVER PROCESS FUNCTIONS
+# ============================================================================
+# These functions must be defined at module level (not inside cmd_run) because
+# multiprocessing on macOS/Windows uses 'spawn' which pickles the target function.
+# Local functions cannot be pickled, causing "Can't get local object" errors.
+# ============================================================================
+
+
+def _run_api_server(host: str | None, port: int | None) -> None:
+    """
+    Run the FastAPI server in a subprocess with auto-discovery.
+
+    This function is called by multiprocessing.Process and must be defined at
+    module level to be picklable. It imports and starts the API server with
+    the provided host and port configuration, using auto-discovery if the
+    specified port is in use.
+
+    Args:
+        host: Host interface to bind to (e.g., "0.0.0.0" for all interfaces,
+              "127.0.0.1" for localhost only). If None, uses MUD_HOST env var
+              or defaults to "0.0.0.0".
+        port: Port number for the API server. If None, uses MUD_PORT env var
+              or defaults to 8000. If the port is in use, auto-discovers an
+              available port in the 8000-8099 range.
+
+    Note:
+        The import is done inside the function to avoid import cycles and to
+        ensure the server module is loaded fresh in the subprocess.
+    """
+    from mud_server.api.server import start_server
+
+    start_server(host=host, port=port)
+
+
+def _run_api_server_on_port(host: str, port: int) -> None:
+    """
+    Run the FastAPI server on a specific port WITHOUT auto-discovery.
+
+    This variant is used when the port has already been discovered and validated
+    by the main process. It skips auto-discovery to avoid race conditions and
+    ensures the server binds to exactly the specified port.
+
+    This is the preferred function when running both API and UI together,
+    as the main process discovers the port first and sets MUD_SERVER_URL
+    before spawning the UI process.
+
+    Args:
+        host: Host interface to bind to. Must not be None.
+        port: Port number to bind to. Must not be None and must be available.
+
+    Raises:
+        OSError: If the port is unexpectedly in use (should not happen if
+                 the main process discovered it correctly).
+
+    Note:
+        auto_discover=False is critical here - we want to fail immediately
+        if the port isn't available rather than silently binding to a
+        different port that the UI client doesn't know about.
+    """
+    from mud_server.api.server import start_server
+
+    start_server(host=host, port=port, auto_discover=False)
+
+
+def _run_ui_client(host: str | None, port: int | None) -> None:
+    """
+    Run the Gradio UI client in a subprocess.
+
+    This function is called by multiprocessing.Process and must be defined at
+    module level to be picklable. It imports and launches the Gradio interface
+    with the provided host and port configuration.
+
+    Args:
+        host: Host interface to bind to (e.g., "0.0.0.0" for all interfaces,
+              "127.0.0.1" for localhost only). If None, uses MUD_UI_HOST env var
+              or defaults to "0.0.0.0".
+        port: Port number for the UI client. If None, uses MUD_UI_PORT env var
+              or defaults to 7860. If the port is in use, auto-discovers an
+              available port in the 7860-7899 range.
+
+    Note:
+        The import is done inside the function to avoid import cycles and to
+        ensure the client module is loaded fresh in the subprocess.
+    """
+    from mud_server.client.app import launch_client
+
+    launch_client(host=host, port=port)
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     """
     Run the MUD server (both API and client).
 
-    Supports configurable ports via CLI arguments or environment variables.
-    If a port is in use, automatically finds an available port in the range.
+    This is the main entry point for starting the MUD server. It initializes
+    the database if needed, then starts the API server and optionally the
+    Gradio UI client in parallel processes.
+
+    Port Auto-Discovery:
+        If the configured port is already in use, the server will automatically
+        find an available port in a predefined range:
+        - API server: 8000-8099
+        - UI client: 7860-7899
+
+        IMPORTANT: When both servers are started together, the API port is
+        discovered first and communicated to the UI client via the MUD_SERVER_URL
+        environment variable. This ensures the UI always knows where to find
+        the API server, even when using auto-discovered ports.
+
+    Configuration Priority:
+        1. CLI arguments (--port, --ui-port, --host)
+        2. Environment variables (MUD_PORT, MUD_UI_PORT, MUD_HOST, MUD_UI_HOST)
+        3. Default values (8000 for API, 7860 for UI, 0.0.0.0 for host)
 
     Args:
-        args: Parsed arguments containing:
-            - port: API server port (optional)
-            - ui_port: UI server port (optional)
-            - host: Host to bind to (optional)
-            - api_only: Run only the API server (optional)
+        args: Parsed command-line arguments from argparse. Expected attributes:
+            - port (int | None): API server port override
+            - ui_port (int | None): UI server port override
+            - host (str | None): Host interface to bind both servers
+            - api_only (bool): If True, only start API server (no Gradio UI)
 
     Returns:
-        0 on success, 1 on error
+        0 on successful execution or clean shutdown (Ctrl+C)
+        1 on error during startup
+
+    Example:
+        # Start with default ports
+        mud-server run
+
+        # Specify custom ports
+        mud-server run --port 9000 --ui-port 8080
+
+        # Start API server only
+        mud-server run --api-only
+
+    Note:
+        Both servers run as separate processes using multiprocessing.Process.
+        This allows them to run truly in parallel and handle their own signals.
+        The main process waits for both to complete (join).
     """
     import multiprocessing
 
+    from mud_server.api.server import find_available_port as find_api_port
     from mud_server.db.database import DB_PATH, init_database
 
-    # Initialize database if it doesn't exist
+    # ========================================================================
+    # DATABASE INITIALIZATION
+    # ========================================================================
+    # Ensure the database exists before starting servers. This creates the
+    # SQLite database file and all required tables if they don't exist.
     if not DB_PATH.exists():
         print("Database not found. Initializing...")
         init_database()
 
-    # Get port/host configuration from args
+    # ========================================================================
+    # CONFIGURATION EXTRACTION
+    # ========================================================================
+    # Extract port and host configuration from parsed arguments.
+    # getattr with default None handles cases where args might not have
+    # these attributes (e.g., when called programmatically).
     api_port = getattr(args, "port", None)
     ui_port = getattr(args, "ui_port", None)
-    host = getattr(args, "host", None)
+    host = getattr(args, "host", None) or os.environ.get("MUD_HOST", "0.0.0.0")
     api_only = getattr(args, "api_only", False)
 
-    def run_api_server():
-        """Run the API server in a subprocess."""
-        from mud_server.api.server import start_server
+    # ========================================================================
+    # API PORT DISCOVERY (BEFORE STARTING PROCESSES)
+    # ========================================================================
+    # Discover the actual API port BEFORE starting processes. This ensures
+    # the UI client knows which port to connect to, even if auto-discovery
+    # selects a different port than the default.
+    #
+    # Resolution order:
+    # 1. CLI argument (--port)
+    # 2. MUD_PORT environment variable
+    # 3. Auto-discovered port in 8000-8099 range
+    if api_port is None:
+        api_port = int(os.environ.get("MUD_PORT", 8000))
 
-        start_server(host=host, port=api_port)
+    # Find an available port (may be different from api_port if it's in use)
+    actual_api_port = find_api_port(api_port, host)
+    if actual_api_port is None:
+        print("Error: No available port found for API server (8000-8099 all in use).", file=sys.stderr)
+        return 1
 
-    def run_ui_client():
-        """Run the Gradio UI client in a subprocess."""
-        from mud_server.client.app import launch_client
+    if actual_api_port != api_port:
+        print(f"API port {api_port} is in use. Using port {actual_api_port} instead.")
 
-        launch_client(host=host, port=ui_port)
+    # ========================================================================
+    # SET MUD_SERVER_URL FOR UI CLIENT
+    # ========================================================================
+    # Set the environment variable so the UI client knows where to connect.
+    # This is critical for proper communication between the UI and API server.
+    # Use localhost for the client connection (it's running on the same machine).
+    api_url = f"http://localhost:{actual_api_port}"
+    os.environ["MUD_SERVER_URL"] = api_url
 
     try:
         if api_only:
-            # Run only the API server
-            run_api_server()
+            # ================================================================
+            # API-ONLY MODE
+            # ================================================================
+            # Run the API server directly in the main process without spawning
+            # a subprocess. This is useful for development, debugging, or when
+            # the Gradio UI is not needed (e.g., headless server deployment).
+            # Pass auto_discover=False since we already found the port.
+            _run_api_server_on_port(host, actual_api_port)
         else:
-            # Run both API server and UI client in parallel
-            api_process = multiprocessing.Process(target=run_api_server)
-            ui_process = multiprocessing.Process(target=run_ui_client)
+            # ================================================================
+            # FULL SERVER MODE (API + UI)
+            # ================================================================
+            # Start both servers as separate processes. Using multiprocessing
+            # ensures true parallelism and independent signal handling.
+            #
+            # Note: We pass the actual discovered port to the API server with
+            # auto_discover=False to avoid double discovery. The UI client
+            # reads MUD_SERVER_URL from the environment (set above).
+            api_process = multiprocessing.Process(
+                target=_run_api_server_on_port,
+                args=(host, actual_api_port),
+                name="mud-api-server",
+            )
+            ui_process = multiprocessing.Process(
+                target=_run_ui_client,
+                args=(host, ui_port),
+                name="mud-ui-client",
+            )
 
+            # Start both processes
             api_process.start()
             ui_process.start()
 
-            # Wait for both processes
+            # Wait for both processes to complete. In normal operation, these
+            # run indefinitely until interrupted (Ctrl+C) or terminated.
             api_process.join()
             ui_process.join()
 
         return 0
+
     except KeyboardInterrupt:
+        # ====================================================================
+        # GRACEFUL SHUTDOWN
+        # ====================================================================
+        # Handle Ctrl+C gracefully. The subprocesses should also receive
+        # the interrupt signal and shut down on their own.
         print("\nServer stopped.")
         return 0
+
     except Exception as e:
+        # ====================================================================
+        # ERROR HANDLING
+        # ====================================================================
+        # Catch any unexpected errors during startup and report them.
         print(f"Error starting server: {e}", file=sys.stderr)
         return 1
 
