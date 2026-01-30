@@ -16,6 +16,7 @@ from unittest.mock import patch
 import pytest
 
 from mud_server.db import database
+from tests.constants import TEST_PASSWORD
 
 # ============================================================================
 # ADMIN DATABASE VIEWING TESTS
@@ -29,7 +30,7 @@ def test_admin_view_players_as_admin(test_client, test_db, temp_db_path, db_with
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as admin
         login_response = test_client.post(
-            "/login", json={"username": "testadmin", "password": "password123"}
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
         )
         session_id = login_response.json()["session_id"]
 
@@ -47,7 +48,7 @@ def test_admin_view_players_as_player_forbidden(test_client, test_db, temp_db_pa
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as regular player
         login_response = test_client.post(
-            "/login", json={"username": "testplayer", "password": "password123"}
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
         session_id = login_response.json()["session_id"]
 
@@ -70,7 +71,7 @@ def test_superuser_can_change_user_role(test_client, test_db, temp_db_path, db_w
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as superuser
         login_response = test_client.post(
-            "/login", json={"username": "testsuperuser", "password": "password123"}
+            "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
         )
         session_id = login_response.json()["session_id"]
 
@@ -96,7 +97,7 @@ def test_admin_cannot_change_roles(test_client, test_db, temp_db_path, db_with_u
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as admin
         login_response = test_client.post(
-            "/login", json={"username": "testadmin", "password": "password123"}
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
         )
         session_id = login_response.json()["session_id"]
 
@@ -122,7 +123,7 @@ def test_admin_can_deactivate_user(test_client, test_db, temp_db_path, db_with_u
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as admin
         login_response = test_client.post(
-            "/login", json={"username": "testadmin", "password": "password123"}
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
         )
         session_id = login_response.json()["session_id"]
 
@@ -152,17 +153,18 @@ def test_user_can_change_own_password(test_client, test_db, temp_db_path, db_wit
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as testplayer
         login_response = test_client.post(
-            "/login", json={"username": "testplayer", "password": "password123"}
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
         session_id = login_response.json()["session_id"]
 
         # Change password (endpoint may not exist yet)
+        # New password must meet STANDARD policy: 12+ chars, no sequences
         response = test_client.post(
             "/change-password",
             json={
                 "session_id": session_id,
-                "old_password": "password123",
-                "new_password": "newpassword123",
+                "old_password": TEST_PASSWORD,
+                "new_password": "NewSecure#9x7b",
             },
         )
 
@@ -177,18 +179,19 @@ def test_superuser_can_change_any_password(test_client, test_db, temp_db_path, d
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as superuser
         login_response = test_client.post(
-            "/login", json={"username": "testsuperuser", "password": "password123"}
+            "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
         )
         session_id = login_response.json()["session_id"]
 
         # Change another user's password (endpoint may not exist yet)
+        # New password must meet STANDARD policy: 12+ chars, no sequences
         response = test_client.post(
             "/admin/user/manage",
             json={
                 "session_id": session_id,
                 "action": "change_password",
                 "target_username": "testplayer",
-                "new_password": "newpassword123",
+                "new_password": "NewSecure#9x7b",
             },
         )
 
@@ -209,7 +212,7 @@ def test_admin_can_stop_server(test_client, test_db, temp_db_path, db_with_users
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as admin
         login_response = test_client.post(
-            "/login", json={"username": "testadmin", "password": "password123"}
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
         )
         session_id = login_response.json()["session_id"]
 
@@ -230,7 +233,7 @@ def test_player_cannot_stop_server(test_client, test_db, temp_db_path, db_with_u
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as player
         login_response = test_client.post(
-            "/login", json={"username": "testplayer", "password": "password123"}
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
         session_id = login_response.json()["session_id"]
 
@@ -312,7 +315,7 @@ def test_deactivated_user_cannot_login(test_client, test_db, temp_db_path, db_wi
 
         # Try to login
         response = test_client.post(
-            "/login", json={"username": "testplayer", "password": "password123"}
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
 
         assert response.status_code == 401
@@ -330,7 +333,7 @@ def test_reactivated_user_can_login(test_client, test_db, temp_db_path, db_with_
 
         # Try to login
         response = test_client.post(
-            "/login", json={"username": "testplayer", "password": "password123"}
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
 
         assert response.status_code == 200
@@ -352,7 +355,7 @@ def test_role_change_persists(test_client, test_db, temp_db_path, db_with_users)
 
         # Verify login returns new role
         response = test_client.post(
-            "/login", json={"username": "testplayer", "password": "password123"}
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
 
         assert response.status_code == 200

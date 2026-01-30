@@ -11,6 +11,7 @@ This module tests the AuthAPIClient class, verifying:
 from unittest.mock import Mock, patch
 
 from mud_server.client.api.auth import AuthAPIClient
+from tests.constants import TEST_PASSWORD
 
 
 class TestAuthAPIClientLogin:
@@ -31,13 +32,13 @@ class TestAuthAPIClientLogin:
 
         # Make login request
         client = AuthAPIClient()
-        result = client.login("alice", "password123")
+        result = client.login("alice", TEST_PASSWORD)
 
         # Verify request was made correctly
         mock_request.assert_called_once()
         call_kwargs = mock_request.call_args.kwargs
         assert call_kwargs["json"]["username"] == "alice"
-        assert call_kwargs["json"]["password"] == "password123"
+        assert call_kwargs["json"]["password"] == TEST_PASSWORD
 
         # Verify response format
         assert result["success"] is True
@@ -85,7 +86,7 @@ class TestAuthAPIClientLogin:
     def test_login_username_too_short(self):
         """Test login with username too short (validation error)."""
         client = AuthAPIClient()
-        result = client.login("a", "password123")
+        result = client.login("a", TEST_PASSWORD)
 
         assert result["success"] is False
         assert "Username must be at least 2 characters" in result["message"]
@@ -94,7 +95,7 @@ class TestAuthAPIClientLogin:
     def test_login_empty_username(self):
         """Test login with empty username."""
         client = AuthAPIClient()
-        result = client.login("", "password123")
+        result = client.login("", TEST_PASSWORD)
 
         assert result["success"] is False
         assert "Username must be at least 2 characters" in result["message"]
@@ -121,7 +122,7 @@ class TestAuthAPIClientLogin:
             }
             mock_request.return_value = mock_response
 
-            client.login("  alice  ", "password123")
+            client.login("  alice  ", TEST_PASSWORD)
 
             # Verify username was stripped
             call_kwargs = mock_request.call_args.kwargs
@@ -135,7 +136,7 @@ class TestAuthAPIClientLogin:
         mock_request.side_effect = requests.exceptions.ConnectionError()
 
         client = AuthAPIClient()
-        result = client.login("alice", "password123")
+        result = client.login("alice", TEST_PASSWORD)
 
         assert result["success"] is False
         assert "Cannot connect to server" in result["message"]
@@ -153,7 +154,7 @@ class TestAuthAPIClientLogin:
         mock_request.return_value = mock_response
 
         client = AuthAPIClient()
-        result = client.login("alice", "password123")
+        result = client.login("alice", TEST_PASSWORD)
 
         # Should default to player
         assert result["data"]["role"] == "player"
@@ -173,14 +174,14 @@ class TestAuthAPIClientRegister:
         mock_request.return_value = mock_response
 
         client = AuthAPIClient()
-        result = client.register("newuser", "password123", "password123")
+        result = client.register("newuser", TEST_PASSWORD, TEST_PASSWORD)
 
         # Verify request was made correctly
         mock_request.assert_called_once()
         call_kwargs = mock_request.call_args.kwargs
         assert call_kwargs["json"]["username"] == "newuser"
-        assert call_kwargs["json"]["password"] == "password123"
-        assert call_kwargs["json"]["password_confirm"] == "password123"
+        assert call_kwargs["json"]["password"] == TEST_PASSWORD
+        assert call_kwargs["json"]["password_confirm"] == TEST_PASSWORD
 
         # Verify response format
         assert result["success"] is True
@@ -192,7 +193,7 @@ class TestAuthAPIClientRegister:
     def test_register_username_too_short(self):
         """Test registration with username too short."""
         client = AuthAPIClient()
-        result = client.register("a", "password123", "password123")
+        result = client.register("a", TEST_PASSWORD, TEST_PASSWORD)
 
         assert result["success"] is False
         assert "Username must be at least 2 characters" in result["message"]
@@ -208,7 +209,7 @@ class TestAuthAPIClientRegister:
     def test_register_passwords_dont_match(self):
         """Test registration with mismatched passwords."""
         client = AuthAPIClient()
-        result = client.register("alice", "password123", "different")
+        result = client.register("alice", TEST_PASSWORD, "different")
 
         assert result["success"] is False
         assert "Passwords do not match" in result["message"]
@@ -230,7 +231,7 @@ class TestAuthAPIClientRegister:
         mock_request.return_value = mock_response
 
         client = AuthAPIClient()
-        result = client.register("existing", "password123", "password123")
+        result = client.register("existing", TEST_PASSWORD, TEST_PASSWORD)
 
         assert result["success"] is False
         assert "Registration failed" in result["message"]
@@ -244,7 +245,7 @@ class TestAuthAPIClientRegister:
         mock_request.side_effect = requests.exceptions.ConnectionError()
 
         client = AuthAPIClient()
-        result = client.register("alice", "password123", "password123")
+        result = client.register("alice", TEST_PASSWORD, TEST_PASSWORD)
 
         assert result["success"] is False
         assert "Cannot connect to server" in result["message"]
@@ -259,7 +260,7 @@ class TestAuthAPIClientRegister:
             mock_response.json.return_value = {"message": "Success"}
             mock_request.return_value = mock_response
 
-            client.register("  alice  ", "password123", "password123")
+            client.register("  alice  ", TEST_PASSWORD, TEST_PASSWORD)
 
             # Verify username was stripped
             call_kwargs = mock_request.call_args.kwargs

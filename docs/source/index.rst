@@ -13,6 +13,7 @@ JSON-driven world data, and clean architecture.
 
    getting_started
    architecture
+   security
    extending
 
 .. toctree::
@@ -73,7 +74,14 @@ Running the Server:
 Superuser Setup
 ~~~~~~~~~~~~~~~
 
-The server uses secure credential management - no default passwords.
+The server uses secure credential management with strong password requirements.
+
+**Password Requirements (STANDARD policy):**
+
+* Minimum 12 characters
+* Cannot be a commonly used password
+* No sequential characters (abc, 123)
+* No excessive repeated characters (aaa)
 
 **Option 1: Interactive** (recommended for local development):
 
@@ -81,14 +89,15 @@ The server uses secure credential management - no default passwords.
 
    mud-server create-superuser
    # Follow prompts for username and password
+   # Password requirements will be displayed
 
 **Option 2: Environment variables** (for CI/deployment):
 
 .. code-block:: bash
 
    export MUD_ADMIN_USER=myadmin
-   export MUD_ADMIN_PASSWORD=mysecurepassword123
-   mud-server init-db
+   export MUD_ADMIN_PASSWORD="MySecure#Pass2024"  # Must meet policy requirements
+   mud-server create-superuser
 
 Use Cases
 ---------

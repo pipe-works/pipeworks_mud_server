@@ -14,6 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from mud_server import cli
+from tests.constants import TEST_PASSWORD
 
 # ============================================================================
 # ENVIRONMENT VARIABLE TESTS
@@ -89,9 +90,10 @@ def test_cmd_create_superuser_from_env_vars():
     with patch("mud_server.db.database.init_database"):
         with patch("mud_server.db.database.player_exists", return_value=False):
             with patch("mud_server.db.database.create_player_with_password", return_value=True):
+                # Password must meet STANDARD policy: 12+ chars, no sequences (123, abc)
                 with patch.dict(
                     "os.environ",
-                    {"MUD_ADMIN_USER": "envadmin", "MUD_ADMIN_PASSWORD": "securepass123"},
+                    {"MUD_ADMIN_USER": "envadmin", "MUD_ADMIN_PASSWORD": TEST_PASSWORD},
                 ):
                     args = argparse.Namespace()
                     result = cli.cmd_create_superuser(args)
@@ -104,9 +106,10 @@ def test_cmd_create_superuser_user_exists():
     """Test create-superuser fails if user already exists."""
     with patch("mud_server.db.database.init_database"):
         with patch("mud_server.db.database.player_exists", return_value=True):
+            # Use valid password to ensure we test the "user exists" failure path
             with patch.dict(
                 "os.environ",
-                {"MUD_ADMIN_USER": "existing", "MUD_ADMIN_PASSWORD": "securepass123"},
+                {"MUD_ADMIN_USER": "existing", "MUD_ADMIN_PASSWORD": TEST_PASSWORD},
             ):
                 args = argparse.Namespace()
                 result = cli.cmd_create_superuser(args)
@@ -148,10 +151,10 @@ def test_cmd_create_superuser_interactive(monkeypatch):
             with patch("mud_server.db.database.create_player_with_password", return_value=True):
                 with patch.dict("os.environ", {}, clear=True):
                     with patch("sys.stdin.isatty", return_value=True):
-                        # Mock the prompt function
+                        # Mock the prompt function with a valid password
                         with patch(
                             "mud_server.cli.prompt_for_credentials",
-                            return_value=("interactiveuser", "interactivepass123"),
+                            return_value=("interactiveuser", TEST_PASSWORD),
                         ):
                             args = argparse.Namespace()
                             result = cli.cmd_create_superuser(args)
@@ -190,7 +193,7 @@ def test_main_create_superuser():
                 with patch("mud_server.db.database.create_player_with_password", return_value=True):
                     with patch.dict(
                         "os.environ",
-                        {"MUD_ADMIN_USER": "admin", "MUD_ADMIN_PASSWORD": "password123"},
+                        {"MUD_ADMIN_USER": "admin", "MUD_ADMIN_PASSWORD": TEST_PASSWORD},
                     ):
                         result = cli.main()
                         assert result == 0

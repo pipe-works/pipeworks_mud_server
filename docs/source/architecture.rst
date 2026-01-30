@@ -237,19 +237,35 @@ Security Considerations
 Authentication
 ~~~~~~~~~~~~~~
 
-* Password hashing: Bcrypt via passlib (intentionally slow)
-* Session IDs: UUID v4 (hard to guess)
-* Session validation on every API call
-* Role tracking in sessions
+* **Password hashing**: Bcrypt via passlib (intentionally slow, ~100ms per hash)
+* **Password policy**: NIST SP 800-63B aligned with comprehensive validation
+* **Session IDs**: UUID v4 (cryptographically random, hard to guess)
+* **Session validation**: Every API call validates session and extracts role
+* **Role-based access**: Four-tier permission system (Player < WorldBuilder < Admin < Superuser)
+
+Password Policy
+~~~~~~~~~~~~~~~
+
+The STANDARD password policy enforces:
+
+* **Minimum 12 characters** (NIST recommended)
+* **Common password rejection** (150+ known weak passwords blocked)
+* **Leet-speak detection** (p@ssw0rd detected as "password" variant)
+* **Sequential character detection** (abc, 123, xyz patterns blocked)
+* **Repeated character detection** (aaa, 1111 patterns blocked)
+
+Three policy levels available: BASIC (8 chars), STANDARD (12 chars), STRICT (16 chars + complexity).
+
+See :doc:`security` for complete details.
 
 Known Limitations
 ~~~~~~~~~~~~~~~~~
 
 * Sessions not persisted (lost on restart)
 * No session expiration time
-* No rate limiting
-* No password complexity requirements
+* No rate limiting on authentication endpoints
 * No email verification
+* No two-factor authentication
 
 Performance
 -----------

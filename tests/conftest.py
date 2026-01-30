@@ -27,6 +27,9 @@ from mud_server.core.engine import GameEngine
 from mud_server.core.world import Item, Room, World
 from mud_server.db import database
 
+# Import shared test constant
+from tests.constants import TEST_PASSWORD  # noqa: F401 - exported for other tests
+
 # ============================================================================
 # DATABASE FIXTURES
 # ============================================================================
@@ -131,7 +134,7 @@ def db_with_users(test_db) -> dict[str, str]:
     - testadmin (role: admin)
     - testsuperuser (role: superuser)
 
-    All users have password "password123"
+    All users have password TEST_PASSWORD ("SecureTest#123")
 
     Args:
         test_db: Initialized test database (from fixture)
@@ -147,7 +150,7 @@ def db_with_users(test_db) -> dict[str, str]:
     }
 
     for username, role in users.items():
-        database.create_player_with_password(username, "password123", role)
+        database.create_player_with_password(username, TEST_PASSWORD, role)
 
     return users
 
@@ -331,7 +334,7 @@ def authenticated_client(test_client: TestClient, db_with_users: dict[str, str])
     """
     # Login as testplayer
     response = test_client.post(
-        "/login", json={"username": "testplayer", "password": "password123"}
+        "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
     )
 
     assert response.status_code == 200

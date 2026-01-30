@@ -129,7 +129,29 @@ def register_routes(app: FastAPI, engine: GameEngine):
 
     @app.post("/register", response_model=RegisterResponse)
     async def register(request: RegisterRequest):
-        """Register a new player account."""
+        """
+        Register a new player account with password policy enforcement.
+
+        The registration process validates:
+        1. Username format (2-20 characters, unique)
+        2. Password strength against STANDARD security policy
+        3. Password confirmation match
+
+        Password Policy (STANDARD level):
+        - Minimum 12 characters
+        - Not a commonly used password
+        - No sequential characters (abc, 123)
+        - No excessive repeated characters
+
+        Returns:
+            RegisterResponse with success status and message.
+
+        Raises:
+            HTTPException 400: Invalid input (username, password policy, mismatch)
+            HTTPException 500: Database error during account creation
+        """
+        from mud_server.api.password_policy import PolicyLevel, validate_password_strength
+
         username = request.username.strip()
         password = request.password
         password_confirm = request.password_confirm
@@ -146,9 +168,12 @@ def register_routes(app: FastAPI, engine: GameEngine):
         if password != password_confirm:
             raise HTTPException(status_code=400, detail="Passwords do not match")
 
-        # Validate password strength
-        if len(password) < 8:
-            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        # Validate password strength against security policy
+        result = validate_password_strength(password, level=PolicyLevel.STANDARD)
+        if not result.is_valid:
+            # Combine all errors into a single detail message
+            error_detail = " ".join(result.errors)
+            raise HTTPException(status_code=400, detail=error_detail)
 
         # Create player with default 'player' role
         if database.create_player_with_password(username, password, role="player"):
@@ -337,23 +362,45 @@ Note: Commands can be used with or without the / prefix
 
     @app.post("/change-password")
     async def change_password(request: ChangePasswordRequest):
-        """Change current user's password (requires old password verification)."""
+        """
+        Change current user's password with policy enforcement.
+
+        Validates the new password against the STANDARD security policy:
+        - Minimum 12 characters
+        - Not a commonly used password
+        - No sequential characters (abc, 123)
+        - No excessive repeated characters
+
+        Args:
+            request: Contains session_id, old_password, and new_password.
+
+        Returns:
+            Success message if password changed.
+
+        Raises:
+            HTTPException 401: Current password incorrect.
+            HTTPException 400: New password fails policy validation or same as old.
+            HTTPException 500: Database error during password change.
+        """
+        from mud_server.api.password_policy import PolicyLevel, validate_password_strength
+
         username, role = validate_session(request.session_id)
 
         # Verify old password
         if not database.verify_password_for_user(username, request.old_password):
             raise HTTPException(status_code=401, detail="Current password is incorrect")
 
-        # Validate new password
-        if len(request.new_password) < 8:
-            raise HTTPException(
-                status_code=400, detail="New password must be at least 8 characters"
-            )
-
+        # Check new password is different from old
         if request.new_password == request.old_password:
             raise HTTPException(
                 status_code=400, detail="New password must be different from current password"
             )
+
+        # Validate new password against security policy
+        result = validate_password_strength(request.new_password, level=PolicyLevel.STANDARD)
+        if not result.is_valid:
+            error_detail = " ".join(result.errors)
+            raise HTTPException(status_code=400, detail=error_detail)
 
         # Change password
         if database.change_password_for_user(username, request.new_password):

@@ -44,14 +44,35 @@ def get_superuser_credentials_from_env() -> tuple[str, str] | None:
 
 def prompt_for_credentials() -> tuple[str, str]:
     """
-    Interactively prompt for superuser credentials.
+    Interactively prompt for superuser credentials with password policy enforcement.
+
+    This function guides the user through creating secure credentials by:
+    1. Validating username length (2-20 characters)
+    2. Displaying password requirements before input
+    3. Validating password against the STANDARD security policy
+    4. Requiring password confirmation
+
+    The STANDARD password policy requires:
+    - Minimum 12 characters
+    - Not a commonly used password
+    - No sequential characters (abc, 123)
+    - No excessive repeated characters (aaa)
 
     Returns:
-        Tuple of (username, password)
+        Tuple of (username, password) that meet security requirements.
 
     Raises:
-        SystemExit: If passwords don't match or validation fails
+        SystemExit: If the user cancels (Ctrl+C) during input.
+
+    See Also:
+        mud_server.api.password_policy: Full policy configuration details.
     """
+    from mud_server.api.password_policy import (
+        PolicyLevel,
+        get_password_requirements,
+        validate_password_strength,
+    )
+
     print("\n" + "=" * 60)
     print("CREATE SUPERUSER")
     print("=" * 60)
@@ -67,16 +88,43 @@ def prompt_for_credentials() -> tuple[str, str]:
             continue
         break
 
-    # Get password with confirmation
+    # Display password requirements
+    print("\n" + get_password_requirements(PolicyLevel.STANDARD))
+    print()
+
+    # Get password with policy validation and confirmation
     while True:
         password = getpass.getpass("Password: ")
-        if len(password) < 8:
-            print("Password must be at least 8 characters.")
+
+        # Validate against password policy
+        result = validate_password_strength(password, level=PolicyLevel.STANDARD)
+        if not result.is_valid:
+            print("\nPassword does not meet requirements:")
+            for error in result.errors:
+                print(f"  - {error}")
+            print()
             continue
+
+        # Show strength feedback
+        if result.score >= 80:
+            strength = "Excellent"
+        elif result.score >= 60:
+            strength = "Good"
+        elif result.score >= 40:
+            strength = "Fair"
+        else:
+            strength = "Weak"
+        print(f"Password strength: {strength} ({result.score}/100)")
+
+        # Show warnings if any
+        if result.warnings:
+            print("Suggestions for improvement:")
+            for warning in result.warnings:
+                print(f"  - {warning}")
 
         password_confirm = getpass.getpass("Confirm password: ")
         if password != password_confirm:
-            print("Passwords do not match. Try again.")
+            print("Passwords do not match. Try again.\n")
             continue
         break
 
@@ -144,9 +192,16 @@ def cmd_create_superuser(args: argparse.Namespace) -> int:
         print(f"Error: User '{username}' already exists.", file=sys.stderr)
         return 1
 
-    # Validate password length
-    if len(password) < 8:
-        print("Error: Password must be at least 8 characters.", file=sys.stderr)
+    # Validate password against security policy
+    # This is especially important for environment variable credentials
+    # which bypass interactive validation
+    from mud_server.api.password_policy import PolicyLevel, validate_password_strength
+
+    result = validate_password_strength(password, level=PolicyLevel.STANDARD)
+    if not result.is_valid:
+        print("Error: Password does not meet security requirements:", file=sys.stderr)
+        for error in result.errors:
+            print(f"  - {error}", file=sys.stderr)
         return 1
 
     # Create the superuser

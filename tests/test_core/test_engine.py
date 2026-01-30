@@ -18,6 +18,7 @@ import pytest
 
 from mud_server.core.engine import GameEngine
 from mud_server.db import database
+from tests.constants import TEST_PASSWORD
 
 # ============================================================================
 # LOGIN/LOGOUT TESTS
@@ -29,7 +30,7 @@ from mud_server.db import database
 def test_login_success(mock_engine, test_db, temp_db_path, db_with_users):
     """Test successful player login."""
     with patch.object(database, "DB_PATH", temp_db_path):
-        success, message, role = mock_engine.login("testplayer", "password123", "session-123")
+        success, message, role = mock_engine.login("testplayer", TEST_PASSWORD, "session-123")
 
         assert success is True
         assert "Welcome" in message
@@ -67,7 +68,7 @@ def test_login_inactive_account(mock_engine, test_db, temp_db_path, db_with_user
     """Test login with deactivated account."""
     with patch.object(database, "DB_PATH", temp_db_path):
         database.deactivate_player("testplayer")
-        success, message, role = mock_engine.login("testplayer", "password123", "session-123")
+        success, message, role = mock_engine.login("testplayer", TEST_PASSWORD, "session-123")
 
         assert success is False
         assert "deactivated" in message.lower()
