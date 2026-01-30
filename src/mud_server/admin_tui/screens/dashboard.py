@@ -190,7 +190,9 @@ class DashboardScreen(Screen):
         try:
             api_client = self.app.api_client  # type: ignore
             if api_client and api_client.session.is_authenticated:
-                self.query_one("#user-name", Static).update(api_client.session.username or "Unknown")
+                self.query_one("#user-name", Static).update(
+                    api_client.session.username or "Unknown"
+                )
                 self.query_one("#user-role", Static).update(api_client.session.role or "Unknown")
             else:
                 self.query_one("#user-name", Static).update("Not logged in")
