@@ -9,45 +9,96 @@ JSON-driven world data, and clean architecture.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents
+   :caption: User Guide
 
    getting_started
    architecture
    extending
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Reference
+
    api_reference
+   Changelog <changelog>
 
 .. toctree::
    :maxdepth: 3
-   :caption: API Reference
+   :caption: API Documentation
 
    autoapi/index
 
-Overview
---------
+Key Features
+------------
 
-PipeWorks MUD Server is a generic framework suitable for any theme:
+* **Deterministic**: Same seed always produces same game state
+* **Data-driven**: JSON world definitions, no code changes needed
+* **Modern stack**: FastAPI + Gradio + SQLite
+* **Secure**: CLI-based superuser management, bcrypt passwords
+* **Extensible**: Modular architecture, clean API
+* **Well-tested**: Comprehensive test suite with coverage
+
+Quick Start
+-----------
+
+Installation:
+
+.. code-block:: bash
+
+   # Clone the repository
+   git clone https://github.com/pipe-works/pipeworks_mud_server.git
+   cd pipeworks_mud_server
+
+   # Create and activate virtual environment
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+   # Install the package
+   pip install -e .
+
+   # Initialize database and create superuser
+   mud-server init-db
+   mud-server create-superuser
+
+Running the Server:
+
+.. code-block:: bash
+
+   mud-server run
+
+   # The server will start on:
+   # - API: http://localhost:8000
+   # - Web UI: http://localhost:7860
+
+Superuser Setup
+~~~~~~~~~~~~~~~
+
+The server uses secure credential management - no default passwords.
+
+**Option 1: Interactive** (recommended for local development):
+
+.. code-block:: bash
+
+   mud-server create-superuser
+   # Follow prompts for username and password
+
+**Option 2: Environment variables** (for CI/deployment):
+
+.. code-block:: bash
+
+   export MUD_ADMIN_USER=myadmin
+   export MUD_ADMIN_PASSWORD=mysecurepassword123
+   mud-server init-db
+
+Use Cases
+---------
+
+PipeWorks MUD Server is suitable for:
 
 * **Fantasy MUDs** - Traditional dungeon exploration
 * **Sci-Fi Adventures** - Space stations and starships
 * **Educational Games** - Learning through interaction
 * **Any text-based multiplayer world** you can imagine
-
-Key Features
-------------
-
-**Core Capabilities:**
-
-* FastAPI REST API backend (port 8000)
-* Gradio web interface (port 7860)
-* SQLite database for persistence
-* Authentication and session management
-* Role-based access control (Player/WorldBuilder/Admin/Superuser)
-* Room navigation with directional movement
-* Inventory system (pickup/drop items)
-* Multi-channel chat (say/yell/whisper)
-* JSON-driven world definition
-* Ollama AI integration (admin/superuser only)
-* 100% test coverage on core client modules
 
 Design Philosophy
 -----------------
@@ -64,59 +115,13 @@ Design Philosophy
 * Commands are extensible (add new actions without server rewrites)
 * Modular architecture supports plugins and custom mechanics
 
-**Clean Separation**
-
-* **Client Layer** (Gradio) - UI and user interaction
-* **Server Layer** (FastAPI) - HTTP API and routing
-* **Game Layer** (Engine + World) - Core mechanics and state
-* **Persistence Layer** (SQLite) - Data storage
-
-Quick Start
------------
-
-Installation::
-
-    # Clone the repository
-    git clone https://github.com/pipe-works/pipeworks_mud_server.git
-    cd pipeworks_mud_server
-
-    # Create and activate virtual environment
-    python3 -m venv venv
-    source venv/bin/activate
-
-    # Install dependencies
-    pip install -r requirements.txt
-
-    # Initialize database
-    PYTHONPATH=src python3 -m mud_server.db.database
-
-Running the Server::
-
-    ./run.sh
-
-    # The server will start on:
-    # - API: http://localhost:8000
-    # - Web UI: http://localhost:7860
-
-Default Credentials
-~~~~~~~~~~~~~~~~~~~
-
-⚠️ **Change immediately!**
-
-* Username: ``admin``
-* Password: ``admin123``
-
 Available Commands
 ------------------
 
 **Movement:**
 
-* ``north`` / ``n`` - Move north
-* ``south`` / ``s`` - Move south
-* ``east`` / ``e`` - Move east
-* ``west`` / ``w`` - Move west
-* ``up`` / ``u`` - Move upward
-* ``down`` / ``d`` - Move downward
+* ``north`` / ``n``, ``south`` / ``s``, ``east`` / ``e``, ``west`` / ``w``
+* ``up`` / ``u``, ``down`` / ``d``
 
 **Observation:**
 

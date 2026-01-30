@@ -1,18 +1,32 @@
-"""Sphinx configuration for PipeWorks MUD Server documentation."""
+"""Sphinx configuration for PipeWorks MUD Server documentation.
+
+This configuration uses sphinx-autoapi for fully automated documentation
+generation from code docstrings. No manual .rst files needed for API docs.
+"""
 
 import logging
 import sys
+import tomllib
 from pathlib import Path
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
+
+def get_version_from_pyproject() -> str:
+    """Read version from pyproject.toml to maintain single source of truth."""
+    pyproject_path = project_root / "pyproject.toml"
+    with open(pyproject_path, "rb") as f:
+        data = tomllib.load(f)
+    return data["project"]["version"]
+
+
 # -- Project information -----------------------------------------------------
 project = "PipeWorks MUD Server"
-copyright = "2025, PipeWorks Team"
+copyright = "2026, PipeWorks Team"
 author = "PipeWorks Team"
-release = "0.1.0"
+release = get_version_from_pyproject()
 version = release
 
 # -- General configuration ---------------------------------------------------
@@ -28,6 +42,7 @@ extensions = [
 ]
 
 # -- AutoAPI configuration ---------------------------------------------------
+# This is the key to full automation - autoapi discovers and documents all code
 autoapi_type = "python"
 autoapi_dirs = [
     str(project_root / "src" / "mud_server"),
@@ -44,8 +59,9 @@ autoapi_ignore = [
     "*/test_*",
 ]
 autoapi_add_toctree_entry = True
-autoapi_keep_files = False
+autoapi_keep_files = False  # Clean up generated files after build
 autoapi_member_order = "bysource"
+# Include both class and __init__ docstrings for complete documentation
 autoapi_python_class_content = "both"
 
 # -- Napoleon settings for Google-style docstrings --------------------------
@@ -103,16 +119,23 @@ myst_heading_anchors = 3
 
 # -- Warning suppression -----------------------------------------------------
 suppress_warnings = [
-    "myst.header",
-    "docutils",
+    "myst.header",  # MyST parser header warnings
+    "docutils",  # Inline emphasis warnings from underscores in code
 ]
 
-nitpicky = False
+nitpicky = False  # Set to True to enable strict type checking
 
 
 # -- Custom warning filter for dataclass duplicate warnings -----------------
 class FilterDuplicateObjectWarnings(logging.Filter):
-    """Filter to suppress 'duplicate object description' warnings for dataclasses."""
+    """
+    Filter to suppress 'duplicate object description' warnings for dataclass attributes.
+
+    These warnings occur because autoapi_python_class_content = "both" causes
+    Sphinx to document attributes from both the class docstring and the
+    auto-generated __init__ method. This is expected behavior for dataclasses
+    and the generated documentation is correct.
+    """
 
     def filter(self, record):
         is_duplicate_warning = (
