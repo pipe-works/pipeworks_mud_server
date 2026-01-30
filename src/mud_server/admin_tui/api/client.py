@@ -265,13 +265,31 @@ class AdminAPIClient:
             except AuthenticationError:
                 print("Invalid credentials")
         """
-        response = await self.http_client.post(
-            "/login",
-            json={"username": username, "password": password},
-        )
+        try:
+            response = await self.http_client.post(
+                "/login",
+                json={"username": username, "password": password},
+            )
+        except Exception as e:
+            raise APIError(
+                message="Login failed",
+                status_code=0,
+                detail=f"Cannot connect to server at {self.config.server_url}: {e}",
+            )
+
+        # Try to parse JSON response, handle non-JSON gracefully
+        try:
+            data = response.json()
+        except Exception:
+            # Response is not valid JSON (empty, HTML error page, etc.)
+            raise APIError(
+                message="Login failed",
+                status_code=response.status_code,
+                detail=f"Server returned invalid response (status {response.status_code}). "
+                f"Check that the server is running at {self.config.server_url}",
+            )
 
         if response.status_code == 401:
-            data = response.json()
             raise AuthenticationError(
                 message="Authentication failed",
                 status_code=401,
@@ -279,14 +297,11 @@ class AdminAPIClient:
             )
 
         if response.status_code != 200:
-            data = response.json()
             raise APIError(
                 message="Login failed",
                 status_code=response.status_code,
                 detail=data.get("detail", "Unknown error"),
             )
-
-        data = response.json()
 
         # Update session state
         self.session.session_id = data.get("session_id")
@@ -350,17 +365,33 @@ class AdminAPIClient:
             if health["status"] == "ok":
                 print(f"{health['active_players']} players online")
         """
-        response = await self.http_client.get("/health")
+        try:
+            response = await self.http_client.get("/health")
+        except Exception as e:
+            raise APIError(
+                message="Health check failed",
+                status_code=0,
+                detail=f"Cannot connect to server at {self.config.server_url}: {e}",
+            )
+
+        # Try to parse JSON response
+        try:
+            data = response.json()
+        except Exception:
+            raise APIError(
+                message="Health check failed",
+                status_code=response.status_code,
+                detail=f"Server returned invalid response (status {response.status_code})",
+            )
 
         if response.status_code != 200:
-            data = response.json()
             raise APIError(
                 message="Health check failed",
                 status_code=response.status_code,
                 detail=data.get("detail", "Server error"),
             )
 
-        return response.json()
+        return data
 
     # -------------------------------------------------------------------------
     # Admin Methods (Require Authentication)
