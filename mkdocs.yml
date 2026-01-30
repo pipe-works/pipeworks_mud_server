@@ -5,12 +5,12 @@ site_author: PipeWorks Team
 site_url: https://pipeworks-mud-server.readthedocs.io/
 
 # Documentation directory
-docs_dir: documentation
+docs_dir: docs
 
 # Repository
 repo_name: pipeworks_mud_server
 repo_url: https://github.com/aa-parky/pipeworks_mud_server
-edit_uri: edit/main/documentation/
+edit_uri: edit/main/docs/
 
 # Copyright
 copyright: Copyright &copy; 2025 PipeWorks Team
