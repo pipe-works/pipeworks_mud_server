@@ -179,6 +179,30 @@ Gradio Client Only
 
 Requires API server to be running.
 
+Admin TUI (Terminal Interface)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For SSH/tmux workflows or terminal-based administration:
+
+.. code-block:: bash
+
+    # Install TUI dependencies
+    pip install -e ".[admin-tui]"
+
+    # Run the terminal UI (connects to localhost:8000 by default)
+    pipeworks-admin-tui
+
+    # Connect to a remote server
+    pipeworks-admin-tui --server http://remote-server:8000
+
+The TUI provides:
+
+* Login screen with username/password authentication
+* Dashboard with server status and quick actions
+* Keyboard shortcuts for common operations
+
+Requires API server to be running.
+
 Environment Variables
 ---------------------
 
@@ -206,6 +230,9 @@ Optional configuration:
    * - ``MUD_ADMIN_PASSWORD``
      - (none)
      - Superuser password for init-db
+   * - ``MUD_REQUEST_TIMEOUT``
+     - ``30``
+     - HTTP request timeout (seconds) for TUI
 
 CLI Reference
 -------------
@@ -218,12 +245,21 @@ The ``mud-server`` CLI provides these commands:
     mud-server create-superuser  Create a superuser account
     mud-server run               Start the server
 
+The ``pipeworks-admin-tui`` CLI (requires ``[admin-tui]`` extra):
+
+.. code-block:: text
+
+    pipeworks-admin-tui                    Connect to localhost:8000
+    pipeworks-admin-tui -s URL             Connect to specified server
+    pipeworks-admin-tui -t SECONDS         Set request timeout
+
 For help on any command:
 
 .. code-block:: bash
 
     mud-server --help
     mud-server init-db --help
+    pipeworks-admin-tui --help
 
 Next Steps
 ----------
