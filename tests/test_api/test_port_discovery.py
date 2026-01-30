@@ -23,7 +23,6 @@ from mud_server.api.server import (
     is_port_available,
 )
 
-
 # ============================================================================
 # is_port_available() Tests
 # ============================================================================
@@ -85,9 +84,7 @@ class TestIsPortAvailable:
 
             is_port_available(8000)
 
-            mock_socket_class.assert_called_once_with(
-                socket.AF_INET, socket.SOCK_STREAM
-            )
+            mock_socket_class.assert_called_once_with(socket.AF_INET, socket.SOCK_STREAM)
 
 
 # ============================================================================
@@ -100,9 +97,7 @@ class TestFindAvailablePort:
 
     def test_returns_preferred_port_when_available(self):
         """Should return the preferred port if it's available."""
-        with patch(
-            "mud_server.api.server.is_port_available", return_value=True
-        ) as mock_check:
+        with patch("mud_server.api.server.is_port_available", return_value=True) as mock_check:
             result = find_available_port(preferred_port=8000)
 
             assert result == 8000
@@ -116,9 +111,7 @@ class TestFindAvailablePort:
             # 8000 is in use, 8001 is available
             return port != 8000
 
-        with patch(
-            "mud_server.api.server.is_port_available", side_effect=port_availability
-        ):
+        with patch("mud_server.api.server.is_port_available", side_effect=port_availability):
             result = find_available_port(preferred_port=8000)
 
             assert result == 8001
@@ -154,20 +147,14 @@ class TestFindAvailablePort:
             # Only port 9005 is available
             return port == 9005
 
-        with patch(
-            "mud_server.api.server.is_port_available", side_effect=port_availability
-        ):
-            result = find_available_port(
-                preferred_port=9000, range_start=9000, range_end=9010
-            )
+        with patch("mud_server.api.server.is_port_available", side_effect=port_availability):
+            result = find_available_port(preferred_port=9000, range_start=9000, range_end=9010)
 
             assert result == 9005
 
     def test_uses_custom_host(self):
         """Should pass custom host to availability checks."""
-        with patch(
-            "mud_server.api.server.is_port_available", return_value=True
-        ) as mock_check:
+        with patch("mud_server.api.server.is_port_available", return_value=True) as mock_check:
             find_available_port(host="127.0.0.1")
 
             mock_check.assert_called_with(DEFAULT_PORT, "127.0.0.1")
@@ -206,9 +193,7 @@ class TestPortDiscoveryIntegration:
     def test_find_available_finds_something(self):
         """Verify find_available_port can find a real available port."""
         # Use a high port range unlikely to be fully occupied
-        result = find_available_port(
-            preferred_port=59900, range_start=59900, range_end=59999
-        )
+        result = find_available_port(preferred_port=59900, range_start=59900, range_end=59999)
         # Should find at least one available port in a 100-port range
         assert result is not None
         assert 59900 <= result <= 59999

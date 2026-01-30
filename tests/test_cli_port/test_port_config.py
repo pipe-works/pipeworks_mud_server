@@ -11,13 +11,11 @@ block the test runner and create port conflicts.
 """
 
 import argparse
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from mud_server.cli import _run_api_server, _run_ui_client, cmd_run, main
-
 
 # ============================================================================
 # Module-level Process Function Tests
