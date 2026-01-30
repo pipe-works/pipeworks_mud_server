@@ -17,6 +17,7 @@ from mud_server.client.ui.validators import (
     validate_session_state,
     validate_username,
 )
+from tests.constants import TEST_PASSWORD
 
 
 class TestValidateUsername:
@@ -70,7 +71,7 @@ class TestValidatePassword:
 
     def test_valid_password(self):
         """Test that valid password passes validation."""
-        is_valid, error = validate_password("password123")
+        is_valid, error = validate_password(TEST_PASSWORD)
         assert is_valid is True
         assert error == ""
 
@@ -110,25 +111,25 @@ class TestValidatePasswordConfirmation:
 
     def test_matching_passwords(self):
         """Test that matching passwords pass validation."""
-        is_valid, error = validate_password_confirmation("password123", "password123")
+        is_valid, error = validate_password_confirmation(TEST_PASSWORD, TEST_PASSWORD)
         assert is_valid is True
         assert error == ""
 
     def test_mismatched_passwords(self):
         """Test that mismatched passwords fail validation."""
-        is_valid, error = validate_password_confirmation("password123", "different")
+        is_valid, error = validate_password_confirmation(TEST_PASSWORD, "different")
         assert is_valid is False
         assert error == "Passwords do not match."
 
     def test_empty_confirmation(self):
         """Test password with empty confirmation."""
-        is_valid, error = validate_password_confirmation("password123", "")
+        is_valid, error = validate_password_confirmation(TEST_PASSWORD, "")
         assert is_valid is False
         assert error == "Passwords do not match."
 
     def test_none_confirmation(self):
         """Test password with None confirmation."""
-        is_valid, error = validate_password_confirmation("password123", None)
+        is_valid, error = validate_password_confirmation(TEST_PASSWORD, None)
         assert is_valid is False
         assert error == "Passwords do not match."
 

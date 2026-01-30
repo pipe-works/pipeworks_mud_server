@@ -33,9 +33,10 @@ API Endpoints
 Authentication
 ~~~~~~~~~~~~~~
 
-* ``POST /register`` - Register new account
+* ``POST /register`` - Register new account (password must meet STANDARD policy)
 * ``POST /login`` - Log in and create session
 * ``POST /logout`` - Log out and destroy session
+* ``POST /change-password`` - Change password (password must meet STANDARD policy)
 
 Game Actions
 ~~~~~~~~~~~~
@@ -62,10 +63,38 @@ Authentication
 
 All protected endpoints require a ``session_id`` in the request body.
 
+Password Requirements
+~~~~~~~~~~~~~~~~~~~~~
+
+Registration and password changes enforce the **STANDARD** password policy:
+
+* **Minimum 12 characters**
+* **Not a commonly used password** (150+ blocked)
+* **No sequential characters** (abc, 123, xyz)
+* **No excessive repeated characters** (aaa, 1111)
+
+**Example Error Response** (password too short):
+
+.. code-block:: json
+
+    {
+        "detail": "Password must be at least 12 characters long (currently 8)"
+    }
+
+**Example Error Response** (common password):
+
+.. code-block:: json
+
+    {
+        "detail": "This password is too common and easily guessed. Please choose a more unique password."
+    }
+
+See :doc:`security` for complete password policy documentation.
+
 Session Creation
 ~~~~~~~~~~~~~~~~
 
-1. **Register**: ``POST /register`` with username and password
+1. **Register**: ``POST /register`` with username and password (must meet policy)
 2. **Login**: ``POST /login`` with credentials
 3. **Receive**: Session ID returned in response
 4. **Use**: Include session_id in all subsequent requests

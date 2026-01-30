@@ -42,22 +42,36 @@ This creates the SQLite database with required tables.
 Create Superuser
 ~~~~~~~~~~~~~~~~
 
-The server requires a superuser account for administration. Choose one method:
+The server requires a superuser account for administration. Passwords must meet
+the **STANDARD security policy** requirements:
+
+* **Minimum 12 characters** (NIST SP 800-63B recommended)
+* **Not a commonly used password** (checked against 150+ known weak passwords)
+* **No sequential characters** (abc, 123, xyz)
+* **No excessive repeated characters** (aaa, 1111)
+
+Choose one method:
 
 **Interactive mode** (recommended for local development):
 
 .. code-block:: bash
 
     mud-server create-superuser
-    # Follow prompts for username and password
+    # Password requirements will be displayed
+    # Real-time feedback on password strength
 
 **Environment variables** (for CI/deployment):
 
 .. code-block:: bash
 
     export MUD_ADMIN_USER=myadmin
-    export MUD_ADMIN_PASSWORD=mysecurepassword123
-    mud-server init-db
+    export MUD_ADMIN_PASSWORD="MySecure#Pass2024"  # Must meet policy requirements
+    mud-server create-superuser
+
+.. note::
+
+    The password policy ensures strong passwords are used from the start.
+    See :doc:`security` for complete details on the password policy.
 
 Running the Server
 ------------------

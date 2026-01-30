@@ -16,6 +16,7 @@ from unittest.mock import patch
 import pytest
 
 from mud_server.api.auth import active_sessions
+from tests.constants import TEST_PASSWORD
 
 # ============================================================================
 # PUBLIC ENDPOINT TESTS
@@ -55,8 +56,8 @@ def test_register_success(test_client, test_db, temp_db_path):
             "/register",
             json={
                 "username": "newuser",
-                "password": "password123",
-                "password_confirm": "password123",
+                "password": TEST_PASSWORD,
+                "password_confirm": TEST_PASSWORD,
             },
         )
 
@@ -71,7 +72,7 @@ def test_register_username_too_short(test_client):
     """Test registration with username too short."""
     response = test_client.post(
         "/register",
-        json={"username": "a", "password": "password123", "password_confirm": "password123"},
+        json={"username": "a", "password": TEST_PASSWORD, "password_confirm": TEST_PASSWORD},
     )
 
     assert response.status_code == 400
@@ -83,7 +84,7 @@ def test_register_username_too_long(test_client):
     """Test registration with username too long."""
     response = test_client.post(
         "/register",
-        json={"username": "a" * 30, "password": "password123", "password_confirm": "password123"},
+        json={"username": "a" * 30, "password": TEST_PASSWORD, "password_confirm": TEST_PASSWORD},
     )
 
     assert response.status_code == 400
@@ -97,7 +98,8 @@ def test_register_password_too_short(test_client):
     )
 
     assert response.status_code == 400
-    assert "at least 8 characters" in response.json()["detail"]
+    # STANDARD policy requires at least 12 characters
+    assert "at least 12 characters" in response.json()["detail"]
 
 
 @pytest.mark.api
@@ -105,7 +107,7 @@ def test_register_passwords_dont_match(test_client):
     """Test registration when passwords don't match."""
     response = test_client.post(
         "/register",
-        json={"username": "newuser", "password": "password123", "password_confirm": "different123"},
+        json={"username": "newuser", "password": TEST_PASSWORD, "password_confirm": "different123"},
     )
 
     assert response.status_code == 400
@@ -120,8 +122,8 @@ def test_register_duplicate_username(test_client, test_db, temp_db_path, db_with
             "/register",
             json={
                 "username": "testplayer",
-                "password": "password123",
-                "password_confirm": "password123",
+                "password": TEST_PASSWORD,
+                "password_confirm": TEST_PASSWORD,
             },
         )
 
@@ -139,7 +141,7 @@ def test_login_success(test_client, test_db, temp_db_path, db_with_users):
     """Test successful login."""
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         response = test_client.post(
-            "/login", json={"username": "testplayer", "password": "password123"}
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
 
         assert response.status_code == 200
@@ -167,7 +169,7 @@ def test_login_nonexistent_user(test_client, test_db, temp_db_path):
     """Test login with non-existent username."""
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         response = test_client.post(
-            "/login", json={"username": "nonexistent", "password": "password123"}
+            "/login", json={"username": "nonexistent", "password": TEST_PASSWORD}
         )
 
         assert response.status_code == 401
@@ -178,7 +180,7 @@ def test_login_creates_session(test_client, test_db, temp_db_path, db_with_users
     """Test that login creates session in active_sessions."""
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         response = test_client.post(
-            "/login", json={"username": "testplayer", "password": "password123"}
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
 
         session_id = response.json()["session_id"]
@@ -189,7 +191,7 @@ def test_login_creates_session(test_client, test_db, temp_db_path, db_with_users
 @pytest.mark.api
 def test_login_username_too_short(test_client):
     """Test login with username too short."""
-    response = test_client.post("/login", json={"username": "a", "password": "password123"})
+    response = test_client.post("/login", json={"username": "a", "password": TEST_PASSWORD})
 
     assert response.status_code == 400
 
@@ -396,15 +398,15 @@ def test_full_user_flow(test_client, test_db, temp_db_path):
                 "/register",
                 json={
                     "username": "flowuser",
-                    "password": "password123",
-                    "password_confirm": "password123",
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
                 },
             )
             assert register_response.status_code == 200
 
             # 2. Login
             login_response = test_client.post(
-                "/login", json={"username": "flowuser", "password": "password123"}
+                "/login", json={"username": "flowuser", "password": TEST_PASSWORD}
             )
             assert login_response.status_code == 200
             session_id = login_response.json()["session_id"]

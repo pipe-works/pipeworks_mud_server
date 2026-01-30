@@ -19,6 +19,7 @@ from unittest.mock import patch
 import pytest
 
 from mud_server.db import database
+from tests.constants import TEST_PASSWORD
 
 # ============================================================================
 # DATABASE INITIALIZATION TESTS
@@ -112,14 +113,14 @@ def test_init_database_skips_short_password(temp_db_path, capsys):
 def test_create_player_with_password_success(test_db, temp_db_path):
     """Test creating a new player with password."""
     with patch.object(database, "DB_PATH", temp_db_path):
-        result = database.create_player_with_password("newuser", "password123", "player")
+        result = database.create_player_with_password("newuser", TEST_PASSWORD, "player")
         assert result is True
 
         # Verify player exists
         assert database.player_exists("newuser")
 
         # Verify password
-        assert database.verify_password_for_user("newuser", "password123")
+        assert database.verify_password_for_user("newuser", TEST_PASSWORD)
 
         # Verify role
         assert database.get_player_role("newuser") == "player"
@@ -148,7 +149,7 @@ def test_player_exists(test_db, temp_db_path, db_with_users):
 def test_verify_password_correct(test_db, temp_db_path, db_with_users):
     """Test password verification with correct password."""
     with patch.object(database, "DB_PATH", temp_db_path):
-        assert database.verify_password_for_user("testplayer", "password123") is True
+        assert database.verify_password_for_user("testplayer", TEST_PASSWORD) is True
 
 
 @pytest.mark.unit
@@ -242,7 +243,7 @@ def test_verify_password_inactive_account(test_db, temp_db_path, db_with_users):
         database.deactivate_player("testplayer")
         # Password verification should succeed even for inactive accounts
         # Account status checking is done separately in the login flow
-        assert database.verify_password_for_user("testplayer", "password123") is True
+        assert database.verify_password_for_user("testplayer", TEST_PASSWORD) is True
         # Verify account is actually inactive
         assert database.is_player_active("testplayer") is False
 
@@ -261,7 +262,7 @@ def test_change_password(test_db, temp_db_path, db_with_users):
         assert result is True
 
         # Old password should not work
-        assert database.verify_password_for_user("testplayer", "password123") is False
+        assert database.verify_password_for_user("testplayer", TEST_PASSWORD) is False
 
         # New password should work
         assert database.verify_password_for_user("testplayer", "newpassword") is True

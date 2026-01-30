@@ -15,6 +15,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from tests.constants import TEST_PASSWORD
+
 # ============================================================================
 # OLLAMA CONVERSATION CONTEXT TESTS
 # ============================================================================
@@ -27,7 +29,7 @@ def test_ollama_context_stored_per_session(test_client, test_db, temp_db_path, d
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as admin
         login_response = test_client.post(
-            "/login", json={"username": "testadmin", "password": "password123"}
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
         )
         admin_session = login_response.json()["session_id"]
 
@@ -82,13 +84,13 @@ def test_ollama_context_isolated_between_sessions(
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as admin
         login_response1 = test_client.post(
-            "/login", json={"username": "testadmin", "password": "password123"}
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
         )
         admin_session = login_response1.json()["session_id"]
 
         # Login as superuser
         login_response2 = test_client.post(
-            "/login", json={"username": "testsuperuser", "password": "password123"}
+            "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
         )
         superuser_session = login_response2.json()["session_id"]
 
@@ -133,7 +135,7 @@ def test_clear_context_removes_history(test_client, test_db, temp_db_path, db_wi
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as admin
         login_response = test_client.post(
-            "/login", json={"username": "testadmin", "password": "password123"}
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
         )
         admin_session = login_response.json()["session_id"]
 
@@ -187,7 +189,7 @@ def test_clear_context_when_no_context(test_client, test_db, temp_db_path, db_wi
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as admin
         login_response = test_client.post(
-            "/login", json={"username": "testadmin", "password": "password123"}
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
         )
         admin_session = login_response.json()["session_id"]
 
@@ -208,7 +210,7 @@ def test_ollama_context_survives_error(test_client, test_db, temp_db_path, db_wi
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as admin
         login_response = test_client.post(
-            "/login", json={"username": "testadmin", "password": "password123"}
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
         )
         admin_session = login_response.json()["session_id"]
 
@@ -285,7 +287,7 @@ def test_player_cannot_access_ollama(test_client, test_db, temp_db_path, db_with
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as player
         login_response = test_client.post(
-            "/login", json={"username": "testplayer", "password": "password123"}
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
         player_session = login_response.json()["session_id"]
 
@@ -309,7 +311,7 @@ def test_player_cannot_clear_ollama_context(test_client, test_db, temp_db_path, 
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as player
         login_response = test_client.post(
-            "/login", json={"username": "testplayer", "password": "password123"}
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
         player_session = login_response.json()["session_id"]
 
@@ -328,7 +330,7 @@ def test_admin_can_access_ollama(test_client, test_db, temp_db_path, db_with_use
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as admin
         login_response = test_client.post(
-            "/login", json={"username": "testadmin", "password": "password123"}
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
         )
         admin_session = login_response.json()["session_id"]
 
@@ -359,7 +361,7 @@ def test_superuser_can_access_ollama(test_client, test_db, temp_db_path, db_with
     with patch("mud_server.db.database.DB_PATH", temp_db_path):
         # Login as superuser
         login_response = test_client.post(
-            "/login", json={"username": "testsuperuser", "password": "password123"}
+            "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
         )
         superuser_session = login_response.json()["session_id"]
 

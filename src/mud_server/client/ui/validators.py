@@ -10,11 +10,32 @@ Validation is separated from API logic to enable:
 - Consistent error messages
 - Client-side validation before API calls
 
+Password Validation:
+    This module integrates with the password_policy module for comprehensive
+    password strength validation. The validate_password_strength() function
+    provides detailed feedback including:
+    - Policy compliance checking (length, character classes)
+    - Common password rejection
+    - Sequential/repeated character detection
+    - Strength scoring and entropy estimation
+
 Common Patterns:
     All validators return (bool, str) tuples:
     - (True, "") for valid input
     - (False, "Error message") for invalid input
+
+See Also:
+    mud_server.api.password_policy: Comprehensive password policy enforcement.
 """
+
+from mud_server.api.password_policy import (
+    PolicyLevel,
+    ValidationResult,
+    get_password_requirements,
+)
+from mud_server.api.password_policy import (
+    validate_password_strength as _validate_strength,
+)
 
 
 def validate_username(username: str | None) -> tuple[bool, str]:
@@ -50,7 +71,12 @@ def validate_username(username: str | None) -> tuple[bool, str]:
 
 def validate_password(password: str | None, min_length: int = 8) -> tuple[bool, str]:
     """
-    Validate password meets requirements.
+    Validate password meets basic length requirements.
+
+    This is a simple length-only validator for backward compatibility.
+    For comprehensive password strength validation including common password
+    checking, sequential/repeated character detection, and strength scoring,
+    use validate_password_with_policy() instead.
 
     Requirements:
     - Must not be None or empty
@@ -70,6 +96,9 @@ def validate_password(password: str | None, min_length: int = 8) -> tuple[bool, 
         (False, "Password must be at least 8 characters.")
         >>> validate_password(None)
         (False, "Password is required.")
+
+    See Also:
+        validate_password_with_policy: Comprehensive password validation.
     """
     if password is None or password == "":
         return False, "Password is required."
@@ -78,6 +107,109 @@ def validate_password(password: str | None, min_length: int = 8) -> tuple[bool, 
         return False, f"Password must be at least {min_length} characters."
 
     return True, ""
+
+
+def validate_password_with_policy(
+    password: str | None,
+    level: PolicyLevel = PolicyLevel.STANDARD,
+) -> tuple[bool, str, ValidationResult | None]:
+    """
+    Validate password against comprehensive security policy.
+
+    This function performs thorough password validation using the password
+    policy module. It checks for:
+    - Minimum length requirements (12 chars for STANDARD policy)
+    - Common/compromised password rejection
+    - Sequential character patterns (abc, 123)
+    - Repeated character patterns (aaa, 111)
+    - Character class diversity (uppercase, lowercase, digits, special)
+
+    The function returns detailed feedback including a strength score and
+    specific error messages to help users create stronger passwords.
+
+    Args:
+        password: Password to validate. Must not be None or empty.
+        level: Security policy level to enforce. Options:
+            - PolicyLevel.BASIC: 8 char minimum, basic checks
+            - PolicyLevel.STANDARD: 12 char minimum, comprehensive checks (default)
+            - PolicyLevel.STRICT: 16 char minimum, all character classes required
+
+    Returns:
+        Tuple of (is_valid, error_message, validation_result):
+        - is_valid: True if password meets all policy requirements
+        - error_message: Combined error messages or empty string if valid
+        - validation_result: Full ValidationResult object with score, warnings, etc.
+                            None if password was None/empty.
+
+    Examples:
+        >>> is_valid, msg, result = validate_password_with_policy("MyStr0ng!Pass#2024")
+        >>> is_valid
+        True
+        >>> result.score > 70
+        True
+
+        >>> is_valid, msg, result = validate_password_with_policy("password123")
+        >>> is_valid
+        False
+        >>> "common" in msg.lower()
+        True
+
+        >>> is_valid, msg, result = validate_password_with_policy("short")
+        >>> is_valid
+        False
+        >>> "12 characters" in msg
+        True
+
+    See Also:
+        mud_server.api.password_policy: Full policy configuration options.
+        get_password_requirements_text: Get human-readable requirements.
+    """
+    if password is None or password == "":
+        return False, "Password is required.", None
+
+    result = _validate_strength(password, level=level)
+
+    if result.is_valid:
+        return True, "", result
+
+    # Combine all errors into a single message
+    error_message = " ".join(result.errors)
+    return False, error_message, result
+
+
+def get_password_requirements_text(
+    level: PolicyLevel = PolicyLevel.STANDARD,
+) -> str:
+    """
+    Get human-readable password requirements for display to users.
+
+    This function returns a formatted string describing all password
+    requirements for the specified policy level. Useful for displaying
+    in registration forms, password change dialogs, or help text.
+
+    Args:
+        level: Policy level to describe. Options:
+            - PolicyLevel.BASIC: Minimal requirements
+            - PolicyLevel.STANDARD: Recommended requirements (default)
+            - PolicyLevel.STRICT: Maximum security requirements
+
+    Returns:
+        Multi-line string describing all password requirements.
+
+    Examples:
+        >>> requirements = get_password_requirements_text()
+        >>> "12 characters" in requirements
+        True
+        >>> "common" in requirements.lower()
+        True
+
+        >>> strict_req = get_password_requirements_text(PolicyLevel.STRICT)
+        >>> "16 characters" in strict_req
+        True
+        >>> "uppercase" in strict_req.lower()
+        True
+    """
+    return get_password_requirements(level)
 
 
 def validate_password_confirmation(
