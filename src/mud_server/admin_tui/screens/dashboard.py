@@ -18,6 +18,8 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Static
 
+from mud_server.admin_tui.screens.database import DatabaseScreen
+
 
 class DashboardScreen(Screen):
     """
@@ -28,8 +30,7 @@ class DashboardScreen(Screen):
 
     Key Bindings:
         r: Refresh server status
-        p: View players list
-        s: View active sessions
+        d: View database tables (superuser only)
         l: Logout
         q, ctrl+q: Quit application
 
@@ -46,8 +47,7 @@ class DashboardScreen(Screen):
     # child widgets (like Buttons) have focus
     BINDINGS = [
         Binding("r", "refresh", "Refresh", priority=True),
-        Binding("p", "view_players", "Players", priority=True),
-        Binding("s", "view_sessions", "Sessions", priority=True),
+        Binding("d", "view_database", "Database", priority=True),
         Binding("l", "logout", "Logout", priority=True),
         Binding("q", "quit", "Quit", priority=True),
         Binding("ctrl+q", "quit", "Quit", priority=True, show=False),
@@ -161,10 +161,7 @@ class DashboardScreen(Screen):
                         "Refresh", variant="default", id="btn-refresh", classes="action-button"
                     )
                     yield Button(
-                        "Players", variant="primary", id="btn-players", classes="action-button"
-                    )
-                    yield Button(
-                        "Sessions", variant="primary", id="btn-sessions", classes="action-button"
+                        "Database", variant="primary", id="btn-database", classes="action-button"
                     )
                     yield Button(
                         "Logout", variant="warning", id="btn-logout", classes="action-button"
@@ -236,15 +233,10 @@ class DashboardScreen(Screen):
         """Handle refresh button press."""
         self.refresh_status()
 
-    @on(Button.Pressed, "#btn-players")
-    def handle_players_button(self) -> None:
-        """Handle players button press."""
-        self.action_view_players()
-
-    @on(Button.Pressed, "#btn-sessions")
-    def handle_sessions_button(self) -> None:
-        """Handle sessions button press."""
-        self.action_view_sessions()
+    @on(Button.Pressed, "#btn-database")
+    def handle_database_button(self) -> None:
+        """Handle database button press."""
+        self.action_view_database()
 
     @on(Button.Pressed, "#btn-logout")
     async def handle_logout_button(self) -> None:
@@ -259,15 +251,13 @@ class DashboardScreen(Screen):
         """Refresh server status (key: r)."""
         self.refresh_status()
 
-    def action_view_players(self) -> None:
-        """View players list (key: p)."""
-        # TODO: Implement players list screen
-        self.notify("Players view not yet implemented", severity="information")
-
-    def action_view_sessions(self) -> None:
-        """View active sessions (key: s)."""
-        # TODO: Implement sessions list screen
-        self.notify("Sessions view not yet implemented", severity="information")
+    def action_view_database(self) -> None:
+        """View database tables (key: d). Requires superuser privileges."""
+        api_client = self.app.api_client
+        if not api_client or not api_client.session.is_superuser:
+            self.notify("Superuser access required to view database", severity="warning")
+            return
+        self.app.push_screen(DatabaseScreen())
 
     async def action_logout(self) -> None:
         """Logout and return to login screen (key: l)."""

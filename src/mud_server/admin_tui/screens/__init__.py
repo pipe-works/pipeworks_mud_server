@@ -10,12 +10,15 @@ application's screen stack.
 Available Screens:
     LoginScreen: Authentication form for logging into the server.
     DashboardScreen: Main admin dashboard showing server status.
+    DatabaseScreen: Database table viewer for superusers.
 """
 
 from mud_server.admin_tui.screens.dashboard import DashboardScreen
+from mud_server.admin_tui.screens.database import DatabaseScreen
 from mud_server.admin_tui.screens.login import LoginScreen
 
 __all__ = [
     "DashboardScreen",
+    "DatabaseScreen",
     "LoginScreen",
 ]
