@@ -52,15 +52,56 @@ def test_init_database_creates_tables(temp_db_path):
 
 @pytest.mark.unit
 @pytest.mark.db
-def test_init_database_creates_default_admin(temp_db_path):
-    """Test that init_database creates default superuser when no players exist."""
+def test_init_database_creates_superuser_from_env_vars(temp_db_path):
+    """Test that init_database creates superuser from environment variables."""
     with patch.object(database, "DB_PATH", temp_db_path):
-        database.init_database()
+        with patch.dict(
+            "os.environ", {"MUD_ADMIN_USER": "envadmin", "MUD_ADMIN_PASSWORD": "securepass123"}
+        ):
+            database.init_database()
 
-        # Check admin user was created
-        assert database.player_exists("admin")
-        assert database.get_player_role("admin") == "superuser"
-        assert database.verify_password_for_user("admin", "admin123")
+            # Check admin user was created from env vars
+            assert database.player_exists("envadmin")
+            assert database.get_player_role("envadmin") == "superuser"
+            assert database.verify_password_for_user("envadmin", "securepass123")
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_init_database_no_superuser_without_env_vars(temp_db_path):
+    """Test that init_database does NOT create superuser without environment variables."""
+    with patch.object(database, "DB_PATH", temp_db_path):
+        # Ensure env vars are not set
+        with patch.dict("os.environ", {}, clear=True):
+            database.init_database()
+
+            # No default admin should be created
+            assert not database.player_exists("admin")
+
+            # Check that tables were still created
+            conn = database.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='players'")
+            assert cursor.fetchone() is not None
+            conn.close()
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_init_database_skips_short_password(temp_db_path, capsys):
+    """Test that init_database skips superuser creation if password is too short."""
+    with patch.object(database, "DB_PATH", temp_db_path):
+        with patch.dict(
+            "os.environ", {"MUD_ADMIN_USER": "admin", "MUD_ADMIN_PASSWORD": "short"}
+        ):
+            database.init_database()
+
+            # No admin should be created due to short password
+            assert not database.player_exists("admin")
+
+            # Should print warning
+            captured = capsys.readouterr()
+            assert "must be at least 8 characters" in captured.out
 
 
 # ============================================================================

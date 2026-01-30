@@ -48,18 +48,19 @@ cd pipeworks_mud_server
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install package (enables mud-server CLI)
+pip install -e .
 
-# Initialize database
-PYTHONPATH=src python3 -m mud_server.db.database
+# Initialize database and create superuser
+mud-server init-db
+mud-server create-superuser  # Follow prompts to create admin account
 ```
 
 ### Running the Server
 
 ```bash
 # Start both API server and web client
-./run.sh
+mud-server run
 
 # The server will start on:
 # - API: http://localhost:8000
@@ -68,16 +69,18 @@ PYTHONPATH=src python3 -m mud_server.db.database
 
 Press `Ctrl+C` to stop both services.
 
-### First Login
+### Creating a Superuser
 
-**Default Superuser Credentials:**
-
-```text
-Username: admin
-Password: admin123
+**Interactive** (recommended):
+```bash
+mud-server create-superuser
+# Enter username and password when prompted
 ```
 
-**Change this immediately!** Login and use the user management interface to set a new password.
+**Via environment variables** (for CI/Docker):
+```bash
+MUD_ADMIN_USER=myadmin MUD_ADMIN_PASSWORD=securepass123 mud-server init-db
+```
 
 ---
 
@@ -237,10 +240,10 @@ xdg-open build/html/index.html  # Linux
 
 ```bash
 # Run API server only
-PYTHONPATH=src python3 src/mud_server/api/server.py
+python -m mud_server.api.server
 
 # Run Gradio client only (requires server running)
-PYTHONPATH=src python3 src/mud_server/client/app.py
+python -m mud_server.client.app
 
 # Check server health
 curl http://localhost:8000/health
@@ -250,7 +253,8 @@ curl http://localhost:8000/health
 
 ```bash
 # Reset database (deletes all player data)
-rm data/mud.db && PYTHONPATH=src python3 -m mud_server.db.database
+rm data/mud.db && mud-server init-db
+mud-server create-superuser  # Create admin after reset
 
 # View database schema
 sqlite3 data/mud.db ".schema"
@@ -262,9 +266,14 @@ sqlite3 data/mud.db "SELECT username, role, current_room FROM players;"
 ### Environment Variables
 
 ```bash
+# Server configuration
 export MUD_HOST="0.0.0.0"          # Bind address
 export MUD_PORT=8000                # API port
 export MUD_SERVER_URL="http://localhost:8000"  # Client API endpoint
+
+# Superuser creation (for CI/Docker)
+export MUD_ADMIN_USER="admin"
+export MUD_ADMIN_PASSWORD="your-secure-password"
 ```
 
 ---

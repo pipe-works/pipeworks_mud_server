@@ -18,7 +18,7 @@ Database Design:
 
     Schema Management:
     - Tables created automatically on first run
-    - Default superuser (admin/admin123) created if no players exist
+    - Superuser created via env vars (MUD_ADMIN_USER/MUD_ADMIN_PASSWORD) or CLI
     - Password hashes stored using bcrypt (never plain text)
     - JSON used for structured data (inventory)
 
@@ -27,6 +27,7 @@ Security Considerations:
     - SQL injection prevented using parameterized queries
     - Session IDs are UUIDs (hard to guess)
     - Password verification checks account status
+    - No hardcoded default credentials
 
 Performance Notes:
     - SQLite handles basic concurrency (~50-100 players)
@@ -59,42 +60,35 @@ def init_database():
     """
     Initialize the SQLite database with required tables.
 
-    Creates all necessary tables if they don't exist and sets up a default
-    superuser account if no players exist in the database.
+    Creates all necessary tables if they don't exist. If MUD_ADMIN_USER and
+    MUD_ADMIN_PASSWORD environment variables are set and no players exist,
+    creates a superuser with those credentials.
 
     Tables Created:
         players: User accounts with authentication, role, state, and inventory
         chat_messages: All chat messages with room and recipient filtering
         sessions: Active login sessions with activity tracking
 
-    Default Account:
-        If no players exist, creates:
-        - Username: admin
-        - Password: admin123
-        - Role: superuser
-        - Location: spawn
+    Environment Variables:
+        MUD_ADMIN_USER: Username for initial superuser (optional)
+        MUD_ADMIN_PASSWORD: Password for initial superuser (optional)
 
     Side Effects:
         - Creates data/mud.db file if it doesn't exist
         - Creates tables if they don't exist
-        - Prints warning message if default superuser is created
+        - Creates superuser if env vars set and no players exist
         - Commits all changes to database
 
-    Security Warning:
-        The default superuser password should be changed immediately after
-        first login! The function prints a prominent warning about this.
+    Example:
+        # With environment variables:
+        MUD_ADMIN_USER=myadmin MUD_ADMIN_PASSWORD=secret123 mud-server init-db
 
-    Example Output:
-        If creating default user:
-        ============================================================
-        ⚠️  DEFAULT SUPERUSER CREATED
-        ============================================================
-        Username: admin
-        Password: admin123
-
-        ⚠️  IMPORTANT: Change this password immediately after first login!
-        ============================================================
+        # Without environment variables (no superuser created):
+        mud-server init-db
+        mud-server create-superuser  # Create interactively after
     """
+    import os
+
     from mud_server.api.password import hash_password
 
     # Connect to database (creates file if doesn't exist)
@@ -152,31 +146,46 @@ def init_database():
     conn.commit()
 
     # ========================================================================
-    # CREATE DEFAULT SUPERUSER (if no players exist)
+    # CREATE SUPERUSER FROM ENVIRONMENT VARIABLES (if no players exist)
     # ========================================================================
     cursor.execute("SELECT COUNT(*) FROM players")
     player_count = cursor.fetchone()[0]
 
     if player_count == 0:
-        # Create default admin account
-        default_password_hash = hash_password("admin123")
-        cursor.execute(
-            """
-            INSERT INTO players (username, password_hash, role, current_room)
-            VALUES (?, ?, ?, ?)
-        """,
-            ("admin", default_password_hash, "superuser", "spawn"),
-        )
-        conn.commit()
+        admin_user = os.environ.get("MUD_ADMIN_USER")
+        admin_password = os.environ.get("MUD_ADMIN_PASSWORD")
 
-        # Print prominent warning about default credentials
-        print("\n" + "=" * 60)
-        print("⚠️  DEFAULT SUPERUSER CREATED")
-        print("=" * 60)
-        print("Username: admin")
-        print("Password: admin123")
-        print("\n⚠️  IMPORTANT: Change this password immediately after first login!")
-        print("=" * 60 + "\n")
+        if admin_user and admin_password:
+            # Validate password length
+            if len(admin_password) < 8:
+                print("Warning: MUD_ADMIN_PASSWORD must be at least 8 characters. Skipping.")
+            else:
+                # Create superuser from environment variables
+                password_hash = hash_password(admin_password)
+                cursor.execute(
+                    """
+                    INSERT INTO players (username, password_hash, role, current_room)
+                    VALUES (?, ?, ?, ?)
+                """,
+                    (admin_user, password_hash, "superuser", "spawn"),
+                )
+                conn.commit()
+
+                print("\n" + "=" * 60)
+                print("SUPERUSER CREATED FROM ENVIRONMENT VARIABLES")
+                print("=" * 60)
+                print(f"Username: {admin_user}")
+                print("=" * 60 + "\n")
+        else:
+            # No environment variables - print instructions
+            print("\n" + "=" * 60)
+            print("DATABASE INITIALIZED (no superuser created)")
+            print("=" * 60)
+            print("To create a superuser, either:")
+            print("  1. Set MUD_ADMIN_USER and MUD_ADMIN_PASSWORD environment variables")
+            print("     and run: mud-server init-db")
+            print("  2. Run interactively: mud-server create-superuser")
+            print("=" * 60 + "\n")
 
     conn.close()
 
