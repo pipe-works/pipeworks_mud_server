@@ -20,6 +20,23 @@ jobs:
       python-versions: '["3.12", "3.13"]'
       coverage-threshold: 80
       run-security: true
-      run-docs: true
+      run-docs: false  # Using custom mkdocs build below
       requires-models: true
     secrets: inherit
+
+  docs:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-docs.txt
+      - name: Build mkdocs
+        run: |
+          PYTHONPATH=src mkdocs build --strict
