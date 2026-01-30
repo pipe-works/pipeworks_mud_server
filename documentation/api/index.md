@@ -1,10 +1,10 @@
 # API Reference
 
-Complete API documentation for The Undertaking, including auto-generated reference from Python code.
+Complete API documentation for PipeWorks MUD Server, including auto-generated reference from Python code.
 
 ## Overview
 
-The Undertaking provides:
+PipeWorks MUD Server provides:
 
 - **REST API** - FastAPI backend on port 8000
 - **Python Package** - `mud_server` with core game logic

@@ -1,6 +1,6 @@
-# The Undertaking
+# PipeWorks MUD Server
 
-> **A procedural, ledger-driven multiplayer interactive fiction system where characters are issued, not built, and failure is recorded as data.**
+> **A deterministic, procedural multiplayer text game engine for building accountable interactive fiction worlds.**
 
 [![CI](https://github.com/pipe-works/pipeworks_mud_server/actions/workflows/ci.yml/badge.svg)](https://github.com/pipe-works/pipeworks_mud_server/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/pipe-works/pipeworks_mud_server/branch/main/graph/badge.svg)](https://codecov.io/gh/pipe-works/pipeworks_mud_server)
@@ -11,57 +11,60 @@
 
 ---
 
-## What is The Undertaking?
+## What is PipeWorks MUD Server?
 
-**The Undertaking** is not a traditional MMO. It's a procedural accountability system where you are a low-level functionary trying to survive in a bureaucratic machine designed by people who were worse at maths than you are.
+A **generic, extensible MUD (Multi-User Dungeon) server** for building text-based multiplayer games. Built with modern Python tooling, this server provides the technical foundation for creating interactive fiction worlds with:
 
-**Core Design Pillars:**
+- **Deterministic game mechanics** - Reproducible outcomes for testing and replay
+- **JSON-driven world data** - Define rooms, items, and connections without code changes
+- **Modern web interface** - Gradio-based UI with clean UX
+- **REST API backend** - FastAPI server for high performance
+- **Role-based access control** - Built-in auth and permission system
+- **Modular architecture** - Clean separation between client, server, and game logic
 
-1. **Character Issuance, Not Creation** - You don't build characters; you receive them. Choose your sex, and the system issues you a complete, immutable goblin with uneven attributes, mandatory quirks, persistent failings, useless specializations, and an inherited reputation.
-
-2. **Failure as Data, Not Punishment** - Actions are resolved through six axes (Timing, Precision, Stability, Visibility, Interpretability, Recovery Cost). Attributes don't determine success—they determine **how you fail**. Every failure is recorded in an immutable ledger.
-
-3. **Ledgers are Truth, Newspapers are Stories** - The ledger records what actually happened (hard truth, deterministic, replayable). The newspaper interprets what happened (soft truth, narrative, biased by reputation). Both are game mechanics.
-
-4. **Optimization is Resisted** - There is no "best build." There is no meta. Success comes from understanding how **this specific goblin** fails and learning to work within those constraints.
-
-5. **Players Become Creators** - Start as a functionary. Learn to tinker. Eventually earn the right to use the same tools as developers to build your own content. The journey: Functionary → Tinkerer → Creator.
+**Use it to build:** Fantasy MUDs, sci-fi adventures, educational games, procedural narratives, or any text-based multiplayer experience.
 
 ---
 
-## Current Status: Proof-of-Concept
+## Current Implementation Status
 
-This repository contains a **working MUD server** that validates the technical architecture for The Undertaking. It's a proof-of-concept that implements:
+This repository contains a **working proof-of-concept** that validates the core architecture:
 
-### ✅ Currently Implemented
+### ✅ Implemented Features
 
-- **FastAPI REST API** - High-performance backend on port 8000
-- **Gradio Web Interface** - Modular, professional client on port 7860
+- **FastAPI REST API** - High-performance backend (port 8000)
+- **Gradio Web Interface** - Modular, professional client (port 7860)
 - **SQLite Database** - Player state, sessions, and chat persistence
 - **Authentication System** - Password-based auth with bcrypt hashing
-- **Role-Based Access Control** - 4 user types (Player, WorldBuilder, Admin, Superuser)
-- **Room Navigation** - Basic MUD-style movement and exploration
-- **Inventory System** - Pick up and drop items
-- **Room-Based Chat** - Location-specific messaging with whisper/yell support
-- **JSON World Data** - Flexible world definition system
-- **Ollama Integration** - AI model management and conversational interface (admin/superuser)
-- **Fully Modular Client Architecture** - Clean separation of concerns with dedicated API, UI, and tab layers
-- **100% Test Coverage on Client Modules** - 191 tests covering all API clients and UI utilities
+- **Role-Based Access Control (RBAC)** - 4 user types (Player, WorldBuilder, Admin, Superuser)
+- **Room Navigation** - Directional movement between connected rooms
+- **Inventory System** - Pick up and drop items in rooms
+- **Multi-Channel Chat** - Room-based `say`, area-wide `yell`, targeted `whisper`
+- **JSON World Definition** - Data-driven room and item configuration
+- **Ollama Integration** - AI model management interface (admin/superuser only)
+- **Modular Client Architecture** - Clean API/UI separation with 100% test coverage on core modules
 - **Centralized CSS** - External stylesheet with Safari-compatible dark mode
 
-### ⏳ Designed But Not Yet Implemented
+### 🎯 Design Philosophy
 
-The complete vision is documented in `docs/`. Planned features include:
+**Programmatic Authority:**
 
-- **Character Issuance System** - Procedural goblin generation with quirks, failings, and useless bits
-- **Axis-Based Resolution** - Six-axis action resolution replacing simple commands
-- **Ledger and Newspaper** - Dual-layer truth system (hard + soft)
-- **Item Quirks** - Items as frozen decisions carrying maker's attributes
-- **Environmental Quirks** - Rooms that affect how actions resolve
-- **Reputation System** - Blame attribution and social dynamics
-- **Creator's Toolkit** - Gradio-based authoring environment for player-created content
+- All game logic and state is deterministic and code-driven
+- Game mechanics are reproducible and testable
+- No LLM involvement in authoritative systems (state, logic, resolution)
 
-See the [Implementation Roadmap](#implementation-roadmap) for details.
+**Extensibility First:**
+
+- World data is JSON-driven (swap worlds without code changes)
+- Commands are extensible (add new actions without server rewrites)
+- Modular architecture supports plugins and custom mechanics
+
+**Clean Separation:**
+
+- **Client Layer** (Gradio) - UI and user interaction
+- **Server Layer** (FastAPI) - HTTP API and routing
+- **Game Layer** (Engine + World) - Core mechanics and state
+- **Persistence Layer** (SQLite) - Data storage
 
 ---
 
@@ -107,7 +110,8 @@ Press `Ctrl+C` to stop both services.
 ### First Login
 
 ⚠️ **Default Superuser Credentials:**
-```
+
+```text
 Username: admin
 Password: admin123
 ```
@@ -116,141 +120,11 @@ Password: admin123
 
 ---
 
-## Documentation
-
-Comprehensive documentation is available both locally and online:
-
-### Online Documentation
-
-- **ReadTheDocs** (Coming Soon): https://pipeworks-mud-server.readthedocs.io/
-- Full searchable documentation with API reference
-- Auto-generated from code docstrings
-- Always up-to-date with the latest release
-
-### Local Documentation
-
-Build and view the documentation locally:
-
-```bash
-# Install documentation dependencies
-pip install -r requirements-docs.txt
-
-# Build documentation
-PYTHONPATH=src mkdocs build
-
-# Serve documentation locally
-PYTHONPATH=src mkdocs serve
-# Then visit http://localhost:8000
-```
-
-### Documentation Sections
-
-- **[Getting Started](documentation/getting-started/index.md)** - Installation, quick start, first steps
-- **[Design Vision](documentation/design/index.md)** - Core design pillars and philosophy
-- **[Architecture](documentation/architecture/index.md)** - Technical architecture and system design
-- **[Implementation](documentation/implementation/index.md)** - Code examples and implementation details
-- **[API Reference](documentation/api/index.md)** - Complete API documentation
-- **[Developer Guide](documentation/developer/testing.md)** - Testing, contributing, code style
-
----
-
-## Ollama Integration
-
-The Ollama tab provides AI model management and conversational interface for **Admin** and **Superuser** accounts only.
-
-### Features
-
-- **Model Management** - List, pull, and run Ollama models
-- **Conversational Mode** - Natural chat interface with AI models
-- **Slash Commands** - Command-line style interaction
-- **Server Configuration** - Connect to local or remote Ollama servers
-
-### Slash Commands
-
-The Ollama tab supports these commands:
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/list` or `/ls` | List all available models | `/list` |
-| `/ps` | Show currently running models | `/ps` |
-| `/pull <model>` | Download a new model | `/pull llama2` |
-| `/run <model> [prompt]` | Run a model with optional prompt | `/run llama2 Write a haiku` |
-| `/show <model>` | Show detailed model information | `/show llama2` |
-
-### Conversational Mode
-
-After starting a model with `/run <model> [prompt]`, you can continue chatting naturally without repeating the `/run` prefix:
-
-```
-> /run llama2 Hello, who are you?
-[Model responds...]
-
-> What can you help me with?
-[Model continues conversation...]
-
-> Tell me a joke
-[Model continues conversation...]
-```
-
-The system remembers your active model until you start a new `/run` command with a different model.
-
-### Configuration
-
-**Default Ollama Server**: `http://localhost:11434`
-
-To use a remote Ollama server, change the Server URL in the Ollama tab interface.
-
----
-
-## Documentation
-
-Comprehensive design documentation is in the `docs/` directory:
-
-| Document | Description |
-|----------|-------------|
-| **[docs/README.md](docs/README.md)** | Overview of all design documents |
-| **[docs/the_undertaking_articulation.md](docs/the_undertaking_articulation.md)** | Core design with five pillars and worked examples |
-| **[docs/the_undertaking_platform_vision.md](docs/the_undertaking_platform_vision.md)** | Unified platform vision (Engine + Toolkit) |
-| **[docs/undertaking_code_examples.md](docs/undertaking_code_examples.md)** | Pseudo-code and database schema for full implementation |
-| **[docs/undertaking_supplementary_examples.md](docs/undertaking_supplementary_examples.md)** | Content libraries, API examples, testing scenarios |
-| **[CLAUDE.md](CLAUDE.md)** | Developer guide with current implementation and roadmap |
-
----
-
 ## Architecture
-
-### Modular Client Design
-
-The Gradio web client uses a fully modular architecture for maintainability, testability, and scalability:
-
-- **app.py** (~180 lines) - Clean entry point that assembles the interface
-- **api/** - Modular API client layer with clean separation of concerns
-  - **base.py** - BaseAPIClient with common HTTP patterns
-  - **auth.py** - Authentication operations (login, register, logout)
-  - **game.py** - Game operations (commands, chat, status, refresh)
-  - **settings.py** - Settings and server control
-  - **admin.py** - Admin database operations and user management
-  - **ollama.py** - Ollama AI model operations
-- **ui/** - UI utilities separate from API logic
-  - **validators.py** - Input validation functions (100% test coverage)
-  - **state.py** - Gradio state builders for UI updates
-- **utils.py** - Shared utilities (CSS loading, session state initialization)
-- **static/styles.css** - Centralized CSS with Safari-compatible dark mode
-- **tabs/** - Individual modules for each interface tab (login, game, settings, database, ollama, help)
-
-**Benefits:**
-- Clear separation between API logic, validation, and UI concerns
-- 100% test coverage on API and UI utility modules (191 tests)
-- API clients can be used outside Gradio (CLI tools, tests, scripts)
-- Easy to test individual components with mocked HTTP requests
-- Simple to add new features or tabs
-- Better code organization and navigation
-- Externalized CSS for better syntax highlighting and maintenance
-- Type-safe with comprehensive type hints throughout
 
 ### Three-Tier Design
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    Gradio Web Interface                      │
 │                     (Client Layer)                           │
@@ -276,57 +150,194 @@ The Gradio web client uses a fully modular architecture for maintainability, tes
 └──────────────────┘           └──────────────────┘
 ```
 
+### Modular Client Architecture
+
+The Gradio client uses a fully modular design for maintainability and testability:
+
+```text
+src/mud_server/client/
+├── app.py                    # Main entry point (~180 lines)
+├── api/                      # API client layer
+│   ├── base.py              # BaseAPIClient - common HTTP patterns
+│   ├── auth.py              # Authentication operations
+│   ├── game.py              # Game operations
+│   ├── settings.py          # Settings and server control
+│   ├── admin.py             # Admin operations
+│   └── ollama.py            # Ollama AI integration
+├── ui/                       # UI utilities
+│   ├── validators.py        # Input validation (100% coverage)
+│   └── state.py             # Gradio state builders
+├── tabs/                     # Tab modules
+│   ├── login_tab.py         # Login interface
+│   ├── register_tab.py      # Registration interface
+│   ├── game_tab.py          # Main gameplay interface
+│   ├── settings_tab.py      # Settings and server control
+│   ├── database_tab.py      # Admin database viewer
+│   ├── ollama_tab.py        # AI model management
+│   └── help_tab.py          # Help documentation
+├── utils.py                  # Shared utilities
+└── static/styles.css        # Centralized CSS
+```
+
+**Benefits:**
+
+- Clear separation between API logic, validation, and UI
+- 100% test coverage on API and UI utility modules (191 tests)
+- API clients work outside Gradio (CLI tools, tests, scripts)
+- Easy to extend with new features or tabs
+
 ### Project Structure
 
-```
+```text
 pipeworks_mud_server/
 ├── src/mud_server/              # Main application package
-│   ├── api/                     # FastAPI REST API
-│   │   ├── server.py            # App initialization
+│   ├── api/                     # FastAPI REST API (8 files, ~1200 LOC)
+│   │   ├── server.py            # App initialization, CORS, routing
 │   │   ├── routes.py            # API endpoints
-│   │   ├── models.py            # Pydantic models
+│   │   ├── models.py            # Pydantic request/response schemas
 │   │   ├── auth.py              # Session management
 │   │   ├── password.py          # Password hashing
 │   │   └── permissions.py       # RBAC system
-│   ├── core/                    # Game engine
-│   │   ├── engine.py            # Game logic
-│   │   └── world.py             # World management
-│   ├── db/                      # Database layer
-│   │   └── database.py          # SQLite operations
-│   └── client/                  # Frontend (fully modular architecture)
-│       ├── app.py               # Main entry point (~180 lines)
-│       ├── api/                 # API client layer (clean HTTP communication)
-│       │   ├── __init__.py      # Package initialization
-│       │   ├── base.py          # BaseAPIClient - common HTTP patterns
-│       │   ├── auth.py          # AuthAPIClient - authentication
-│       │   ├── game.py          # GameAPIClient - game operations
-│       │   ├── settings.py      # SettingsAPIClient - settings & server
-│       │   ├── admin.py         # AdminAPIClient - admin operations
-│       │   └── ollama.py        # OllamaAPIClient - AI model management
-│       ├── ui/                  # UI utilities (separate from API)
-│       │   ├── __init__.py      # Package initialization
-│       │   ├── validators.py    # Input validation (100% coverage)
-│       │   └── state.py         # Gradio state builders
-│       ├── utils.py             # Shared utilities (CSS loading, state)
-│       ├── static/              # Static assets
-│       │   └── styles.css       # Centralized CSS (Safari-compatible)
-│       └── tabs/                # UI tab modules
-│           ├── __init__.py      # Package initialization
-│           ├── login_tab.py     # Login interface
-│           ├── register_tab.py  # Registration interface
-│           ├── game_tab.py      # Main gameplay interface
-│           ├── settings_tab.py  # Settings and server control
-│           ├── database_tab.py  # Database viewer and user management
-│           ├── ollama_tab.py    # Ollama AI model management
-│           └── help_tab.py      # Help documentation
+│   ├── core/                    # Game engine (2 files, ~390 LOC)
+│   │   ├── engine.py            # Game logic facade
+│   │   └── world.py             # World, Room, Item dataclasses
+│   ├── db/                      # Database layer (1 file, ~806 LOC)
+│   │   └── database.py          # SQLite operations, schema, CRUD
+│   └── client/                  # Gradio frontend (~5000+ LOC)
+│       └── [see structure above]
 ├── data/                        # Data files
 │   ├── world_data.json          # Room and item definitions
 │   └── mud.db                   # SQLite database (generated)
-├── docs/                        # Design documentation
 ├── tests/                       # Test files
 ├── logs/                        # Application logs
-└── requirements.txt             # Python dependencies
+├── requirements.txt             # Python dependencies
+└── run.sh                       # Startup script
 ```
+
+---
+
+## Creating Your Own World
+
+The MUD server is **fully data-driven**. Create a custom world by editing `data/world_data.json`:
+
+### World Data Format
+
+```json
+{
+  "rooms": {
+    "room_id": {
+      "id": "room_id",
+      "name": "Room Name",
+      "description": "What the player sees when they look around.",
+      "exits": {
+        "north": "another_room_id",
+        "south": "yet_another_room"
+      },
+      "items": ["item_id_1", "item_id_2"]
+    }
+  },
+  "items": {
+    "item_id": {
+      "id": "item_id",
+      "name": "Item Name",
+      "description": "What the player sees when examining this item."
+    }
+  }
+}
+```
+
+### Example: Adding a New Room
+
+```json
+{
+  "rooms": {
+    "library": {
+      "id": "library",
+      "name": "Ancient Library",
+      "description": "Dusty books line the shelves. A reading desk sits by the window.",
+      "exits": {
+        "south": "spawn",
+        "up": "tower"
+      },
+      "items": ["dusty_book", "reading_lamp"]
+    }
+  },
+  "items": {
+    "dusty_book": {
+      "id": "dusty_book",
+      "name": "dusty book",
+      "description": "A leather-bound tome with faded gold lettering."
+    }
+  }
+}
+```
+
+**That's it.** No code changes needed. Restart the server and the new room is live.
+
+---
+
+## Available Commands
+
+Players can use these commands in the game interface:
+
+### Movement
+
+- `north` / `n` - Move north
+- `south` / `s` - Move south
+- `east` / `e` - Move east
+- `west` / `w` - Move west
+- `up` / `u` - Move upward
+- `down` / `d` - Move downward
+
+### Observation
+
+- `look` / `l` - Observe your current surroundings
+- `inventory` / `inv` / `i` - Check your inventory
+
+### Items
+
+- `pickup <item>` / `get <item>` - Pick up an item from the room
+- `drop <item>` - Drop an item from your inventory
+
+### Communication
+
+- `say <message>` - Speak to others in the same room
+- `yell <message>` - Shout to nearby areas
+- `whisper <username> <message>` - Send a private message to a specific player
+
+### Utility
+
+- `who` - See all players online
+- `help` - Show help information
+
+---
+
+## Ollama Integration
+
+The Ollama tab provides AI model management for **Admin** and **Superuser** accounts only.
+
+### Features
+
+- **Model Management** - List, pull, and run Ollama models
+- **Conversational Mode** - Natural chat interface with AI models
+- **Slash Commands** - Command-line style interaction
+- **Server Configuration** - Connect to local or remote Ollama servers
+
+### Slash Commands
+
+| Command                 | Description                      | Example                     |
+| ----------------------- | -------------------------------- | --------------------------- |
+| `/list` or `/ls`        | List all available models        | `/list`                     |
+| `/ps`                   | Show currently running models    | `/ps`                       |
+| `/pull <model>`         | Download a new model             | `/pull llama2`              |
+| `/run <model> [prompt]` | Run a model with optional prompt | `/run llama2 Write a haiku` |
+| `/show <model>`         | Show detailed model information  | `/show llama2`              |
+
+### Configuration
+
+**Default Ollama Server**: `http://localhost:11434`
+
+Change the Server URL in the Ollama tab interface to use a remote server.
 
 ---
 
@@ -353,35 +364,6 @@ black src/ tests/
 # Type checking
 mypy src/ --ignore-missing-imports
 ```
-
-**Note on Client Architecture**: The Gradio client (`src/mud_server/client/`) uses a fully modular design with clear separation of concerns. When adding new features:
-
-1. **API Layer** (`api/` directory):
-   - Add new API client classes inheriting from `BaseAPIClient`
-   - Each client handles one domain (auth, game, settings, admin, ollama)
-   - Return standardized dicts: `{"success": bool, "message": str, "data": dict|None, "error": str|None}`
-   - Write comprehensive tests with 100% coverage
-
-2. **UI Layer** (`ui/` directory):
-   - Add new validators to `validators.py` for input validation
-   - Add new state builders to `state.py` for Gradio UI updates
-   - Keep UI logic separate from API logic
-
-3. **Tab Modules** (`tabs/` directory):
-   - Create new tab files for new interface sections
-   - Import API clients and UI utilities
-   - Wire up event handlers
-
-4. **Shared Resources**:
-   - Add shared utilities to `utils.py`
-   - Update CSS in `static/styles.css`
-   - Wire everything together in `app.py`
-
-**Benefits of this structure**:
-- API clients can be tested in isolation with mocked HTTP
-- API clients work outside Gradio (CLI tools, scripts, tests)
-- Validators and state builders are pure functions, easy to test
-- Clear separation makes code easier to understand and maintain
 
 ### Running Components Separately
 
@@ -420,51 +402,92 @@ export MUD_SERVER_URL="http://localhost:8000"  # Client API endpoint
 
 ---
 
-## Implementation Roadmap
+## Extending the Server
 
-The proof-of-concept validates the architecture. Full implementation follows these phases:
+### Adding New Commands
 
-### Phase 1: Character Issuance
-- Character generator with procedural attributes
-- Quirks, failings, and useless bits system
-- Immutable character sealing
-- Name generation with weighted pools
+Commands are parsed in [src/mud_server/api/routes.py](src/mud_server/api/routes.py) in the `/api/command` endpoint.
 
-### Phase 2: Resolution Engine
-- Axis-based resolution system (6 axes)
-- Quirk modifier application
-- Deterministic outcome calculation
-- Seed-based replay capability
+**Example: Adding an "examine" command:**
 
-### Phase 3: Ledger System
-- Ledger table for immutable action records
-- Contributing factors tracking
-- Blame weight calculation
-- Deterministic truth recording
+1. **Add method to GameEngine** ([src/mud_server/core/engine.py](src/mud_server/core/engine.py)):
 
-### Phase 4: Interpretation Layer
-- Newspaper generation from ledger
-- Reputation system
-- Narrative tone and bias
-- LLM integration for soft truth
+```python
+def examine(self, username: str, target: str) -> str:
+    """Examine an item or player in detail."""
+    player = self.db.get_player(username)
+    if not player:
+        return "You don't exist."
 
-### Phase 5: Items and Rooms
-- Item quirks and maker profiles
-- Environmental quirks for rooms
-- Context-dependent interactions
-- Player-created content support
+    # Check inventory
+    if target in player["inventory"]:
+        item = self.world.get_item(target)
+        return f"You examine the {item.name}: {item.description}"
 
-### Phase 6: Creator's Toolkit
-- Gradio authoring interfaces
-- Content creation tools
-- Player-to-creator progression
-- Content sharing and publication
+    # Check room
+    room = self.world.get_room(player["current_room"])
+    if target in room.items:
+        item = self.world.get_item(target)
+        return f"You examine the {item.name}: {item.description}"
+
+    return f"You don't see '{target}' here."
+```
+
+1. **Add command handler to routes.py**:
+
+```python
+# In the command parser (around line 250):
+elif cmd in ["examine", "ex"]:
+    if not args:
+        return JSONResponse({"result": "Examine what?"})
+    target = args[0]
+    result = engine.examine(username, target)
+    return JSONResponse({"result": result})
+```
+
+1. **Restart the server**. The new command is now available.
+
+### Adding New World Features
+
+All world data comes from `data/world_data.json`. To extend world capabilities:
+
+1. **Update the JSON schema** - Add new fields to room or item definitions
+1. **Update the dataclasses** - Modify `Room` or `Item` in [src/mud_server/core/world.py](src/mud_server/core/world.py)
+1. **Update the World loader** - Modify `World.__init__()` to parse new fields
+1. **Use in game logic** - Access new fields in engine methods
+
+**Example: Adding room environmental effects:**
+
+```json
+{
+  "rooms": {
+    "dark_cave": {
+      "id": "dark_cave",
+      "name": "Dark Cave",
+      "description": "You can barely see in the darkness.",
+      "exits": {"south": "spawn"},
+      "items": [],
+      "environment": {
+        "light_level": "dark",
+        "temperature": "cold",
+        "hazards": ["slippery"]
+      }
+    }
+  }
+}
+```
+
+Then access in engine:
+
+```python
+room = self.world.get_room(player["current_room"])
+if hasattr(room, 'environment') and room.environment.get('light_level') == 'dark':
+    return "It's too dark to see anything!"
+```
 
 ---
 
 ## Testing
-
-The project uses comprehensive testing with GitHub Actions CI/CD:
 
 ### Test Suite
 
@@ -518,31 +541,25 @@ Contributions are welcome! This project is in active development.
 
 ### Areas for Contribution
 
-**Current Implementation:**
 - Bug fixes and stability improvements
 - Test coverage expansion
 - Documentation improvements
 - Performance optimizations
-- UI/UX enhancements for existing tabs
-- Additional Ollama features and integrations
-
-**Planned Features:**
-- Character issuance system implementation
-- Axis-based resolution engine
-- Ledger and newspaper systems
-- Content library development
 - UI/UX enhancements
+- Additional commands and game mechanics
+- World builder tools
+- Plugin system architecture
 
 ### Development Process
 
 1. **Fork the repository**
-2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
-3. **Make your changes** with tests
-4. **Ensure tests pass** (`pytest`)
-5. **Lint and format** (`ruff check`, `black`)
-6. **Commit your changes** (`git commit -m 'Add amazing feature'`)
-7. **Push to the branch** (`git push origin feature/amazing-feature`)
-8. **Open a Pull Request**
+1. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
+1. **Make your changes** with tests
+1. **Ensure tests pass** (`pytest`)
+1. **Lint and format** (`ruff check`, `black`)
+1. **Commit your changes** (`git commit -m 'Add amazing feature'`)
+1. **Push to the branch** (`git push origin feature/amazing-feature`)
+1. **Open a Pull Request**
 
 ### Code Style
 
@@ -550,36 +567,7 @@ Contributions are welcome! This project is in active development.
 - Use type hints (checked by mypy)
 - Write docstrings for public functions
 - Keep functions focused and testable
-- See `CLAUDE.md` for architecture guidelines
-
----
-
-## Design Philosophy
-
-### Programmatic vs. LLM Responsibilities
-
-**Programmatic systems are AUTHORITATIVE:**
-- All game logic and state
-- Character generation and attributes
-- Resolution math and axis calculations
-- Ledger truth and contributing factors
-
-**LLMs are NON-AUTHORITATIVE (narrative only):**
-- Descriptions and flavor text
-- Newspaper copy and interpretations
-- Tone and voice
-- Help text and explanations
-
-This separation prevents hallucinated mechanics, balance drift, and schema corruption.
-
-### Key Principles
-
-1. **Determinism First** - All game logic must be deterministic and replayable from seed
-2. **Ledger is Truth** - The ledger is the source of authority; everything else is interpretation
-3. **Resistance to Optimization** - Design choices that resist meta-gaming
-4. **Gradual Disclosure** - Players discover quirks through failure
-5. **Context Matters** - Same action fails differently based on character + item + room
-6. **Blame Attribution** - Always track who/what is responsible for outcomes
+- See [CLAUDE.md](CLAUDE.md) for architecture guidelines
 
 ---
 
@@ -591,27 +579,19 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 
 ## Acknowledgments
 
-- Inspired by classic MUDs and the magic of tinkering with systems
-- Built with [FastAPI](https://fastapi.tiangolo.com/), [Gradio](https://gradio.app/), and love for procedural generation
-- Design documentation generated with assistance from Claude (Anthropic)
+- Inspired by classic MUDs and the joy of procedural world-building
+- Built with [FastAPI](https://fastapi.tiangolo.com/), [Gradio](https://gradio.app/), and modern Python tooling
+- Documentation generated with assistance from Claude (Anthropic)
 
 ---
 
 ## Links
 
-- **Documentation**:
-  - [ReadTheDocs](https://pipeworks-mud-server.readthedocs.io/) (Coming Soon)
-  - [Local Docs](documentation/) - Full documentation source
-  - [Original Design Docs](docs/README.md) - Original design documentation
-- **Developer Resources**:
-  - [Claude Code Guide](CLAUDE.md) - AI-assisted development guide
-  - [API Documentation](documentation/api/index.md) - Auto-generated API reference
-  - [Testing Guide](documentation/developer/testing.md) - Testing and code quality
-- **Community**:
-  - [GitHub Repository](https://github.com/aa-parky/pipeworks_mud_server)
-  - [Issue Tracker](https://github.com/aa-parky/pipeworks_mud_server/issues)
-  - [Discussions](https://github.com/aa-parky/pipeworks_mud_server/discussions)
+- **Repository**: [GitHub](https://github.com/aa-parky/pipeworks_mud_server)
+- **Developer Guide**: [CLAUDE.md](CLAUDE.md) - AI-assisted development guide
+- **Issue Tracker**: [GitHub Issues](https://github.com/aa-parky/pipeworks_mud_server/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/aa-parky/pipeworks_mud_server/discussions)
 
 ---
 
-**The Undertaking** - *A game about learning to survive as yourself, not about becoming powerful.*
+**PipeWorks MUD Server** - *A foundation for building deterministic, procedural interactive fiction worlds.*

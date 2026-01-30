@@ -1,10 +1,10 @@
 # Architecture
 
-Technical architecture and system design of The Undertaking MUD server.
+Technical architecture and system design of PipeWorks MUD Server.
 
 ## Overview
 
-The Undertaking uses a modern three-tier architecture with:
+PipeWorks MUD Server uses a modern three-tier architecture with:
 
 - **FastAPI backend** - RESTful API server
 - **Gradio frontend** - Web-based client interface

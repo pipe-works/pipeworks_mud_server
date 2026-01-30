@@ -1,315 +1,435 @@
 # Implementation
 
-Code examples, database schema, and implementation details for The Undertaking.
+Current implementation status and extension guides for PipeWorks MUD Server.
 
 ## Overview
 
-This section provides detailed implementation guidance for:
+This section provides implementation details for:
 
-- **Axis-based resolution** engine
-- **Character issuance** system
-- **Ledger and newspaper** (two-layer truth)
-- **Item quirks** and maker profiles
-- **Database schema** for full implementation
+- **Current feature set** - What's built and working
+- **Extension patterns** - How to add new features
+- **Database design** - Schema and data structures
+- **API design** - Request/response patterns
 
-## Implementation Documents
+## Current Implementation
 
-<div class="grid cards" markdown>
+### Core Features ✅
 
--   :material-code-tags:{ .lg .middle } __Code Examples__
+The server provides a complete, working MUD foundation:
 
-    ---
+#### Authentication & Access Control
 
-    Pseudo-code and database schema for core systems
+- Session-based authentication with bcrypt password hashing
+- Role-based permissions (Player, WorldBuilder, Admin, Superuser)
+- UUID-based session management
+- Permission validation decorators
 
-    [:octicons-arrow-right-24: Code Examples](code-examples.md)
+#### World System
 
--   :material-file-code:{ .lg .middle } __Supplementary Examples__
+- JSON-driven world definition (rooms, items, exits)
+- Room navigation with directional movement
+- Item system (pickup/drop mechanics)
+- World data loading and validation
 
-    ---
+#### Communication
 
-    Content libraries, API examples, additional details
+- Room-based chat (`say` command)
+- Area-wide announcements (`yell` command)
+- Private messaging (`whisper` command)
+- Multi-player presence tracking
 
-    [:octicons-arrow-right-24: Supplementary Examples](supplementary-examples.md)
+#### Client Interface
 
--   :material-road-variant:{ .lg .middle } __Implementation Roadmap__
+- Gradio web UI with tabbed interface
+- Modular API client layer (100% test coverage)
+- Real-time command processing
+- Auto-refresh chat display
+- Safari-compatible dark mode
 
-    ---
+#### Admin Tools
 
-    Phases, priorities, and timeline for development
+- User management interface
+- Database viewer
+- Server control panel
+- Ollama AI integration (admin/superuser only)
 
-    [:octicons-arrow-right-24: Roadmap](roadmap.md)
+### Architecture Components
 
-</div>
+**Backend** (`src/mud_server/api/`):
 
-## Current Status
+- `server.py` - FastAPI app initialization, CORS configuration
+- `routes.py` - REST API endpoints
+- `models.py` - Pydantic request/response schemas
+- `auth.py` - Session management
+- `password.py` - Password hashing utilities
+- `permissions.py` - RBAC system
 
-### Implemented Features ✅
+**Game Engine** (`src/mud_server/core/`):
 
-The proof-of-concept validates the technical architecture:
+- `engine.py` - GameEngine class with game logic
+- `world.py` - World, Room, Item dataclasses
 
-- FastAPI backend with REST API
-- Gradio frontend with tabs
-- SQLite database for persistence
-- Session-based authentication
-- Role-based access control (RBAC)
-- Basic room navigation
-- Inventory management
-- Room-based chat
-- JSON world data loading
+**Database** (`src/mud_server/db/`):
 
-### Designed But Not Implemented ⏳
+- `database.py` - SQLite operations, schema, CRUD functions
 
-The following systems are fully designed with pseudo-code and schema:
+**Frontend** (`src/mud_server/client/`):
 
-- **Character Issuance** - Procedural generation with quirks, failings, useless bits
-- **Axis-Based Resolution** - Six-axis action resolution engine
-- **Ledger System** - Immutable action records with blame attribution
-- **Newspaper System** - Narrative interpretation layer
-- **Item Quirks** - Items with maker profiles and mechanical properties
-- **Environmental Quirks** - Room properties affecting resolution
-- **Reputation System** - Bias and blame tracking
-- **Creator's Toolkit** - Gradio authoring environment
+- `app.py` - Main Gradio interface
+- `api/` - API client layer (auth, game, admin, settings, ollama)
+- `tabs/` - UI tab components (login, game, settings, database, help)
+- `ui/` - Validation and state management utilities
 
-## Implementation Phases
+## Extension Patterns
 
-### Phase 1: Character Issuance
+### Adding New Commands
 
-Extend the current player system with:
+To add a new command (e.g., `examine`):
 
-- Procedural name generation
-- Attribute distribution (seven stats)
-- Quirk selection (2-4 mandatory)
-- Failing assignment
-- Useless bit assignment
-- Character sealing (immutable)
+1. **Add method to GameEngine** ([src/mud_server/core/engine.py](src/mud_server/core/engine.py)):
 
-**Database Changes**:
-- Add `characters` table
-- Link to `players` via `account_id`
-- Store quirks, failings, useless_bits as JSON or relations
+```python
+def examine(self, username: str, target: str) -> str:
+    """Examine an item or object in detail."""
+    player = self.db.get_player(username)
+    if not player:
+        return "You don't exist."
 
-### Phase 2: Resolution Engine
+    # Check inventory
+    if target in player["inventory"]:
+        item = self.world.get_item(target)
+        return f"You examine the {item.name}: {item.description}"
 
-Replace simple command parsing with:
+    # Check room
+    room = self.world.get_room(player["current_room"])
+    if target in room.items:
+        item = self.world.get_item(target)
+        return f"You examine the {item.name}: {item.description}"
 
-- Six-axis deviation calculation
-- Quirk modifier system
-- Failing application
-- Deterministic seeding
-- Outcome determination
-- Contributing factor tracking
+    return f"You don't see '{target}' here."
+```
 
-**Key Modules**:
-- `resolution/engine.py` - Main resolution logic
-- `resolution/axes.py` - Axis definitions
-- `resolution/modifiers.py` - Quirk and failing effects
+1. **Add command handler to routes** ([src/mud_server/api/routes.py](src/mud_server/api/routes.py)):
 
-### Phase 3: Ledger System
+```python
+# In the command parser function:
+elif cmd in ["examine", "ex"]:
+    if not args:
+        return JSONResponse({"result": "Examine what?"})
+    target = args[0]
+    result = engine.examine(username, target)
+    return JSONResponse({"result": result})
+```
 
-Add immutable action recording:
+1. **Restart server** - The new command is now available
 
-- Ledger table with all action details
-- Contributing factors JSON
-- Blame weight calculation
-- Replay capability from seed
-- Hard truth storage
+### Extending World Data
 
-**Database Changes**:
-- Add `ledger` table
-- Store seed, inputs, modifiers, outcome
-- Never update once written
+World data is defined in `data/world_data.json`. To add new properties:
 
-### Phase 4: Interpretation Layer
+1. **Update JSON schema**:
 
-Add narrative generation:
+```json
+{
+  "rooms": {
+    "library": {
+      "id": "library",
+      "name": "Ancient Library",
+      "description": "Dusty books line the shelves.",
+      "exits": {"south": "spawn"},
+      "items": ["book"],
+      "properties": {
+        "light_level": "dim",
+        "temperature": "cool"
+      }
+    }
+  }
+}
+```
 
-- Newspaper table with articles
-- LLM integration for narrative
-- Reputation-based interpretation
-- Context variation
-- Regeneration support
+1. **Update dataclass** ([src/mud_server/core/world.py](src/mud_server/core/world.py)):
 
-**Key Modules**:
-- `interpretation/newspaper.py` - Article generation
-- `interpretation/reputation.py` - Reputation tracking
+```python
+@dataclass
+class Room:
+    id: str
+    name: str
+    description: str
+    exits: dict[str, str]
+    items: list[str]
+    properties: dict[str, str] = field(default_factory=dict)  # Add this
+```
 
-### Phase 5: Items and Rooms
+1. **Update World loader** to parse new fields
 
-Extend world system:
+1. **Use in game logic**:
 
-- Item quirks and maker profiles
-- Environmental quirks for rooms
-- Player-created content support
-- Item discovery and learning
+```python
+room = self.world.get_room(player["current_room"])
+if room.properties.get("light_level") == "dim":
+    return "It's too dark to see clearly."
+```
 
-**Database Changes**:
-- Add `items` table with quirks
-- Add `item_quirks` table
-- Add `rooms` table with environmental_quirks
-- Store maker_profile JSON on items
+### Adding Database Tables
 
-### Phase 6: Creator's Toolkit
+To add a new table (e.g., for achievements):
 
-Extend Gradio interface:
+1. **Define schema** in [src/mud_server/db/database.py](src/mud_server/db/database.py):
 
-- Quirk designer
-- Item forge
-- Room builder
-- NPC scripter
-- Newspaper editor
-- Content publication
+```python
+def init_db():
+    # ... existing code ...
 
-**New Tabs**:
-- `tabs/quirk_studio_tab.py`
-- `tabs/item_forge_tab.py`
-- `tabs/room_builder_tab.py`
-- `tabs/content_library_tab.py`
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS achievements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            achievement_id TEXT NOT NULL,
+            earned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (username) REFERENCES players (username)
+        )
+    """)
+```
+
+1. **Add CRUD functions**:
+
+```python
+def add_achievement(username: str, achievement_id: str):
+    """Record an achievement for a player."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO achievements (username, achievement_id) VALUES (?, ?)",
+            (username, achievement_id)
+        )
+        conn.commit()
+
+def get_achievements(username: str) -> list[dict]:
+    """Get all achievements for a player."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM achievements WHERE username = ?",
+            (username,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+```
+
+1. **Add API endpoint** in routes.py
+
+1. **Add UI component** in appropriate tab
+
+### Adding API Endpoints
+
+To add a new API endpoint:
+
+1. **Define Pydantic model** ([src/mud_server/api/models.py](src/mud_server/api/models.py)):
+
+```python
+class AchievementResponse(BaseModel):
+    achievement_id: str
+    earned_at: str
+    description: str
+```
+
+1. **Add route** ([src/mud_server/api/routes.py](src/mud_server/api/routes.py)):
+
+```python
+@app.get("/api/achievements/{username}", response_model=list[AchievementResponse])
+async def get_player_achievements(username: str):
+    """Get all achievements for a player."""
+    if not validate_session(request):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    achievements = db.get_achievements(username)
+    return achievements
+```
+
+1. **Add client wrapper** ([src/mud_server/client/api/game.py](src/mud_server/client/api/game.py)):
+
+```python
+def get_achievements(self, username: str) -> dict:
+    """Fetch achievements for a player."""
+    response = self._get(f"/api/achievements/{username}")
+    return self._parse_response(response)
+```
+
+1. **Use in UI** - Call from tab component
 
 ## Key Implementation Principles
 
 ### 1. Determinism First
 
-All game logic must be:
+All game logic should be:
 
-- **Replayable from seed**: Same seed → same outcome
-- **Never call LLMs for mechanics**: LLMs only for language
-- **Traceable**: Every modifier logged
-- **Testable**: Reproducible test cases
+- **Reproducible** - Same inputs yield same outputs
+- **Testable** - Write unit tests for all mechanics
+- **Traceable** - Log important state changes
+- **Debuggable** - Use seeds for random generation where possible
 
 ### 2. Separation of Concerns
 
-**Programmatic** (authoritative):
-- Character names, attributes, quirks
-- Resolution math and axis calculations
-- Ledger truth
-- All game state
+- **Client Layer** - UI and user interaction only
+- **API Layer** - HTTP routing and validation
+- **Game Layer** - Core mechanics and state
+- **Database Layer** - Persistence only
 
-**LLM** (non-authoritative):
-- Descriptions and flavor text
-- Newspaper articles
-- NPC dialogue gloss
-- Help text
+Don't mix these layers. Keep them independent.
 
-### 3. Schema Stability
+### 3. Data-Driven Design
 
-When adding new tables:
+Store configuration in data files, not code:
 
-- Keep existing `players` for auth
-- Add `characters` separately
-- Link via `account_id`
-- Preserve backward compatibility
-- Migrate data carefully
-
-### 4. Content Libraries
-
-Store content as JSON files:
-
-- `data/quirks.json` - Character quirks
-- `data/failings.json` - Failings
-- `data/useless_bits.json` - Useless specializations
-- `data/item_quirks.json` - Item quirks
-- `data/environmental_quirks.json` - Room quirks
+- World definitions (`data/world_data.json`)
+- Future: Items, NPCs, quests as JSON
+- Environment variables for server config
+- Database for runtime state only
 
 **Benefits**:
-- Easy to edit and extend
-- No code changes for new content
-- Version controllable
-- Community contributions
+
+- Non-programmers can create content
+- Easy to test different configurations
+- Version control friendly
+- Hot-reload capability (future)
+
+### 4. API Stability
+
+When adding features:
+
+- **Don't break existing endpoints** - Add new ones instead
+- **Use semantic versioning** - Document breaking changes
+- **Return consistent structure** - Always include `success`, `message`, `data`
+- **Document with Pydantic** - Models serve as documentation
 
 ## Testing Strategy
 
 ### Unit Tests
 
-Test each component in isolation:
+Test individual functions in isolation:
 
-- Axis calculations (deterministic)
-- Quirk modifiers (correct application)
-- Ledger recording (immutable)
-- Name generation (unique, weighted)
+```python
+def test_move_command():
+    """Test player movement between rooms."""
+    engine = GameEngine(world, db)
+    result = engine.move("test_user", "north")
+    assert "moved north" in result.lower()
+```
 
 ### Integration Tests
 
-Test component interaction:
+Test component interactions:
 
-- Character issuance end-to-end
-- Action resolution with multiple modifiers
-- Ledger → Newspaper pipeline
-- Item quirk interactions
+```python
+def test_pickup_and_inventory():
+    """Test item pickup and inventory display."""
+    engine.pickup_item("test_user", "torch")
+    inventory = engine.get_inventory("test_user")
+    assert "torch" in inventory
+```
 
-### Replay Tests
+### API Tests
 
-Verify determinism:
+Test HTTP endpoints:
 
-- Same seed → same outcome
-- Ledger replayability
-- No hidden state
-- No LLM calls in resolution
+```python
+def test_command_endpoint(client):
+    """Test /api/command endpoint."""
+    response = client.post("/api/command", json={
+        "username": "test_user",
+        "command": "look"
+    })
+    assert response.status_code == 200
+    assert "result" in response.json()
+```
 
-### Content Tests
+### Determinism Tests
 
-Validate content libraries:
+For randomized features:
 
-- JSON schema validation
-- No duplicate IDs
-- Required fields present
-- Modifier ranges valid
+```python
+def test_deterministic_generation():
+    """Test that same seed produces same result."""
+    result1 = generate_with_seed(seed=42)
+    result2 = generate_with_seed(seed=42)
+    assert result1 == result2
+```
 
 ## Code Organization
 
-Suggested file structure for new features:
+Keep code organized by feature:
 
-```
+```text
 src/mud_server/
 ├── core/
-│   ├── character/
-│   │   ├── issuer.py       # Character generation
-│   │   ├── attributes.py   # Attribute distribution
-│   │   └── quirks.py       # Quirk application
-│   ├── resolution/
-│   │   ├── engine.py       # Axis-based resolution
-│   │   ├── axes.py         # Axis definitions
-│   │   └── modifiers.py    # Modifier system
-│   ├── ledger/
-│   │   ├── recorder.py     # Ledger writing
-│   │   └── replay.py       # Replay capability
-│   └── interpretation/
-│       ├── newspaper.py    # Article generation
-│       └── reputation.py   # Reputation tracking
+│   ├── engine.py         # Main game logic
+│   ├── world.py          # World data structures
+│   └── mechanics/        # Future: specific game mechanics
+│       ├── combat.py
+│       ├── crafting.py
+│       └── quests.py
 ├── db/
-│   └── schema/
-│       ├── characters.py   # Character tables
-│       ├── ledger.py       # Ledger tables
-│       └── items.py        # Item tables
-└── content/
-    ├── loader.py           # Load JSON libraries
-    └── validator.py        # Validate content
+│   ├── database.py       # Core database operations
+│   └── migrations/       # Future: schema migrations
+├── api/
+│   ├── server.py
+│   ├── routes.py
+│   ├── models.py
+│   ├── auth.py
+│   ├── password.py
+│   └── permissions.py
+└── client/
+    ├── app.py
+    ├── api/              # API client wrappers
+    ├── tabs/             # UI components
+    └── ui/               # Utilities
 ```
 
-## API Evolution
+## Database Schema
 
-When extending the API:
+### Current Tables
 
-- **Don't break existing endpoints**: Add new ones
-- **Version if necessary**: `/api/v2/...`
-- **Return both ledger and interpretation**: Let client choose
-- **Document all endpoints**: Use Pydantic models
-- **Test backward compatibility**: Ensure old clients work
+#### players
+
+- `username` (TEXT, PRIMARY KEY)
+- `password_hash` (TEXT)
+- `role` (TEXT) - Player, WorldBuilder, Admin, Superuser
+- `current_room` (TEXT) - Current location
+- `inventory` (TEXT) - JSON array of item IDs
+- `created_at` (TIMESTAMP)
+- `last_login` (TIMESTAMP)
+
+#### sessions
+
+- `session_id` (TEXT, PRIMARY KEY) - UUID
+- `username` (TEXT)
+- `role` (TEXT)
+- `created_at` (TIMESTAMP)
+- `last_activity` (TIMESTAMP)
+
+#### chat_messages
+
+- `id` (INTEGER, PRIMARY KEY)
+- `username` (TEXT)
+- `message` (TEXT)
+- `room_id` (TEXT)
+- `message_type` (TEXT) - say, yell, whisper
+- `target_username` (TEXT) - for whispers
+- `timestamp` (TIMESTAMP)
 
 ## Migration Strategy
 
-From proof-of-concept to full implementation:
+When adding new features:
 
-1. **Keep current code working**: Don't break existing features
-2. **Add new systems alongside**: Parallel development
-3. **Feature flags**: Toggle new features on/off
-4. **Gradual migration**: Move users incrementally
-5. **Preserve data**: Don't lose player progress
+1. **Keep existing features working** - Don't break current functionality
+2. **Add alongside, not replace** - Preserve backward compatibility
+3. **Feature flags** - Toggle new features for testing
+4. **Gradual rollout** - Deploy to subset of users first
+5. **Preserve data** - Never lose player progress
 
 ## Further Reading
 
-- [Code Examples](code-examples.md) - Detailed pseudo-code and schema
-- [Supplementary Examples](supplementary-examples.md) - Content libraries and API examples
-- [Roadmap](roadmap.md) - Timeline and priorities
-- [Architecture Overview](../architecture/overview.md) - System design
+- [Architecture Overview](../architecture/overview.md) - System design details
+- [Database Schema](../architecture/database.md) - Complete schema documentation
+- [API Design](../architecture/api-design.md) - API endpoint reference
 - [Developer Guide](../developer/contributing.md) - How to contribute
+- [Testing Guide](../developer/testing.md) - Testing best practices

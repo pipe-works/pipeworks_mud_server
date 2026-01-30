@@ -1,7 +1,7 @@
-# MkDocs configuration for The Undertaking
-site_name: The Undertaking
-site_description: A procedural, ledger-driven multiplayer interactive fiction system
-site_author: The Undertaking Team
+# MkDocs configuration for PipeWorks MUD Server
+site_name: PipeWorks MUD Server
+site_description: A deterministic, procedural multiplayer text game engine for building accountable interactive fiction worlds
+site_author: PipeWorks Team
 site_url: https://pipeworks-mud-server.readthedocs.io/
 
 # Documentation directory
@@ -9,11 +9,11 @@ docs_dir: documentation
 
 # Repository
 repo_name: pipeworks_mud_server
-repo_url: https://github.com/yourusername/pipeworks_mud_server
+repo_url: https://github.com/aa-parky/pipeworks_mud_server
 edit_uri: edit/main/documentation/
 
 # Copyright
-copyright: Copyright &copy; 2025 The Undertaking Team
+copyright: Copyright &copy; 2025 PipeWorks Team
 
 # Configuration
 theme:
@@ -151,7 +151,7 @@ extra:
     provider: mike
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/yourusername/pipeworks_mud_server
+      link: https://github.com/aa-parky/pipeworks_mud_server
   generator: false
 
 # Page tree
@@ -162,19 +162,12 @@ nav:
     - Quick Start: getting-started/quick-start.md
     - Installation: getting-started/installation.md
     - First Steps: getting-started/first-steps.md
-  - Design Vision:
-    - design/index.md
-    - Core Articulation: design/articulation.md
-    - Platform Vision: design/platform-vision.md
-    - Design Pillars: design/design-pillars.md
   - Architecture:
     - architecture/index.md
     - Overview: architecture/overview.md
     - Proof of Concept: architecture/proof-of-concept.md
   - Implementation:
     - implementation/index.md
-    - Code Examples: implementation/code-examples.md
-    - Supplementary Examples: implementation/supplementary-examples.md
   - Developer Guide:
     - developer/testing.md
   - API Reference:

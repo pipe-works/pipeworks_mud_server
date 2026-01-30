@@ -1,6 +1,6 @@
 # Getting Started
 
-Welcome to The Undertaking! This section will help you get up and running quickly.
+Welcome to PipeWorks MUD Server! This section will help you get up and running quickly.
 
 ## Prerequisites
 
@@ -65,7 +65,7 @@ If you encounter any issues during setup:
 
 Once you've completed the getting started guide:
 
-- Read the [Design Vision](../design/index.md) to understand the philosophy
+- Read the [Architecture](../architecture/index.md) to understand the system design
 - Explore the [User Guide](../guide/index.md) to learn gameplay mechanics
 - Check out the [Developer Guide](../developer/index.md) if you want to contribute
 

@@ -1,6 +1,6 @@
 # Installation Guide
 
-Detailed instructions for installing and configuring The Undertaking.
+Detailed instructions for installing and configuring PipeWorks MUD Server.
 
 ## System Requirements
 

@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get The Undertaking running in 30 seconds.
+Get PipeWorks MUD Server running in 30 seconds.
 
 ## Prerequisites
 
@@ -209,6 +209,6 @@ Now that you're up and running:
 - Read the [User Guide](../guide/playing.md) to learn gameplay mechanics
 - Explore the [Commands Reference](../guide/commands.md) for all available commands
 - Check out the [Architecture Overview](../architecture/overview.md) to understand the system
-- Review the [Design Vision](../design/articulation.md) to understand the philosophy
+- Review the [Implementation Guide](../implementation/index.md) to extend the server
 
-Enjoy The Undertaking!
+Enjoy PipeWorks MUD Server!

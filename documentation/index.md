@@ -1,41 +1,46 @@
-# The Undertaking
+# PipeWorks MUD Server
 
-Welcome to **The Undertaking** documentation! This is a procedural, ledger-driven multiplayer interactive fiction system where accountability matters more than optimization.
+Welcome to **PipeWorks MUD Server** documentation! This is a deterministic, procedural multiplayer text game engine for building accountable interactive fiction worlds.
 
-## What is The Undertaking?
+## What is PipeWorks MUD Server?
 
-The Undertaking is a unique MUD (Multi-User Dungeon) that challenges conventional game design through five core principles:
+PipeWorks MUD Server is a modern, extensible MUD (Multi-User Dungeon) server framework built with Python, FastAPI, and Gradio. It provides a solid foundation for creating text-based multiplayer games with:
 
-### Design Pillars
+### Core Capabilities
 
-1. **Characters are issued, not built** - Players receive complete, immutable goblins with uneven attributes, mandatory quirks, persistent failings, and inherited reputations. No optimization, no respeccing.
+1. **Data-Driven World Design** - Define worlds entirely in JSON. Create rooms, items, and connections without writing code.
 
-2. **Failure is recorded as data** - Actions resolve through six axes (Timing, Precision, Stability, Visibility, Interpretability, Recovery Cost) and are recorded in an immutable ledger.
+2. **Modern Web Interface** - Beautiful Gradio client with clean UX, mobile-responsive design, and dark mode support.
 
-3. **Ledgers are truth, newspapers are stories** - The deterministic ledger (hard truth) is separated from narrative interpretation (soft truth). The same failure can be told different ways.
+3. **RESTful Architecture** - FastAPI backend with proper separation of concerns, making it easy to build custom clients.
 
-4. **Optimization is resisted** - No "best builds" or meta-gaming. Success comes from understanding your specific goblin's flaws and working within them.
+4. **Deterministic Game Logic** - All game mechanics are programmatic and reproducible - perfect for testing and debugging.
 
-5. **Players become creators** - Journey from functionary (survive) → tinkerer (understand) → creator (build). Eventually use the same tools as developers to create content.
+5. **Extensible Command System** - Add new commands by implementing simple handler functions. No complex plugin system needed.
 
-## Current Status
+## Current Implementation Status
 
-This project is currently a **proof-of-concept** MUD server that validates the technical architecture. The following features are implemented:
+This project provides a **working proof-of-concept** MUD server with these features:
 
-- ✅ FastAPI backend with authentication and session management
-- ✅ Gradio web interface for client interaction
+- ✅ FastAPI REST API backend (port 8000)
+- ✅ Gradio web interface (port 7860)
 - ✅ SQLite database for persistence
-- ✅ Basic room navigation and chat system
+- ✅ Authentication and session management
 - ✅ Role-based access control (Player/WorldBuilder/Admin/Superuser)
+- ✅ Room navigation with directional movement
+- ✅ Inventory system (pickup/drop items)
+- ✅ Multi-channel chat (say/yell/whisper)
 - ✅ JSON-based world data structure
+- ✅ Ollama AI integration (admin/superuser only)
+- ✅ 100% test coverage on core client modules
 
-Many features from the full design vision are planned but not yet implemented. See the [Implementation Roadmap](implementation/roadmap.md) for details.
+See the [Implementation Roadmap](implementation/roadmap.md) for planned features.
 
 ## Quick Links
 
 <div class="grid cards" markdown>
 
--   :material-rocket-launch:{ .lg .middle } __Getting Started__
+-   :material-rocket-launch:{ .lg .middle } **Getting Started**
 
     ---
 
@@ -43,23 +48,23 @@ Many features from the full design vision are planned but not yet implemented. S
 
     [:octicons-arrow-right-24: Quick Start](getting-started/quick-start.md)
 
--   :material-brain:{ .lg .middle } __Design Vision__
+-   :material-cog:{ .lg .middle } **Architecture**
 
     ---
 
-    Understand the philosophy and principles
-
-    [:octicons-arrow-right-24: Core Articulation](design/articulation.md)
-
--   :material-floor-plan:{ .lg .middle } __Architecture__
-
-    ---
-
-    Explore the technical architecture
+    Understand the technical design
 
     [:octicons-arrow-right-24: System Overview](architecture/overview.md)
 
--   :material-code-braces:{ .lg .middle } __API Reference__
+-   :material-gamepad-variant:{ .lg .middle } **User Guide**
+
+    ---
+
+    Learn how to play and build worlds
+
+    [:octicons-arrow-right-24: Playing Guide](guide/playing.md)
+
+-   :material-code-braces:{ .lg .middle } **API Reference**
 
     ---
 
@@ -73,55 +78,135 @@ Many features from the full design vision are planned but not yet implemented. S
 
 ### For Players
 
-- **Unique Characters**: Each goblin is procedurally generated with distinctive quirks, failings, and useless specializations
-- **Meaningful Failure**: Failures aren't just binary outcomes - they have context, causes, and consequences
-- **No Optimization**: Resist the urge to min-max. Your goblin is what it is.
-- **Emergent Stories**: The newspaper system interprets your actions, creating narratives from mechanical outcomes
+- **Intuitive Commands**: Natural language-style commands (north/n, look/l, inventory/inv)
+- **Multiplayer Chat**: Room-based communication with whisper and yell support
+- **Web-Based Interface**: No client installation needed - just open your browser
+- **Real-Time Updates**: See other players' actions as they happen
 
 ### For Developers
 
-- **Clean Architecture**: Three-tier design with FastAPI backend, Gradio frontend, and SQLite persistence
-- **Deterministic Resolution**: All game logic is replayable from seed - no LLM hallucinations
-- **Extensible Design**: Modular systems for characters, items, rooms, and actions
-- **Comprehensive Tests**: 80%+ code coverage with pytest
-- **Modern Python**: Python 3.12+, type hints, src-layout structure
+- **Clean Architecture**: Three-tier design (Client → API → Engine/Database)
+- **Modern Python**: Python 3.12+, type hints, comprehensive tests
+- **Modular Client**: API clients work outside Gradio (CLI tools, tests, scripts)
+- **Extensible Design**: Add new commands, mechanics, or features easily
+- **Comprehensive Tests**: High code coverage with pytest
+- **CI/CD Ready**: GitHub Actions, Codecov integration, automated testing
 
 ### For World Builders
 
-- **Creator's Toolkit**: Gradio-based authoring environment (coming soon)
-- **Content Libraries**: JSON-based quirks, failings, items, and environmental properties
-- **Player-Created Content**: Players can become creators, designing new content for the world
-- **Deterministic Systems**: No silent failures - all mechanics are trackable and debuggable
+- **JSON World Definition**: Create entire worlds with simple JSON files
+- **No Code Required**: Build rooms, items, and connections without programming
+- **Hot Reload**: Update world data without restarting the server (coming soon)
+- **Visual Tools**: World editor interface planned for future releases
+- **Flexible Structure**: Support for any theme (fantasy, sci-fi, historical, etc.)
 
 ## Technology Stack
 
 - **Backend**: FastAPI (REST API), Python 3.12+
-- **Frontend**: Gradio (web interface)
-- **Database**: SQLite with aiosqlite
+- **Frontend**: Gradio 5.0+ (web interface)
+- **Database**: SQLite with direct access (aiosqlite support planned)
 - **Authentication**: Bcrypt password hashing, session-based auth
 - **Testing**: pytest, pytest-asyncio, pytest-cov
 - **Code Quality**: ruff (linting), black (formatting), mypy (type checking)
+
+## Design Philosophy
+
+### Programmatic Authority
+
+All game logic and state is deterministic and code-driven. Game mechanics are reproducible, testable, and never left to LLM interpretation. This ensures:
+
+- **Predictable Behavior**: Same inputs always produce same outputs
+- **Debuggable Systems**: You can trace exactly why something happened
+- **No Hallucinations**: Game state never drifts due to AI uncertainty
+- **Replayable Actions**: Seed-based determinism for testing and debugging
+
+### Clean Separation of Concerns
+
+- **Client Layer** (Gradio): UI and user interaction
+- **Server Layer** (FastAPI): HTTP API and routing
+- **Game Layer** (Engine + World): Core mechanics and state
+- **Persistence Layer** (SQLite): Data storage
+
+This separation makes it easy to:
+
+- Build alternative clients (CLI, mobile app, etc.)
+- Test components in isolation
+- Extend one layer without affecting others
+- Deploy across multiple servers
+
+### Data-Driven World Design
+
+World content lives in JSON files, not in code. This means:
+
+- **Rapid Prototyping**: Test new rooms and items in seconds
+- **Non-Programmer Friendly**: World builders don't need to code
+- **Version Control**: Track world changes in git
+- **Easy Sharing**: Export and import world data between servers
 
 ## Documentation Structure
 
 This documentation is organized into several sections:
 
 - **[Getting Started](getting-started/index.md)**: Installation, setup, and first steps
-- **[Design Vision](design/index.md)**: Philosophy, principles, and design goals
 - **[Architecture](architecture/index.md)**: Technical architecture and system design
 - **[Implementation](implementation/index.md)**: Code examples and implementation details
 - **[User Guide](guide/index.md)**: How to play and use the system
 - **[Developer Guide](developer/index.md)**: Contributing, testing, and development workflow
 - **[API Reference](api/index.md)**: Complete API documentation (auto-generated)
 
+## Example Use Cases
+
+### Fantasy MUD
+
+```json
+{
+  "rooms": {
+    "tavern": {
+      "name": "The Prancing Pony",
+      "description": "A cozy tavern with a roaring fireplace.",
+      "exits": {"north": "market_square"}
+    }
+  }
+}
+```
+
+### Sci-Fi Adventure
+
+```json
+{
+  "rooms": {
+    "bridge": {
+      "name": "Starship Bridge",
+      "description": "The command center of the USS Discovery.",
+      "exits": {"down": "engineering"}
+    }
+  }
+}
+```
+
+### Educational Game
+
+```json
+{
+  "rooms": {
+    "history_hall": {
+      "name": "Ancient Rome Exhibit",
+      "description": "Artifacts from the Roman Empire.",
+      "exits": {"east": "egypt_exhibit"}
+    }
+  }
+}
+```
+
 ## Get Involved
 
 This is an open-source project. Contributions are welcome!
 
-- **GitHub**: [pipeworks_mud_server](https://github.com/yourusername/pipeworks_mud_server)
+- **GitHub**: [pipeworks_mud_server](https://github.com/aa-parky/pipeworks_mud_server)
 - **Issues**: Report bugs or request features
 - **Discussions**: Share ideas and ask questions
+- **Contributing**: See the [Developer Guide](developer/contributing.md)
 
 ## License
 
-This project is open-source. See the [License](about/license.md) page for details.
+This project is licensed under the GNU General Public License v3.0. See the [License](about/license.md) page for details.

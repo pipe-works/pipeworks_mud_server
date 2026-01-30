@@ -1,6 +1,6 @@
 # First Steps
 
-Your first actions in The Undertaking.
+Your first actions in PipeWorks MUD Server.
 
 ## Logging In
 
@@ -282,7 +282,7 @@ Want to test multi-player features by yourself?
 Now that you know the basics:
 
 - **Learn More Commands**: [Commands Reference](../guide/commands.md)
-- **Understand the Design**: [Design Vision](../design/articulation.md)
+- **Understand the Architecture**: [Architecture Overview](../architecture/overview.md)
 - **Explore the World**: Visit all rooms and collect items
 - **Meet Players**: Chat with others and explore together
 
@@ -300,4 +300,4 @@ See the [Implementation Roadmap](../implementation/roadmap.md) for planned featu
 
 ---
 
-Enjoy exploring The Undertaking!
+Enjoy exploring PipeWorks MUD Server!
