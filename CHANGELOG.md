@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.6](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.5...mud_server-v0.2.6) (2026-01-31)
+
+
+### Bug Fixes
+
+* **security:** add timing attack prevention and XSS sanitization ([#29](https://github.com/pipe-works/pipeworks_mud_server/issues/29)) ([b52b91a](https://github.com/pipe-works/pipeworks_mud_server/commit/b52b91aba519e42918bc93c3dc9670509c57095e))
+
 ## [0.2.5](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.4...mud_server-v0.2.5) (2026-01-31)
 
 
