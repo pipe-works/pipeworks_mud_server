@@ -237,13 +237,15 @@ def register_routes(app: FastAPI, engine: GameEngine):
         # COMMAND ROUTING
         # Route to appropriate engine method based on command verb
         # ====================================================================
-        if cmd in ["n", "north", "s", "south", "e", "east", "w", "west"]:
+        if cmd in ["n", "north", "s", "south", "e", "east", "w", "west", "u", "up", "d", "down"]:
             # Map shorthand to full direction
             direction_map = {
                 "n": "north",
                 "s": "south",
                 "e": "east",
                 "w": "west",
+                "u": "up",
+                "d": "down",
             }
             direction = direction_map.get(cmd, cmd)
             success, message = engine.move(username, direction)

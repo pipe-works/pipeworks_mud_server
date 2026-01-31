@@ -1,0 +1,104 @@
+{
+  "rooms": {
+    "spawn": {
+      "id": "spawn",
+      "name": "Spawn Zone",
+      "description": "You stand in a peaceful plaza surrounded by shimmering light. This is the beginning of your journey.",
+      "exits": {
+        "north": "forest",
+        "south": "desert",
+        "east": "mountain",
+        "west": "lake"
+      },
+      "items": ["torch", "rope"]
+    },
+    "forest": {
+      "id": "forest",
+      "name": "Enchanted Forest",
+      "description": "Tall trees with glowing leaves surround you. The air smells of pine and magic.",
+      "exits": {
+        "south": "spawn"
+      },
+      "items": ["mushroom", "berries"]
+    },
+    "desert": {
+      "id": "desert",
+      "name": "Golden Desert",
+      "description": "Sand dunes stretch endlessly under a blazing sun. The heat is intense.",
+      "exits": {
+        "north": "spawn"
+      },
+      "items": ["sand_bottle", "cactus"]
+    },
+    "mountain": {
+      "id": "mountain",
+      "name": "Snow-Capped Mountain",
+      "description": "Jagged peaks pierce the clouds above. A cold wind whips around you.",
+      "exits": {
+        "west": "spawn"
+      },
+      "items": ["ice_crystal", "stone"]
+    },
+    "lake": {
+      "id": "lake",
+      "name": "Crystalline Lake",
+      "description": "Clear blue waters reflect the sky. Fish leap gracefully in the distance.",
+      "exits": {
+        "east": "spawn"
+      },
+      "items": ["water_lily", "pearl"]
+    }
+  },
+  "items": {
+    "torch": {
+      "id": "torch",
+      "name": "Torch",
+      "description": "A flickering torch that provides light."
+    },
+    "rope": {
+      "id": "rope",
+      "name": "Rope",
+      "description": "A coil of sturdy rope."
+    },
+    "mushroom": {
+      "id": "mushroom",
+      "name": "Glowing Mushroom",
+      "description": "A mushroom that glows with an eerie blue light."
+    },
+    "berries": {
+      "id": "berries",
+      "name": "Forest Berries",
+      "description": "A handful of delicious-looking berries."
+    },
+    "sand_bottle": {
+      "id": "sand_bottle",
+      "name": "Sand Bottle",
+      "description": "A glass bottle filled with golden sand."
+    },
+    "cactus": {
+      "id": "cactus",
+      "name": "Cactus Flower",
+      "description": "A beautiful flower from a desert cactus."
+    },
+    "ice_crystal": {
+      "id": "ice_crystal",
+      "name": "Ice Crystal",
+      "description": "A perfectly formed crystal of ice."
+    },
+    "stone": {
+      "id": "stone",
+      "name": "Mountain Stone",
+      "description": "A smooth stone from the mountain peak."
+    },
+    "water_lily": {
+      "id": "water_lily",
+      "name": "Water Lily",
+      "description": "A delicate white water lily."
+    },
+    "pearl": {
+      "id": "pearl",
+      "name": "Pearl",
+      "description": "A lustrous pearl from the lake depths."
+    }
+  }
+}

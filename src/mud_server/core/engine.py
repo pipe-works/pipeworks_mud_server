@@ -836,7 +836,14 @@ class GameEngine:
             >>> engine._opposite_direction("east")
             "west"
             >>> engine._opposite_direction("up")
-            "somewhere"
+            "down"
         """
-        opposites = {"north": "south", "south": "north", "east": "west", "west": "east"}
+        opposites = {
+            "north": "south",
+            "south": "north",
+            "east": "west",
+            "west": "east",
+            "up": "down",
+            "down": "up",
+        }
         return opposites.get(direction.lower(), "somewhere")
