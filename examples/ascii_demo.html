@@ -176,6 +176,7 @@ RUNNING:
             border: 2px solid #00ff00;
             padding: 20px;
             margin-bottom: 20px;
+            text-align: center;  /* Center the map within the container */
         }
 
         .map-title {
@@ -188,7 +189,10 @@ RUNNING:
             font-size: 14px;
             line-height: 1.4;
             white-space: pre;  /* Preserve ASCII art spacing */
-            text-align: center;
+            font-family: 'Courier New', monospace;
+            text-align: left;  /* Left align to preserve spacing */
+            display: inline-block;  /* Shrink to content width */
+            margin: 0 auto;  /* Center the block itself */
         }
 
         /* Room highlight classes - applied dynamically via JavaScript */
@@ -333,71 +337,44 @@ RUNNING:
             border: 1px solid #00ff00;
             color: #00ff00;
         }
-
-        /* =====================================================================
-           SERVER CONFIG
-           =====================================================================
-           Allows changing the API server URL for different deployments.
-           ===================================================================== */
-
-        .server-config {
-            margin-bottom: 15px;
-            padding: 10px;
-            background: #0a0a15;
-            border: 1px solid #333;
-        }
-
-        .server-config label {
-            color: #888;
-            font-size: 12px;
-        }
-
-        .server-config input {
-            font-size: 14px;
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>PipeWorks MUD</h1>
-        <p class="subtitle">ASCII Movement Demo</p>
+        <div class="subtitle">ASCII Movement Demo</div>
 
-        <!-- Message area for success/error feedback -->
+        <!-- Message display (hidden by default, shown on login/logout/errors) -->
         <div id="message"></div>
 
         <!--
-        ========================================================================
+        ====================================================================
         LOGIN SECTION
-        ========================================================================
-        Displayed initially. Hidden after successful authentication.
-        Includes server URL config for connecting to different servers.
+        ====================================================================
+        Shown on page load. Hidden after successful authentication.
+        Contains server URL, username, and password inputs.
         -->
         <div id="login-section">
-            <!-- Server URL configuration -->
-            <div class="server-config">
+            <div class="form-row">
                 <label for="server-url">Server URL:</label>
-                <input type="text" id="server-url" value="http://localhost:8000" placeholder="http://localhost:8000">
+                <input type="text" id="server-url" value="http://localhost:8000">
             </div>
-
-            <!-- Login credentials -->
             <div class="form-row">
                 <label for="username">Username:</label>
-                <input type="text" id="username" placeholder="Enter username" autofocus>
+                <input type="text" id="username" placeholder="Enter username">
             </div>
-
             <div class="form-row">
                 <label for="password">Password:</label>
                 <input type="password" id="password" placeholder="Enter password">
             </div>
-
             <button id="login-btn" onclick="login()">Connect</button>
         </div>
 
         <!--
-        ========================================================================
+        ====================================================================
         GAME SECTION
-        ========================================================================
-        Main gameplay area. Hidden until login succeeds.
+        ====================================================================
+        Hidden until login succeeds. Revealed via .visible class.
         Contains status bar, ASCII map, room description, and controls.
         -->
         <div id="game-section">
@@ -481,6 +458,64 @@ RUNNING:
             lake: {
                 name: "Crystalline Lake",
                 description: "Clear blue waters reflect the sky. Fish leap gracefully in the distance."
+            }
+        };
+
+        // =====================================================================
+        // ASCII MAP COMPONENTS (Template Literals)
+        // =====================================================================
+        // Pre-defined box templates for each room ensure consistent rendering.
+        // Each box is exactly 12 characters wide (including borders).
+        // Room names are centered within 10-character interior space.
+        //
+        // Box structure:
+        //   +----------+  <- Top border (1 + 10 dashes + 1 = 12 chars)
+        //   |  NAME    |  <- Content line (1 + 10 chars + 1 = 12 chars)
+        //   +----------+  <- Bottom border (1 + 10 dashes + 1 = 12 chars)
+        //
+        // Centering formula for room names:
+        //   Given name length N and interior width 10:
+        //   Left padding = floor((10 - N) / 2)
+        //   Right padding = ceil((10 - N) / 2)
+
+        /**
+         * ASCII box templates for each room.
+         * All boxes are uniform 12-character width with centered room names.
+         */
+        const ASCII_BOXES = {
+            // FOREST: 6 chars -> (10-6)/2 = 2 spaces each side
+            forest: {
+                top:    '+----------+',
+                middle: '|  FOREST  |',
+                bottom: '+----------+'
+            },
+
+            // LAKE: 4 chars -> (10-4)/2 = 3 spaces each side
+            lake: {
+                top:    '+----------+',
+                middle: '|   LAKE   |',
+                bottom: '+----------+'
+            },
+
+            // SPAWN: 5 chars -> left=2, right=3 spaces
+            spawn: {
+                top:    '+----------+',
+                middle: '|  SPAWN   |',
+                bottom: '+----------+'
+            },
+
+            // MOUNTAIN: 8 chars -> (10-8)/2 = 1 space each side
+            mountain: {
+                top:    '+----------+',
+                middle: '| MOUNTAIN |',
+                bottom: '+----------+'
+            },
+
+            // DESERT: 6 chars -> (10-6)/2 = 2 spaces each side
+            desert: {
+                top:    '+----------+',
+                middle: '|  DESERT  |',
+                bottom: '+----------+'
             }
         };
 
@@ -729,46 +764,78 @@ RUNNING:
         }
 
         /**
+         * Helper function to create a colored span for room boxes.
+         *
+         * @param {string} roomId - The room identifier (e.g., 'forest', 'spawn')
+         * @param {string} content - The text content to wrap
+         * @returns {string} HTML string with span wrapper and CSS class
+         */
+        function r(roomId, content) {
+            const cls = (currentRoom === roomId) ? 'room-current' : 'room-other';
+            return `<span class="${cls}">${content}</span>`;
+        }
+
+        /**
+         * Helper function to create a colored span for path connectors.
+         *
+         * @param {string} content - The path character(s) to wrap
+         * @returns {string} HTML string with span wrapper and 'room-path' class
+         */
+        function p(content) {
+            return `<span class="room-path">${content}</span>`;
+        }
+
+        /**
          * Render the ASCII map with the current room highlighted.
          *
          * Map layout (matches world_data.json):
          *
-         *            [FOREST]
-         *               |
-         *   [LAKE] -- [SPAWN] -- [MOUNTAIN]
-         *               |
-         *           [DESERT]
+         *              [FOREST]
+         *                 |
+         *   [LAKE] ---- [SPAWN] ---- [MOUNTAIN]
+         *                 |
+         *              [DESERT]
          *
+         * All rooms are complete, uniform 12-character boxes.
          * The current room is highlighted in yellow (.room-current).
          * Other rooms are green (.room-other).
          * Paths between rooms are dim gray (.room-path).
+         *
+         * LAYOUT CALCULATIONS:
+         * - Each box: 12 chars wide
+         * - Space between boxes: 6 chars
+         * - Connector dashes: 6 chars (------)
+         * - Forest/Desert aligned with SPAWN at position 18 (18 leading spaces)
+         * - Vertical pipes at center of SPAWN at position 24 (24 leading spaces + 1 pipe)
+         * - Lake starts at position 0
+         * - Spawn starts at position 18 (12 + 6)
+         * - Mountain starts at position 36 (12 + 6 + 12 + 6)
          */
         function renderMap() {
-            /**
-             * Helper to get the CSS class for a room.
-             * @param {string} id - Room ID to check
-             * @returns {string} CSS class name
-             */
-            const isRoom = (id) => currentRoom === id ? 'room-current' : 'room-other';
+            const f = ASCII_BOXES.forest;
+            const l = ASCII_BOXES.lake;
+            const s = ASCII_BOXES.spawn;
+            const m = ASCII_BOXES.mountain;
+            const d = ASCII_BOXES.desert;
 
-            // Build the ASCII map with span elements for coloring
-            // Each room box and path segment gets its own span
-            const map = `
-                      <span class="${isRoom('forest')}">+----------+</span>
-                      <span class="${isRoom('forest')}">|  FOREST  |</span>
-                      <span class="${isRoom('forest')}">+----+-----+</span>
-                           <span class="room-path">|</span>
-                           <span class="room-path">|</span>
-<span class="${isRoom('lake')}">+--------+</span>    <span class="room-path">|</span>    <span class="${isRoom('mountain')}">+----------+</span>
-<span class="${isRoom('lake')}">|  LAKE  |</span><span class="room-path">----</span><span class="${isRoom('spawn')}">+--------+</span><span class="room-path">----</span><span class="${isRoom('mountain')}">| MOUNTAIN |</span>
-<span class="${isRoom('lake')}">+--------+</span>    <span class="${isRoom('spawn')}">| SPAWN  |</span>    <span class="${isRoom('mountain')}">+----------+</span>
-                 <span class="${isRoom('spawn')}">+---+----+</span>
-                     <span class="room-path">|</span>
-                     <span class="room-path">|</span>
-                 <span class="${isRoom('desert')}">+---+----+</span>
-                 <span class="${isRoom('desert')}">| DESERT |</span>
-                 <span class="${isRoom('desert')}">+--------+</span>
-`;
+            // Build map as a single string with newlines
+            // Using r() for rooms and p() for paths
+            // NO spaces between function calls to prevent gaps
+
+            const map =
+`                  ${r('forest',f.top)}
+                  ${r('forest',f.middle)}
+                  ${r('forest',f.bottom)}
+                        ${p('|')}
+                        ${p('|')}
+${r('lake',l.top)}      ${r('spawn',s.top)}      ${r('mountain',m.top)}
+${r('lake',l.middle)}${p('------')}${r('spawn',s.middle)}${p('------')}${r('mountain',m.middle)}
+${r('lake',l.bottom)}      ${r('spawn',s.bottom)}      ${r('mountain',m.bottom)}
+                        ${p('|')}
+                        ${p('|')}
+                  ${r('desert',d.top)}
+                  ${r('desert',d.middle)}
+                  ${r('desert',d.bottom)}`;
 
             document.getElementById('ascii-map').innerHTML = map;
         }
