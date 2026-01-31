@@ -130,7 +130,7 @@ class CommandRequest(BaseModel):
     Attributes:
         session_id: Active session ID for authentication
         command: Game command to execute, examples:
-            - Movement: "north", "n", "south", "s", "east", "e", "west", "w"
+            - Movement: "north", "n", "south", "s", "east", "e", "west", "w", "up", "u", "down", "d"
             - Actions: "look", "inventory", "get <item>", "drop <item>"
             - Chat: "say <message>", "yell <message>", "whisper <player> <message>"
             - Info: "who", "help"
