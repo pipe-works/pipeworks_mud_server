@@ -206,21 +206,33 @@ All API requests are validated using Pydantic models:
 CORS Configuration
 ~~~~~~~~~~~~~~~~~~
 
-For development, CORS is configured to allow all origins:
+CORS origins are configured via ``config/server.ini`` or environment variables:
 
-.. code-block:: python
+**Config file** (config/server.ini):
 
-   app.add_middleware(
-       CORSMiddleware,
-       allow_origins=["*"],
-       allow_credentials=True,
-       allow_methods=["*"],
-       allow_headers=["*"],
-   )
+.. code-block:: ini
+
+   [security]
+   # Production mode disables /docs endpoints
+   production = true
+
+   # Comma-separated list of allowed origins
+   cors_origins = https://yourdomain.com, https://api.yourdomain.com
+
+   # Allow credentials (cookies, auth headers)
+   cors_allow_credentials = true
+
+**Environment variable** (overrides config file):
+
+.. code-block:: bash
+
+   export MUD_CORS_ORIGINS=https://yourdomain.com
+   export MUD_PRODUCTION=true
 
 .. warning::
 
-   In production, restrict ``allow_origins`` to your specific frontend domains.
+   Never use wildcard origins (``*``) in production with ``allow_credentials=true``.
+   See ``config/server.example.ini`` for all security configuration options.
 
 Error Handling
 ~~~~~~~~~~~~~~

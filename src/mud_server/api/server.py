@@ -11,13 +11,17 @@ The server runs on port 8000 by default and accepts connections from any host
 to allow network access from other machines. If the default port is in use,
 the server will automatically find an available port in the 8000-8099 range.
 
-Port Configuration:
-    --port CLI argument: Specify exact port (no auto-discovery)
-    MUD_PORT env var: Specify preferred port (will auto-discover if in use)
-    Default: 8000 (will auto-discover if in use)
+Configuration:
+    Server settings are loaded from config/server.ini with environment variable
+    overrides. See mud_server.config for details.
+
+    Key environment variables:
+        MUD_HOST: Network interface to bind to
+        MUD_PORT: Port number
+        MUD_PRODUCTION: Enable production mode
+        MUD_CORS_ORIGINS: Comma-separated allowed origins
 """
 
-import os
 import socket
 from contextlib import asynccontextmanager
 
@@ -26,6 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from mud_server.api.auth import clear_all_sessions
 from mud_server.api.routes import register_routes
+from mud_server.config import config, print_config_summary
 from mud_server.core.engine import GameEngine
 
 # ============================================================================
@@ -59,24 +64,34 @@ async def lifespan(app: FastAPI):
 # APPLICATION INITIALIZATION
 # ============================================================================
 
+# Determine docs URL based on configuration
+# In production mode with docs_enabled=auto, docs are disabled for security
+docs_url = "/docs" if config.docs_should_be_enabled else None
+redoc_url = "/redoc" if config.docs_should_be_enabled else None
+
 # Initialize the FastAPI application with metadata and lifespan handler
 # This creates the main app instance that will handle all HTTP requests
-app = FastAPI(title="MUD Server", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="MUD Server",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url=docs_url,
+    redoc_url=redoc_url,
+)
 
 # ============================================================================
 # MIDDLEWARE CONFIGURATION
 # ============================================================================
 
 # Add CORS (Cross-Origin Resource Sharing) middleware
-# This allows the Gradio frontend (running on a different port) to make
-# requests to this API server. In production, you should restrict
-# allow_origins to specific domains instead of using "*" (all origins).
+# Origins are configured in config/server.ini or via MUD_CORS_ORIGINS env var
+# SECURITY: Never use "*" with allow_credentials=True in production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow requests from any origin (frontend can be on different port/host)
-    allow_credentials=True,  # Allow cookies and authentication headers
-    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allow all headers in requests
+    allow_origins=config.security.cors_origins,
+    allow_credentials=config.security.cors_allow_credentials,
+    allow_methods=config.security.cors_allow_methods,
+    allow_headers=config.security.cors_allow_headers,
 )
 
 # ============================================================================
@@ -130,7 +145,7 @@ PORT_RANGE_START = 8000
 PORT_RANGE_END = 8099
 
 
-def is_port_available(port: int, host: str = "0.0.0.0") -> bool:
+def is_port_available(port: int, host: str = "0.0.0.0") -> bool:  # nosec B104
     """
     Check if a TCP port is available for binding on the specified host.
 
@@ -180,7 +195,7 @@ def is_port_available(port: int, host: str = "0.0.0.0") -> bool:
 
 def find_available_port(
     preferred_port: int = DEFAULT_PORT,
-    host: str = "0.0.0.0",
+    host: str = "0.0.0.0",  # nosec B104 - intentional for server binding
     range_start: int = PORT_RANGE_START,
     range_end: int = PORT_RANGE_END,
 ) -> int | None:
@@ -265,7 +280,8 @@ def start_server(
         For both host and port, configuration is resolved in this priority:
         1. Explicit function parameter (highest priority)
         2. Environment variable (MUD_HOST, MUD_PORT)
-        3. Default value (0.0.0.0:8000)
+        3. Config file (config/server.ini)
+        4. Default value (0.0.0.0:8000)
 
         This allows flexible deployment: developers can use defaults, CI/CD
         can use environment variables, and CLI users can specify exact values.
@@ -282,12 +298,12 @@ def start_server(
 
     Args:
         host: Network interface to bind to. Common values:
-            - None: Use MUD_HOST env var, or "0.0.0.0" (all interfaces)
+            - None: Use config/env var, or "0.0.0.0" (all interfaces)
             - "0.0.0.0": Accept connections from any network interface
             - "127.0.0.1": Accept only local connections (localhost)
             - Specific IP: Bind to a specific network interface
         port: TCP port number to listen on. Values:
-            - None: Use MUD_PORT env var, or 8000
+            - None: Use config/env var, or 8000
             - Integer: Use this specific port (subject to auto_discover)
         auto_discover: Enable automatic port discovery. Defaults to True.
             Set to False for production deployments where port must be exact.
@@ -322,13 +338,16 @@ def start_server(
     # CONFIGURATION RESOLUTION
     # ========================================================================
 
-    # Resolve host: parameter > env var > default
-    if host is None:
-        host = os.getenv("MUD_HOST", "0.0.0.0")
+    # Print configuration summary at startup
+    print_config_summary()
 
-    # Resolve port: parameter > env var > default
+    # Resolve host: parameter > config (which includes env var override)
+    if host is None:
+        host = config.server.host
+
+    # Resolve port: parameter > config (which includes env var override)
     if port is None:
-        port = int(os.getenv("MUD_PORT", DEFAULT_PORT))
+        port = config.server.port
 
     # ========================================================================
     # PORT AUTO-DISCOVERY

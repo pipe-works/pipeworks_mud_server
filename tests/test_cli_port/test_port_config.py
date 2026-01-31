@@ -77,26 +77,38 @@ class TestCmdRun:
         return args
 
     @pytest.fixture
-    def mock_db_exists(self):
-        """Mock DB_PATH.exists() to return True."""
-        with patch("mud_server.db.database.DB_PATH") as mock_path:
-            mock_path.exists.return_value = True
-            yield mock_path
+    def mock_db_exists(self, tmp_path):
+        """Create a database file that exists for testing."""
+        from mud_server.config import config
 
-    def test_initializes_database_if_not_exists(self, mock_args):
+        db_file = tmp_path / "test.db"
+        db_file.touch()  # Create the file so .exists() returns True
+        original_path = config.database.path
+        config.database.path = str(db_file)
+        yield db_file
+        config.database.path = original_path
+
+    def test_initializes_database_if_not_exists(self, mock_args, tmp_path):
         """Should initialize database when it doesn't exist."""
-        with (
-            patch("mud_server.db.database.DB_PATH") as mock_path,
-            patch("mud_server.db.database.init_database") as mock_init_db,
-            patch("mud_server.api.server.find_available_port", return_value=8000),
-            patch("mud_server.api.server.start_server"),
-        ):
-            mock_path.exists.return_value = False
-            mock_args.api_only = True  # Avoid multiprocessing complexity
+        from mud_server.config import config
 
-            cmd_run(mock_args)
+        db_file = tmp_path / "nonexistent.db"  # Don't create it
+        original_path = config.database.path
+        config.database.path = str(db_file)
 
-            mock_init_db.assert_called_once()
+        try:
+            with (
+                patch("mud_server.db.database.init_database") as mock_init_db,
+                patch("mud_server.api.server.find_available_port", return_value=8000),
+                patch("mud_server.api.server.start_server"),
+            ):
+                mock_args.api_only = True  # Avoid multiprocessing complexity
+
+                cmd_run(mock_args)
+
+                mock_init_db.assert_called_once()
+        finally:
+            config.database.path = original_path
 
     def test_skips_db_init_if_exists(self, mock_args, mock_db_exists):
         """Should not initialize database when it already exists."""

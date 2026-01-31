@@ -45,10 +45,21 @@ from typing import Any
 # CONFIGURATION
 # ============================================================================
 
-# Path to the SQLite database file
-# Navigates from this file up to project root, then into data/ directory
-# The database file is created automatically if it doesn't exist
-DB_PATH = Path(__file__).parent.parent.parent.parent / "data" / "mud.db"
+
+def _get_db_path() -> Path:
+    """
+    Get the database path from configuration.
+
+    The path is resolved from config/server.ini with environment variable
+    override (MUD_DB_PATH). Tests should set the environment variable or
+    patch the config module.
+
+    Returns:
+        Path to the SQLite database file (absolute path).
+    """
+    from mud_server.config import config
+
+    return config.database.absolute_path
 
 
 # ============================================================================
@@ -96,7 +107,8 @@ def init_database(*, skip_superuser: bool = False):
     from mud_server.api.password import hash_password
 
     # Connect to database (creates file if doesn't exist)
-    conn = sqlite3.connect(str(DB_PATH))
+    db_path = _get_db_path()
+    conn = sqlite3.connect(str(db_path))
     cursor = conn.cursor()
 
     # ========================================================================
@@ -224,7 +236,7 @@ def get_connection():
         >>> # ... do database operations ...
         >>> conn.close()
     """
-    return sqlite3.connect(str(DB_PATH))
+    return sqlite3.connect(str(_get_db_path()))
 
 
 # ============================================================================
@@ -936,4 +948,4 @@ def get_all_chat_messages(limit: int = 100) -> list[dict[str, Any]]:
 
 if __name__ == "__main__":
     init_database()
-    print(f"Database initialized at {DB_PATH}")
+    print(f"Database initialized at {_get_db_path()}")

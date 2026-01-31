@@ -16,6 +16,7 @@ from unittest.mock import patch
 import pytest
 
 from mud_server.api.auth import active_sessions
+from mud_server.config import use_test_database
 from tests.constants import TEST_PASSWORD
 
 # ============================================================================
@@ -51,7 +52,7 @@ def test_health_endpoint(test_client):
 @pytest.mark.api
 def test_register_success(test_client, test_db, temp_db_path):
     """Test successful user registration."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         response = test_client.post(
             "/register",
             json={
@@ -117,7 +118,7 @@ def test_register_passwords_dont_match(test_client):
 @pytest.mark.api
 def test_register_duplicate_username(test_client, test_db, temp_db_path, db_with_users):
     """Test registration with existing username."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         response = test_client.post(
             "/register",
             json={
@@ -139,7 +140,7 @@ def test_register_duplicate_username(test_client, test_db, temp_db_path, db_with
 @pytest.mark.api
 def test_login_success(test_client, test_db, temp_db_path, db_with_users):
     """Test successful login."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         response = test_client.post(
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
@@ -155,7 +156,7 @@ def test_login_success(test_client, test_db, temp_db_path, db_with_users):
 @pytest.mark.api
 def test_login_wrong_password(test_client, test_db, temp_db_path, db_with_users):
     """Test login with incorrect password."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         response = test_client.post(
             "/login", json={"username": "testplayer", "password": "wrongpassword"}
         )
@@ -167,7 +168,7 @@ def test_login_wrong_password(test_client, test_db, temp_db_path, db_with_users)
 @pytest.mark.api
 def test_login_nonexistent_user(test_client, test_db, temp_db_path):
     """Test login with non-existent username."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         response = test_client.post(
             "/login", json={"username": "nonexistent", "password": TEST_PASSWORD}
         )
@@ -178,7 +179,7 @@ def test_login_nonexistent_user(test_client, test_db, temp_db_path):
 @pytest.mark.api
 def test_login_creates_session(test_client, test_db, temp_db_path, db_with_users):
     """Test that login creates session in active_sessions."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         response = test_client.post(
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
@@ -204,7 +205,7 @@ def test_login_username_too_short(test_client):
 @pytest.mark.api
 def test_logout_success(authenticated_client, test_db, temp_db_path):
     """Test successful logout."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
@@ -240,7 +241,7 @@ def test_logout_invalid_session(test_client):
 @pytest.mark.game
 def test_command_look(authenticated_client, test_db, temp_db_path):
     """Test /command endpoint with 'look' command."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
             session_id = authenticated_client["session_id"]
             client = authenticated_client["client"]
@@ -258,7 +259,7 @@ def test_command_look(authenticated_client, test_db, temp_db_path):
 @pytest.mark.game
 def test_command_inventory(authenticated_client, test_db, temp_db_path):
     """Test /command endpoint with 'inventory' command."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
@@ -274,7 +275,7 @@ def test_command_inventory(authenticated_client, test_db, temp_db_path):
 @pytest.mark.game
 def test_command_move_valid(authenticated_client, test_db, temp_db_path):
     """Test /command endpoint with valid movement."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
@@ -290,7 +291,7 @@ def test_command_move_valid(authenticated_client, test_db, temp_db_path):
 @pytest.mark.game
 def test_command_move_invalid(authenticated_client, test_db, temp_db_path):
     """Test /command endpoint with invalid movement."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
@@ -306,7 +307,7 @@ def test_command_move_invalid(authenticated_client, test_db, temp_db_path):
 @pytest.mark.game
 def test_command_say(authenticated_client, test_db, temp_db_path):
     """Test /command endpoint with 'say' command."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
@@ -353,7 +354,7 @@ def test_command_invalid_session(test_client):
 @pytest.mark.api
 def test_status_endpoint(authenticated_client, test_db, temp_db_path):
     """Test /status endpoint returns player status."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
@@ -372,7 +373,7 @@ def test_status_endpoint(authenticated_client, test_db, temp_db_path):
 @pytest.mark.game
 def test_chat_endpoint(authenticated_client, test_db, temp_db_path):
     """Test /chat endpoint returns room messages."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
@@ -391,7 +392,7 @@ def test_chat_endpoint(authenticated_client, test_db, temp_db_path):
 @pytest.mark.api
 def test_full_user_flow(test_client, test_db, temp_db_path):
     """Integration test of complete user flow: register -> login -> play -> logout."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
             # 1. Register
             register_response = test_client.post(
