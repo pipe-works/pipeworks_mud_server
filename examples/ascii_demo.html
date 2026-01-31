@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+================================================================================
+PipeWorks MUD - ASCII Movement Demo
+================================================================================
+
+This is a minimal browser-based client demonstrating the MUD server's REST API.
+It provides a retro terminal aesthetic with keyboard-controlled movement.
+
+FEATURES:
+- ASCII map visualization with 5 rooms in a cross pattern
+- Current room highlighted in yellow
+- WASD or Arrow key movement
+- Login/logout via API
+- Real-time room descriptions
+
+API ENDPOINTS USED:
+- POST /login          - Authenticate and get session_id
+- POST /logout         - End session
+- GET  /status/{id}    - Get current room, inventory, active players
+- POST /command        - Send movement commands (north, south, east, west)
+
+CORS REQUIREMENTS:
+The server must have this client's origin in cors_origins config.
+For local development serving on port 8080:
+  cors_origins = http://localhost:8080
+
+RUNNING:
+1. Start the MUD server:    mud-server run
+2. Serve this file:         python -m http.server 8080 -d examples
+3. Open browser:            http://localhost:8080/ascii_demo.html
+
+================================================================================
+-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PipeWorks MUD - ASCII Demo</title>
+
+    <!--
+    ============================================================================
+    STYLES - Retro Terminal Aesthetic
+    ============================================================================
+    Green-on-black color scheme inspired by classic terminal emulators.
+    Uses monospace fonts throughout for that authentic MUD feel.
+    -->
+    <style>
+        /* =====================================================================
+           BASE STYLES
+           ===================================================================== */
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            /* Dark blue-black background, classic terminal green text */
+            background-color: #1a1a2e;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: #00ffff;  /* Cyan for headers */
+            text-shadow: 0 0 10px #00ffff;  /* Glow effect */
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 30px;
+        }
+
+        /* =====================================================================
+           LOGIN FORM
+           =====================================================================
+           Displayed when user is not authenticated.
+           Hidden after successful login via .hidden class.
+           ===================================================================== */
+
+        #login-section {
+            background: #0d0d1a;
+            border: 2px solid #00ff00;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        #login-section.hidden {
+            display: none;
+        }
+
+        .form-row {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #00ffff;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 10px;
+            background: #1a1a2e;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            font-family: inherit;
+            font-size: 16px;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #00ffff;
+            box-shadow: 0 0 5px #00ffff;
+        }
+
+        button {
+            background: #00ff00;
+            color: #1a1a2e;
+            border: none;
+            padding: 10px 30px;
+            font-family: inherit;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: #00ffff;
+            box-shadow: 0 0 10px #00ffff;
+        }
+
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        /* =====================================================================
+           GAME SECTION
+           =====================================================================
+           Main gameplay area - hidden until login, shown via .visible class.
+           Contains: status bar, ASCII map, room description, controls.
+           ===================================================================== */
+
+        #game-section {
+            display: none;
+        }
+
+        #game-section.visible {
+            display: block;
+        }
+
+        /* =====================================================================
+           ASCII MAP
+           =====================================================================
+           Visual representation of the world using box-drawing characters.
+           Current room is highlighted in yellow with glow effect.
+           ===================================================================== */
+
+        .map-container {
+            background: #0d0d1a;
+            border: 2px solid #00ff00;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .map-title {
+            color: #00ffff;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        #ascii-map {
+            font-size: 14px;
+            line-height: 1.4;
+            white-space: pre;  /* Preserve ASCII art spacing */
+            text-align: center;
+        }
+
+        /* Room highlight classes - applied dynamically via JavaScript */
+        .room-current {
+            color: #ffff00;  /* Yellow for current room */
+            text-shadow: 0 0 5px #ffff00;
+        }
+
+        .room-other {
+            color: #00ff00;  /* Green for other rooms */
+        }
+
+        .room-path {
+            color: #555;  /* Dim gray for paths between rooms */
+        }
+
+        /* =====================================================================
+           ROOM DESCRIPTION
+           =====================================================================
+           Shows the current room's name and description text.
+           Updated after each successful movement.
+           ===================================================================== */
+
+        .description-container {
+            background: #0d0d1a;
+            border: 2px solid #00ff00;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        #room-name {
+            color: #00ffff;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+            text-shadow: 0 0 5px #00ffff;
+        }
+
+        #room-description {
+            color: #00ff00;
+            line-height: 1.6;
+        }
+
+        /* =====================================================================
+           MOVEMENT CONTROLS
+           =====================================================================
+           Visual keyboard showing WASD layout.
+           Keys light up briefly when pressed for feedback.
+           ===================================================================== */
+
+        .controls-container {
+            background: #0d0d1a;
+            border: 2px solid #00ff00;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .controls-title {
+            color: #00ffff;
+            margin-bottom: 15px;
+        }
+
+        .key-grid {
+            display: inline-grid;
+            grid-template-columns: repeat(3, 50px);
+            grid-template-rows: repeat(2, 50px);
+            gap: 5px;
+            margin-bottom: 15px;
+        }
+
+        .key {
+            background: #1a1a2e;
+            border: 2px solid #00ff00;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            transition: all 0.1s;
+        }
+
+        /* Active state - applied briefly via JavaScript on keypress */
+        .key.active {
+            background: #00ff00;
+            color: #1a1a2e;
+        }
+
+        .key.empty {
+            border-color: transparent;
+            background: transparent;
+        }
+
+        .hint {
+            color: #888;
+            font-size: 12px;
+        }
+
+        /* =====================================================================
+           STATUS BAR
+           =====================================================================
+           Top bar showing current player name, room ID, and disconnect button.
+           ===================================================================== */
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            background: #0d0d1a;
+            border: 2px solid #00ff00;
+            margin-bottom: 20px;
+        }
+
+        .status-item {
+            color: #888;
+        }
+
+        .status-value {
+            color: #00ffff;
+        }
+
+        /* =====================================================================
+           MESSAGE DISPLAY
+           =====================================================================
+           Shows success/error messages. Hidden by default.
+           ===================================================================== */
+
+        #message {
+            padding: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            display: none;
+        }
+
+        #message.error {
+            display: block;
+            background: #3a1a1a;
+            border: 1px solid #ff0000;
+            color: #ff0000;
+        }
+
+        #message.success {
+            display: block;
+            background: #1a3a1a;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+        }
+
+        /* =====================================================================
+           SERVER CONFIG
+           =====================================================================
+           Allows changing the API server URL for different deployments.
+           ===================================================================== */
+
+        .server-config {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #0a0a15;
+            border: 1px solid #333;
+        }
+
+        .server-config label {
+            color: #888;
+            font-size: 12px;
+        }
+
+        .server-config input {
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PipeWorks MUD</h1>
+        <p class="subtitle">ASCII Movement Demo</p>
+
+        <!-- Message area for success/error feedback -->
+        <div id="message"></div>
+
+        <!--
+        ========================================================================
+        LOGIN SECTION
+        ========================================================================
+        Displayed initially. Hidden after successful authentication.
+        Includes server URL config for connecting to different servers.
+        -->
+        <div id="login-section">
+            <!-- Server URL configuration -->
+            <div class="server-config">
+                <label for="server-url">Server URL:</label>
+                <input type="text" id="server-url" value="http://localhost:8000" placeholder="http://localhost:8000">
+            </div>
+
+            <!-- Login credentials -->
+            <div class="form-row">
+                <label for="username">Username:</label>
+                <input type="text" id="username" placeholder="Enter username" autofocus>
+            </div>
+
+            <div class="form-row">
+                <label for="password">Password:</label>
+                <input type="password" id="password" placeholder="Enter password">
+            </div>
+
+            <button id="login-btn" onclick="login()">Connect</button>
+        </div>
+
+        <!--
+        ========================================================================
+        GAME SECTION
+        ========================================================================
+        Main gameplay area. Hidden until login succeeds.
+        Contains status bar, ASCII map, room description, and controls.
+        -->
+        <div id="game-section">
+            <!-- Status bar with player info and disconnect -->
+            <div class="status-bar">
+                <span class="status-item">Player: <span class="status-value" id="player-name">-</span></span>
+                <span class="status-item">Room: <span class="status-value" id="current-room-id">-</span></span>
+                <button onclick="logout()" style="padding: 5px 15px; font-size: 12px;">Disconnect</button>
+            </div>
+
+            <!-- ASCII map visualization -->
+            <div class="map-container">
+                <div class="map-title">[ World Map ]</div>
+                <div id="ascii-map"></div>
+            </div>
+
+            <!-- Room description display -->
+            <div class="description-container">
+                <div id="room-name">-</div>
+                <div id="room-description">-</div>
+            </div>
+
+            <!-- Movement control hints -->
+            <div class="controls-container">
+                <div class="controls-title">[ Movement Controls ]</div>
+                <div class="key-grid">
+                    <div class="key empty"></div>
+                    <div class="key" id="key-up">W</div>
+                    <div class="key empty"></div>
+                    <div class="key" id="key-left">A</div>
+                    <div class="key" id="key-down">S</div>
+                    <div class="key" id="key-right">D</div>
+                </div>
+                <div class="hint">Use WASD or Arrow Keys to move</div>
+            </div>
+        </div>
+    </div>
+
+    <!--
+    ============================================================================
+    JAVASCRIPT - API Client and Game Logic
+    ============================================================================
+    Handles authentication, movement commands, and display updates.
+    All API calls use the Fetch API with JSON payloads.
+    -->
+    <script>
+        // =====================================================================
+        // APPLICATION STATE
+        // =====================================================================
+        // These variables track the current session and game state.
+        // They're reset on logout or page refresh.
+
+        let sessionId = null;    // UUID from /login response
+        let currentRoom = null;  // Room ID from /status response
+        let username = null;     // Logged-in username
+
+        // =====================================================================
+        // ROOM DATA (Static)
+        // =====================================================================
+        // Local copy of room names and descriptions matching world_data.json.
+        // This avoids needing to fetch room details from the API.
+        // In a full client, this could be fetched from a /world endpoint.
+
+        const ROOMS = {
+            spawn: {
+                name: "Spawn Zone",
+                description: "You stand in a peaceful plaza surrounded by shimmering light. This is the beginning of your journey."
+            },
+            forest: {
+                name: "Enchanted Forest",
+                description: "Tall trees with glowing leaves surround you. The air smells of pine and magic."
+            },
+            desert: {
+                name: "Golden Desert",
+                description: "Sand dunes stretch endlessly under a blazing sun. The heat is intense."
+            },
+            mountain: {
+                name: "Snow-Capped Mountain",
+                description: "Jagged peaks pierce the clouds above. A cold wind whips around you."
+            },
+            lake: {
+                name: "Crystalline Lake",
+                description: "Clear blue waters reflect the sky. Fish leap gracefully in the distance."
+            }
+        };
+
+        // =====================================================================
+        // API FUNCTIONS
+        // =====================================================================
+        // Low-level functions for making HTTP requests to the MUD server.
+
+        /**
+         * Get the configured server URL (without trailing slash).
+         * @returns {string} The server base URL
+         */
+        function getServerUrl() {
+            return document.getElementById('server-url').value.replace(/\/$/, '');
+        }
+
+        /**
+         * Make an API call to the MUD server.
+         *
+         * @param {string} endpoint - The API endpoint (e.g., '/login')
+         * @param {Object} options - Fetch options (method, body, headers)
+         * @returns {Promise<Object>} The parsed JSON response
+         * @throws {Error} If the network request fails
+         *
+         * @example
+         *   const data = await apiCall('/login', {
+         *       method: 'POST',
+         *       body: JSON.stringify({ username: 'player', password: 'secret' })
+         *   });
+         */
+        async function apiCall(endpoint, options = {}) {
+            const url = getServerUrl() + endpoint;
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    }
+                });
+                return await response.json();
+            } catch (error) {
+                throw new Error(`Connection failed: ${error.message}`);
+            }
+        }
+
+        // =====================================================================
+        // AUTHENTICATION
+        // =====================================================================
+        // Functions for login and logout via the API.
+
+        /**
+         * Attempt to log in with the provided credentials.
+         *
+         * On success:
+         * - Stores session ID for subsequent API calls
+         * - Fetches initial player status
+         * - Switches to game view
+         *
+         * API: POST /login
+         * Request:  { username: string, password: string }
+         * Response: { success: bool, session_id: string, message: string }
+         */
+        async function login() {
+            const usernameInput = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            // Validate inputs
+            if (!usernameInput || !password) {
+                showMessage('Please enter username and password', 'error');
+                return;
+            }
+
+            // Disable button during request
+            const btn = document.getElementById('login-btn');
+            btn.disabled = true;
+            btn.textContent = 'Connecting...';
+
+            try {
+                // POST /login with credentials
+                const data = await apiCall('/login', {
+                    method: 'POST',
+                    body: JSON.stringify({ username: usernameInput, password })
+                });
+
+                if (data.success) {
+                    // Store session state
+                    sessionId = data.session_id;
+                    username = usernameInput;
+
+                    // Fetch initial room status
+                    await updateStatus();
+
+                    // Switch from login to game view
+                    document.getElementById('login-section').classList.add('hidden');
+                    document.getElementById('game-section').classList.add('visible');
+                    document.getElementById('player-name').textContent = username;
+
+                    // Show success message briefly
+                    showMessage('Connected successfully!', 'success');
+                    setTimeout(() => hideMessage(), 2000);
+
+                    // Focus body for keyboard input
+                    document.body.focus();
+                } else {
+                    showMessage(data.message || 'Login failed', 'error');
+                }
+            } catch (error) {
+                showMessage(error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Connect';
+            }
+        }
+
+        /**
+         * Log out and return to login screen.
+         *
+         * API: POST /logout
+         * Request:  { session_id: string }
+         * Response: { success: bool }
+         */
+        async function logout() {
+            if (sessionId) {
+                try {
+                    await apiCall('/logout', {
+                        method: 'POST',
+                        body: JSON.stringify({ session_id: sessionId })
+                    });
+                } catch (e) {
+                    // Ignore logout errors - we're leaving anyway
+                }
+            }
+
+            // Clear session state
+            sessionId = null;
+            currentRoom = null;
+            username = null;
+
+            // Switch back to login view
+            document.getElementById('login-section').classList.remove('hidden');
+            document.getElementById('game-section').classList.remove('visible');
+            document.getElementById('password').value = '';
+
+            showMessage('Disconnected', 'success');
+            setTimeout(() => hideMessage(), 2000);
+        }
+
+        // =====================================================================
+        // GAME FUNCTIONS
+        // =====================================================================
+        // Functions for game actions (movement, status updates).
+
+        /**
+         * Fetch and update the current player status.
+         *
+         * API: GET /status/{session_id}
+         * Response: {
+         *     current_room: string,
+         *     inventory: string,
+         *     active_players: string[]
+         * }
+         */
+        async function updateStatus() {
+            try {
+                const data = await apiCall(`/status/${sessionId}`);
+                currentRoom = data.current_room;
+                updateDisplay();
+            } catch (error) {
+                showMessage('Failed to get status: ' + error.message, 'error');
+            }
+        }
+
+        /**
+         * Attempt to move in the specified direction.
+         *
+         * @param {string} direction - One of: 'north', 'south', 'east', 'west'
+         *
+         * API: POST /command
+         * Request:  { session_id: string, command: string }
+         * Response: { success: bool, message: string }
+         *
+         * On success, fetches updated status and refreshes display.
+         * On failure, flashes the map red briefly.
+         */
+        async function move(direction) {
+            if (!sessionId) return;
+
+            // Visual feedback - light up the corresponding key
+            const keyMap = {
+                north: 'key-up',
+                south: 'key-down',
+                east: 'key-right',
+                west: 'key-left'
+            };
+            const keyEl = document.getElementById(keyMap[direction]);
+            if (keyEl) {
+                keyEl.classList.add('active');
+                setTimeout(() => keyEl.classList.remove('active'), 150);
+            }
+
+            try {
+                // POST /command with movement direction
+                const data = await apiCall('/command', {
+                    method: 'POST',
+                    body: JSON.stringify({ session_id: sessionId, command: direction })
+                });
+
+                if (data.success) {
+                    // Movement succeeded - update display
+                    await updateStatus();
+                } else {
+                    // Movement failed (no exit that way) - flash red
+                    const mapEl = document.getElementById('ascii-map');
+                    mapEl.style.color = '#ff0000';
+                    setTimeout(() => mapEl.style.color = '', 200);
+                }
+            } catch (error) {
+                showMessage('Movement failed: ' + error.message, 'error');
+            }
+        }
+
+        // =====================================================================
+        // DISPLAY FUNCTIONS
+        // =====================================================================
+        // Functions for updating the visual interface.
+
+        /**
+         * Update all display elements with current game state.
+         * Called after login and after each successful movement.
+         */
+        function updateDisplay() {
+            // Update room ID in status bar
+            document.getElementById('current-room-id').textContent = currentRoom || '-';
+
+            // Update room name and description
+            const roomData = ROOMS[currentRoom] || {
+                name: 'Unknown',
+                description: 'You are somewhere unknown.'
+            };
+            document.getElementById('room-name').textContent = '=== ' + roomData.name + ' ===';
+            document.getElementById('room-description').textContent = roomData.description;
+
+            // Redraw the ASCII map with current room highlighted
+            renderMap();
+        }
+
+        /**
+         * Render the ASCII map with the current room highlighted.
+         *
+         * Map layout (matches world_data.json):
+         *
+         *            [FOREST]
+         *               |
+         *   [LAKE] -- [SPAWN] -- [MOUNTAIN]
+         *               |
+         *           [DESERT]
+         *
+         * The current room is highlighted in yellow (.room-current).
+         * Other rooms are green (.room-other).
+         * Paths between rooms are dim gray (.room-path).
+         */
+        function renderMap() {
+            /**
+             * Helper to get the CSS class for a room.
+             * @param {string} id - Room ID to check
+             * @returns {string} CSS class name
+             */
+            const isRoom = (id) => currentRoom === id ? 'room-current' : 'room-other';
+
+            // Build the ASCII map with span elements for coloring
+            // Each room box and path segment gets its own span
+            const map = `
+                      <span class="${isRoom('forest')}">+----------+</span>
+                      <span class="${isRoom('forest')}">|  FOREST  |</span>
+                      <span class="${isRoom('forest')}">+----+-----+</span>
+                           <span class="room-path">|</span>
+                           <span class="room-path">|</span>
+<span class="${isRoom('lake')}">+--------+</span>    <span class="room-path">|</span>    <span class="${isRoom('mountain')}">+----------+</span>
+<span class="${isRoom('lake')}">|  LAKE  |</span><span class="room-path">----</span><span class="${isRoom('spawn')}">+--------+</span><span class="room-path">----</span><span class="${isRoom('mountain')}">| MOUNTAIN |</span>
+<span class="${isRoom('lake')}">+--------+</span>    <span class="${isRoom('spawn')}">| SPAWN  |</span>    <span class="${isRoom('mountain')}">+----------+</span>
+                 <span class="${isRoom('spawn')}">+---+----+</span>
+                     <span class="room-path">|</span>
+                     <span class="room-path">|</span>
+                 <span class="${isRoom('desert')}">+---+----+</span>
+                 <span class="${isRoom('desert')}">| DESERT |</span>
+                 <span class="${isRoom('desert')}">+--------+</span>
+`;
+
+            document.getElementById('ascii-map').innerHTML = map;
+        }
+
+        // =====================================================================
+        // MESSAGE DISPLAY
+        // =====================================================================
+        // Functions for showing success/error messages to the user.
+
+        /**
+         * Show a message to the user.
+         * @param {string} text - Message text
+         * @param {string} type - 'success' or 'error'
+         */
+        function showMessage(text, type) {
+            const el = document.getElementById('message');
+            el.textContent = text;
+            el.className = type;
+        }
+
+        /**
+         * Hide the message display.
+         */
+        function hideMessage() {
+            document.getElementById('message').className = '';
+        }
+
+        // =====================================================================
+        // KEYBOARD CONTROLS
+        // =====================================================================
+        // Event listener for WASD and arrow key movement.
+
+        /**
+         * Handle keydown events for movement.
+         *
+         * Supported keys:
+         * - Arrow keys: Up/Down/Left/Right
+         * - WASD keys: W/A/S/D (case-insensitive)
+         *
+         * Also handles Enter key in login form.
+         */
+        document.addEventListener('keydown', (e) => {
+            // Don't capture keypresses when typing in input fields
+            if (e.target.tagName === 'INPUT') {
+                // Allow Enter to submit login form
+                if (e.key === 'Enter' && !sessionId) {
+                    login();
+                }
+                return;
+            }
+
+            // Ignore if not logged in
+            if (!sessionId) return;
+
+            // Map keys to movement directions
+            const keyMap = {
+                'ArrowUp': 'north',
+                'ArrowDown': 'south',
+                'ArrowLeft': 'west',
+                'ArrowRight': 'east',
+                'w': 'north',
+                'W': 'north',
+                'a': 'west',
+                'A': 'west',
+                's': 'south',
+                'S': 'south',
+                'd': 'east',
+                'D': 'east'
+            };
+
+            const direction = keyMap[e.key];
+            if (direction) {
+                e.preventDefault();  // Prevent arrow keys scrolling the page
+                move(direction);
+            }
+        });
+
+        // =====================================================================
+        // INITIALIZATION
+        // =====================================================================
+        // Set up initial state when the page loads.
+
+        // Render the map initially (all rooms dim, no current room)
+        renderMap();
+    </script>
+</body>
+</html>
