@@ -270,6 +270,71 @@ def test_whisper_nonexistent_target(mock_engine, test_db, temp_db_path, db_with_
 
 
 # ============================================================================
+# XSS SANITIZATION TESTS
+# ============================================================================
+
+
+@pytest.mark.unit
+@pytest.mark.game
+@pytest.mark.security
+def test_chat_sanitizes_xss(mock_engine, test_db, temp_db_path, db_with_users):
+    """Test that chat messages are sanitized to prevent XSS attacks."""
+    with use_test_database(temp_db_path):
+        database.set_player_room("testplayer", "spawn")
+
+        xss_payload = "<script>alert('xss')</script>"
+        success, message = mock_engine.chat("testplayer", xss_payload)
+
+        assert success is True
+        # Verify the response contains escaped HTML
+        assert "&lt;script&gt;" in message
+        assert "<script>" not in message
+
+        # Verify stored message is also sanitized
+        messages = database.get_room_messages("spawn", limit=10)
+        assert len(messages) == 1
+        assert "&lt;script&gt;" in messages[0]["message"]
+        assert "<script>" not in messages[0]["message"]
+
+
+@pytest.mark.unit
+@pytest.mark.game
+@pytest.mark.security
+def test_yell_sanitizes_xss(mock_engine, test_db, temp_db_path, db_with_users):
+    """Test that yell messages are sanitized to prevent XSS attacks."""
+    with use_test_database(temp_db_path):
+        database.set_player_room("testplayer", "spawn")
+
+        xss_payload = "<img src=x onerror=alert('xss')>"
+        success, message = mock_engine.yell("testplayer", xss_payload)
+
+        assert success is True
+        # Verify the response contains escaped HTML
+        assert "&lt;img" in message
+        assert "<img" not in message
+
+
+@pytest.mark.unit
+@pytest.mark.game
+@pytest.mark.security
+def test_whisper_sanitizes_xss(mock_engine, test_db, temp_db_path, db_with_users):
+    """Test that whisper messages are sanitized to prevent XSS attacks."""
+    with use_test_database(temp_db_path):
+        database.set_player_room("testplayer", "spawn")
+        database.set_player_room("testadmin", "spawn")
+        database.create_session("testplayer", "session-1")
+        database.create_session("testadmin", "session-2")
+
+        xss_payload = "<a href='javascript:alert(1)'>click</a>"
+        success, message = mock_engine.whisper("testplayer", "testadmin", xss_payload)
+
+        assert success is True
+        # Verify the response contains escaped HTML
+        assert "&lt;a href" in message
+        assert "<a href" not in message
+
+
+# ============================================================================
 # INVENTORY TESTS
 # ============================================================================
 

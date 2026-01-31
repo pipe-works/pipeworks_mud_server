@@ -352,7 +352,8 @@ def verify_password_for_user(username: str, password: str) -> bool:
 
     Security Note:
         This function uses constant-time comparison through bcrypt to
-        prevent timing attacks.
+        prevent timing attacks. Even when the user doesn't exist, a dummy
+        bcrypt comparison is performed to ensure consistent response time.
 
     Example:
         >>> verify_password_for_user("admin", "admin123")
@@ -362,6 +363,11 @@ def verify_password_for_user(username: str, password: str) -> bool:
     """
     from mud_server.api.password import verify_password
 
+    # Dummy hash for timing attack prevention - this is a valid bcrypt hash
+    # that will never match any real password (hash of random UUID)
+    # Using this ensures constant-time response for non-existent users
+    DUMMY_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4.G5j1L3tDPZ3q4q"  # nosec B105
+
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT password_hash FROM players WHERE username = ?", (username,))
@@ -369,6 +375,8 @@ def verify_password_for_user(username: str, password: str) -> bool:
     conn.close()
 
     if not result:
+        # User doesn't exist - still perform hash comparison for consistent timing
+        verify_password(password, DUMMY_HASH)
         return False
 
     password_hash = result[0]

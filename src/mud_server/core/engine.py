@@ -27,8 +27,31 @@ Architecture:
     - Database provides persistent player state
 """
 
+import html
+
 from mud_server.core.world import World
 from mud_server.db import database
+
+
+def sanitize_chat_message(message: str) -> str:
+    """
+    Sanitize a chat message to prevent XSS attacks.
+
+    Escapes HTML special characters to prevent injection of malicious
+    scripts through chat messages. This is critical for security when
+    messages are displayed in web interfaces.
+
+    Args:
+        message: Raw message text from user input
+
+    Returns:
+        Sanitized message with HTML entities escaped
+
+    Example:
+        >>> sanitize_chat_message("Hello <script>alert('xss')</script>")
+        "Hello &lt;script&gt;alert('xss')&lt;/script&gt;"
+    """
+    return html.escape(message)
 
 
 class GameEngine:
@@ -112,12 +135,13 @@ class GameEngine:
             (True, "Welcome, player1!\\nRole: Player\\n\\n=== Spawn Zone ===...", "player")
             >>> engine.login("player1", "wrong", "uuid-456")
             (False, "Invalid username or password.", None)
-        """
-        # Check if player exists
-        if not database.player_exists(username):
-            return False, "Invalid username or password.", None
 
-        # Verify password
+        Security Note:
+            Password verification always performs a bcrypt comparison, even for
+            non-existent users. This prevents timing attacks that could be used
+            to enumerate valid usernames.
+        """
+        # Verify password (handles non-existent users with constant-time response)
         if not database.verify_password_for_user(username, password):
             return False, "Invalid username or password.", None
 
@@ -269,15 +293,21 @@ class GameEngine:
         Example:
             >>> engine.chat("player1", "Hello everyone!")
             (True, "You say: Hello everyone!")
+
+        Security Note:
+            Messages are sanitized to prevent XSS attacks before storage.
         """
         room = database.get_player_room(username)
         if not room:
             return False, "You are not in a valid room."
 
-        if not database.add_chat_message(username, message, room):
+        # Sanitize message to prevent XSS attacks
+        safe_message = sanitize_chat_message(message)
+
+        if not database.add_chat_message(username, safe_message, room):
             return False, "Failed to send message."
 
-        return True, f"You say: {message}"
+        return True, f"You say: {safe_message}"
 
     def yell(self, username: str, message: str) -> tuple[bool, str]:
         """
@@ -314,6 +344,9 @@ class GameEngine:
             >>> engine.yell("player1", "Can anyone hear me?")
             (True, "You yell: Can anyone hear me?")
             # Message appears in spawn, forest, and desert rooms
+
+        Security Note:
+            Messages are sanitized to prevent XSS attacks before storage.
         """
         current_room_id = database.get_player_room(username)
         if not current_room_id:
@@ -324,8 +357,11 @@ class GameEngine:
         if not current_room:
             return False, "Invalid room."
 
-        # Add [YELL] prefix to message
-        yell_message = f"[YELL] {message}"
+        # Sanitize message to prevent XSS attacks
+        safe_message = sanitize_chat_message(message)
+
+        # Add [YELL] prefix to sanitized message
+        yell_message = f"[YELL] {safe_message}"
 
         # Send to current room
         if not database.add_chat_message(username, yell_message, current_room_id):
@@ -335,7 +371,7 @@ class GameEngine:
         for _direction, room_id in current_room.exits.items():
             database.add_chat_message(username, yell_message, room_id)
 
-        return True, f"You yell: {message}"
+        return True, f"You yell: {safe_message}"
 
     def whisper(self, username: str, target: str, message: str) -> tuple[bool, str]:
         """
@@ -417,8 +453,11 @@ class GameEngine:
             logger.warning(f"Whisper failed: {target} in {target_room}, sender in {sender_room}")
             return False, f"Player '{target}' is not in this room."
 
+        # Sanitize message to prevent XSS attacks
+        safe_message = sanitize_chat_message(message)
+
         # Add whisper message with recipient (include both sender and target for clarity)
-        whisper_message = f"[WHISPER: {username} → {target}] {message}"
+        whisper_message = f"[WHISPER: {username} → {target}] {safe_message}"
         result = database.add_chat_message(username, whisper_message, sender_room, recipient=target)
         logger.info(f"Whisper message save result: {result}")
 
@@ -426,8 +465,8 @@ class GameEngine:
             logger.error("Failed to save whisper to database")
             return False, "Failed to send whisper."
 
-        logger.info(f"Whisper successful: {username} -> {target}: {message}")
-        return True, f"You whisper to {target}: {message}"
+        logger.info(f"Whisper successful: {username} -> {target}: {safe_message}")
+        return True, f"You whisper to {target}: {safe_message}"
 
     def get_room_chat(self, username: str, limit: int = 20) -> str:
         """
