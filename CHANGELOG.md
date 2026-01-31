@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.7](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.6...mud_server-v0.2.7) (2026-01-31)
+
+
+### Features
+
+* **core:** add event bus infrastructure for plugin system ([#31](https://github.com/pipe-works/pipeworks_mud_server/issues/31)) ([64b5282](https://github.com/pipe-works/pipeworks_mud_server/commit/64b52820678f9563cef8374eab4e68669f09df52))
+* **examples:** add ASCII movement demo for REST API ([#33](https://github.com/pipe-works/pipeworks_mud_server/issues/33)) ([1645dcb](https://github.com/pipe-works/pipeworks_mud_server/commit/1645dcbae09fc8f9f6c6754cfc2918d1be656e4d))
+
 ## [0.2.6](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.5...mud_server-v0.2.6) (2026-01-31)
 
 
