@@ -162,16 +162,24 @@ Error Response Format
 CORS Configuration
 ------------------
 
-Development mode allows all origins (``*``).
+CORS origins are configured in ``config/server.ini`` or via environment variable.
 
-For production, restrict origins in ``server.py``:
+**Config File** (config/server.ini):
 
-.. code-block:: python
+.. code-block:: ini
 
-    CORS_ORIGINS = [
-        "https://yourdomain.com",
-        "https://www.yourdomain.com"
-    ]
+    [security]
+    cors_origins = https://yourdomain.com, https://api.yourdomain.com
+
+**Environment Variable** (overrides config file):
+
+.. code-block:: bash
+
+    export MUD_CORS_ORIGINS=https://yourdomain.com,https://api.yourdomain.com
+
+Development default allows localhost origins only.
+
+See ``config/server.example.ini`` for all available security settings.
 
 WebSocket Support (Future)
 ---------------------------

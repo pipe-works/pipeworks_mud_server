@@ -15,6 +15,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from mud_server.config import use_test_database
 from tests.constants import TEST_PASSWORD
 
 # ============================================================================
@@ -26,7 +27,7 @@ from tests.constants import TEST_PASSWORD
 @pytest.mark.admin
 def test_ollama_context_stored_per_session(test_client, test_db, temp_db_path, db_with_users):
     """Test that conversation context is stored per session."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as admin
         login_response = test_client.post(
             "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
@@ -81,7 +82,7 @@ def test_ollama_context_isolated_between_sessions(
     test_client, test_db, temp_db_path, db_with_users
 ):
     """Test that conversation context is isolated between different sessions."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as admin
         login_response1 = test_client.post(
             "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
@@ -132,7 +133,7 @@ def test_ollama_context_isolated_between_sessions(
 @pytest.mark.admin
 def test_clear_context_removes_history(test_client, test_db, temp_db_path, db_with_users):
     """Test that clear context endpoint removes conversation history."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as admin
         login_response = test_client.post(
             "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
@@ -186,7 +187,7 @@ def test_clear_context_removes_history(test_client, test_db, temp_db_path, db_wi
 @pytest.mark.admin
 def test_clear_context_when_no_context(test_client, test_db, temp_db_path, db_with_users):
     """Test clearing context when there is no context."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as admin
         login_response = test_client.post(
             "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
@@ -207,7 +208,7 @@ def test_clear_context_when_no_context(test_client, test_db, temp_db_path, db_wi
 @pytest.mark.admin
 def test_ollama_context_survives_error(test_client, test_db, temp_db_path, db_with_users):
     """Test that context is preserved even if an Ollama API call fails."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as admin
         login_response = test_client.post(
             "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
@@ -284,7 +285,7 @@ def test_ollama_context_survives_error(test_client, test_db, temp_db_path, db_wi
 @pytest.mark.auth
 def test_player_cannot_access_ollama(test_client, test_db, temp_db_path, db_with_users):
     """Test that regular players cannot access Ollama endpoints."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as player
         login_response = test_client.post(
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
@@ -308,7 +309,7 @@ def test_player_cannot_access_ollama(test_client, test_db, temp_db_path, db_with
 @pytest.mark.auth
 def test_player_cannot_clear_ollama_context(test_client, test_db, temp_db_path, db_with_users):
     """Test that regular players cannot clear Ollama context."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as player
         login_response = test_client.post(
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
@@ -327,7 +328,7 @@ def test_player_cannot_clear_ollama_context(test_client, test_db, temp_db_path, 
 @pytest.mark.auth
 def test_admin_can_access_ollama(test_client, test_db, temp_db_path, db_with_users):
     """Test that admins can access Ollama endpoints."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as admin
         login_response = test_client.post(
             "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
@@ -358,7 +359,7 @@ def test_admin_can_access_ollama(test_client, test_db, temp_db_path, db_with_use
 @pytest.mark.auth
 def test_superuser_can_access_ollama(test_client, test_db, temp_db_path, db_with_users):
     """Test that superusers can access Ollama endpoints."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as superuser
         login_response = test_client.post(
             "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}

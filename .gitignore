@@ -214,5 +214,9 @@ data/*.db
 data/*.db-journal
 logs/*.log
 
+# Server configuration (contains deployment-specific settings)
+# Keep server.example.ini as template, ignore actual config
+config/server.ini
+
 # claude
 .claude/settings.local.json

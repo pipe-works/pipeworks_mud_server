@@ -23,6 +23,7 @@ from unittest.mock import mock_open, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from mud_server.config import use_test_database
 from mud_server.core.engine import GameEngine
 from mud_server.core.world import Item, Room, World
 from mud_server.db import database
@@ -41,8 +42,8 @@ def temp_db_path() -> Generator[Path, None, None]:
     Create a temporary database file for testing.
 
     This fixture creates a unique temporary database for each test function,
-    ensuring complete isolation between tests. The database is automatically
-    deleted after the test completes.
+    ensuring complete isolation between tests. Uses the config system's
+    use_test_database context manager.
 
     Yields:
         Path to temporary database file
@@ -54,8 +55,8 @@ def temp_db_path() -> Generator[Path, None, None]:
     temp_dir = tempfile.mkdtemp()
     temp_db = Path(temp_dir) / "test_mud.db"
 
-    # Patch the database path before any imports
-    with patch.object(database, "DB_PATH", temp_db):
+    # Use the config system's test database helper
+    with use_test_database(temp_db):
         yield temp_db
 
     # Cleanup
@@ -76,51 +77,49 @@ def test_db(temp_db_path: Path) -> Generator[None, None, None]:
     Yields:
         None (database is initialized and ready to use)
     """
-    # Patch database.DB_PATH to use temp path
-    with patch.object(database, "DB_PATH", temp_db_path):
-        conn = sqlite3.connect(str(temp_db_path))
-        cursor = conn.cursor()
+    conn = sqlite3.connect(str(temp_db_path))
+    cursor = conn.cursor()
 
-        # Create tables (same as init_database but without default admin)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS players (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                role TEXT NOT NULL DEFAULT 'player',
-                current_room TEXT NOT NULL DEFAULT 'spawn',
-                inventory TEXT DEFAULT '[]',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_login TIMESTAMP,
-                is_active INTEGER DEFAULT 1
-            )
-        """)
+    # Create tables (same as init_database but without default admin)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS players (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'player',
+            current_room TEXT NOT NULL DEFAULT 'spawn',
+            inventory TEXT DEFAULT '[]',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_login TIMESTAMP,
+            is_active INTEGER DEFAULT 1
+        )
+    """)
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS chat_messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL,
-                message TEXT NOT NULL,
-                room TEXT NOT NULL,
-                recipient TEXT,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            message TEXT NOT NULL,
+            room TEXT NOT NULL,
+            recipient TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                session_id TEXT UNIQUE NOT NULL,
-                connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            session_id TEXT UNIQUE NOT NULL,
+            connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
-        conn.commit()
-        conn.close()
+    conn.commit()
+    conn.close()
 
-        yield
+    yield
 
 
 @pytest.fixture(scope="function")

@@ -11,10 +11,9 @@ Tests cover:
 All tests verify proper permission checking and role-based access.
 """
 
-from unittest.mock import patch
-
 import pytest
 
+from mud_server.config import use_test_database
 from mud_server.db import database
 from tests.constants import TEST_PASSWORD
 
@@ -27,7 +26,7 @@ from tests.constants import TEST_PASSWORD
 @pytest.mark.api
 def test_admin_view_players_as_admin(test_client, test_db, temp_db_path, db_with_users):
     """Test admin can view all players."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as admin
         login_response = test_client.post(
             "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
@@ -45,7 +44,7 @@ def test_admin_view_players_as_admin(test_client, test_db, temp_db_path, db_with
 @pytest.mark.api
 def test_admin_view_players_as_player_forbidden(test_client, test_db, temp_db_path, db_with_users):
     """Test regular player cannot view admin endpoints."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as regular player
         login_response = test_client.post(
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
@@ -68,7 +67,7 @@ def test_admin_view_players_as_player_forbidden(test_client, test_db, temp_db_pa
 @pytest.mark.api
 def test_superuser_can_change_user_role(test_client, test_db, temp_db_path, db_with_users):
     """Test superuser can change user roles."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as superuser
         login_response = test_client.post(
             "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
@@ -94,7 +93,7 @@ def test_superuser_can_change_user_role(test_client, test_db, temp_db_path, db_w
 @pytest.mark.api
 def test_admin_cannot_change_roles(test_client, test_db, temp_db_path, db_with_users):
     """Test admin cannot change user roles (superuser only)."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as admin
         login_response = test_client.post(
             "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
@@ -120,7 +119,7 @@ def test_admin_cannot_change_roles(test_client, test_db, temp_db_path, db_with_u
 @pytest.mark.api
 def test_admin_can_deactivate_user(test_client, test_db, temp_db_path, db_with_users):
     """Test admin can deactivate user accounts."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as admin
         login_response = test_client.post(
             "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
@@ -150,7 +149,7 @@ def test_admin_can_deactivate_user(test_client, test_db, temp_db_path, db_with_u
 @pytest.mark.api
 def test_user_can_change_own_password(test_client, test_db, temp_db_path, db_with_users):
     """Test user can change their own password."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as testplayer
         login_response = test_client.post(
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
@@ -176,7 +175,7 @@ def test_user_can_change_own_password(test_client, test_db, temp_db_path, db_wit
 @pytest.mark.api
 def test_superuser_can_change_any_password(test_client, test_db, temp_db_path, db_with_users):
     """Test superuser can change any user's password."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as superuser
         login_response = test_client.post(
             "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
@@ -209,7 +208,7 @@ def test_superuser_can_change_any_password(test_client, test_db, temp_db_path, d
 @pytest.mark.slow
 def test_admin_can_stop_server(test_client, test_db, temp_db_path, db_with_users):
     """Test admin can stop the server."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as admin
         login_response = test_client.post(
             "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
@@ -230,7 +229,7 @@ def test_admin_can_stop_server(test_client, test_db, temp_db_path, db_with_users
 @pytest.mark.api
 def test_player_cannot_stop_server(test_client, test_db, temp_db_path, db_with_users):
     """Test regular player cannot stop the server."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Login as player
         login_response = test_client.post(
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
@@ -309,7 +308,7 @@ def test_management_hierarchy():
 @pytest.mark.db
 def test_deactivated_user_cannot_login(test_client, test_db, temp_db_path, db_with_users):
     """Test that deactivated users cannot login."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Deactivate player
         database.deactivate_player("testplayer")
 
@@ -326,7 +325,7 @@ def test_deactivated_user_cannot_login(test_client, test_db, temp_db_path, db_wi
 @pytest.mark.db
 def test_reactivated_user_can_login(test_client, test_db, temp_db_path, db_with_users):
     """Test that reactivated users can login."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Deactivate then reactivate
         database.deactivate_player("testplayer")
         database.activate_player("testplayer")
@@ -344,7 +343,7 @@ def test_reactivated_user_can_login(test_client, test_db, temp_db_path, db_with_
 @pytest.mark.db
 def test_role_change_persists(test_client, test_db, temp_db_path, db_with_users):
     """Test that role changes are persisted to database."""
-    with patch("mud_server.db.database.DB_PATH", temp_db_path):
+    with use_test_database(temp_db_path):
         # Change role
         result = database.set_player_role("testplayer", "worldbuilder")
         assert result is True

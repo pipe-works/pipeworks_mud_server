@@ -361,14 +361,16 @@ def cmd_run(args: argparse.Namespace) -> int:
     import multiprocessing
 
     from mud_server.api.server import find_available_port as find_api_port
-    from mud_server.db.database import DB_PATH, init_database
+    from mud_server.config import config
+    from mud_server.db.database import init_database
 
     # ========================================================================
     # DATABASE INITIALIZATION
     # ========================================================================
     # Ensure the database exists before starting servers. This creates the
     # SQLite database file and all required tables if they don't exist.
-    if not DB_PATH.exists():
+    db_path = config.database.absolute_path
+    if not db_path.exists():
         print("Database not found. Initializing...")
         init_database()
 
@@ -380,7 +382,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     # these attributes (e.g., when called programmatically).
     api_port = getattr(args, "port", None)
     ui_port = getattr(args, "ui_port", None)
-    host = getattr(args, "host", None) or os.environ.get("MUD_HOST", "0.0.0.0")
+    host = getattr(args, "host", None) or os.environ.get("MUD_HOST", "0.0.0.0")  # nosec B104
     api_only = getattr(args, "api_only", False)
 
     # ========================================================================
@@ -546,7 +548,8 @@ def main() -> int:
         parser.print_help()
         return 0
 
-    return args.func(args)
+    result: int = args.func(args)
+    return result
 
 
 if __name__ == "__main__":
