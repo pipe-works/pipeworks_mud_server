@@ -100,6 +100,46 @@ Located in ``src/mud_server/core/``:
 
 * ``engine.py`` - GameEngine class with all game logic
 * ``world.py`` - World, Room, Item dataclasses
+* ``bus.py`` - Event bus for game event handling
+* ``events.py`` - Event type constants
+
+Event Bus Architecture
+~~~~~~~~~~~~~~~~~~~~~~
+
+The event bus provides publish-subscribe infrastructure for game events.
+It follows these key principles:
+
+**Synchronous Emit**: Events are committed to the log before handlers are notified.
+This ensures deterministic ordering via sequence numbers.
+
+**Immutable Events**: Once emitted, events cannot be changed. They represent
+facts about what happened (Ledger truth).
+
+**Plugin-Ready**: The bus is designed to support future plugin systems where
+plugins react to events but cannot intervene or block them.
+
+::
+
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                      Event Bus                                   │
+    │                                                                  │
+    │    Engine.move()                                                 │
+    │         │                                                        │
+    │         ▼                                                        │
+    │    bus.emit("player:moved", {...})                              │
+    │         │                                                        │
+    │         ├── 1. Increment sequence (deterministic ordering)       │
+    │         │                                                        │
+    │         ├── 2. Create immutable MudEvent                         │
+    │         │                                                        │
+    │         ├── 3. Append to event log (COMMITTED)                   │
+    │         │                                                        │
+    │         └── 4. Notify handlers (async execution allowed)         │
+    │                                                                  │
+    └─────────────────────────────────────────────────────────────────┘
+
+Event types follow "domain:action" format in past tense (e.g., ``player:moved``,
+``item:picked_up``) to emphasize they record facts, not requests.
 
 Database Layer
 ~~~~~~~~~~~~~~

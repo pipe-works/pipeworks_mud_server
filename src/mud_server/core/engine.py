@@ -29,8 +29,27 @@ Architecture:
 
 import html
 
+from mud_server.core.bus import MudBus
+from mud_server.core.events import Events
 from mud_server.core.world import World
 from mud_server.db import database
+
+
+def _get_bus() -> MudBus:
+    """
+    Get the current event bus singleton.
+
+    This function exists because of Python's module import system. If we imported
+    `bus` at module level, tests that call `reset_for_testing()` would orphan that
+    reference - the engine would emit to the old bus while tests check the new one.
+
+    By calling `MudBus()` at runtime, we always get the current singleton, even
+    after test resets.
+
+    Returns:
+        The current MudBus singleton instance
+    """
+    return MudBus()
 
 
 def sanitize_chat_message(message: str) -> str:
@@ -212,9 +231,10 @@ class GameEngine:
         1. Get player's current room from database
         2. Check if move is valid (exit exists, destination valid)
         3. Update player's room in database
-        4. Generate room description for new location
-        5. Broadcast departure message to old room
-        6. Broadcast arrival message to new room
+        4. Emit PLAYER_MOVED event (the move is now a fact)
+        5. Generate room description for new location
+        6. Broadcast departure message to old room
+        7. Broadcast arrival message to new room
 
         Args:
             username: Player attempting to move
@@ -230,6 +250,10 @@ class GameEngine:
             - No exit in that direction
             - Database update failed
 
+        Events Emitted:
+            - PLAYER_MOVED: When movement succeeds
+            - PLAYER_MOVE_FAILED: When movement fails
+
         Example:
             >>> engine.move("player1", "north")
             (True, "You move north.\\n=== Enchanted Forest ===...")
@@ -238,25 +262,80 @@ class GameEngine:
         """
         current_room = database.get_player_room(username)
         if not current_room:
+            # Emit failure event - player has no valid room
+            _get_bus().emit(
+                Events.PLAYER_MOVE_FAILED,
+                {
+                    "username": username,
+                    "room": None,
+                    "direction": direction,
+                    "reason": "Player not in a valid room",
+                },
+            )
             return False, "You are not in a valid room."
 
         # Check if current room exists in the world
         if not self.world.get_room(current_room):
+            # Emit failure event - room doesn't exist in world data
+            _get_bus().emit(
+                Events.PLAYER_MOVE_FAILED,
+                {
+                    "username": username,
+                    "room": current_room,
+                    "direction": direction,
+                    "reason": "Room not in world data",
+                },
+            )
             return False, "You are not in a valid room."
 
         can_move, destination = self.world.can_move(current_room, direction)
         if not can_move or destination is None:
+            # Emit failure event - no exit in that direction
+            _get_bus().emit(
+                Events.PLAYER_MOVE_FAILED,
+                {
+                    "username": username,
+                    "room": current_room,
+                    "direction": direction,
+                    "reason": f"No exit {direction}",
+                },
+            )
             return False, f"You cannot move {direction} from here."
 
-        # Update player room
+        # Update player room in database
         if not database.set_player_room(username, destination):
+            # Emit failure event - database update failed
+            _get_bus().emit(
+                Events.PLAYER_MOVE_FAILED,
+                {
+                    "username": username,
+                    "room": current_room,
+                    "direction": direction,
+                    "reason": "Database update failed",
+                },
+            )
             return False, "Failed to move."
+
+        # =====================================================================
+        # MOVEMENT SUCCEEDED - Emit the event
+        # =====================================================================
+        # This is the point of no return. The player has moved.
+        # The event records this fact for any listeners.
+        _get_bus().emit(
+            Events.PLAYER_MOVED,
+            {
+                "username": username,
+                "from_room": current_room,
+                "to_room": destination,
+                "direction": direction,
+            },
+        )
 
         # Get room description
         room_desc = self.world.get_room_description(destination, username)
         message = f"You move {direction}.\n{room_desc}"
 
-        # Notify other players
+        # Notify other players (legacy broadcast - will eventually be event-driven)
         self._broadcast_to_room(current_room, f"{username} leaves {direction}.", exclude=username)
         self._broadcast_to_room(
             destination,
