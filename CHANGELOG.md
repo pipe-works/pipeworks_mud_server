@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.4...mud_server-v0.2.5) (2026-01-31)
+
+
+### Features
+
+* **security:** add config system for CORS and server settings ([#27](https://github.com/pipe-works/pipeworks_mud_server/issues/27)) ([6fe4680](https://github.com/pipe-works/pipeworks_mud_server/commit/6fe468069b07efe9b6cb8d9cf6b00b97c5631b83))
+
 ## [0.2.4](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.3...mud_server-v0.2.4) (2026-01-30)
 
 
