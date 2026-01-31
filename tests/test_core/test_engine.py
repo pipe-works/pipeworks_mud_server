@@ -768,4 +768,7 @@ def test_opposite_direction():
     assert GameEngine._opposite_direction("south") == "north"
     assert GameEngine._opposite_direction("east") == "west"
     assert GameEngine._opposite_direction("west") == "east"
-    assert GameEngine._opposite_direction("up") == "somewhere"
+    assert GameEngine._opposite_direction("up") == "down"
+    assert GameEngine._opposite_direction("down") == "up"
+    # Unrecognized directions return "somewhere"
+    assert GameEngine._opposite_direction("diagonal") == "somewhere"
