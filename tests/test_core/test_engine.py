@@ -17,9 +17,33 @@ from unittest.mock import patch
 import pytest
 
 from mud_server.config import use_test_database
+from mud_server.core.bus import MudBus
 from mud_server.core.engine import GameEngine
+from mud_server.core.events import Events
 from mud_server.db import database
 from tests.constants import TEST_PASSWORD
+
+# ============================================================================
+# BUS RESET FIXTURE
+# ============================================================================
+# The event bus is a singleton that persists across tests. We must reset it
+# before and after each test to ensure event isolation.
+
+
+@pytest.fixture(autouse=True)
+def reset_bus_for_engine_tests():
+    """
+    Reset the event bus before and after each test.
+
+    This ensures:
+    - Tests start with empty event log
+    - Tests don't leak events to other tests
+    - Sequence numbers reset to 0
+    """
+    MudBus.reset_for_testing()
+    yield
+    MudBus.reset_for_testing()
+
 
 # ============================================================================
 # LOGIN/LOGOUT TESTS
@@ -152,6 +176,197 @@ def test_move_from_invalid_room(mock_engine, test_db, temp_db_path, db_with_user
 
         assert success is False
         assert "not in a valid room" in message.lower()
+
+
+# ============================================================================
+# MOVEMENT EVENT EMISSION TESTS
+# ============================================================================
+# These tests verify that the event bus receives correct events when players
+# move (or fail to move). The bus records facts about what happened - these
+# events enable plugins to react to player movement.
+
+
+@pytest.mark.unit
+@pytest.mark.game
+def test_move_emits_player_moved_event(mock_engine, test_db, temp_db_path, db_with_users):
+    """
+    Test that successful movement emits PLAYER_MOVED event.
+
+    The event should contain:
+    - username: Who moved
+    - from_room: Where they were
+    - to_room: Where they went
+    - direction: Which way they went
+
+    This is a FACT about what happened (Ledger), not a request (Newspaper).
+    """
+    with use_test_database(temp_db_path):
+        # Set player in spawn
+        database.set_player_room("testplayer", "spawn")
+
+        # Clear any events from setup
+        current_bus = MudBus()
+        initial_count = len(current_bus.get_event_log())
+
+        # Move north to forest
+        success, message = mock_engine.move("testplayer", "north")
+
+        assert success is True
+
+        # Get events emitted after our move
+        events = current_bus.get_event_log()[initial_count:]
+
+        # Find the PLAYER_MOVED event
+        moved_events = [e for e in events if e.type == Events.PLAYER_MOVED]
+        assert len(moved_events) == 1, f"Expected 1 PLAYER_MOVED event, got {len(moved_events)}"
+
+        event = moved_events[0]
+        assert event.detail["username"] == "testplayer"
+        assert event.detail["from_room"] == "spawn"
+        assert event.detail["to_room"] == "forest"
+        assert event.detail["direction"] == "north"
+
+
+@pytest.mark.unit
+@pytest.mark.game
+def test_move_emits_player_move_failed_on_invalid_direction(
+    mock_engine, test_db, temp_db_path, db_with_users
+):
+    """
+    Test that failed movement (invalid direction) emits PLAYER_MOVE_FAILED event.
+
+    The event should contain:
+    - username: Who tried to move
+    - room: Where they are (unchanged)
+    - direction: Which way they tried to go
+    - reason: Why it failed
+    """
+    with use_test_database(temp_db_path):
+        database.set_player_room("testplayer", "spawn")
+
+        current_bus = MudBus()
+        initial_count = len(current_bus.get_event_log())
+
+        # Try to move west (no exit in spawn)
+        success, message = mock_engine.move("testplayer", "west")
+
+        assert success is False
+
+        # Get events emitted after our move attempt
+        events = current_bus.get_event_log()[initial_count:]
+
+        # Find the PLAYER_MOVE_FAILED event
+        failed_events = [e for e in events if e.type == Events.PLAYER_MOVE_FAILED]
+        assert (
+            len(failed_events) == 1
+        ), f"Expected 1 PLAYER_MOVE_FAILED event, got {len(failed_events)}"
+
+        event = failed_events[0]
+        assert event.detail["username"] == "testplayer"
+        assert event.detail["room"] == "spawn"
+        assert event.detail["direction"] == "west"
+        assert "no exit" in event.detail["reason"].lower()
+
+
+@pytest.mark.unit
+@pytest.mark.game
+def test_move_emits_player_move_failed_on_invalid_room(
+    mock_engine, test_db, temp_db_path, db_with_users
+):
+    """
+    Test that movement from invalid room emits PLAYER_MOVE_FAILED event.
+
+    When a player's current room doesn't exist, the move fails and an
+    event is emitted with reason explaining the invalid room situation.
+    """
+    with use_test_database(temp_db_path):
+        # Set invalid room (non-existent room ID)
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE players SET current_room = ? WHERE username = ?",
+            ("invalid_room_xyz", "testplayer"),
+        )
+        conn.commit()
+        conn.close()
+
+        current_bus = MudBus()
+        initial_count = len(current_bus.get_event_log())
+
+        success, message = mock_engine.move("testplayer", "north")
+
+        assert success is False
+
+        # Get events emitted after our move attempt
+        events = current_bus.get_event_log()[initial_count:]
+
+        # Find the PLAYER_MOVE_FAILED event
+        failed_events = [e for e in events if e.type == Events.PLAYER_MOVE_FAILED]
+        assert (
+            len(failed_events) == 1
+        ), f"Expected 1 PLAYER_MOVE_FAILED event, got {len(failed_events)}"
+
+        event = failed_events[0]
+        assert event.detail["username"] == "testplayer"
+        assert event.detail["room"] == "invalid_room_xyz"
+        assert event.detail["direction"] == "north"
+        # The engine's reason is "Room not in world data" - this is the internal reason
+        assert "not in world data" in event.detail["reason"].lower()
+
+
+@pytest.mark.unit
+@pytest.mark.game
+def test_move_events_have_sequential_sequence_numbers(
+    mock_engine, test_db, temp_db_path, db_with_users
+):
+    """
+    Test that movement events have monotonically increasing sequence numbers.
+
+    Sequence numbers are critical for deterministic replay - they establish
+    the authoritative ordering of events in Logical Time.
+    """
+    with use_test_database(temp_db_path):
+        database.set_player_room("testplayer", "spawn")
+
+        current_bus = MudBus()
+
+        # Make two successful moves
+        mock_engine.move("testplayer", "north")  # spawn -> forest
+        mock_engine.move("testplayer", "south")  # forest -> spawn
+
+        events = current_bus.get_event_log()
+        moved_events = [e for e in events if e.type == Events.PLAYER_MOVED]
+
+        assert len(moved_events) == 2
+
+        # Sequence numbers should be monotonically increasing
+        assert moved_events[0].meta is not None
+        assert moved_events[1].meta is not None
+        assert moved_events[0].meta.sequence < moved_events[1].meta.sequence
+
+
+@pytest.mark.unit
+@pytest.mark.game
+def test_move_events_have_engine_source(mock_engine, test_db, temp_db_path, db_with_users):
+    """
+    Test that movement events have 'engine' as their source.
+
+    The source identifies which system emitted the event, enabling
+    plugins to filter or prioritize based on origin.
+    """
+    with use_test_database(temp_db_path):
+        database.set_player_room("testplayer", "spawn")
+
+        current_bus = MudBus()
+
+        mock_engine.move("testplayer", "north")
+
+        events = current_bus.get_event_log()
+        moved_events = [e for e in events if e.type == Events.PLAYER_MOVED]
+
+        assert len(moved_events) == 1
+        assert moved_events[0].meta is not None
+        assert moved_events[0].meta.source == "engine"
 
 
 # ============================================================================
