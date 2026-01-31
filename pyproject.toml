@@ -159,6 +159,7 @@ markers = [
     "auth: Authentication and authorization tests",
     "game: Game logic tests (movement, inventory, chat)",
     "admin: Administrative function tests",
+    "security: Security-related tests (XSS, timing attacks, auth bypass)",
 ]
 
 [tool.coverage.run]

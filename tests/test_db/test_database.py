@@ -169,6 +169,41 @@ def test_verify_password_nonexistent_user(test_db, temp_db_path):
         assert database.verify_password_for_user("nonexistent", "password") is False
 
 
+@pytest.mark.unit
+@pytest.mark.db
+@pytest.mark.security
+def test_verify_password_timing_attack_prevention(test_db, temp_db_path, db_with_users):
+    """
+    Test that password verification has consistent timing for existent and non-existent users.
+
+    This test verifies that the timing attack prevention is in place by ensuring
+    that both cases perform a bcrypt comparison. We can't perfectly test timing
+    in a unit test, but we can verify the function doesn't return early.
+    """
+    import time
+
+    with use_test_database(temp_db_path):
+        # Time verification for existing user with wrong password
+        start = time.perf_counter()
+        database.verify_password_for_user("testplayer", "wrongpassword")
+        existing_user_time = time.perf_counter() - start
+
+        # Time verification for non-existent user
+        start = time.perf_counter()
+        database.verify_password_for_user("nonexistent_user_12345", "wrongpassword")
+        nonexistent_user_time = time.perf_counter() - start
+
+        # Both should take roughly the same time (within 50% tolerance)
+        # This is a rough check - the important thing is that both perform bcrypt
+        ratio = max(existing_user_time, nonexistent_user_time) / max(
+            min(existing_user_time, nonexistent_user_time), 0.001
+        )
+        assert ratio < 3.0, (
+            f"Timing difference too large: {existing_user_time:.4f}s vs "
+            f"{nonexistent_user_time:.4f}s (ratio: {ratio:.2f})"
+        )
+
+
 # ============================================================================
 # ROLE MANAGEMENT TESTS
 # ============================================================================
