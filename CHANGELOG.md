@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.8](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.7...mud_server-v0.2.8) (2026-01-31)
+
+
+### Features
+
+* **core:** add up/down movement commands and pub crawl world data ([3c64630](https://github.com/pipe-works/pipeworks_mud_server/commit/3c64630daca66367f33469150910a956c8c736a2))
+* **core:** add up/down movement commands and pub crawl world data ([28e3ac4](https://github.com/pipe-works/pipeworks_mud_server/commit/28e3ac4fb0599c43b51487766ab99774446daba6))
+
+
+### Bug Fixes
+
+* **examples:** improve ASCII map alignment and add box templates ([#35](https://github.com/pipe-works/pipeworks_mud_server/issues/35)) ([5ed2950](https://github.com/pipe-works/pipeworks_mud_server/commit/5ed29508dd8a3c5ea53e979c1e260226c2d8c4ba))
+* **tests:** update opposite_direction test for up/down support ([0acb79f](https://github.com/pipe-works/pipeworks_mud_server/commit/0acb79f6754ff0f4a353794e9b8ba8d2427c4e8d))
+
 ## [0.2.7](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.6...mud_server-v0.2.7) (2026-01-31)
 
 
