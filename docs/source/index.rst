@@ -15,6 +15,7 @@ JSON-driven world data, and clean architecture.
    architecture
    security
    extending
+   examples
 
 .. toctree::
    :maxdepth: 2
