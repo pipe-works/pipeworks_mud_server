@@ -61,13 +61,13 @@
       "description": "Bare stone walls and stacked ledgers. Everything above rests on what is written here. Nothing here knows why it matters.",
       "exits": {
         "up": "smoking_room",
-        "north": "upper_landing"
+        "north": "dark_passage"
       },
       "items": ["ledger", "ink_bottle"]
     },
-    "upper_landing": {
-      "id": "upper_landing",
-      "name": "Upper Landing",
+    "dark_passage": {
+      "id": "dark_passage",
+      "name": "The Dark Passage",
       "description": "Footsteps echo. Messages pass through the air. Someone might be listening. No promises are made.",
       "exits": {
         "south": "cellar",
@@ -80,7 +80,7 @@
       "name": "Quiet Booth",
       "description": "A corner booth with old notes carved into the table. Some things reacted. Others did not. Silence is recorded either way.",
       "exits": {
-        "east": "upper_landing",
+        "east": "dark_passage",
         "up": "spawn"
       },
       "items": ["carved_notes", "candle"]
