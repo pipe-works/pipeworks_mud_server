@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.9](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.8...mud_server-v0.2.9) (2026-02-01)
+
+
+### Features
+
+* **core:** implement zone-based world architecture ([#38](https://github.com/pipe-works/pipeworks_mud_server/issues/38)) ([deac289](https://github.com/pipe-works/pipeworks_mud_server/commit/deac289013ab5f896316c03021b62b1683ae30f5))
+
 ## [0.2.8](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.7...mud_server-v0.2.8) (2026-01-31)
 
 
