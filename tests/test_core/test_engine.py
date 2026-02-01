@@ -820,6 +820,102 @@ def test_recall_already_at_spawn(mock_engine, test_db, temp_db_path, db_with_use
 
 @pytest.mark.unit
 @pytest.mark.game
+def test_recall_with_zone_configured(test_db, temp_db_path, db_with_users):
+    """Test recall returns to zone spawn when player is in a zone with zones configured."""
+    from mud_server.core.world import Room, Zone
+
+    with use_test_database(temp_db_path):
+        # Create engine with zones configured
+        with patch.object(GameEngine, "__init__", lambda self: None):
+            engine = GameEngine()
+
+            # Create a mock world with zones
+            engine.world = type("MockWorld", (), {})()
+            engine.world.zones = {
+                "pub_zone": Zone(
+                    id="pub_zone",
+                    name="The Pub District",
+                    description="A district of pubs",
+                    spawn_room="pub_spawn",
+                    rooms=["pub_spawn", "back_room"],
+                ),
+            }
+            engine.world.rooms = {
+                "pub_spawn": Room(
+                    id="pub_spawn",
+                    name="Pub Spawn",
+                    description="The pub entrance",
+                    exits={"east": "back_room"},
+                    items=[],
+                ),
+                "back_room": Room(
+                    id="back_room",
+                    name="Back Room",
+                    description="A back room",
+                    exits={"west": "pub_spawn"},
+                    items=[],
+                ),
+            }
+            engine.world.default_spawn = ("pub_zone", "pub_spawn")
+            engine.world.get_room = lambda rid: engine.world.rooms.get(rid)
+            engine.world.get_room_description = lambda rid, user: f"You are in {rid}"
+
+            # Set player in the zone's back_room
+            database.set_player_room("testplayer", "back_room")
+
+            # Recall should return to zone spawn
+            success, message = engine.recall("testplayer")
+
+            assert success is True
+            assert "The Pub District" in message  # Zone name in message
+            assert database.get_player_room("testplayer") == "pub_spawn"
+
+
+@pytest.mark.unit
+@pytest.mark.game
+def test_recall_database_failure(test_db, temp_db_path, db_with_users):
+    """Test recall when database update fails."""
+    from mud_server.core.world import Room
+
+    with use_test_database(temp_db_path):
+        with patch.object(GameEngine, "__init__", lambda self: None):
+            engine = GameEngine()
+
+            # Create a mock world
+            engine.world = type("MockWorld", (), {})()
+            engine.world.zones = {}
+            engine.world.default_spawn = ("", "spawn")
+            engine.world.rooms = {
+                "spawn": Room(
+                    id="spawn",
+                    name="Spawn",
+                    description="Spawn",
+                    exits={},
+                    items=[],
+                ),
+                "other_room": Room(
+                    id="other_room",
+                    name="Other",
+                    description="Other",
+                    exits={},
+                    items=[],
+                ),
+            }
+            engine.world.get_room = lambda rid: engine.world.rooms.get(rid)
+
+            # Set player away from spawn
+            database.set_player_room("testplayer", "other_room")
+
+            # Mock database failure
+            with patch.object(database, "set_player_room", return_value=False):
+                success, message = engine.recall("testplayer")
+
+            assert success is False
+            assert "Failed to recall" in message
+
+
+@pytest.mark.unit
+@pytest.mark.game
 def test_opposite_direction():
     """Test the _opposite_direction static method."""
 

@@ -323,6 +323,70 @@ def test_command_say(authenticated_client, test_db, temp_db_path):
 
 @pytest.mark.api
 @pytest.mark.game
+def test_command_recall(authenticated_client, test_db, temp_db_path):
+    """Test /command endpoint with 'recall' command."""
+    from mud_server.db import database
+
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        # Move player away from spawn first
+        database.set_player_room("testplayer", "forest")
+
+        response = client.post("/command", json={"session_id": session_id, "command": "recall"})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        # Player should be back at spawn
+        assert database.get_player_room("testplayer") == "spawn"
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_flee_alias(authenticated_client, test_db, temp_db_path):
+    """Test /command endpoint with 'flee' command (alias for recall)."""
+    from mud_server.db import database
+
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        # Move player away from spawn first
+        database.set_player_room("testplayer", "forest")
+
+        response = client.post("/command", json={"session_id": session_id, "command": "flee"})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert database.get_player_room("testplayer") == "spawn"
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_scurry_alias(authenticated_client, test_db, temp_db_path):
+    """Test /command endpoint with 'scurry' command (alias for recall)."""
+    from mud_server.db import database
+
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        # Move player away from spawn first
+        database.set_player_room("testplayer", "forest")
+
+        response = client.post("/command", json={"session_id": session_id, "command": "scurry"})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert database.get_player_room("testplayer") == "spawn"
+
+
+@pytest.mark.api
+@pytest.mark.game
 def test_command_empty(authenticated_client):
     """Test /command endpoint with empty command."""
     session_id = authenticated_client["session_id"]
