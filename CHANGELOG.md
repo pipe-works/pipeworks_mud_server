@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.10](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.9...mud_server-v0.2.10) (2026-02-01)
+
+
+### Bug Fixes
+
+* **data:** rename upper_landing to dark_passage ([#41](https://github.com/pipe-works/pipeworks_mud_server/issues/41)) ([d567f50](https://github.com/pipe-works/pipeworks_mud_server/commit/d567f5074a8d6c54c9610c923cc2d8512b083b4f))
+
 ## [0.2.9](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.8...mud_server-v0.2.9) (2026-02-01)
 
 
