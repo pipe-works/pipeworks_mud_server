@@ -181,10 +181,11 @@ class GameEngine:
         if not database.create_session(username, session_id):
             return False, "Failed to create session.", None
 
-        # Get current room
+        # Get current room and validate it exists in the world
         room = database.get_player_room(username)
-        if not room:
-            room = "spawn"
+        if not room or not self.world.get_room(room):
+            # Room is missing or doesn't exist in world data - reset to default spawn
+            _zone, room = self.world.default_spawn
             database.set_player_room(username, room)
 
         # Generate welcome message
@@ -342,6 +343,72 @@ class GameEngine:
             f"{username} arrives from {self._opposite_direction(direction)}.",
             exclude=username,
         )
+
+        return True, message
+
+    def recall(self, username: str) -> tuple[bool, str]:
+        """
+        Recall player to their current zone's spawn point.
+
+        This is the "hearthstone" equivalent - a way for players to return
+        to a known safe location. The destination is the spawn_room defined
+        in the player's current zone.
+
+        If the player is not in a known zone, they are sent to the world's
+        default spawn point instead.
+
+        Args:
+            username: Player recalling
+
+        Returns:
+            Tuple of (success, message)
+            - success: True if recall succeeded
+            - message: Description of new location
+
+        Side Effects:
+            - Updates player's current_room in database
+            - Broadcasts departure/arrival messages (when implemented)
+        """
+        current_room = database.get_player_room(username)
+
+        # Find which zone the player is in
+        current_zone = None
+        for _zone_id, zone in self.world.zones.items():
+            if current_room in zone.rooms:
+                current_zone = zone
+                break
+
+        # Determine destination
+        if current_zone:
+            destination = current_zone.spawn_room
+            zone_name = current_zone.name
+        else:
+            # Not in a known zone - use world default
+            _zone_id, destination = self.world.default_spawn
+            zone_name = "the world"
+
+        # Check if already at spawn
+        if current_room == destination:
+            return True, "You are already at the spawn point."
+
+        # Update player location
+        if not database.set_player_room(username, destination):
+            return False, "Failed to recall."
+
+        # Broadcast departure (when implemented)
+        if current_room:
+            self._broadcast_to_room(
+                current_room, f"{username} vanishes in a puff of smoke.", exclude=username
+            )
+
+        # Broadcast arrival
+        self._broadcast_to_room(
+            destination, f"{username} appears in a puff of smoke.", exclude=username
+        )
+
+        # Generate response
+        room_desc = self.world.get_room_description(destination, username)
+        message = f"You recall to {zone_name}'s spawn point.\n{room_desc}"
 
         return True, message
 

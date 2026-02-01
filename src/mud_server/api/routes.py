@@ -301,6 +301,11 @@ def register_routes(app: FastAPI, engine: GameEngine):
             success, message = engine.whisper(username, target, msg)
             return CommandResponse(success=success, message=message)
 
+        elif cmd in ["recall", "flee", "scurry"]:
+            # Recall to zone spawn point
+            success, message = engine.recall(username)
+            return CommandResponse(success=success, message=message)
+
         elif cmd == "who":
             players = engine.get_active_players()
             if not players:
@@ -314,12 +319,14 @@ def register_routes(app: FastAPI, engine: GameEngine):
 [Available Commands]
 Movement:
   /north, /n, /south, /s, /east, /e, /west, /w - Move in a direction
+  /up, /u, /down, /d - Move up or down
 
 Actions:
   /look, /l - Examine the current room
   /inventory, /inv, /i - View your inventory
   /get <item>, /take <item> - Pick up an item
   /drop <item> - Drop an item
+  /recall, /flee, /scurry - Return to zone spawn point
 
 Communication:
   /say <message> - Send a message to the current room
