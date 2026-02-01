@@ -250,3 +250,596 @@ def test_get_room_description_no_items(mock_world):
 
         # Items section should not appear
         assert "[Items here]:" not in desc
+
+
+# ============================================================================
+# ZONE-BASED LOADING TESTS
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_zone_dataclass_creation():
+    """Test creating a Zone instance."""
+    from mud_server.core.world import Zone
+
+    zone = Zone(
+        id="test_zone",
+        name="Test Zone",
+        description="A test zone",
+        spawn_room="spawn",
+        rooms=["spawn", "room1", "room2"],
+    )
+
+    assert zone.id == "test_zone"
+    assert zone.name == "Test Zone"
+    assert zone.spawn_room == "spawn"
+    assert len(zone.rooms) == 3
+
+
+@pytest.mark.unit
+def test_parse_room_ref_simple():
+    """Test parsing simple room references (no zone prefix)."""
+    from mud_server.core.world import World
+
+    # Create a minimal world for testing
+    world = World.__new__(World)
+    world.rooms = {}
+    world.items = {}
+    world.zones = {}
+
+    zone_id, room_id = world._parse_room_ref("spawn")
+    assert zone_id is None
+    assert room_id == "spawn"
+
+
+@pytest.mark.unit
+def test_parse_room_ref_cross_zone():
+    """Test parsing cross-zone room references (zone:room format)."""
+    from mud_server.core.world import World
+
+    world = World.__new__(World)
+    world.rooms = {}
+    world.items = {}
+    world.zones = {}
+
+    zone_id, room_id = world._parse_room_ref("docks:east_pier")
+    assert zone_id == "docks"
+    assert room_id == "east_pier"
+
+
+@pytest.mark.integration
+def test_cross_zone_movement(tmp_path):
+    """Test movement between zones using zone:room exit format.
+
+    Creates two zones with a cross-zone exit and verifies:
+    1. Cross-zone exits are resolved correctly
+    2. Movement returns the actual room ID (not the zone:room ref)
+    3. Room descriptions show correct destination names
+    """
+    import json
+
+    from mud_server.core import world as world_module
+    from mud_server.core.world import World
+
+    # Create zone directory
+    zones_dir = tmp_path / "zones"
+    zones_dir.mkdir()
+
+    # Create world.json with two zones
+    world_json = {
+        "name": "Cross-Zone Test World",
+        "default_spawn": {"zone": "pub", "room": "main_room"},
+        "zones": ["pub", "docks"],
+        "global_items": {},
+    }
+    world_json_path = tmp_path / "world.json"
+    world_json_path.write_text(json.dumps(world_json))
+
+    # Create pub zone with exit to docks
+    pub_zone = {
+        "id": "pub",
+        "name": "The Pub",
+        "spawn_room": "main_room",
+        "rooms": {
+            "main_room": {
+                "id": "main_room",
+                "name": "Main Room",
+                "description": "The main pub room",
+                "exits": {"east": "back_room", "west": "docks:pier"},
+                "items": [],
+            },
+            "back_room": {
+                "id": "back_room",
+                "name": "Back Room",
+                "description": "A back room",
+                "exits": {"west": "main_room"},
+                "items": [],
+            },
+        },
+        "items": {},
+    }
+    (zones_dir / "pub.json").write_text(json.dumps(pub_zone))
+
+    # Create docks zone
+    docks_zone = {
+        "id": "docks",
+        "name": "The Docks",
+        "spawn_room": "pier",
+        "rooms": {
+            "pier": {
+                "id": "pier",
+                "name": "East Pier",
+                "description": "A wooden pier",
+                "exits": {"east": "pub:main_room"},
+                "items": [],
+            },
+        },
+        "items": {},
+    }
+    (zones_dir / "docks.json").write_text(json.dumps(docks_zone))
+
+    # Patch paths
+    original_world_path = world_module.WORLD_JSON_PATH
+    original_zones_dir = world_module.ZONES_DIR
+    original_legacy_path = world_module.LEGACY_WORLD_DATA_PATH
+    original_world_data_path = world_module.WORLD_DATA_PATH
+
+    try:
+        world_module.WORLD_JSON_PATH = world_json_path
+        world_module.ZONES_DIR = zones_dir
+        nonexistent = tmp_path / "nonexistent.json"
+        world_module.LEGACY_WORLD_DATA_PATH = nonexistent
+        world_module.WORLD_DATA_PATH = nonexistent
+
+        # Load the world
+        w = World()
+
+        # Verify both zones loaded
+        assert len(w.zones) == 2
+        assert "pub" in w.zones
+        assert "docks" in w.zones
+
+        # Test same-zone movement
+        can_move, dest = w.can_move("main_room", "east")
+        assert can_move is True
+        assert dest == "back_room"
+
+        # Test cross-zone movement (pub → docks)
+        can_move, dest = w.can_move("main_room", "west")
+        assert can_move is True
+        assert dest == "pier"  # Returns room ID, not "docks:pier"
+
+        # Test cross-zone movement (docks → pub)
+        can_move, dest = w.can_move("pier", "east")
+        assert can_move is True
+        assert dest == "main_room"  # Returns room ID, not "pub:main_room"
+
+        # Test room description shows correct exit names
+        with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
+            desc = w.get_room_description("main_room", "testplayer")
+            assert "East Pier" in desc  # Cross-zone exit shows destination room name
+
+    finally:
+        world_module.WORLD_JSON_PATH = original_world_path
+        world_module.ZONES_DIR = original_zones_dir
+        world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
+        world_module.WORLD_DATA_PATH = original_world_data_path
+
+
+@pytest.mark.integration
+def test_zone_based_loading_from_real_files(tmp_path):
+    """Test zone-based loading using real temporary files.
+
+    This test creates actual zone files in a temp directory to verify
+    the zone loading logic works correctly without mocking.
+    """
+    import json
+
+    from mud_server.core import world as world_module
+    from mud_server.core.world import World
+
+    # Create zone directory
+    zones_dir = tmp_path / "zones"
+    zones_dir.mkdir()
+
+    # Create world.json
+    world_json = {
+        "name": "Test World",
+        "default_spawn": {"zone": "test_zone", "room": "spawn"},
+        "zones": ["test_zone"],
+        "global_items": {"gold": {"id": "gold", "name": "Gold Coin", "description": "Shiny"}},
+    }
+    world_json_path = tmp_path / "world.json"
+    world_json_path.write_text(json.dumps(world_json))
+
+    # Create zone file
+    zone_data = {
+        "id": "test_zone",
+        "name": "Test Zone",
+        "description": "A zone for testing",
+        "spawn_room": "spawn",
+        "rooms": {
+            "spawn": {
+                "id": "spawn",
+                "name": "Spawn Room",
+                "description": "You are at the spawn",
+                "exits": {"north": "room1"},
+                "items": ["sword"],
+            },
+            "room1": {
+                "id": "room1",
+                "name": "Room One",
+                "description": "The first room",
+                "exits": {"south": "spawn"},
+                "items": [],
+            },
+        },
+        "items": {"sword": {"id": "sword", "name": "Rusty Sword", "description": "A sword"}},
+    }
+    zone_path = zones_dir / "test_zone.json"
+    zone_path.write_text(json.dumps(zone_data))
+
+    # Patch the paths to use temp directory
+    original_world_path = world_module.WORLD_JSON_PATH
+    original_zones_dir = world_module.ZONES_DIR
+    original_legacy_path = world_module.LEGACY_WORLD_DATA_PATH
+    original_world_data_path = world_module.WORLD_DATA_PATH
+
+    try:
+        world_module.WORLD_JSON_PATH = world_json_path
+        world_module.ZONES_DIR = zones_dir
+        # Point both legacy paths to nonexistent file so zone loading is used
+        nonexistent = tmp_path / "nonexistent.json"
+        world_module.LEGACY_WORLD_DATA_PATH = nonexistent
+        world_module.WORLD_DATA_PATH = nonexistent
+
+        # Load the world
+        w = World()
+
+        # Verify zone-based loading worked
+        assert w.world_name == "Test World"
+        assert len(w.zones) == 1
+        assert "test_zone" in w.zones
+        assert len(w.rooms) == 2
+        assert "spawn" in w.rooms
+        assert "room1" in w.rooms
+        assert len(w.items) == 2  # gold (global) + sword (zone)
+        assert "gold" in w.items
+        assert "sword" in w.items
+        assert w.default_spawn == ("test_zone", "spawn")
+
+    finally:
+        # Restore original paths
+        world_module.WORLD_JSON_PATH = original_world_path
+        world_module.ZONES_DIR = original_zones_dir
+        world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
+        world_module.WORLD_DATA_PATH = original_world_data_path
+
+
+@pytest.mark.integration
+def test_zone_file_not_found_warning(tmp_path, caplog):
+    """Test warning is logged when a zone file is listed but doesn't exist."""
+    import json
+    import logging
+
+    from mud_server.core import world as world_module
+    from mud_server.core.world import World
+
+    # Create zone directory (empty - no zone files)
+    zones_dir = tmp_path / "zones"
+    zones_dir.mkdir()
+
+    # Create world.json with a zone that doesn't exist
+    world_json = {
+        "name": "Test World",
+        "default_spawn": {"zone": "missing_zone", "room": "spawn"},
+        "zones": ["missing_zone"],  # This zone file doesn't exist
+        "global_items": {},
+    }
+    world_json_path = tmp_path / "world.json"
+    world_json_path.write_text(json.dumps(world_json))
+
+    # Patch paths
+    original_world_path = world_module.WORLD_JSON_PATH
+    original_zones_dir = world_module.ZONES_DIR
+    original_legacy_path = world_module.LEGACY_WORLD_DATA_PATH
+    original_world_data_path = world_module.WORLD_DATA_PATH
+
+    try:
+        world_module.WORLD_JSON_PATH = world_json_path
+        world_module.ZONES_DIR = zones_dir
+        nonexistent = tmp_path / "nonexistent.json"
+        world_module.LEGACY_WORLD_DATA_PATH = nonexistent
+        world_module.WORLD_DATA_PATH = nonexistent
+
+        # Load the world - should warn about missing zone
+        with caplog.at_level(logging.WARNING):
+            w = World()
+
+        # Verify warning was logged
+        assert "Zone file not found" in caplog.text
+        assert "missing_zone" in caplog.text
+        # World should still load but with no zones
+        assert len(w.zones) == 0
+
+    finally:
+        world_module.WORLD_JSON_PATH = original_world_path
+        world_module.ZONES_DIR = original_zones_dir
+        world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
+        world_module.WORLD_DATA_PATH = original_world_data_path
+
+
+@pytest.mark.integration
+def test_no_world_data_warning(tmp_path, caplog):
+    """Test warning when no world data can be loaded."""
+    import logging
+
+    from mud_server.core import world as world_module
+    from mud_server.core.world import World
+
+    # Patch all paths to nonexistent files
+    original_world_path = world_module.WORLD_JSON_PATH
+    original_zones_dir = world_module.ZONES_DIR
+    original_legacy_path = world_module.LEGACY_WORLD_DATA_PATH
+    original_world_data_path = world_module.WORLD_DATA_PATH
+
+    try:
+        nonexistent = tmp_path / "nonexistent.json"
+        world_module.WORLD_JSON_PATH = nonexistent
+        world_module.ZONES_DIR = tmp_path / "nonexistent_zones"
+        world_module.LEGACY_WORLD_DATA_PATH = nonexistent
+        world_module.WORLD_DATA_PATH = nonexistent
+
+        # Load the world - should warn about no data
+        with caplog.at_level(logging.WARNING):
+            w = World()
+
+        # Verify warning was logged
+        assert "No world data loaded" in caplog.text
+        # World should be empty
+        assert len(w.rooms) == 0
+
+    finally:
+        world_module.WORLD_JSON_PATH = original_world_path
+        world_module.ZONES_DIR = original_zones_dir
+        world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
+        world_module.WORLD_DATA_PATH = original_world_data_path
+
+
+@pytest.mark.integration
+def test_lazy_load_zone_on_cross_zone_exit(tmp_path, caplog):
+    """Test that zones are lazy-loaded when a cross-zone exit is accessed."""
+    import json
+    import logging
+
+    from mud_server.core import world as world_module
+    from mud_server.core.world import World
+
+    # Create zone directory
+    zones_dir = tmp_path / "zones"
+    zones_dir.mkdir()
+
+    # Create world.json with only one zone listed (pub), but docks exists on disk
+    world_json = {
+        "name": "Lazy Load Test",
+        "default_spawn": {"zone": "pub", "room": "main_room"},
+        "zones": ["pub"],  # Only pub is listed - docks will be lazy-loaded
+        "global_items": {},
+    }
+    world_json_path = tmp_path / "world.json"
+    world_json_path.write_text(json.dumps(world_json))
+
+    # Create pub zone with exit to docks (not listed in world.json)
+    pub_zone = {
+        "id": "pub",
+        "name": "The Pub",
+        "spawn_room": "main_room",
+        "rooms": {
+            "main_room": {
+                "id": "main_room",
+                "name": "Main Room",
+                "description": "The main pub room",
+                "exits": {"west": "docks:pier"},  # Cross-zone exit to unlisted zone
+                "items": [],
+            },
+        },
+        "items": {},
+    }
+    (zones_dir / "pub.json").write_text(json.dumps(pub_zone))
+
+    # Create docks zone (exists on disk but not in world.json zones list)
+    docks_zone = {
+        "id": "docks",
+        "name": "The Docks",
+        "spawn_room": "pier",
+        "rooms": {
+            "pier": {
+                "id": "pier",
+                "name": "East Pier",
+                "description": "A wooden pier",
+                "exits": {"east": "pub:main_room"},
+                "items": [],
+            },
+        },
+        "items": {},
+    }
+    (zones_dir / "docks.json").write_text(json.dumps(docks_zone))
+
+    # Patch paths
+    original_world_path = world_module.WORLD_JSON_PATH
+    original_zones_dir = world_module.ZONES_DIR
+    original_legacy_path = world_module.LEGACY_WORLD_DATA_PATH
+    original_world_data_path = world_module.WORLD_DATA_PATH
+
+    try:
+        world_module.WORLD_JSON_PATH = world_json_path
+        world_module.ZONES_DIR = zones_dir
+        nonexistent = tmp_path / "nonexistent.json"
+        world_module.LEGACY_WORLD_DATA_PATH = nonexistent
+        world_module.WORLD_DATA_PATH = nonexistent
+
+        # Load the world
+        w = World()
+
+        # Initially only pub zone is loaded
+        assert len(w.zones) == 1
+        assert "pub" in w.zones
+        assert "docks" not in w.zones
+        assert "pier" not in w.rooms
+
+        # Access cross-zone exit - this should lazy-load docks
+        with caplog.at_level(logging.INFO):
+            can_move, dest = w.can_move("main_room", "west")
+
+        # Verify lazy loading occurred
+        assert "Lazy-loading zone 'docks'" in caplog.text
+        assert can_move is True
+        assert dest == "pier"
+
+        # Verify docks is now loaded
+        assert "docks" in w.zones
+        assert "pier" in w.rooms
+
+    finally:
+        world_module.WORLD_JSON_PATH = original_world_path
+        world_module.ZONES_DIR = original_zones_dir
+        world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
+        world_module.WORLD_DATA_PATH = original_world_data_path
+
+
+@pytest.mark.integration
+def test_exit_to_unknown_room_warning(tmp_path, caplog):
+    """Test warning when exit leads to unknown room."""
+    import json
+    import logging
+
+    from mud_server.core import world as world_module
+    from mud_server.core.world import World
+
+    # Create zone directory
+    zones_dir = tmp_path / "zones"
+    zones_dir.mkdir()
+
+    # Create world.json
+    world_json = {
+        "name": "Bad Exit Test",
+        "default_spawn": {"zone": "test", "room": "start"},
+        "zones": ["test"],
+        "global_items": {},
+    }
+    world_json_path = tmp_path / "world.json"
+    world_json_path.write_text(json.dumps(world_json))
+
+    # Create zone with exit to non-existent room
+    zone_data = {
+        "id": "test",
+        "name": "Test Zone",
+        "spawn_room": "start",
+        "rooms": {
+            "start": {
+                "id": "start",
+                "name": "Start Room",
+                "description": "The starting room",
+                "exits": {"north": "nonexistent_room"},  # This room doesn't exist
+                "items": [],
+            },
+        },
+        "items": {},
+    }
+    (zones_dir / "test.json").write_text(json.dumps(zone_data))
+
+    # Patch paths
+    original_world_path = world_module.WORLD_JSON_PATH
+    original_zones_dir = world_module.ZONES_DIR
+    original_legacy_path = world_module.LEGACY_WORLD_DATA_PATH
+    original_world_data_path = world_module.WORLD_DATA_PATH
+
+    try:
+        world_module.WORLD_JSON_PATH = world_json_path
+        world_module.ZONES_DIR = zones_dir
+        nonexistent = tmp_path / "nonexistent.json"
+        world_module.LEGACY_WORLD_DATA_PATH = nonexistent
+        world_module.WORLD_DATA_PATH = nonexistent
+
+        w = World()
+
+        # Try to move to non-existent room
+        with caplog.at_level(logging.WARNING):
+            can_move, dest = w.can_move("start", "north")
+
+        # Should fail and log warning
+        assert can_move is False
+        assert dest is None
+        assert "leads to unknown room" in caplog.text
+        assert "nonexistent_room" in caplog.text
+
+    finally:
+        world_module.WORLD_JSON_PATH = original_world_path
+        world_module.ZONES_DIR = original_zones_dir
+        world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
+        world_module.WORLD_DATA_PATH = original_world_data_path
+
+
+@pytest.mark.unit
+def test_default_spawn_non_dict_format(tmp_path):
+    """Test handling of non-dict default_spawn format (fallback to defaults)."""
+    import json
+
+    from mud_server.core import world as world_module
+    from mud_server.core.world import World
+
+    # Create zone directory
+    zones_dir = tmp_path / "zones"
+    zones_dir.mkdir()
+
+    # Create world.json with non-dict default_spawn (string instead of dict)
+    world_json = {
+        "name": "Test World",
+        "default_spawn": "spawn",  # String instead of dict
+        "zones": ["test"],
+        "global_items": {},
+    }
+    world_json_path = tmp_path / "world.json"
+    world_json_path.write_text(json.dumps(world_json))
+
+    # Create minimal zone
+    zone_data = {
+        "id": "test",
+        "name": "Test Zone",
+        "spawn_room": "spawn",
+        "rooms": {
+            "spawn": {
+                "id": "spawn",
+                "name": "Spawn",
+                "description": "Spawn room",
+                "exits": {},
+                "items": [],
+            },
+        },
+        "items": {},
+    }
+    (zones_dir / "test.json").write_text(json.dumps(zone_data))
+
+    # Patch paths
+    original_world_path = world_module.WORLD_JSON_PATH
+    original_zones_dir = world_module.ZONES_DIR
+    original_legacy_path = world_module.LEGACY_WORLD_DATA_PATH
+    original_world_data_path = world_module.WORLD_DATA_PATH
+
+    try:
+        world_module.WORLD_JSON_PATH = world_json_path
+        world_module.ZONES_DIR = zones_dir
+        nonexistent = tmp_path / "nonexistent.json"
+        world_module.LEGACY_WORLD_DATA_PATH = nonexistent
+        world_module.WORLD_DATA_PATH = nonexistent
+
+        w = World()
+
+        # Should use default spawn values since config wasn't a dict
+        assert w.default_spawn == ("", "spawn")
+
+    finally:
+        world_module.WORLD_JSON_PATH = original_world_path
+        world_module.ZONES_DIR = original_zones_dir
+        world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
+        world_module.WORLD_DATA_PATH = original_world_data_path

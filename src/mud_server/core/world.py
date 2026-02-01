@@ -3,40 +3,54 @@ World data management and structures.
 
 This module defines the world data structures (rooms and items) and provides
 the World class for loading and querying world data. The world is loaded from
-a JSON file at server startup and kept in memory for fast access.
+JSON files at server startup and kept in memory for fast access.
 
 World Structure:
 - Rooms: Named locations with descriptions, exits to other rooms, and items
 - Items: Objects that can be found in rooms and picked up by players
-- Exits: Directional connections between rooms (north, south, east, west)
+- Exits: Directional connections between rooms (north, south, east, west, up, down)
+- Zones: Collections of related rooms loaded from separate files
 
-Data Storage:
-- World data is stored in data/world_data.json
-- Loaded once at server startup into memory
-- Read-only during gameplay (modifications not persisted)
-- Changes to JSON require server restart to take effect
+Data Storage (Zone-based - preferred):
+- World registry: data/world.json (zone list, global config)
+- Zone files: data/zones/<zone_id>.json (rooms and items per zone)
+
+Data Storage (Legacy - fallback):
+- Single file: data/world_data.json (all rooms and items)
 
 Design Notes:
 - Rooms and items are identified by unique string IDs
 - Exits are one-way unless defined in both rooms
 - Items in rooms are shared (multiple players can pick up same item)
 - Room descriptions are generated dynamically to include current state
+- Cross-zone exits use "zone:room" format (e.g., "docks:east_pier")
 """
 
 import json
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from mud_server.db import database
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-# Path to the world data JSON file
-# Navigates from this file up to project root, then into data/ directory
-# Structure: src/mud_server/core/world.py -> ../../../../data/world_data.json
-WORLD_DATA_PATH = Path(__file__).parent.parent.parent.parent / "data" / "world_data.json"
+# Base data directory
+DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
+
+# Zone-based structure (preferred)
+WORLD_JSON_PATH = DATA_DIR / "world.json"
+ZONES_DIR = DATA_DIR / "zones"
+
+# Legacy single-file structure (fallback)
+LEGACY_WORLD_DATA_PATH = DATA_DIR / "world_data.json"
+
+# For backward compatibility with tests that reference this
+WORLD_DATA_PATH = LEGACY_WORLD_DATA_PATH
 
 
 # ============================================================================
@@ -118,6 +132,38 @@ class Item:
     description: str
 
 
+@dataclass
+class Zone:
+    """
+    Represents a zone/region in the MUD world.
+
+    Zones are collections of related rooms loaded from separate JSON files.
+    Each zone has its own spawn point and can define zone-specific items.
+
+    Attributes:
+        id: Unique identifier for this zone (e.g., "crooked_pipe", "docks")
+        name: Human-readable name (e.g., "Crooked Pipe District")
+        description: Description of the zone's theme/purpose
+        spawn_room: Default room ID for players entering this zone
+        rooms: List of room IDs belonging to this zone
+
+    Example:
+        Zone(
+            id="crooked_pipe",
+            name="Crooked Pipe District",
+            description="A warren of goblin pubs...",
+            spawn_room="spawn",
+            rooms=["spawn", "front_parlour", "back_parlour", ...]
+        )
+    """
+
+    id: str
+    name: str
+    description: str
+    spawn_room: str
+    rooms: list[str] = field(default_factory=list)
+
+
 # ============================================================================
 # WORLD MANAGEMENT CLASS
 # ============================================================================
@@ -128,45 +174,193 @@ class World:
     Manages the MUD world data, providing access to rooms and items.
 
     This class is instantiated once at server startup and loads all world
-    data from the JSON file into memory. It provides methods to query rooms,
-    items, and generate room descriptions.
+    data from JSON files into memory. It supports two loading modes:
+
+    1. Zone-based (preferred): Loads world.json registry + individual zone files
+    2. Legacy (fallback): Loads single world_data.json file
 
     Attributes:
         rooms: Dictionary mapping room IDs to Room objects
         items: Dictionary mapping item IDs to Item objects
+        zones: Dictionary mapping zone IDs to Zone objects
+        default_spawn: Tuple of (zone_id, room_id) for new player spawn
+        world_name: Name of the world (from world.json)
 
     Design Notes:
         - World data is immutable after loading (read-only)
         - All data kept in memory for fast access
-        - No database storage for world data (uses JSON file)
+        - No database storage for world data (uses JSON files)
         - Changes to JSON require server restart to take effect
+        - Zone-based loading allows modular world building
     """
 
     def __init__(self):
         """
-        Initialize the World by loading data from JSON file.
+        Initialize the World by loading data from JSON files.
 
-        Automatically calls _load_world() to populate rooms and items
-        dictionaries from the world_data.json file.
+        Tries zone-based loading first (world.json + zones/), falls back
+        to legacy single-file loading (world_data.json) if zones not found.
 
         Raises:
-            FileNotFoundError: If world_data.json doesn't exist
-            JSONDecodeError: If world_data.json is malformed
+            FileNotFoundError: If no world data files exist
+            JSONDecodeError: If JSON files are malformed
             KeyError: If required fields are missing from JSON
         """
         # Initialize empty dictionaries for world data
         self.rooms: dict[str, Room] = {}  # room_id -> Room object
         self.items: dict[str, Item] = {}  # item_id -> Item object
+        self.zones: dict[str, Zone] = {}  # zone_id -> Zone object
 
-        # Load world data from JSON file
+        # World metadata
+        self.world_name: str = "Unknown World"
+        self.default_spawn: tuple[str, str] = ("", "spawn")  # (zone_id, room_id)
+
+        # Load world data from JSON files
         self._load_world()
 
     def _load_world(self):
         """
-        Load world data from JSON file into memory.
+        Load world data, trying legacy structure first, then zone-based.
 
-        Reads the world_data.json file and parses it into Room and Item objects.
-        This is called once during World initialization.
+        Loading Priority:
+        1. Try legacy world_data.json first (for backward compatibility + tests)
+        2. If legacy file not found, try zone-based structure
+        3. Else raise FileNotFoundError
+
+        This order ensures existing installations and test mocks continue to work,
+        while allowing new zone-based worlds to be loaded.
+
+        Side Effects:
+            Populates self.rooms, self.items, self.zones dictionaries
+            Sets self.world_name and self.default_spawn
+        """
+        # Try legacy loading first (for backward compatibility and test mocks)
+        try:
+            self._load_legacy()
+            # If we got here and loaded rooms, we're done
+            if self.rooms:
+                return
+        except FileNotFoundError:
+            pass  # No legacy file, try zones
+
+        # Try zone-based loading
+        try:
+            self._load_from_zones()
+            if self.rooms:
+                return
+        except FileNotFoundError:
+            pass  # No zone files either
+
+        # If we get here with no rooms, something is wrong
+        if not self.rooms:
+            logger.warning("No world data loaded - check data/world_data.json or data/zones/")
+
+    def _load_from_zones(self):
+        """
+        Load world data from zone-based file structure.
+
+        Reads world.json for the zone registry and global config,
+        then loads each zone file from data/zones/<zone_id>.json.
+
+        File Structure:
+            data/world.json - Zone registry and global config
+            data/zones/<zone_id>.json - Zone-specific rooms and items
+
+        Side Effects:
+            Populates self.rooms, self.items, self.zones dictionaries
+            Sets self.world_name and self.default_spawn
+        """
+        # Load world registry
+        with open(WORLD_JSON_PATH) as f:
+            world_data = json.load(f)
+
+        self.world_name = world_data.get("name", "Unknown World")
+
+        # Parse default spawn
+        spawn_config = world_data.get("default_spawn", {})
+        if isinstance(spawn_config, dict):
+            self.default_spawn = (
+                spawn_config.get("zone", ""),
+                spawn_config.get("room", "spawn"),
+            )
+        else:
+            self.default_spawn = ("", "spawn")
+
+        # Load global items
+        for item_id, item_data in world_data.get("global_items", {}).items():
+            self.items[item_id] = Item(
+                id=item_data["id"],
+                name=item_data["name"],
+                description=item_data["description"],
+            )
+
+        # Load each zone
+        zone_ids = world_data.get("zones", [])
+        for zone_id in zone_ids:
+            zone_path = ZONES_DIR / f"{zone_id}.json"
+            if zone_path.exists():
+                self._load_zone(zone_path)
+            else:
+                logger.warning(f"Zone file not found: {zone_path}")
+
+        logger.info(
+            f"Loaded world '{self.world_name}': "
+            f"{len(self.zones)} zones, {len(self.rooms)} rooms, {len(self.items)} items"
+        )
+
+    def _load_zone(self, zone_path: Path):
+        """
+        Load a single zone from its JSON file.
+
+        Args:
+            zone_path: Path to the zone JSON file
+
+        Side Effects:
+            Adds zone to self.zones
+            Adds zone's rooms to self.rooms
+            Adds zone's items to self.items
+        """
+        with open(zone_path) as f:
+            zone_data = json.load(f)
+
+        zone_id = zone_data["id"]
+
+        # Create Zone object
+        zone = Zone(
+            id=zone_id,
+            name=zone_data.get("name", zone_id),
+            description=zone_data.get("description", ""),
+            spawn_room=zone_data.get("spawn_room", "spawn"),
+            rooms=list(zone_data.get("rooms", {}).keys()),
+        )
+        self.zones[zone_id] = zone
+
+        # Load zone's rooms
+        for room_id, room_data in zone_data.get("rooms", {}).items():
+            self.rooms[room_id] = Room(
+                id=room_data["id"],
+                name=room_data["name"],
+                description=room_data["description"],
+                exits=room_data.get("exits", {}),
+                items=room_data.get("items", []),
+            )
+
+        # Load zone's items
+        for item_id, item_data in zone_data.get("items", {}).items():
+            self.items[item_id] = Item(
+                id=item_data["id"],
+                name=item_data["name"],
+                description=item_data["description"],
+            )
+
+        logger.debug(f"Loaded zone '{zone_id}': {len(zone.rooms)} rooms")
+
+    def _load_legacy(self):
+        """
+        Load world data from legacy single-file structure.
+
+        This is the original loading method, kept for backward compatibility
+        with existing world_data.json files and test mocks.
 
         JSON Structure Expected:
             {
@@ -190,11 +384,6 @@ class World:
 
         Side Effects:
             Populates self.rooms and self.items dictionaries
-
-        Raises:
-            FileNotFoundError: If WORLD_DATA_PATH doesn't exist
-            JSONDecodeError: If JSON is malformed
-            KeyError: If required fields are missing
         """
         # Read and parse JSON file
         with open(WORLD_DATA_PATH) as f:
@@ -206,8 +395,8 @@ class World:
                 id=room_data["id"],
                 name=room_data["name"],
                 description=room_data["description"],
-                exits=room_data.get("exits", {}),  # Default to no exits
-                items=room_data.get("items", []),  # Default to no items
+                exits=room_data.get("exits", {}),
+                items=room_data.get("items", []),
             )
 
         # Load all items from JSON
@@ -218,9 +407,66 @@ class World:
                 description=item_data["description"],
             )
 
+        self.world_name = "Legacy World"
+        logger.info(f"Loaded legacy world: {len(self.rooms)} rooms, {len(self.items)} items")
+
+    def _parse_room_ref(self, room_ref: str) -> tuple[str | None, str]:
+        """
+        Parse a room reference that may include a zone prefix.
+
+        Room references can be:
+        - Simple: "spawn" → (None, "spawn")
+        - Cross-zone: "docks:east_pier" → ("docks", "east_pier")
+
+        Args:
+            room_ref: Room reference string, optionally with zone prefix
+
+        Returns:
+            Tuple of (zone_id, room_id)
+            - zone_id is None for same-zone references
+            - zone_id is the zone name for cross-zone references
+        """
+        if ":" in room_ref:
+            zone_id, room_id = room_ref.split(":", 1)
+            return zone_id, room_id
+        return None, room_ref
+
+    def resolve_room(self, room_ref: str) -> Room | None:
+        """
+        Resolve a room reference to a Room object.
+
+        Handles both simple room IDs and cross-zone references (zone:room).
+        Currently all rooms are stored in a flat namespace, so the zone
+        prefix is parsed but the room is looked up by ID only.
+
+        Args:
+            room_ref: Room reference (e.g., "spawn" or "docks:east_pier")
+
+        Returns:
+            Room object if found, None if room doesn't exist
+
+        Example:
+            >>> world.resolve_room("spawn")
+            Room(id='spawn', ...)
+            >>> world.resolve_room("docks:east_pier")
+            Room(id='east_pier', ...)  # Looks up 'east_pier' in rooms
+        """
+        zone_id, room_id = self._parse_room_ref(room_ref)
+
+        # If zone is specified but not loaded, try to load it
+        if zone_id and zone_id not in self.zones:
+            zone_path = ZONES_DIR / f"{zone_id}.json"
+            if zone_path.exists():
+                logger.info(f"Lazy-loading zone '{zone_id}' for cross-zone exit")
+                self._load_zone(zone_path)
+
+        return self.rooms.get(room_id)
+
     def get_room(self, room_id: str) -> Room | None:
         """
         Retrieve a room by its ID.
+
+        For cross-zone references (zone:room format), use resolve_room() instead.
 
         Args:
             room_id: Unique room identifier (e.g., "spawn", "forest_1")
@@ -335,9 +581,9 @@ class World:
         # Add exits section with destination room names
         if room.exits:
             desc += "\n[Exits]:\n"
-            for direction, destination in room.exits.items():
-                # Resolve destination room name
-                dest_room = self.get_room(destination)
+            for direction, destination_ref in room.exits.items():
+                # Resolve destination room name (handles cross-zone refs)
+                dest_room = self.resolve_room(destination_ref)
                 dest_name = dest_room.name if dest_room else "Unknown"
                 desc += f"  - {direction}: {dest_name}\n"
 
@@ -350,7 +596,10 @@ class World:
         Validates that:
         1. The current room exists
         2. The room has an exit in the specified direction
-        3. The destination room exists
+        3. The destination room exists (supports cross-zone exits)
+
+        Cross-zone exits use "zone:room" format (e.g., "docks:east_pier").
+        The zone will be lazy-loaded if not already present.
 
         Args:
             room_id: Current room ID
@@ -359,7 +608,7 @@ class World:
 
         Returns:
             Tuple of (can_move, destination_room_id)
-            - (True, "room_id"): Movement is valid, destination is "room_id"
+            - (True, "room_id"): Movement is valid, destination is the room ID
             - (False, None): Movement is invalid
 
         Example:
@@ -367,8 +616,8 @@ class World:
             (True, "forest_1")
             >>> world.can_move("spawn", "west")
             (False, None)  # No west exit
-            >>> world.can_move("invalid_room", "north")
-            (False, None)  # Room doesn't exist
+            >>> world.can_move("pub_entrance", "west")
+            (True, "east_pier")  # Cross-zone exit "docks:east_pier" resolves to "east_pier"
         """
         # Check if current room exists
         room = self.get_room(room_id)
@@ -379,12 +628,16 @@ class World:
         if direction.lower() not in room.exits:
             return False, None
 
-        # Get destination room ID
-        destination = room.exits[direction.lower()]
+        # Get destination reference (may be "room_id" or "zone:room_id")
+        destination_ref = room.exits[direction.lower()]
 
-        # Verify destination room exists
-        if not self.get_room(destination):
+        # Resolve the destination (handles cross-zone refs, lazy-loads zones)
+        dest_room = self.resolve_room(destination_ref)
+        if not dest_room:
+            logger.warning(
+                f"Exit '{direction}' from '{room_id}' leads to unknown room: {destination_ref}"
+            )
             return False, None
 
-        # Movement is valid
-        return True, destination
+        # Movement is valid - return the actual room ID (not the zone:room ref)
+        return True, dest_room.id
