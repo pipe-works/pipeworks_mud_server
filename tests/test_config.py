@@ -10,9 +10,11 @@ def test_session_env_overrides(monkeypatch):
     monkeypatch.setenv("MUD_SESSION_TTL_MINUTES", "30")
     monkeypatch.setenv("MUD_SESSION_SLIDING_EXPIRATION", "false")
     monkeypatch.setenv("MUD_SESSION_ALLOW_MULTIPLE", "true")
+    monkeypatch.setenv("MUD_SESSION_ACTIVE_WINDOW_MINUTES", "45")
 
     cfg = load_config()
 
     assert cfg.session.ttl_minutes == 30
     assert cfg.session.sliding_expiration is False
     assert cfg.session.allow_multiple_sessions is True
+    assert cfg.session.active_window_minutes == 45

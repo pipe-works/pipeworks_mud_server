@@ -188,6 +188,41 @@ def test_login_creates_session(test_client, test_db, temp_db_path, db_with_users
         session = database.get_session_by_id(session_id)
         assert session is not None
         assert session["username"] == "testplayer"
+        assert session["client_type"] == "unknown"
+
+
+@pytest.mark.api
+def test_login_records_client_type_header(test_client, test_db, temp_db_path, db_with_users):
+    """Test that login records the client type header."""
+    with use_test_database(temp_db_path):
+        response = test_client.post(
+            "/login",
+            json={"username": "testplayer", "password": TEST_PASSWORD},
+            headers={"X-Client-Type": "TUI"},
+        )
+
+        session_id = response.json()["session_id"]
+        session = database.get_session_by_id(session_id)
+        assert session is not None
+        assert session["client_type"] == "tui"
+
+
+@pytest.mark.api
+def test_login_blank_client_type_header_defaults_unknown(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Test blank client type header is coerced to unknown."""
+    with use_test_database(temp_db_path):
+        response = test_client.post(
+            "/login",
+            json={"username": "testplayer", "password": TEST_PASSWORD},
+            headers={"X-Client-Type": "   "},
+        )
+
+        session_id = response.json()["session_id"]
+        session = database.get_session_by_id(session_id)
+        assert session is not None
+        assert session["client_type"] == "unknown"
 
 
 @pytest.mark.api

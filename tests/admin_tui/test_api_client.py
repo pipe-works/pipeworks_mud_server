@@ -149,7 +149,7 @@ class TestAdminAPIClientLogin:
     async def test_successful_login(self, client: AdminAPIClient):
         """Test successful login updates session state."""
         # Mock successful login response
-        respx.post("http://test-server:8000/login").mock(
+        route = respx.post("http://test-server:8000/login").mock(
             return_value=Response(
                 200,
                 json={
@@ -172,6 +172,8 @@ class TestAdminAPIClientLogin:
         assert client.session.session_id == "test-session-123"
         assert client.session.username == "admin"
         assert client.session.role == "admin"
+        assert route.called is True
+        assert route.calls.last.request.headers.get("X-Client-Type") == "tui"
 
     @pytest.mark.asyncio
     @respx.mock

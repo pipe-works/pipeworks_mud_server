@@ -458,6 +458,20 @@ def test_create_session(test_db, temp_db_path, db_with_users):
         matching = [player for player in players if player["username"] == "testplayer"]
         assert matching
         assert matching[0]["last_login"] is not None
+        session = database.get_session_by_id("session-123")
+        assert session is not None
+        assert session["client_type"] == "unknown"
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_create_session_normalizes_client_type(test_db, temp_db_path, db_with_users):
+    """Test create_session normalizes client_type input."""
+    with use_test_database(temp_db_path):
+        database.create_session("testplayer", "session-456", client_type="  TUI ")
+        session = database.get_session_by_id("session-456")
+        assert session is not None
+        assert session["client_type"] == "tui"
 
 
 @pytest.mark.unit
@@ -747,6 +761,36 @@ def test_session_schema_migration_from_legacy(temp_db_path):
             assert session["client_type"] == "unknown"
     finally:
         config.session.ttl_minutes = original_ttl
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_session_client_type_migration_adds_column(temp_db_path):
+    """Test client_type column is added and defaults are set."""
+    conn = sqlite3.connect(str(temp_db_path))
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            session_id TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP
+        )
+    """)
+    cursor.execute(
+        "INSERT INTO sessions (username, session_id) VALUES (?, ?)",
+        ("legacy-user", "legacy-session"),
+    )
+    conn.commit()
+    conn.close()
+
+    with use_test_database(temp_db_path):
+        database.init_database(skip_superuser=True)
+        session = database.get_session_by_id("legacy-session")
+        assert session is not None
+        assert session["client_type"] == "unknown"
 
 
 @pytest.mark.unit

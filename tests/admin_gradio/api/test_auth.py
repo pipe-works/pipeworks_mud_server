@@ -161,6 +161,17 @@ class TestAuthAPIClientLogin:
         # Should default to player
         assert result["data"]["role"] == "player"
 
+    def test_logout_logs_warning_on_exception(self, caplog):
+        """Test logout logs a warning if the request fails."""
+        client = AuthAPIClient()
+
+        with patch.object(client, "post", side_effect=RuntimeError("boom")):
+            with caplog.at_level("WARNING"):
+                result = client.logout("session-123")
+
+        assert result["success"] is True
+        assert any("Logout request failed" in record.message for record in caplog.records)
+
 
 class TestAuthAPIClientRegister:
     """Tests for registration functionality."""
