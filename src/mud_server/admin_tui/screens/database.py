@@ -51,6 +51,7 @@ class DatabaseScreen(Screen):
     }
 
     .database-container {
+        height: 1fr;
         padding: 1 2;
     }
 
@@ -93,6 +94,15 @@ class DatabaseScreen(Screen):
 
     TabbedContent {
         height: 1fr;
+    }
+
+    TabPane {
+        height: 1fr;
+    }
+
+    DataTable {
+        height: 1fr;
+        width: 100%;
     }
     """
 
