@@ -454,7 +454,7 @@ class AdminAPIClient:
 
         response = await self.http_client.get(
             "/admin/database/players",
-            headers={"X-Session-ID": self.session.session_id or ""},
+            params={"session_id": self.session.session_id},
         )
 
         if response.status_code == 403:
@@ -496,7 +496,7 @@ class AdminAPIClient:
 
         response = await self.http_client.get(
             "/admin/database/sessions",
-            headers={"X-Session-ID": self.session.session_id or ""},
+            params={"session_id": self.session.session_id},
         )
 
         if response.status_code == 403:
