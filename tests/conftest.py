@@ -14,7 +14,6 @@ test performance and isolation.
 
 import json
 import shutil
-import sqlite3
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -77,47 +76,8 @@ def test_db(temp_db_path: Path) -> Generator[None, None, None]:
     Yields:
         None (database is initialized and ready to use)
     """
-    conn = sqlite3.connect(str(temp_db_path))
-    cursor = conn.cursor()
-
-    # Create tables (same as init_database but without default admin)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS players (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'player',
-            current_room TEXT NOT NULL DEFAULT 'spawn',
-            inventory TEXT DEFAULT '[]',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_login TIMESTAMP,
-            is_active INTEGER DEFAULT 1
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS chat_messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            message TEXT NOT NULL,
-            room TEXT NOT NULL,
-            recipient TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            session_id TEXT UNIQUE NOT NULL,
-            connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    conn.commit()
-    conn.close()
+    # Use production schema to keep tests aligned with migrations.
+    database.init_database(skip_superuser=True)
 
     yield
 
@@ -368,43 +328,3 @@ def sample_room() -> Room:
 def sample_item() -> Item:
     """Create a sample Item instance for testing."""
     return Item(id="test_item", name="Test Item", description="An item for testing")
-
-
-@pytest.fixture
-def mock_session_data() -> dict[str, tuple]:
-    """
-    Create mock session data for auth testing.
-
-    Returns:
-        Dict mapping session IDs to (username, role) tuples
-    """
-    return {
-        "session-player": ("testplayer", "player"),
-        "session-admin": ("testadmin", "admin"),
-        "session-superuser": ("testsuperuser", "superuser"),
-    }
-
-
-# ============================================================================
-# CLEANUP FIXTURES
-# ============================================================================
-
-
-@pytest.fixture(autouse=True)
-def reset_active_sessions():
-    """
-    Automatically reset active_sessions dict between tests.
-
-    This fixture runs automatically for every test to ensure session
-    isolation. It clears the in-memory session dictionary before and
-    after each test.
-    """
-    from mud_server.api.auth import active_sessions
-
-    # Clear before test
-    active_sessions.clear()
-
-    yield
-
-    # Clear after test
-    active_sessions.clear()

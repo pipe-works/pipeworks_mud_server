@@ -450,20 +450,51 @@ def test_create_session(test_db, temp_db_path, db_with_users):
 
 @pytest.mark.unit
 @pytest.mark.db
-def test_create_session_removes_old_session(test_db, temp_db_path, db_with_users):
-    """Test that creating a new session removes the old one."""
+def test_create_session_removes_old_session_when_single_session(
+    test_db, temp_db_path, db_with_users
+):
+    """Test that creating a new session removes the old one when multi-session is disabled."""
+    from mud_server.config import config
+
     with use_test_database(temp_db_path):
-        database.create_session("testplayer", "session-1")
-        database.create_session("testplayer", "session-2")
+        original = config.session.allow_multiple_sessions
+        config.session.allow_multiple_sessions = False
+        try:
+            database.create_session("testplayer", "session-1")
+            database.create_session("testplayer", "session-2")
 
-        # Only one session should exist
-        conn = database.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM sessions WHERE username = ?", ("testplayer",))
-        count = cursor.fetchone()[0]
-        conn.close()
+            # Only one session should exist
+            conn = database.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM sessions WHERE username = ?", ("testplayer",))
+            count = cursor.fetchone()[0]
+            conn.close()
 
-        assert count == 1
+            assert count == 1
+        finally:
+            config.session.allow_multiple_sessions = original
+
+
+def test_create_session_allows_multiple_when_enabled(test_db, temp_db_path, db_with_users):
+    """Test that multiple sessions are allowed when configured."""
+    from mud_server.config import config
+
+    with use_test_database(temp_db_path):
+        original = config.session.allow_multiple_sessions
+        config.session.allow_multiple_sessions = True
+        try:
+            database.create_session("testplayer", "session-1")
+            database.create_session("testplayer", "session-2")
+
+            conn = database.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM sessions WHERE username = ?", ("testplayer",))
+            count = cursor.fetchone()[0]
+            conn.close()
+
+            assert count == 2
+        finally:
+            config.session.allow_multiple_sessions = original
 
 
 @pytest.mark.unit
@@ -483,6 +514,18 @@ def test_remove_session(test_db, temp_db_path, db_with_users):
         conn.close()
 
         assert count == 0
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_remove_session_by_id(test_db, temp_db_path, db_with_users):
+    """Test removing a specific session by session_id."""
+    with use_test_database(temp_db_path):
+        database.create_session("testplayer", "session-123")
+        result = database.remove_session_by_id("session-123")
+        assert result is True
+
+        assert database.get_session_by_id("session-123") is None
 
 
 @pytest.mark.unit
@@ -527,8 +570,9 @@ def test_get_players_in_room(test_db, temp_db_path, db_with_users):
 def test_update_session_activity(test_db, temp_db_path, db_with_users):
     """Test updating session activity timestamp."""
     with use_test_database(temp_db_path):
-        database.create_session("testplayer", "session-123")
-        result = database.update_session_activity("testplayer")
+        session_id = "session-123"
+        database.create_session("testplayer", session_id)
+        result = database.update_session_activity(session_id)
         assert result is True
 
 
@@ -539,25 +583,25 @@ def test_update_session_activity(test_db, temp_db_path, db_with_users):
 
 @pytest.mark.unit
 @pytest.mark.db
-def test_cleanup_stale_sessions_removes_old(test_db, temp_db_path, db_with_users):
-    """Test that cleanup_stale_sessions removes sessions older than threshold."""
+def test_cleanup_expired_sessions_removes_old(test_db, temp_db_path, db_with_users):
+    """Test that cleanup_expired_sessions removes sessions past expires_at."""
     with use_test_database(temp_db_path):
         # Create a session
-        database.create_session("testplayer", "session-123")
+        session_id = "session-123"
+        database.create_session("testplayer", session_id)
 
-        # Manually set last_activity to 60 minutes ago
+        # Expire the session.
         conn = database.get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE sessions SET last_activity = datetime('now', '-60 minutes') "
-            "WHERE username = ?",
-            ("testplayer",),
+            "UPDATE sessions SET expires_at = datetime('now', '-5 minutes') "
+            "WHERE session_id = ?",
+            (session_id,),
         )
         conn.commit()
         conn.close()
 
-        # Cleanup sessions older than 30 minutes
-        removed = database.cleanup_stale_sessions(max_inactive_minutes=30)
+        removed = database.cleanup_expired_sessions()
 
         assert removed == 1
 
@@ -568,14 +612,13 @@ def test_cleanup_stale_sessions_removes_old(test_db, temp_db_path, db_with_users
 
 @pytest.mark.unit
 @pytest.mark.db
-def test_cleanup_stale_sessions_keeps_active(test_db, temp_db_path, db_with_users):
-    """Test that cleanup_stale_sessions keeps recently active sessions."""
+def test_cleanup_expired_sessions_keeps_active(test_db, temp_db_path, db_with_users):
+    """Test that cleanup_expired_sessions keeps valid sessions."""
     with use_test_database(temp_db_path):
         # Create a session (will have current timestamp)
         database.create_session("testplayer", "session-123")
 
-        # Cleanup sessions older than 30 minutes
-        removed = database.cleanup_stale_sessions(max_inactive_minutes=30)
+        removed = database.cleanup_expired_sessions()
 
         assert removed == 0
 
@@ -586,26 +629,24 @@ def test_cleanup_stale_sessions_keeps_active(test_db, temp_db_path, db_with_user
 
 @pytest.mark.unit
 @pytest.mark.db
-def test_cleanup_stale_sessions_mixed(test_db, temp_db_path, db_with_users):
-    """Test cleanup with mix of stale and active sessions."""
+def test_cleanup_expired_sessions_mixed(test_db, temp_db_path, db_with_users):
+    """Test cleanup with mix of expired and active sessions."""
     with use_test_database(temp_db_path):
         # Create sessions for multiple users
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
 
-        # Set testplayer's session to be old
+        # Expire testplayer's session.
         conn = database.get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE sessions SET last_activity = datetime('now', '-60 minutes') "
-            "WHERE username = ?",
+            "UPDATE sessions SET expires_at = datetime('now', '-10 minutes') " "WHERE username = ?",
             ("testplayer",),
         )
         conn.commit()
         conn.close()
 
-        # Cleanup sessions older than 30 minutes
-        removed = database.cleanup_stale_sessions(max_inactive_minutes=30)
+        removed = database.cleanup_expired_sessions()
 
         assert removed == 1
 
@@ -617,10 +658,10 @@ def test_cleanup_stale_sessions_mixed(test_db, temp_db_path, db_with_users):
 
 @pytest.mark.unit
 @pytest.mark.db
-def test_cleanup_stale_sessions_empty_db(test_db, temp_db_path):
+def test_cleanup_expired_sessions_empty_db(test_db, temp_db_path):
     """Test cleanup on empty sessions table returns 0."""
     with use_test_database(temp_db_path):
-        removed = database.cleanup_stale_sessions(max_inactive_minutes=30)
+        removed = database.cleanup_expired_sessions()
         assert removed == 0
 
 
@@ -706,13 +747,15 @@ def test_get_all_players_detailed(test_db, temp_db_path, db_with_users):
 @pytest.mark.db
 @pytest.mark.admin
 def test_get_all_sessions(test_db, temp_db_path, db_with_users):
-    """Test getting all active sessions."""
+    """Test getting all sessions with expected fields."""
     with use_test_database(temp_db_path):
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
 
         sessions = database.get_all_sessions()
         assert len(sessions) == 2
+        assert "created_at" in sessions[0]
+        assert "expires_at" in sessions[0]
 
 
 @pytest.mark.unit

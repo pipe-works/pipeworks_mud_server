@@ -1,71 +1,83 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with
+code in this repository.
 
 ## Project Overview
 
-**PipeWorks MUD Server** is a Python-based multiplayer text game (MUD) server with a web interface. It's a proof-of-concept for "The Undertaking" - a procedural, ledger-driven interactive fiction system.
+**PipeWorks MUD Server** is a Python-based multiplayer text game (MUD) server
+with a web interface. It's a proof-of-concept for "The Undertaking" - a
+procedural, ledger-driven interactive fiction system.
 
 **Tech Stack**: Python 3.12+, FastAPI, Gradio, SQLite, bcrypt
 
-**Current Status**: Working proof-of-concept with auth, RBAC, room navigation, inventory, and chat. The design vision (character issuance, axis-based resolution, ledger/newspaper truth systems) is documented in `docs/` but not yet implemented.
+**Current Status**: Working proof-of-concept with auth, RBAC, room navigation,
+inventory, and chat. The design vision (character issuance, axis-based
+resolution, ledger/newspaper truth systems) is documented in `docs/` but not
+yet implemented.
 
 ## Common Commands
 
 ### Setup
+
 ```bash
 python3 -m venv venv && source venv/bin/activate
-pip install -e .                                  # Install package (enables mud-server CLI)
-pip install -e ".[admin-tui]"                     # Also install Terminal UI dependencies
-mud-server init-db                                # Initialize DB (no default admin)
-mud-server create-superuser                       # Create admin interactively
+pip install -e .                      # Install package (enables mud-server CLI)
+pip install -e ".[admin-tui]"         # Also install Terminal UI dependencies
+mud-server init-db                    # Initialize DB (no default admin)
+mud-server create-superuser           # Create admin interactively
 ```
 
 ### Running
+
 ```bash
-mud-server run                                    # Start both server (:8000) and Gradio client (:7860)
-./run.sh                                          # Alternative: shell script
-pipeworks-admin-tui                               # Terminal UI (requires pip install -e ".[admin-tui]")
-pipeworks-admin-tui -s http://remote:8000         # Connect to remote server
+mud-server run                            # Start server (:8000) + Gradio (:7860)
+./run.sh                                  # Alternative: shell script
+pipeworks-admin-tui                       # Terminal UI (requires admin-tui deps)
+pipeworks-admin-tui -s http://remote:8000 # Connect to remote server
 ```
 
 ### Testing
+
 ```bash
-pytest                                            # Run all tests (includes coverage)
-pytest tests/test_api/                            # Run specific test directory
-pytest tests/test_api/test_auth.py -v            # Run specific test file
-pytest -k "test_login"                            # Run tests matching pattern
-pytest -m "unit"                                  # Run only unit tests
-pytest -m "not slow"                              # Skip slow tests
-pytest --no-cov                                   # Skip coverage (faster iteration)
+pytest                                 # Run all tests (includes coverage)
+pytest tests/test_api/                 # Run specific test directory
+pytest tests/test_api/test_auth.py -v  # Run specific test file
+pytest -k "test_login"                 # Run tests matching pattern
+pytest -m "unit"                       # Run only unit tests
+pytest -m "not slow"                   # Skip slow tests
+pytest --no-cov                        # Skip coverage (faster iteration)
 ```
 
-**Test markers** (defined in pyproject.toml): `unit`, `integration`, `slow`, `requires_model`, `api`, `db`, `auth`, `game`, `admin`
+**Test markers** (defined in pyproject.toml): `unit`, `integration`, `slow`,
+`requires_model`, `api`, `db`, `auth`, `game`, `admin`
 
 ### Code Quality
+
 ```bash
-ruff check src/ tests/                            # Lint
-black src/ tests/                                 # Format
-mypy src/ --ignore-missing-imports                # Type check
+ruff check src/ tests/             # Lint
+black src/ tests/                  # Format
+mypy src/ --ignore-missing-imports # Type check
 ```
 
 ### Database
+
 ```bash
-rm data/mud.db && mud-server init-db              # Reset DB
-mud-server create-superuser                       # Create admin after reset
-sqlite3 data/mud.db ".schema"                     # View schema
+rm data/mud.db && mud-server init-db   # Reset DB
+mud-server create-superuser            # Create admin after reset
+sqlite3 data/mud.db ".schema"          # View schema
 sqlite3 data/mud.db "SELECT username, role, current_room FROM players;"
 ```
 
 ## Architecture
 
-```
+```text
 src/mud_server/
 ├── api/                    # FastAPI REST API (port 8000)
 │   ├── server.py           # App init, CORS, uvicorn entry
 │   ├── routes.py           # All endpoints, command parsing
 │   ├── models.py           # Pydantic request/response schemas
-│   ├── auth.py             # In-memory sessions: dict[session_id, (username, role)]
+│   ├── auth.py             # DB-backed sessions with TTL + sliding expiration
 │   ├── password.py         # bcrypt hashing via passlib
 │   └── permissions.py      # RBAC: Role enum, Permission enum, decorators
 ├── core/                   # Game engine
@@ -101,9 +113,11 @@ src/mud_server/
     └── widgets/            # Reusable Textual widgets (planned)
 ```
 
-**Data Flow**: Client → HTTP → routes.py → auth.py (validate session) → engine.py → database.py → SQLite
+**Data Flow**: Client → HTTP → routes.py → auth.py (validate session) →
+engine.py → database.py → SQLite
 
-**Sessions**: Stored in memory (`auth.py:active_sessions`), lost on restart. Format: `{session_id: (username, role)}`
+**Sessions**: Stored in the database (source of truth) with TTL + optional
+sliding expiration. Sessions survive restarts until expiry or revocation.
 
 ## Key Files for Common Tasks
 
@@ -125,19 +139,27 @@ Tests use fixtures from `tests/conftest.py`:
 ```python
 def test_example(test_client, db_with_users):
     """test_client provides FastAPI TestClient, db_with_users creates test users."""
-    response = test_client.post("/login", json={"username": "testplayer", "password": "password123"})
+    response = test_client.post(
+        "/login",
+        json={"username": "testplayer", "password": "password123"},
+    )
     assert response.status_code == 200
 
 def test_authenticated(authenticated_client):
     """authenticated_client provides logged-in session."""
     client = authenticated_client["client"]
     session_id = authenticated_client["session_id"]
-    response = client.post("/command", json={"session_id": session_id, "command": "look"})
+    response = client.post(
+        "/command",
+        json={"session_id": session_id, "command": "look"},
+    )
 ```
 
-**Key fixtures**: `temp_db_path`, `test_db`, `db_with_users`, `mock_world`, `mock_engine`, `test_client`, `authenticated_client`
+**Key fixtures**: `temp_db_path`, `test_db`, `db_with_users`, `mock_world`,
+`mock_engine`, `test_client`, `authenticated_client`
 
-**Test users created by `db_with_users`**: testplayer, testbuilder, testadmin, testsuperuser (all with password "password123")
+**Test users created by `db_with_users`**: testplayer, testbuilder, testadmin,
+testsuperuser (all with password "password123")
 
 ## Important Behaviors
 
@@ -146,10 +168,12 @@ def test_authenticated(authenticated_client):
 **RBAC hierarchy**: Player < WorldBuilder < Admin < Superuser. Check permissions via `permissions.py:has_permission()`.
 
 **Superuser creation**: No hardcoded default admin. Create via:
+
 - Interactive: `mud-server create-superuser`
 - Environment: `MUD_ADMIN_USER=admin MUD_ADMIN_PASSWORD=secret mud-server init-db`
 
-**World data**: Loaded from `data/world_data.json` at startup. Rooms define one-way exits unless both directions are specified.
+**World data**: Loaded from `data/world_data.json` at startup. Rooms define
+one-way exits unless both directions are specified.
 
 **Coverage requirement**: 80% minimum enforced by pytest (see `pyproject.toml:--cov-fail-under`).
 
@@ -162,12 +186,13 @@ When implementing planned features:
 - **Determinism First**: All game logic must be replayable from seed
 - **Ledger is Truth**: Immutable records; everything else is interpretation
 
-See `docs/the_undertaking_articulation.md` for full design philosophy and `docs/undertaking_code_examples.md` for implementation patterns.
+See `docs/the_undertaking_articulation.md` for full design philosophy and
+`docs/undertaking_code_examples.md` for implementation patterns.
 
 ## pipe-works Organization Standards
 
 This repository follows pipe-works organization standards.
-See https://github.com/pipe-works/pipe-works/blob/main/CLAUDE.md for full details.
+See <https://github.com/pipe-works/pipe-works/blob/main/CLAUDE.md> for full details.
 
 - Python 3.12+, pyenv virtualenvs
 - pytest >80% coverage (org minimum 50%)

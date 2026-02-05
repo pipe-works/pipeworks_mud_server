@@ -273,8 +273,9 @@ class DatabaseSessionsResponse(BaseModel):
             - id: Database record ID
             - username: Logged in player
             - session_id: UUID session identifier
-            - connected_at: Login timestamp
+            - created_at: Login timestamp
             - last_activity: Most recent API request timestamp
+            - expires_at: Session expiry timestamp (NULL means no expiry)
     """
 
     sessions: list[dict[str, Any]]

@@ -47,7 +47,12 @@ import uuid
 
 from fastapi import FastAPI, HTTPException
 
-from mud_server.api.auth import active_sessions, validate_session, validate_session_with_permission
+from mud_server.api.auth import (
+    get_active_session_count,
+    remove_session,
+    validate_session,
+    validate_session_with_permission,
+)
 from mud_server.api.models import (
     ChangePasswordRequest,
     ClearOllamaContextRequest,
@@ -121,8 +126,6 @@ def register_routes(app: FastAPI, engine: GameEngine):
         success, message, role = engine.login(username, password, session_id)
 
         if success and role:
-            # Store session with role
-            active_sessions[session_id] = (username, role)
             return LoginResponse(success=True, message=message, session_id=session_id, role=role)
         else:
             raise HTTPException(status_code=401, detail=message)
@@ -195,9 +198,7 @@ def register_routes(app: FastAPI, engine: GameEngine):
         """Logout player and remove session from memory and database."""
         username, role = validate_session(request.session_id)
 
-        engine.logout(username)
-        if request.session_id in active_sessions:
-            del active_sessions[request.session_id]
+        remove_session(request.session_id)
 
         return {"success": True, "message": f"Goodbye, {username}!"}
 
@@ -526,12 +527,8 @@ Note: Commands can be used with or without the / prefix
 
         elif action == "ban":
             if database.deactivate_player(target_username):
-                # Also remove their session if active
+                # Also remove all their sessions
                 database.remove_session(target_username)
-                # Remove from active_sessions memory
-                for sid, (uname, _) in list(active_sessions.items()):
-                    if uname == target_username:
-                        del active_sessions[sid]
 
                 return UserManagementResponse(
                     success=True, message=f"Successfully banned {target_username}"
@@ -819,4 +816,4 @@ Note: Commands can be used with or without the / prefix
     @app.get("/health")
     async def health_check():
         """Health check endpoint."""
-        return {"status": "ok", "active_players": len(active_sessions)}
+        return {"status": "ok", "active_players": get_active_session_count()}

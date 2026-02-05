@@ -2,21 +2,18 @@
 Unit tests for authentication module (mud_server/api/auth.py).
 
 Tests cover:
-- Session storage and retrieval
-- Session validation
-- Permission-based session validation
-- Session activity tracking
-
-All tests use isolated session dictionaries and mocked database.
+- Session lookup and validation against the database
+- Expiration enforcement and sliding expiry updates
+- Permission-based validation
+- Session lifecycle helpers
 """
 
-from unittest.mock import patch
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
 
 from mud_server.api.auth import (
-    active_sessions,
     clear_all_sessions,
     get_active_session_count,
     get_username_and_role_from_session,
@@ -26,70 +23,79 @@ from mud_server.api.auth import (
     validate_session_with_permission,
 )
 from mud_server.api.permissions import Permission
+from mud_server.config import config
+from mud_server.db import database
 
-# ============================================================================
-# SESSION RETRIEVAL TESTS
-# ============================================================================
+
+@pytest.fixture
+def session_config_defaults():
+    """Ensure session config is reset after each test."""
+    original_ttl = config.session.ttl_minutes
+    original_sliding = config.session.sliding_expiration
+    original_multi = config.session.allow_multiple_sessions
+
+    yield
+
+    config.session.ttl_minutes = original_ttl
+    config.session.sliding_expiration = original_sliding
+    config.session.allow_multiple_sessions = original_multi
+
+
+@pytest.fixture
+def db_with_session(test_db, db_with_users):
+    """Create a valid session for testplayer and return its session_id."""
+    session_id = "session-player"
+    database.create_session("testplayer", session_id)
+    return session_id
+
+
+# =========================================================================
+# SESSION LOOKUP TESTS
+# =========================================================================
 
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_get_username_from_session_existing(mock_session_data):
-    """Test retrieving username from existing session."""
-    active_sessions.update(mock_session_data)
-
-    username = get_username_from_session("session-player")
+def test_get_username_from_session_existing(test_db, db_with_users, db_with_session):
+    username = get_username_from_session(db_with_session)
     assert username == "testplayer"
 
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_get_username_from_session_nonexistent():
-    """Test retrieving username from non-existent session."""
-    username = get_username_from_session("invalid-session")
-    assert username is None
+def test_get_username_from_session_nonexistent(test_db, db_with_users):
+    assert get_username_from_session("invalid-session") is None
 
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_get_username_and_role_from_session_existing(mock_session_data):
-    """Test retrieving username and role from existing session."""
-    active_sessions.update(mock_session_data)
-
-    session_data = get_username_and_role_from_session("session-admin")
-    assert session_data == ("testadmin", "admin")
+def test_get_username_and_role_from_session_existing(test_db, db_with_users, db_with_session):
+    session_data = get_username_and_role_from_session(db_with_session)
+    assert session_data == ("testplayer", "player")
 
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_get_username_and_role_from_session_nonexistent():
-    """Test retrieving from non-existent session."""
-    session_data = get_username_and_role_from_session("invalid-session")
-    assert session_data is None
+def test_get_username_and_role_from_session_nonexistent(test_db, db_with_users):
+    assert get_username_and_role_from_session("invalid-session") is None
 
 
-# ============================================================================
+# =========================================================================
 # SESSION VALIDATION TESTS
-# ============================================================================
+# =========================================================================
 
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_validate_session_success(mock_session_data):
-    """Test validating a valid session."""
-    active_sessions.update(mock_session_data)
-
-    with patch("mud_server.api.auth.database.update_session_activity", return_value=True):
-        username, role = validate_session("session-player")
-
-        assert username == "testplayer"
-        assert role == "player"
+def test_validate_session_success(test_db, db_with_users, db_with_session):
+    username, role = validate_session(db_with_session)
+    assert username == "testplayer"
+    assert role == "player"
 
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_validate_session_invalid():
-    """Test validating an invalid session raises 401."""
+def test_validate_session_invalid(test_db, db_with_users):
     with pytest.raises(HTTPException) as exc_info:
         validate_session("invalid-session")
 
@@ -99,55 +105,81 @@ def test_validate_session_invalid():
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_validate_session_updates_activity(mock_session_data):
-    """Test that session validation updates activity timestamp."""
-    active_sessions.update(mock_session_data)
+def test_validate_session_expired(test_db, db_with_users, session_config_defaults):
+    session_id = "expired-session"
+    database.create_session("testplayer", session_id)
 
-    with patch("mud_server.api.auth.database.update_session_activity") as mock_update:
-        mock_update.return_value = True
+    # Force expiry into the past.
+    conn = database.get_connection()
+    cursor = conn.cursor()
+    expired_ts = (datetime.now(UTC) - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute(
+        "UPDATE sessions SET expires_at = ? WHERE session_id = ?",
+        (expired_ts, session_id),
+    )
+    conn.commit()
+    conn.close()
 
-        validate_session("session-player")
+    with pytest.raises(HTTPException):
+        validate_session(session_id)
 
-        # Verify update_session_activity was called with username
-        mock_update.assert_called_once_with("testplayer")
+    # Session should be removed after expiration check.
+    assert database.get_session_by_id(session_id) is None
 
 
-# ============================================================================
+@pytest.mark.unit
+@pytest.mark.auth
+def test_validate_session_updates_activity_and_extends_expiry(
+    test_db, db_with_users, session_config_defaults
+):
+    config.session.ttl_minutes = 480
+    config.session.sliding_expiration = True
+
+    session_id = "sliding-session"
+    database.create_session("testplayer", session_id)
+
+    before = database.get_session_by_id(session_id)
+    assert before is not None
+
+    validate_session(session_id)
+
+    after = database.get_session_by_id(session_id)
+    assert after is not None
+    assert after["expires_at"] >= before["expires_at"]
+
+
+# =========================================================================
 # PERMISSION-BASED VALIDATION TESTS
-# ============================================================================
+# =========================================================================
 
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_validate_session_with_permission_success(mock_session_data):
-    """Test validating session with sufficient permission."""
-    active_sessions.update(mock_session_data)
+def test_validate_session_with_permission_success(test_db, db_with_users):
+    session_id = "admin-session"
+    database.create_session("testadmin", session_id)
 
-    with patch("mud_server.api.auth.database.update_session_activity", return_value=True):
-        username, role = validate_session_with_permission("session-admin", Permission.VIEW_LOGS)
-
-        assert username == "testadmin"
-        assert role == "admin"
+    username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+    assert username == "testadmin"
+    assert role == "admin"
 
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_validate_session_with_permission_insufficient(mock_session_data):
-    """Test validating session with insufficient permission raises 403."""
-    active_sessions.update(mock_session_data)
+def test_validate_session_with_permission_insufficient(test_db, db_with_users):
+    session_id = "player-session"
+    database.create_session("testplayer", session_id)
 
-    with patch("mud_server.api.auth.database.update_session_activity", return_value=True):
-        with pytest.raises(HTTPException) as exc_info:
-            validate_session_with_permission("session-player", Permission.MANAGE_USERS)
+    with pytest.raises(HTTPException) as exc_info:
+        validate_session_with_permission(session_id, Permission.MANAGE_USERS)
 
-        assert exc_info.value.status_code == 403
-        assert "Insufficient permissions" in str(exc_info.value.detail)
+    assert exc_info.value.status_code == 403
+    assert "Insufficient permissions" in str(exc_info.value.detail)
 
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_validate_session_with_permission_invalid_session():
-    """Test that invalid session raises 401 before checking permissions."""
+def test_validate_session_with_permission_invalid_session(test_db, db_with_users):
     with pytest.raises(HTTPException) as exc_info:
         validate_session_with_permission("invalid-session", Permission.VIEW_LOGS)
 
@@ -156,141 +188,66 @@ def test_validate_session_with_permission_invalid_session():
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_validate_session_with_permission_superuser_has_all(mock_session_data):
-    """Test that superuser has all permissions."""
-    active_sessions.update(mock_session_data)
+def test_validate_session_with_permission_superuser_has_all(test_db, db_with_users):
+    session_id = "superuser-session"
+    database.create_session("testsuperuser", session_id)
 
-    with patch("mud_server.api.auth.database.update_session_activity", return_value=True):
-        # Superuser should have any permission
-        username, role = validate_session_with_permission(
-            "session-superuser", Permission.MANAGE_USERS
-        )
-
-        assert username == "testsuperuser"
-        assert role == "superuser"
+    username, role = validate_session_with_permission(session_id, Permission.MANAGE_USERS)
+    assert username == "testsuperuser"
+    assert role == "superuser"
 
 
-# ============================================================================
+# =========================================================================
 # SESSION LIFECYCLE TESTS
-# ============================================================================
+# =========================================================================
 
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_clear_all_sessions_clears_memory():
-    """Test that clear_all_sessions clears in-memory sessions."""
-    # Add sessions directly to the dict
-    active_sessions["session-1"] = ("user1", "player")
-    active_sessions["session-2"] = ("user2", "admin")
+def test_clear_all_sessions_clears_database(test_db, db_with_users):
+    database.create_session("testplayer", "session-1")
+    database.create_session("testadmin", "session-2")
 
-    assert len(active_sessions) == 2
+    assert get_active_session_count() == 2
 
-    with patch("mud_server.api.auth.database.clear_all_sessions", return_value=2):
-        result = clear_all_sessions()
-
+    result = clear_all_sessions()
     assert result == 2
-    assert len(active_sessions) == 0
-
-
-@pytest.mark.unit
-@pytest.mark.auth
-def test_clear_all_sessions_calls_database():
-    """Test that clear_all_sessions calls database function."""
-    with patch("mud_server.api.auth.database.clear_all_sessions") as mock_db_clear:
-        mock_db_clear.return_value = 5
-
-        result = clear_all_sessions()
-
-        mock_db_clear.assert_called_once()
-        assert result == 5
-
-
-@pytest.mark.unit
-@pytest.mark.auth
-def test_remove_session_existing():
-    """Test removing an existing session."""
-    # Add a session
-    active_sessions["session-123"] = ("testuser", "player")
-
-    with patch("mud_server.api.auth.database.remove_session") as mock_db_remove:
-        mock_db_remove.return_value = True
-
-        result = remove_session("session-123")
-
-        assert result is True
-        assert "session-123" not in active_sessions
-        mock_db_remove.assert_called_once_with("testuser")
-
-
-@pytest.mark.unit
-@pytest.mark.auth
-def test_remove_session_nonexistent():
-    """Test removing a non-existent session returns False."""
-    result = remove_session("nonexistent-session")
-
-    assert result is False
-
-
-@pytest.mark.unit
-@pytest.mark.auth
-def test_remove_session_clears_from_memory():
-    """Test that remove_session removes from in-memory dict."""
-    active_sessions["session-abc"] = ("myuser", "admin")
-    active_sessions["session-xyz"] = ("otheruser", "player")
-
-    with patch("mud_server.api.auth.database.remove_session", return_value=True):
-        remove_session("session-abc")
-
-    assert "session-abc" not in active_sessions
-    assert "session-xyz" in active_sessions  # Other session should remain
-
-
-@pytest.mark.unit
-@pytest.mark.auth
-def test_get_active_session_count_empty():
-    """Test get_active_session_count with no sessions."""
     assert get_active_session_count() == 0
 
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_get_active_session_count_with_sessions():
-    """Test get_active_session_count with multiple sessions."""
-    active_sessions["session-1"] = ("user1", "player")
-    active_sessions["session-2"] = ("user2", "admin")
-    active_sessions["session-3"] = ("user3", "superuser")
+def test_remove_session_existing(test_db, db_with_users):
+    session_id = "session-123"
+    database.create_session("testplayer", session_id)
 
-    assert get_active_session_count() == 3
+    assert remove_session(session_id) is True
+    assert database.get_session_by_id(session_id) is None
 
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_get_active_session_count_after_remove():
-    """Test get_active_session_count after removing a session."""
-    active_sessions["session-1"] = ("user1", "player")
-    active_sessions["session-2"] = ("user2", "admin")
+def test_remove_session_nonexistent(test_db, db_with_users):
+    assert remove_session("nonexistent-session") is False
 
-    assert get_active_session_count() == 2
 
-    with patch("mud_server.api.auth.database.remove_session", return_value=True):
-        remove_session("session-1")
+@pytest.mark.unit
+@pytest.mark.auth
+def test_get_active_session_count_excludes_expired(test_db, db_with_users):
+    active_id = "active-session"
+    expired_id = "expired-session"
+    database.create_session("testplayer", active_id)
+    database.create_session("testadmin", expired_id)
+
+    # Expire one session.
+    conn = database.get_connection()
+    cursor = conn.cursor()
+    expired_ts = (datetime.now(UTC) - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute(
+        "UPDATE sessions SET expires_at = ? WHERE session_id = ?",
+        (expired_ts, expired_id),
+    )
+    conn.commit()
+    conn.close()
 
     assert get_active_session_count() == 1
-
-
-# ============================================================================
-# ACTIVE_SESSIONS CLEANUP TESTS
-# ============================================================================
-
-
-@pytest.mark.unit
-@pytest.mark.auth
-def test_active_sessions_cleared_between_tests():
-    """Test that active_sessions is cleared between tests."""
-    # This test verifies the reset_active_sessions fixture works
-    assert len(active_sessions) == 0
-
-    # Add a session
-    active_sessions["test"] = ("user", "role")
-
-    # It will be cleared by the autouse fixture after this test

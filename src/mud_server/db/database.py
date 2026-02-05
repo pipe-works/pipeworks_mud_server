@@ -151,12 +151,16 @@ def init_database(*, skip_superuser: bool = False):
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,  -- One session per player (enforced by UNIQUE)
-            session_id TEXT UNIQUE NOT NULL, -- UUID session identifier
-            connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            username TEXT NOT NULL,            -- Username owning the session
+            session_id TEXT UNIQUE NOT NULL,   -- Opaque session token (unique)
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP               -- NULL means no expiry
         )
     """)
+
+    # Migrate old sessions schema (username UNIQUE, missing expiry columns) if needed.
+    _migrate_sessions_schema(conn)
 
     # Commit table creation
     conn.commit()
@@ -208,6 +212,106 @@ def init_database(*, skip_superuser: bool = False):
             print("=" * 60 + "\n")
 
     conn.close()
+
+
+def _migrate_sessions_schema(conn: sqlite3.Connection) -> None:
+    """
+    Migrate legacy sessions schema to the current format.
+
+    Older schema used:
+        - username UNIQUE (single session per user)
+        - connected_at instead of created_at
+        - no expires_at column
+
+    New schema supports:
+        - multiple sessions per user (username NOT unique)
+        - created_at / last_activity / expires_at
+
+    The migration is idempotent and only runs when the old schema is detected.
+    """
+    from mud_server.config import config
+
+    cursor = conn.cursor()
+
+    # Read current column names for the sessions table.
+    cursor.execute("PRAGMA table_info(sessions)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    # Detect unique index on username (legacy single-session constraint).
+    cursor.execute("PRAGMA index_list('sessions')")
+    index_rows = cursor.fetchall()
+    username_unique = False
+    for index_row in index_rows:
+        index_name = index_row[1]
+        is_unique = bool(index_row[2])
+        if not is_unique:
+            continue
+        cursor.execute(f"PRAGMA index_info('{index_name}')")
+        index_cols = [row[2] for row in cursor.fetchall()]
+        if "username" in index_cols:
+            username_unique = True
+            break
+
+    required_columns = {"created_at", "last_activity", "expires_at"}
+    needs_migration = not required_columns.issubset(columns) or username_unique
+
+    if not needs_migration:
+        return
+
+    # Preserve legacy data by renaming the old table.
+    cursor.execute("ALTER TABLE sessions RENAME TO sessions_old")
+
+    # Recreate sessions table with the new schema.
+    cursor.execute("""
+        CREATE TABLE sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            session_id TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP
+        )
+    """)
+
+    # Determine which legacy columns exist.
+    cursor.execute("PRAGMA table_info(sessions_old)")
+    old_columns = {row[1] for row in cursor.fetchall()}
+
+    created_col = "connected_at" if "connected_at" in old_columns else "created_at"
+    if created_col not in old_columns:
+        created_col = "CURRENT_TIMESTAMP"
+
+    last_col = "last_activity" if "last_activity" in old_columns else created_col
+
+    # Validate column names to prevent unsafe SQL composition.
+    allowed_cols = {"connected_at", "created_at", "last_activity", "CURRENT_TIMESTAMP"}
+    if created_col not in allowed_cols or last_col not in allowed_cols:
+        raise ValueError("Unexpected legacy session column during migration.")
+
+    # Compute expires_at from last_activity for existing sessions.
+    if config.session.ttl_minutes > 0:
+        expires_expr = f"datetime({last_col}, ?)"
+        expires_param = f"+{config.session.ttl_minutes} minutes"
+    else:
+        expires_expr = "NULL"
+        expires_param = None
+
+    insert_sql = f"""
+        INSERT INTO sessions (username, session_id, created_at, last_activity, expires_at)
+        SELECT username,
+               session_id,
+               {created_col},
+               {last_col},
+               {expires_expr}
+        FROM sessions_old
+    """  # nosec B608 - column names are validated above
+
+    if expires_param is not None:
+        cursor.execute(insert_sql, (expires_param,))
+    else:
+        cursor.execute(insert_sql)
+
+    cursor.execute("DROP TABLE sessions_old")
 
 
 # ============================================================================
@@ -672,16 +776,45 @@ def get_room_messages(
 
 
 def create_session(username: str, session_id: str) -> bool:
-    """Create new session (removes old session for same user). Returns True on success."""
+    """
+    Create a new session record for a user.
+
+    Behavior depends on configuration:
+      - allow_multiple_sessions = False: all existing sessions for the user
+        are removed before inserting the new one (single-session enforcement).
+      - allow_multiple_sessions = True: the new session is added without
+        removing existing sessions (multi-device support).
+
+    The new session will have created_at/last_activity set to now and
+    expires_at calculated using the configured session TTL.
+    """
+    from mud_server.config import config
+
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        # Remove old session if exists
-        cursor.execute("DELETE FROM sessions WHERE username = ?", (username,))
-        cursor.execute(
-            "INSERT INTO sessions (username, session_id) VALUES (?, ?)",
-            (username, session_id),
-        )
+
+        if not config.session.allow_multiple_sessions:
+            # Enforce one-session-per-user by removing existing sessions.
+            cursor.execute("DELETE FROM sessions WHERE username = ?", (username,))
+
+        if config.session.ttl_minutes > 0:
+            cursor.execute(
+                """
+                INSERT INTO sessions (username, session_id, created_at, last_activity, expires_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, datetime('now', ?))
+                """,
+                (username, session_id, f"+{config.session.ttl_minutes} minutes"),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO sessions (username, session_id, created_at, last_activity, expires_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)
+                """,
+                (username, session_id),
+            )
+
         conn.commit()
         conn.close()
         return True
@@ -690,10 +823,13 @@ def create_session(username: str, session_id: str) -> bool:
 
 
 def get_active_players() -> list[str]:
-    """Get list of currently active players."""
+    """Get list of active players (deduplicated, excludes expired sessions)."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT username FROM sessions")
+    cursor.execute("""
+        SELECT DISTINCT username FROM sessions
+        WHERE expires_at IS NULL OR datetime(expires_at) > datetime('now')
+        """)
     results = cursor.fetchall()
     conn.close()
     return [row[0] for row in results]
@@ -705,9 +841,10 @@ def get_players_in_room(room: str) -> list[str]:
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT p.username FROM players p
+        SELECT DISTINCT p.username FROM players p
         JOIN sessions s ON p.username = s.username
         WHERE p.current_room = ?
+          AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
     """,
         (room,),
     )
@@ -717,11 +854,63 @@ def get_players_in_room(room: str) -> list[str]:
 
 
 def remove_session(username: str) -> bool:
-    """Remove a player session."""
+    """Remove all sessions for a user (used for forced logout/ban)."""
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM sessions WHERE username = ?", (username,))
+        removed = int(cursor.rowcount or 0)
+        conn.commit()
+        conn.close()
+        return removed > 0
+    except Exception:
+        return False
+
+
+def remove_session_by_id(session_id: str) -> bool:
+    """Remove a specific session by its session_id."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+        removed = int(cursor.rowcount or 0)
+        conn.commit()
+        conn.close()
+        return removed > 0
+    except Exception:
+        return False
+
+
+def update_session_activity(session_id: str) -> bool:
+    """
+    Update last_activity for a session and extend expiry when sliding is enabled.
+
+    This function is called on every authenticated request. It updates the
+    last_activity timestamp and (if configured) bumps expires_at forward to
+    maintain a sliding expiration window.
+    """
+    from mud_server.config import config
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        if config.session.sliding_expiration and config.session.ttl_minutes > 0:
+            cursor.execute(
+                """
+                UPDATE sessions
+                SET last_activity = CURRENT_TIMESTAMP,
+                    expires_at = datetime('now', ?)
+                WHERE session_id = ?
+                """,
+                (f"+{config.session.ttl_minutes} minutes", session_id),
+            )
+        else:
+            cursor.execute(
+                "UPDATE sessions SET last_activity = CURRENT_TIMESTAMP WHERE session_id = ?",
+                (session_id,),
+            )
+
         conn.commit()
         conn.close()
         return True
@@ -729,81 +918,63 @@ def remove_session(username: str) -> bool:
         return False
 
 
-def update_session_activity(username: str) -> bool:
-    """Update the last activity timestamp for a session."""
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE sessions SET last_activity = CURRENT_TIMESTAMP WHERE username = ?",
-            (username,),
-        )
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
+def get_session_by_id(session_id: str) -> dict[str, Any] | None:
+    """Return session record by session_id (or None if not found)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT username, session_id, created_at, last_activity, expires_at
+        FROM sessions WHERE session_id = ?
+        """,
+        (session_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "username": row[0],
+        "session_id": row[1],
+        "created_at": row[2],
+        "last_activity": row[3],
+        "expires_at": row[4],
+    }
 
 
-def cleanup_stale_sessions(max_inactive_minutes: int = 30) -> int:
+def get_active_session_count() -> int:
+    """Count active (non-expired) sessions."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*) FROM sessions
+        WHERE expires_at IS NULL OR datetime(expires_at) > datetime('now')
+        """)
+    row = cursor.fetchone()
+    count = int(row[0]) if row else 0
+    conn.close()
+    return count
+
+
+def cleanup_expired_sessions() -> int:
     """
-    Remove sessions that have been inactive for longer than the specified time.
+    Remove expired sessions based on expires_at timestamp.
 
-    This function cleans up orphaned sessions that may have been left behind
-    when clients crash or disconnect without properly logging out. It's designed
-    to be called periodically (e.g., via a scheduled task) to prevent session
-    table bloat and ensure accurate active player counts.
-
-    The function uses SQLite's datetime functions to compare the last_activity
-    timestamp against the current time minus the threshold. Sessions older than
-    the threshold are deleted in a single SQL operation for efficiency.
-
-    Args:
-        max_inactive_minutes: Maximum time in minutes since last activity before
-            a session is considered stale. Defaults to 30 minutes. A session
-            is stale if: now - last_activity > max_inactive_minutes
-
-    Returns:
-        Number of sessions removed. Returns 0 if no sessions were removed or
-        if an error occurred during the operation.
-
-    Note:
-        This function only cleans up the database sessions table. The in-memory
-        active_sessions dict in auth.py is NOT updated by this function. For
-        full cleanup, use auth.clear_all_sessions() which handles both.
-
-    Example:
-        >>> # Remove sessions inactive for more than 30 minutes
-        >>> cleanup_stale_sessions(30)
-        3  # Removed 3 stale sessions
-
-        >>> # More aggressive cleanup (10 minute threshold)
-        >>> cleanup_stale_sessions(10)
-        5
+    Returns the number of sessions removed. This is safe to call on startup
+    and periodically to avoid table bloat.
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
-
-        # Delete sessions where last_activity is older than max_inactive_minutes
-        # The negative sign creates a time offset in the past
-        # e.g., '-30 minutes' subtracts 30 minutes from 'now'
-        cursor.execute(
-            """
+        cursor.execute("""
             DELETE FROM sessions
-            WHERE datetime(last_activity) < datetime('now', ? || ' minutes')
-            """,
-            (f"-{max_inactive_minutes}",),
-        )
-
-        # Get the count of deleted rows before committing
+            WHERE expires_at IS NOT NULL AND datetime(expires_at) <= datetime('now')
+            """)
         removed_count: int = cursor.rowcount
         conn.commit()
         conn.close()
         return removed_count
     except Exception:
-        # Silently fail and return 0 - this is a cleanup operation that
-        # shouldn't crash the server if it fails
         return 0
 
 
@@ -829,10 +1000,7 @@ def clear_all_sessions() -> int:
         sessions existed or if an error occurred.
 
     Note:
-        This function only cleans up the database sessions table. For
-        complete session cleanup including in-memory state, use
-        auth.clear_all_sessions() which calls this function AND clears
-        the active_sessions dict.
+        Sessions are database-backed; this operation is authoritative.
 
     Warning:
         Calling this function will force all connected clients to re-login
@@ -899,13 +1067,14 @@ def get_all_players_detailed() -> list[dict[str, Any]]:
 
 
 def get_all_sessions() -> list[dict[str, Any]]:
-    """Get all active sessions."""
+    """Get all active (non-expired) sessions."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, username, session_id, connected_at, last_activity
+        SELECT id, username, session_id, created_at, last_activity, expires_at
         FROM sessions
-        ORDER BY connected_at DESC
+        WHERE expires_at IS NULL OR datetime(expires_at) > datetime('now')
+        ORDER BY created_at DESC
     """)
     results = cursor.fetchall()
     conn.close()
@@ -917,8 +1086,9 @@ def get_all_sessions() -> list[dict[str, Any]]:
                 "id": row[0],
                 "username": row[1],
                 "session_id": row[2],
-                "connected_at": row[3],
+                "created_at": row[3],
                 "last_activity": row[4],
+                "expires_at": row[5],
             }
         )
     return sessions

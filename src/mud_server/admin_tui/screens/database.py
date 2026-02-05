@@ -161,8 +161,9 @@ class DatabaseScreen(Screen):
             "ID",
             "Username",
             "Session ID",
-            "Connected At",
+            "Created At",
             "Last Activity",
+            "Expires At",
         )
 
     def _setup_chat_table(self) -> None:
@@ -219,8 +220,9 @@ class DatabaseScreen(Screen):
                     str(session.get("id", "")),
                     session.get("username", ""),
                     self._truncate(session.get("session_id", ""), 20),
-                    self._format_timestamp(session.get("connected_at", "")),
+                    self._format_timestamp(session.get("created_at", "")),
                     self._format_timestamp(session.get("last_activity", "")),
+                    self._format_timestamp(session.get("expires_at", "")),
                 )
 
             self.notify(f"Loaded {len(sessions)} sessions", severity="information")
