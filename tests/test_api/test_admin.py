@@ -42,6 +42,22 @@ def test_admin_view_players_as_admin(test_client, test_db, temp_db_path, db_with
 
 @pytest.mark.admin
 @pytest.mark.api
+def test_admin_view_tables_as_admin(test_client, test_db, temp_db_path, db_with_users):
+    """Test admin can view database table metadata."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(f"/admin/database/tables?session_id={session_id}")
+
+        assert response.status_code == 200
+        assert "tables" in response.json()
+
+
+@pytest.mark.admin
+@pytest.mark.api
 def test_admin_view_players_as_player_forbidden(test_client, test_db, temp_db_path, db_with_users):
     """Test regular player cannot view admin endpoints."""
     with use_test_database(temp_db_path):
@@ -56,6 +72,72 @@ def test_admin_view_players_as_player_forbidden(test_client, test_db, temp_db_pa
 
         # Should be forbidden (403) or not found (404)
         assert response.status_code in [403, 404]
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_view_tables_as_player_forbidden(test_client, test_db, temp_db_path, db_with_users):
+    """Test regular player cannot view database table metadata."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(f"/admin/database/tables?session_id={session_id}")
+
+        assert response.status_code == 403
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_view_table_rows_as_admin(test_client, test_db, temp_db_path, db_with_users):
+    """Test admin can view table rows for a specific table."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(f"/admin/database/table/players?session_id={session_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["table"] == "players"
+        assert "columns" in data
+        assert "rows" in data
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_view_table_rows_invalid_table(test_client, test_db, temp_db_path, db_with_users):
+    """Test invalid table returns 404 for admins."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(f"/admin/database/table/not_a_table?session_id={session_id}")
+
+        assert response.status_code == 404
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_view_table_rows_as_player_forbidden(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Test regular player cannot view table rows."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(f"/admin/database/table/players?session_id={session_id}")
+
+        assert response.status_code == 403
 
 
 # ============================================================================

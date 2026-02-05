@@ -579,3 +579,138 @@ class TestAdminAPIClientAuthRequired:
 
         assert exc_info.value.status_code == 500
         assert "Failed to get chat messages" in exc_info.value.message
+
+    @pytest.mark.asyncio
+    async def test_get_tables_requires_auth(self, client: AdminAPIClient):
+        """Test get_tables raises error when not authenticated."""
+        with pytest.raises(AuthenticationError, match="Not authenticated"):
+            await client.get_tables()
+
+    @pytest.mark.asyncio
+    async def test_get_table_rows_requires_auth(self, client: AdminAPIClient):
+        """Test get_table_rows raises error when not authenticated."""
+        with pytest.raises(AuthenticationError, match="Not authenticated"):
+            await client.get_table_rows("players")
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_tables_permission_denied(self, client: AdminAPIClient):
+        """Test get_tables with insufficient permissions."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "player"},
+            )
+        )
+        await client.login("player", "password")
+
+        respx.get("http://test-server:8000/admin/database/tables").mock(
+            return_value=Response(403, json={"detail": "Forbidden"})
+        )
+
+        with pytest.raises(AuthenticationError) as exc_info:
+            await client.get_tables()
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_tables_success(self, client: AdminAPIClient):
+        """Test successful get_tables call."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        respx.get("http://test-server:8000/admin/database/tables").mock(
+            return_value=Response(
+                200,
+                json={
+                    "tables": [
+                        {"name": "players", "columns": ["id"], "row_count": 1},
+                        {"name": "sessions", "columns": ["id"], "row_count": 0},
+                    ]
+                },
+            )
+        )
+
+        tables = await client.get_tables()
+
+        assert len(tables) == 2
+        assert tables[0]["name"] == "players"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_tables_server_error(self, client: AdminAPIClient):
+        """Test get_tables handles server errors."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        respx.get("http://test-server:8000/admin/database/tables").mock(
+            return_value=Response(500, json={"detail": "Internal server error"})
+        )
+
+        with pytest.raises(APIError) as exc_info:
+            await client.get_tables()
+
+        assert exc_info.value.status_code == 500
+        assert "Failed to get database tables" in exc_info.value.message
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_table_rows_success(self, client: AdminAPIClient):
+        """Test successful get_table_rows call."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        respx.get("http://test-server:8000/admin/database/table/players").mock(
+            return_value=Response(
+                200,
+                json={
+                    "table": "players",
+                    "columns": ["id", "username"],
+                    "rows": [[1, "player1"]],
+                },
+            )
+        )
+
+        result = await client.get_table_rows("players")
+
+        assert result["table"] == "players"
+        assert result["columns"] == ["id", "username"]
+        assert result["rows"][0][1] == "player1"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_table_rows_server_error(self, client: AdminAPIClient):
+        """Test get_table_rows handles server errors."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        respx.get("http://test-server:8000/admin/database/table/players").mock(
+            return_value=Response(500, json={"detail": "Internal server error"})
+        )
+
+        with pytest.raises(APIError) as exc_info:
+            await client.get_table_rows("players")
+
+        assert exc_info.value.status_code == 500
+        assert "Failed to get table" in exc_info.value.message
