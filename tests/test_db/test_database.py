@@ -448,6 +448,11 @@ def test_create_session(test_db, temp_db_path, db_with_users):
         result = database.create_session("testplayer", "session-123")
         assert result is True
 
+        players = database.get_all_players_detailed()
+        matching = [player for player in players if player["username"] == "testplayer"]
+        assert matching
+        assert matching[0]["last_login"] is not None
+
 
 @pytest.mark.unit
 @pytest.mark.db

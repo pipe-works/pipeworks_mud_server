@@ -815,6 +815,12 @@ def create_session(username: str, session_id: str) -> bool:
                 (username, session_id),
             )
 
+        # Update last_login for the user on successful session creation.
+        cursor.execute(
+            "UPDATE players SET last_login = CURRENT_TIMESTAMP WHERE username = ?",
+            (username,),
+        )
+
         conn.commit()
         conn.close()
         return True
