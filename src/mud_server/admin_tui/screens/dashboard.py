@@ -11,7 +11,7 @@ The DashboardScreen shows:
 - User session information
 """
 
-from textual import on, work
+from textual import events, on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -178,10 +178,49 @@ class DashboardScreen(Screen):
 
     def on_mount(self) -> None:
         """Initialize dashboard when mounted."""
+        # Apply user-configured keybindings (if any).
+        self._apply_keybindings()
         # Update user info from session
         self._update_user_info()
         # Start initial refresh
         self.refresh_status()
+
+    def _apply_keybindings(self) -> None:
+        """
+        Capture user-configured keybindings for dashboard actions.
+
+        We interpret configured keys in on_key to keep bindings scoped
+        to this screen without mutating class-level BINDINGS.
+        """
+        bindings = getattr(self.app, "keybindings", None)
+        if not bindings:
+            return
+
+        self._keybindings_by_key: dict[str, str] = {}
+        for action, keys in bindings.bindings.items():
+            if not hasattr(self, f"action_{action}"):
+                continue
+            for key in keys:
+                self._keybindings_by_key.setdefault(key, action)
+
+    def on_key(self, event: events.Key) -> None:
+        """
+        Handle user-configured keybindings for dashboard actions.
+
+        If a key is configured for an action, invoke the matching
+        action method and stop further propagation.
+        """
+        bindings_map = getattr(self, "_keybindings_by_key", {})
+        action = bindings_map.get(event.key)
+        if not action:
+            return
+
+        handler = getattr(self, f"action_{action}", None)
+        if not handler:
+            return
+
+        handler()
+        event.stop()
 
     def _update_user_info(self) -> None:
         """Update the user info display from session state."""
