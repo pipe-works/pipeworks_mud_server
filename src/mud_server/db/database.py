@@ -1035,6 +1035,86 @@ def clear_all_sessions() -> int:
 # ============================================================================
 
 
+def _quote_identifier(identifier: str) -> str:
+    """
+    Safely quote an SQLite identifier (table/column name).
+
+    This prevents injection when identifiers must be interpolated into SQL.
+    """
+    escaped = identifier.replace('"', '""')
+    return f'"{escaped}"'
+
+
+def get_table_names() -> list[str]:
+    """Return a sorted list of user-defined table names (excludes sqlite_*)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT name
+        FROM sqlite_master
+        WHERE type='table' AND name NOT LIKE 'sqlite_%'
+        ORDER BY name
+    """)
+    results = cursor.fetchall()
+    conn.close()
+    return [row[0] for row in results]
+
+
+def list_tables() -> list[dict[str, Any]]:
+    """
+    Return table metadata for admin database browsing.
+
+    Each entry includes table name, column list, and row count.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    tables: list[dict[str, Any]] = []
+    for table_name in get_table_names():
+        quoted_table = _quote_identifier(table_name)
+        cursor.execute(f"PRAGMA table_info({quoted_table})")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        cursor.execute(f"SELECT COUNT(*) FROM {quoted_table}")  # nosec B608
+        row_count = int(cursor.fetchone()[0])
+
+        tables.append(
+            {
+                "name": table_name,
+                "columns": columns,
+                "row_count": row_count,
+            }
+        )
+
+    conn.close()
+    return tables
+
+
+def get_table_rows(table_name: str, limit: int = 100) -> tuple[list[str], list[list[Any]]]:
+    """
+    Return column names and rows for a given table.
+
+    Raises:
+        ValueError: If the table does not exist.
+    """
+    table_names = set(get_table_names())
+    if table_name not in table_names:
+        raise ValueError(f"Table '{table_name}' does not exist")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    quoted_table = _quote_identifier(table_name)
+    cursor.execute(f"PRAGMA table_info({quoted_table})")
+    columns = [row[1] for row in cursor.fetchall()]
+
+    cursor.execute(f"SELECT * FROM {quoted_table} LIMIT ?", (limit,))  # nosec B608
+    rows = [list(row) for row in cursor.fetchall()]
+
+    conn.close()
+    return columns, rows
+
+
 def get_all_players_detailed() -> list[dict[str, Any]]:
     """Get detailed player list including password hash prefix (for admin database viewer)."""
     conn = get_connection()

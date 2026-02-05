@@ -828,3 +828,39 @@ def test_get_all_chat_messages(test_db, temp_db_path, db_with_users):
 
         messages = database.get_all_chat_messages(limit=100)
         assert len(messages) == 3
+
+
+@pytest.mark.unit
+@pytest.mark.db
+@pytest.mark.admin
+def test_list_tables(test_db, temp_db_path, db_with_users):
+    """Test listing database tables with metadata."""
+    with use_test_database(temp_db_path):
+        tables = database.list_tables()
+        table_names = {table["name"] for table in tables}
+
+        assert {"players", "sessions", "chat_messages"}.issubset(table_names)
+        assert all("columns" in table for table in tables)
+        assert all("row_count" in table for table in tables)
+
+
+@pytest.mark.unit
+@pytest.mark.db
+@pytest.mark.admin
+def test_get_table_rows(test_db, temp_db_path, db_with_users):
+    """Test fetching columns and rows for a specific table."""
+    with use_test_database(temp_db_path):
+        columns, rows = database.get_table_rows("players", limit=10)
+
+        assert "username" in columns
+        assert len(rows) >= 1
+
+
+@pytest.mark.unit
+@pytest.mark.db
+@pytest.mark.admin
+def test_get_table_rows_invalid_table_raises(test_db, temp_db_path, db_with_users):
+    """Test invalid table name raises a ValueError."""
+    with use_test_database(temp_db_path):
+        with pytest.raises(ValueError, match="does not exist"):
+            database.get_table_rows("not_a_table")

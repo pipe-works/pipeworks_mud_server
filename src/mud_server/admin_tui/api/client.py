@@ -22,7 +22,7 @@ Key Features:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -562,3 +562,83 @@ class AdminAPIClient:
 
         data = response.json()
         return list(data.get("messages", []))
+
+    async def get_tables(self) -> list[dict[str, Any]]:
+        """
+        Get list of database tables with schema metadata.
+
+        Requires admin privileges.
+
+        Returns:
+            list: List of table metadata dictionaries with name, columns, row_count.
+
+        Raises:
+            AuthenticationError: If not authenticated or lacks permission.
+            APIError: If the server returns an error.
+        """
+        self._require_auth()
+
+        response = await self.http_client.get(
+            "/admin/database/tables",
+            params={"session_id": self.session.session_id},
+        )
+
+        if response.status_code == 403:
+            raise AuthenticationError(
+                message="Permission denied",
+                status_code=403,
+                detail="Admin privileges required",
+            )
+
+        if response.status_code != 200:
+            data = response.json()
+            raise APIError(
+                message="Failed to get database tables",
+                status_code=response.status_code,
+                detail=data.get("detail", "Unknown error"),
+            )
+
+        data = response.json()
+        return list(data.get("tables", []))
+
+    async def get_table_rows(self, table_name: str, limit: int = 100) -> dict[str, Any]:
+        """
+        Get rows and columns for a specific database table.
+
+        Requires admin privileges.
+
+        Args:
+            table_name: Table name to query.
+            limit: Max number of rows to return.
+
+        Returns:
+            dict: Contains table, columns, and rows.
+
+        Raises:
+            AuthenticationError: If not authenticated or lacks permission.
+            APIError: If the server returns an error.
+        """
+        self._require_auth()
+
+        response = await self.http_client.get(
+            f"/admin/database/table/{table_name}",
+            params={"session_id": self.session.session_id, "limit": limit},
+        )
+
+        if response.status_code == 403:
+            raise AuthenticationError(
+                message="Permission denied",
+                status_code=403,
+                detail="Admin privileges required",
+            )
+
+        if response.status_code != 200:
+            error_data = response.json()
+            raise APIError(
+                message=f"Failed to get table '{table_name}'",
+                status_code=response.status_code,
+                detail=error_data.get("detail", "Unknown error"),
+            )
+
+        data = cast(dict[str, Any], response.json())
+        return data

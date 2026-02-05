@@ -62,6 +62,9 @@ from mud_server.api.models import (
     DatabaseChatResponse,
     DatabasePlayersResponse,
     DatabaseSessionsResponse,
+    DatabaseTableInfo,
+    DatabaseTableRowsResponse,
+    DatabaseTablesResponse,
     LoginRequest,
     LoginResponse,
     LogoutRequest,
@@ -429,6 +432,26 @@ Note: Commands can be used with or without the / prefix
 
         players = database.get_all_players_detailed()
         return DatabasePlayersResponse(players=players)
+
+    @app.get("/admin/database/tables", response_model=DatabaseTablesResponse)
+    async def get_database_tables(session_id: str):
+        """Get list of database tables with schema details (Admin only)."""
+        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+
+        tables = [DatabaseTableInfo(**table) for table in database.list_tables()]
+        return DatabaseTablesResponse(tables=tables)
+
+    @app.get("/admin/database/table/{table_name}", response_model=DatabaseTableRowsResponse)
+    async def get_database_table_rows(session_id: str, table_name: str, limit: int = 100):
+        """Get rows from a specific database table (Admin only)."""
+        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+
+        try:
+            columns, rows = database.get_table_rows(table_name, limit=limit)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        return DatabaseTableRowsResponse(table=table_name, columns=columns, rows=rows)
 
     @app.get("/admin/database/sessions", response_model=DatabaseSessionsResponse)
     async def get_database_sessions(session_id: str):

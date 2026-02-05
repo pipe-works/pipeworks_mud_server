@@ -262,6 +262,51 @@ class DatabasePlayersResponse(BaseModel):
     players: list[dict[str, Any]]
 
 
+class DatabaseTableInfo(BaseModel):
+    """
+    Metadata about a single database table.
+
+    Attributes:
+        name: Table name.
+        columns: List of column names in order.
+        row_count: Number of rows in the table.
+    """
+
+    name: str
+    columns: list[str]
+    row_count: int
+
+
+class DatabaseTablesResponse(BaseModel):
+    """
+    Admin response containing database table metadata.
+
+    Requires VIEW_LOGS permission. Used for table discovery in the admin UI.
+
+    Attributes:
+        tables: List of DatabaseTableInfo entries.
+    """
+
+    tables: list[DatabaseTableInfo]
+
+
+class DatabaseTableRowsResponse(BaseModel):
+    """
+    Admin response containing rows for a specific database table.
+
+    Requires VIEW_LOGS permission. Includes column names and raw row values.
+
+    Attributes:
+        table: Table name.
+        columns: Column names in order.
+        rows: Row values as a list of rows (each row is a list of values).
+    """
+
+    table: str
+    columns: list[str]
+    rows: list[list[Any]]
+
+
 class DatabaseSessionsResponse(BaseModel):
     """
     Admin response containing all active sessions from database.

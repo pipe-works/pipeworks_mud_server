@@ -4,10 +4,11 @@ Database viewer screen for PipeWorks Admin TUI.
 This module provides a database viewing interface that allows superusers
 to view the contents of various database tables (players, sessions, chat).
 
-The DatabaseScreen shows:
-- Tabbed interface for different tables
-- DataTable widgets for viewing records
-- Refresh functionality for each table
+    The DatabaseScreen shows:
+    - Tabbed interface for different tables
+    - DataTable widgets for viewing records
+    - A table browser for any database table
+    - Refresh functionality for each table
 """
 
 from textual import events, on, work
@@ -117,6 +118,9 @@ class DatabaseScreen(Screen):
 
             # Tabbed content for different tables
             with TabbedContent(id="table-tabs"):
+                with TabPane("Tables", id="tab-tables"):
+                    yield DataTable(id="table-list")
+
                 with TabPane("Players", id="tab-players"):
                     yield DataTable(id="table-players")
 
@@ -125,6 +129,9 @@ class DatabaseScreen(Screen):
 
                 with TabPane("Chat Messages", id="tab-chat"):
                     yield DataTable(id="table-chat")
+
+                with TabPane("Table Data", id="tab-table-data"):
+                    yield DataTable(id="table-data")
 
         yield Footer()
 
@@ -138,14 +145,17 @@ class DatabaseScreen(Screen):
             return
 
         # Set up tables
+        self._setup_tables_list_table()
         self._setup_players_table()
         self._setup_sessions_table()
         self._setup_chat_table()
+        self._setup_table_data_table()
 
         # Apply user-configured keybindings
         self._apply_keybindings()
 
         # Load initial data
+        self._load_tables()
         self._load_players()
         self._load_sessions()
         self._load_chat_messages()
@@ -221,6 +231,79 @@ class DatabaseScreen(Screen):
             "Message",
             "Timestamp",
         )
+
+    def _setup_tables_list_table(self) -> None:
+        """Configure the table list DataTable columns."""
+        table = self.query_one("#table-list", DataTable)
+        table.cursor_type = "row"
+        table.zebra_stripes = True
+        table.add_columns(
+            "Table",
+            "Columns",
+            "Rows",
+        )
+
+    def _setup_table_data_table(self) -> None:
+        """Configure the generic table data DataTable."""
+        table = self.query_one("#table-data", DataTable)
+        table.cursor_type = "row"
+        table.zebra_stripes = True
+
+    @work(thread=False)
+    async def _load_tables(self) -> None:
+        """Fetch and display available database tables."""
+        table = self.query_one("#table-list", DataTable)
+        table.clear()
+
+        try:
+            tables = await self.app.api_client.get_tables()
+
+            for table_info in tables:
+                columns = ", ".join(table_info.get("columns", []))
+                table.add_row(
+                    table_info.get("name", ""),
+                    columns,
+                    str(table_info.get("row_count", 0)),
+                )
+
+            self.notify(f"Loaded {len(tables)} tables", severity="information")
+
+        except AuthenticationError as e:
+            self.notify(f"Permission denied: {e.detail}", severity="error")
+        except Exception as e:
+            self.notify(f"Failed to load tables: {e}", severity="error")
+
+    @work(thread=False)
+    async def _load_table_data(self, table_name: str) -> None:
+        """Fetch and display rows for a selected table."""
+        data_table = self.query_one("#table-data", DataTable)
+        data_table.clear(columns=True)
+
+        try:
+            payload = await self.app.api_client.get_table_rows(table_name, limit=200)
+            columns = payload.get("columns", [])
+            rows = payload.get("rows", [])
+
+            if not columns:
+                self.notify(f"No columns found for {table_name}", severity="warning")
+                return
+
+            data_table.add_columns(*columns)
+            for row in rows:
+                data_table.add_row(*[self._format_cell(value) for value in row])
+
+            self.notify(
+                f"Loaded {len(rows)} rows from {table_name}",
+                severity="information",
+            )
+
+            tabs = self.query_one("#table-tabs", TabbedContent)
+            tabs.active = "tab-table-data"
+
+        except AuthenticationError as e:
+            self.notify(f"Permission denied: {e.detail}", severity="error")
+        except Exception as e:
+            self.notify(f"Failed to load table data: {e}", severity="error")
 
     @work(thread=False)
     async def _load_players(self) -> None:
@@ -404,8 +487,18 @@ class DatabaseScreen(Screen):
     def action_select(self) -> None:
         """Select the current row in the active table."""
         table = self._get_active_table()
-        if table:
-            table.action_select_cursor()
+        if not table:
+            return
+
+        if self._is_tables_tab_active():
+            selected_row = table.get_row_at(table.cursor_row)
+            if selected_row:
+                table_name = str(selected_row[0])
+                if table_name:
+                    self._load_table_data(table_name)
+            return
+
+        table.action_select_cursor()
 
     def _switch_tab(self, direction: int) -> None:
         """Rotate tab selection by +1 (next) or -1 (prev)."""
@@ -442,12 +535,26 @@ class DatabaseScreen(Screen):
             return None
 
         table_id_map = {
+            "tab-tables": "#table-list",
             "tab-players": "#table-players",
             "tab-sessions": "#table-sessions",
             "tab-chat": "#table-chat",
+            "tab-table-data": "#table-data",
         }
         table_selector = table_id_map.get(active_id)
         if not table_selector:
             return None
 
         return self.query_one(table_selector, DataTable)
+
+    def _is_tables_tab_active(self) -> bool:
+        """Return True if the table list tab is active."""
+        tabs = self.query_one("#table-tabs", TabbedContent)
+        active_id = tabs.active or (tabs.active_pane.id if tabs.active_pane else None)
+        return active_id == "tab-tables"
+
+    def _format_cell(self, value: object) -> str:
+        """Format a generic cell value for display in the DataTable."""
+        if value is None:
+            return "-"
+        return str(value)
