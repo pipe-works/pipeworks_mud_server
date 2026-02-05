@@ -33,6 +33,7 @@ from textual.binding import Binding
 
 from mud_server.admin_tui.api.client import AdminAPIClient
 from mud_server.admin_tui.config import Config
+from mud_server.admin_tui.keybindings import KeyBindings
 from mud_server.admin_tui.screens.dashboard import DashboardScreen
 from mud_server.admin_tui.screens.login import LoginScreen
 
@@ -92,6 +93,8 @@ class AdminApp(App):
         """
         super().__init__()
         self.config = config
+        # Load keybindings once at startup to keep behavior consistent.
+        self.keybindings = KeyBindings.load()
         self.api_client: AdminAPIClient | None = None
 
     async def on_mount(self) -> None:
@@ -120,7 +123,7 @@ class AdminApp(App):
             if self.api_client.session.is_authenticated:
                 try:
                     await self.api_client.logout()
-                except Exception:
+                except Exception:  # nosec B110 - best-effort logout on shutdown
                     # Ignore logout errors on shutdown (server may be unavailable)
                     pass
             # Close the HTTP client

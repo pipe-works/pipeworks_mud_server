@@ -10,7 +10,7 @@ The DatabaseScreen shows:
 - Refresh functionality for each table
 """
 
-from textual import on, work
+from textual import events, on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -142,10 +142,43 @@ class DatabaseScreen(Screen):
         self._setup_sessions_table()
         self._setup_chat_table()
 
+        # Apply user-configured keybindings
+        self._apply_keybindings()
+
         # Load initial data
         self._load_players()
         self._load_sessions()
         self._load_chat_messages()
+
+    def _apply_keybindings(self) -> None:
+        """
+        Bind user-configurable navigation keys.
+
+        This binds actions for:
+        - Tab navigation (next/prev)
+        - Table cursor movement (hjkl)
+        - Selection (space/enter)
+        """
+        bindings = getattr(self.app, "keybindings", None)
+        if not bindings:
+            return
+
+        # Map configured keys to actions so we can handle them in on_key.
+        # Textual's Screen does not support dynamic bind() calls, so we
+        # interpret these keys manually to avoid global app bindings.
+        self._keybindings_by_key: dict[str, str] = {}
+        for action in (
+            "next_tab",
+            "prev_tab",
+            "cursor_up",
+            "cursor_down",
+            "cursor_left",
+            "cursor_right",
+            "select",
+        ):
+            for key in bindings.get_keys(action):
+                # Preserve the first binding if duplicates exist.
+                self._keybindings_by_key.setdefault(key, action)
 
     def _setup_players_table(self) -> None:
         """Configure the players DataTable columns."""
@@ -293,6 +326,26 @@ class DatabaseScreen(Screen):
         """Handle back button press."""
         self.action_back()
 
+    def on_key(self, event: events.Key) -> None:
+        """
+        Handle user-configured keybindings.
+
+        We translate key presses into action methods for this screen. This
+        keeps bindings scoped to the screen without relying on global app
+        bindings, and avoids mutation of class-level BINDINGS.
+        """
+        bindings_map = getattr(self, "_keybindings_by_key", {})
+        action = bindings_map.get(event.key)
+        if not action:
+            return
+
+        handler = getattr(self, f"action_{action}", None)
+        if not handler:
+            return
+
+        handler()
+        event.stop()
+
     # -------------------------------------------------------------------------
     # Actions (Bound to Keys)
     # -------------------------------------------------------------------------
@@ -311,3 +364,90 @@ class DatabaseScreen(Screen):
     def action_quit(self) -> None:
         """Quit the application (key: q)."""
         self.app.exit()
+
+    # -------------------------------------------------------------------------
+    # Keybinding Actions
+    # -------------------------------------------------------------------------
+
+    def action_next_tab(self) -> None:
+        """Switch to the next database tab."""
+        self._switch_tab(direction=1)
+
+    def action_prev_tab(self) -> None:
+        """Switch to the previous database tab."""
+        self._switch_tab(direction=-1)
+
+    def action_cursor_up(self) -> None:
+        """Move selection up in the active table."""
+        table = self._get_active_table()
+        if table:
+            table.action_cursor_up()
+
+    def action_cursor_down(self) -> None:
+        """Move selection down in the active table."""
+        table = self._get_active_table()
+        if table:
+            table.action_cursor_down()
+
+    def action_cursor_left(self) -> None:
+        """Move selection left in the active table."""
+        table = self._get_active_table()
+        if table:
+            table.action_cursor_left()
+
+    def action_cursor_right(self) -> None:
+        """Move selection right in the active table."""
+        table = self._get_active_table()
+        if table:
+            table.action_cursor_right()
+
+    def action_select(self) -> None:
+        """Select the current row in the active table."""
+        table = self._get_active_table()
+        if table:
+            table.action_select_cursor()
+
+    def _switch_tab(self, direction: int) -> None:
+        """Rotate tab selection by +1 (next) or -1 (prev)."""
+        tabs = self.query_one("#table-tabs", TabbedContent)
+        panes = list(tabs.query(TabPane))
+        if not panes:
+            return
+
+        pane_ids = [pane.id for pane in panes if pane.id]
+        if not pane_ids:
+            return
+
+        current_id = tabs.active or (tabs.active_pane.id if tabs.active_pane else None)
+        if current_id in pane_ids:
+            current_index = pane_ids.index(current_id)
+        else:
+            current_index = 0
+
+        next_index = (current_index + direction) % len(pane_ids)
+        tabs.active = pane_ids[next_index]
+
+    def _get_active_table(self) -> DataTable | None:
+        """
+        Get the DataTable for the currently active tab.
+
+        Falls back to the focused widget if it is already a DataTable.
+        """
+        if isinstance(self.app.focused, DataTable):
+            return self.app.focused
+
+        tabs = self.query_one("#table-tabs", TabbedContent)
+        active_id = tabs.active or (tabs.active_pane.id if tabs.active_pane else None)
+        if not active_id:
+            return None
+
+        table_id_map = {
+            "tab-players": "#table-players",
+            "tab-sessions": "#table-sessions",
+            "tab-chat": "#table-chat",
+        }
+        table_selector = table_id_map.get(active_id)
+        if not table_selector:
+            return None
+
+        return self.query_one(table_selector, DataTable)

@@ -8,7 +8,7 @@ The LoginScreen uses Textual's Screen class to provide a full-window
 login form with username and password inputs.
 """
 
-from textual import on
+from textual import events, on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Center, Vertical
@@ -122,7 +122,45 @@ class LoginScreen(Screen):
 
     def on_mount(self) -> None:
         """Focus the username field when the screen mounts."""
+        self._apply_keybindings()
         self.query_one("#username", Input).focus()
+
+    def _apply_keybindings(self) -> None:
+        """
+        Capture user-configured keybindings for login actions.
+
+        This keeps bindings local to the login screen while still honoring
+        user overrides (e.g., custom quit keys).
+        """
+        bindings = getattr(self.app, "keybindings", None)
+        if not bindings:
+            return
+
+        self._keybindings_by_key: dict[str, str] = {}
+        for action, keys in bindings.bindings.items():
+            if not hasattr(self, f"action_{action}"):
+                continue
+            for key in keys:
+                self._keybindings_by_key.setdefault(key, action)
+
+    def on_key(self, event: events.Key) -> None:
+        """
+        Handle user-configured keybindings for login actions.
+
+        If a key is configured for an action, invoke the matching
+        action method and stop further propagation.
+        """
+        bindings_map = getattr(self, "_keybindings_by_key", {})
+        action = bindings_map.get(event.key)
+        if not action:
+            return
+
+        handler = getattr(self, f"action_{action}", None)
+        if not handler:
+            return
+
+        handler()
+        event.stop()
 
     @on(Button.Pressed, "#login-btn")
     async def handle_login_button(self) -> None:
