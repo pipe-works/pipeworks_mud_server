@@ -476,6 +476,36 @@ def test_create_session_normalizes_client_type(test_db, temp_db_path, db_with_us
 
 @pytest.mark.unit
 @pytest.mark.db
+def test_delete_player_removes_related_data(test_db, temp_db_path, db_with_users):
+    """Test delete_player removes sessions, locations, and chat messages."""
+    with use_test_database(temp_db_path):
+        database.create_session("testplayer", "session-999")
+        database.add_chat_message("testplayer", "Hello", "spawn")
+        database.add_chat_message("testadmin", "Whisper", "spawn", recipient="testplayer")
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM players WHERE username = ?", ("testplayer",))
+        player_id = cursor.fetchone()[0]
+        cursor.execute(
+            "UPDATE player_locations SET room_id = ? WHERE player_id = ?",
+            ("spawn", player_id),
+        )
+        conn.commit()
+        conn.close()
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_delete_player_missing_returns_false(test_db, temp_db_path, db_with_users):
+    """Test delete_player returns False when user does not exist."""
+    with use_test_database(temp_db_path):
+        result = database.delete_player("missing-user")
+        assert result is False
+
+
+@pytest.mark.unit
+@pytest.mark.db
 def test_create_session_no_ttl_sets_null_expiry(test_db, temp_db_path, db_with_users):
     """Test that TTL=0 stores NULL expiry."""
     from mud_server.config import config

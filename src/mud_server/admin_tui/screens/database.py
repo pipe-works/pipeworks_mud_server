@@ -82,6 +82,86 @@ class ConfirmKickScreen(ModalScreen[bool]):
         self.dismiss(True)
 
 
+class ConfirmUserRemovalScreen(ModalScreen[str | None]):
+    """Modal confirmation prompt for user deactivation or deletion."""
+
+    DEFAULT_CSS = """
+    ConfirmUserRemovalScreen {
+        align: center middle;
+    }
+
+    .confirm-dialog {
+        width: 70;
+        border: solid $primary;
+        padding: 1 2;
+        background: $surface;
+    }
+
+    .confirm-title {
+        text-style: bold;
+        color: $accent;
+        padding-bottom: 1;
+    }
+
+    .confirm-actions {
+        height: 3;
+        padding-top: 1;
+    }
+
+    .confirm-button {
+        margin-right: 1;
+    }
+    """
+
+    def __init__(self, username: str, role: str) -> None:
+        super().__init__()
+        self._username = username
+        self._role = role
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="confirm-dialog"):
+            yield Static("Remove User", classes="confirm-title")
+            yield Static(
+                "\n".join(
+                    [
+                        f"User: {self._username} ({self._role})",
+                        "",
+                        "Deactivate: disables login and removes active sessions.",
+                        "Delete: permanently removes the user and related data.",
+                    ]
+                ),
+                id="confirm-message",
+            )
+            with Horizontal(classes="confirm-actions"):
+                yield Button(
+                    "Cancel", variant="default", id="confirm-cancel", classes="confirm-button"
+                )
+                yield Button(
+                    "Deactivate",
+                    variant="warning",
+                    id="confirm-deactivate",
+                    classes="confirm-button",
+                )
+                yield Button(
+                    "Delete",
+                    variant="error",
+                    id="confirm-delete",
+                    classes="confirm-button",
+                )
+
+    @on(Button.Pressed, "#confirm-cancel")
+    def _cancel(self) -> None:
+        self.dismiss(None)
+
+    @on(Button.Pressed, "#confirm-deactivate")
+    def _deactivate(self) -> None:
+        self.dismiss("deactivate")
+
+    @on(Button.Pressed, "#confirm-delete")
+    def _delete(self) -> None:
+        self.dismiss("delete")
+
+
 class DatabaseScreen(Screen):
     """
     Database viewer screen for superusers.
@@ -93,6 +173,7 @@ class DatabaseScreen(Screen):
         r: Refresh current table
         b: Go back to dashboard
         x: Kick selected session (connections/sessions tabs)
+        d: Deactivate/delete selected user (players tab)
         q, ctrl+q: Quit application
 
     CSS Classes:
@@ -105,6 +186,7 @@ class DatabaseScreen(Screen):
         Binding("r", "refresh", "Refresh", priority=True),
         Binding("b", "back", "Back", priority=True),
         Binding("x", "kick", "Kick", priority=True),
+        Binding("d", "remove_user", "Remove User", priority=True),
         Binding("q", "quit", "Quit", priority=True),
         Binding("ctrl+q", "quit", "Quit", priority=True, show=False),
     ]
@@ -255,6 +337,7 @@ class DatabaseScreen(Screen):
         - Table cursor movement (hjkl)
         - Selection (space/enter)
         - Session management (kick)
+        - User management (remove/deactivate)
         """
         bindings = getattr(self.app, "keybindings", None)
         if not bindings:
@@ -273,6 +356,7 @@ class DatabaseScreen(Screen):
             "cursor_right",
             "select",
             "kick",
+            "remove_user",
         ):
             for key in bindings.get_keys(action):
                 # Preserve the first binding if duplicates exist.
@@ -626,6 +710,11 @@ class DatabaseScreen(Screen):
                 self.action_kick()
                 event.stop()
             return
+        if action == "remove_user":
+            if self._is_players_tab_active():
+                self.action_remove_user()
+                event.stop()
+            return
 
         handler = getattr(self, f"action_{action}", None)
         if not handler:
@@ -652,6 +741,12 @@ class DatabaseScreen(Screen):
         if not (self._is_connections_tab_active() or self._is_sessions_tab_active()):
             return
         self._kick_selected()
+
+    def action_remove_user(self) -> None:
+        """Deactivate or delete the selected user (key: d)."""
+        if not self._is_players_tab_active():
+            return
+        self._remove_selected_player()
 
     @on(TabbedContent.TabActivated)
     def handle_tab_activated(self) -> None:
@@ -773,6 +868,12 @@ class DatabaseScreen(Screen):
         active_id = tabs.active or (tabs.active_pane.id if tabs.active_pane else None)
         return active_id == "tab-tables"
 
+    def _is_players_tab_active(self) -> bool:
+        """Return True if the players tab is active."""
+        tabs = self.query_one("#table-tabs", TabbedContent)
+        active_id = tabs.active or (tabs.active_pane.id if tabs.active_pane else None)
+        return active_id == "tab-players"
+
     def _is_connections_tab_active(self) -> bool:
         """Return True if the connections tab is active."""
         tabs = self.query_one("#table-tabs", TabbedContent)
@@ -831,6 +932,42 @@ class DatabaseScreen(Screen):
         except Exception as e:
             self.notify(f"Failed to kick session: {e}", severity="error")
 
+    @work(thread=False)
+    async def _remove_selected_player(self) -> None:
+        """Prompt and remove the selected player (deactivate or delete)."""
+        target = self._get_selected_player()
+        if not target:
+            return
+
+        username, role = target
+
+        if username == (self.app.api_client.session.username or ""):
+            self.notify("Cannot remove your own account", severity="error")
+            return
+
+        action = await self.app.push_screen(
+            ConfirmUserRemovalScreen(username=username, role=role),
+            wait_for_dismiss=True,
+        )
+        if action is None:
+            return
+
+        try:
+            response = await self.app.api_client.manage_user(username, action)
+            if not response.get("success", False):
+                self.notify(response.get("message", "Failed to update user"), severity="error")
+                return
+
+            # Refresh related tabs after updates.
+            self._load_players()
+            self._load_player_locations()
+            self._load_sessions()
+            self._load_connections()
+        except AuthenticationError as e:
+            self.notify(f"Permission denied: {e.detail}", severity="error")
+        except Exception as e:
+            self.notify(f"Failed to update user: {e}", severity="error")
+
     def _get_kick_target(self) -> tuple[str, str] | None:
         """
         Resolve the selected session target for a kick action.
@@ -859,6 +996,27 @@ class DatabaseScreen(Screen):
         username = str(selected_row[username_idx])
         session_id = str(selected_row[session_idx])
         return username, session_id
+
+    def _get_selected_player(self) -> tuple[str, str] | None:
+        """
+        Resolve the selected player from the players table.
+
+        Returns (username, role) when a valid row is selected.
+        """
+        if not self._is_players_tab_active():
+            return None
+
+        table = self.query_one("#table-players", DataTable)
+        if table.row_count == 0:
+            return None
+
+        selected_row = table.get_row_at(table.cursor_row)
+        if not selected_row:
+            return None
+
+        username = str(selected_row[1])
+        role = str(selected_row[2])
+        return username, role
 
     def _refresh_active_tab(self) -> None:
         """

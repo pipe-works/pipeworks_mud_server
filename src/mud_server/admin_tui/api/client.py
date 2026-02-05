@@ -760,3 +760,55 @@ class AdminAPIClient:
             )
 
         return cast(dict[str, Any], response.json())
+
+    async def manage_user(
+        self,
+        target_username: str,
+        action: str,
+        *,
+        new_role: str | None = None,
+        new_password: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Perform a user management action via the admin API.
+
+        Args:
+            target_username: Username to manage.
+            action: Action string (change_role, ban, unban, delete, change_password).
+            new_role: Required when action is change_role.
+            new_password: Required when action is change_password.
+
+        Returns:
+            dict: Response payload with success/message.
+        """
+        self._require_auth()
+
+        payload: dict[str, Any] = {
+            "session_id": self.session.session_id,
+            "target_username": target_username,
+            "action": action,
+        }
+
+        if new_role:
+            payload["new_role"] = new_role
+        if new_password:
+            payload["new_password"] = new_password
+
+        response = await self.http_client.post("/admin/user/manage", json=payload)
+
+        if response.status_code == 403:
+            raise AuthenticationError(
+                message="Permission denied",
+                status_code=403,
+                detail="Admin privileges required",
+            )
+
+        if response.status_code != 200:
+            error_data = response.json()
+            raise APIError(
+                message="Failed to manage user",
+                status_code=response.status_code,
+                detail=error_data.get("detail", "Unknown error"),
+            )
+
+        return cast(dict[str, Any], response.json())

@@ -79,6 +79,7 @@ class UserManagementRequest(BaseModel):
         action: Management action - one of:
             - "change_role": Change user's role (requires new_role parameter)
             - "ban" or "deactivate": Deactivate user account (prevents login, removes active session)
+            - "delete": Permanently delete user and related data (superuser only)
             - "unban": Reactivate previously banned account
             - "change_password": Change user's password (requires new_password parameter)
         new_role: (Optional) New role when action is "change_role"
