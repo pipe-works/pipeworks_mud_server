@@ -226,8 +226,9 @@ class AdminAPIClient(BaseAPIClient):
                 output.append(f"ID: {session['id']}")
                 output.append(f"  Username: {session['username']}")
                 output.append(f"  Session ID: {session['session_id']}")
-                output.append(f"  Connected: {session['connected_at']}")
+                output.append(f"  Created: {session['created_at']}")
                 output.append(f"  Last Activity: {session['last_activity']}")
+                output.append(f"  Expires At: {session.get('expires_at')}")
                 output.append("")
 
             return {

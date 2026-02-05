@@ -134,20 +134,18 @@ The server uses UUID-based session tokens for authentication:
 1. **Login**: User provides username/password, receives UUID session_id
 2. **Requests**: All authenticated endpoints require session_id
 3. **Validation**: Server verifies session exists and extracts (username, role)
-4. **Logout**: Session is removed from memory and database
+4. **Logout**: Session is removed from the database
 
 **Session Storage**
 
-Sessions are stored in two places:
+Sessions are stored in the database (source of truth). Session expiration
+is enforced using a TTL and can be configured for sliding expiration.
 
-- **Memory** (authoritative): ``active_sessions`` dict in auth.py
-- **Database** (backup): ``sessions`` table for persistence
+**Session Expiration**
 
-**Session Format**
-
-.. code-block:: python
-
-   active_sessions[session_id] = (username, role)
+- **TTL**: Sessions expire after a configurable period of inactivity.
+- **Sliding expiration**: When enabled, each authenticated request extends
+  the expiry time by the TTL.
 
 Role-Based Access Control
 ~~~~~~~~~~~~~~~~~~~~~~~~~

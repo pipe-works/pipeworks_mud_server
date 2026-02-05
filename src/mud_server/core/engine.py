@@ -199,9 +199,8 @@ class GameEngine:
         """
         Handle player logout by removing their session.
 
-        Removes the player's session from the database, effectively logging
-        them out. The session will also need to be removed from memory
-        (active_sessions dict) by the calling route handler.
+        Removes the player's sessions from the database, effectively logging
+        them out on all devices.
 
         Args:
             username: Username of the player logging out
@@ -214,9 +213,8 @@ class GameEngine:
             - Player will no longer appear in active players list
 
         Note:
-            This only removes the database session. The calling code (routes.py)
-            is responsible for also removing the session from the in-memory
-            active_sessions dictionary.
+            This removes all sessions for the user. If you want to remove a
+            single session (multi-device support), use database.remove_session_by_id().
         """
         return database.remove_session(username)
 

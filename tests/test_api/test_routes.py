@@ -15,8 +15,8 @@ from unittest.mock import patch
 
 import pytest
 
-from mud_server.api.auth import active_sessions
 from mud_server.config import use_test_database
+from mud_server.db import database
 from tests.constants import TEST_PASSWORD
 
 # ============================================================================
@@ -178,15 +178,16 @@ def test_login_nonexistent_user(test_client, test_db, temp_db_path):
 
 @pytest.mark.api
 def test_login_creates_session(test_client, test_db, temp_db_path, db_with_users):
-    """Test that login creates session in active_sessions."""
+    """Test that login creates session in the database."""
     with use_test_database(temp_db_path):
         response = test_client.post(
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
 
         session_id = response.json()["session_id"]
-        assert session_id in active_sessions
-        assert active_sessions[session_id] == ("testplayer", "player")
+        session = database.get_session_by_id(session_id)
+        assert session is not None
+        assert session["username"] == "testplayer"
 
 
 @pytest.mark.api
@@ -210,7 +211,7 @@ def test_logout_success(authenticated_client, test_db, temp_db_path):
         client = authenticated_client["client"]
 
         # Verify session exists
-        assert session_id in active_sessions
+        assert database.get_session_by_id(session_id) is not None
 
         # Logout
         response = client.post("/logout", json={"session_id": session_id})
@@ -221,7 +222,7 @@ def test_logout_success(authenticated_client, test_db, temp_db_path):
         assert "Goodbye" in data["message"]
 
         # Session should be removed
-        assert session_id not in active_sessions
+        assert database.get_session_by_id(session_id) is None
 
 
 @pytest.mark.api
@@ -499,4 +500,4 @@ def test_full_user_flow(test_client, test_db, temp_db_path):
             assert logout_response.status_code == 200
 
             # Session should be gone
-            assert session_id not in active_sessions
+            assert database.get_session_by_id(session_id) is None

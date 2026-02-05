@@ -124,15 +124,17 @@ class TestAdminAPIClientGetDatabaseSessions:
                     "id": 1,
                     "username": "alice",
                     "session_id": "abc123",
-                    "connected_at": "2024-01-01 10:00",
+                    "created_at": "2024-01-01 10:00",
                     "last_activity": "2024-01-01 10:30",
+                    "expires_at": "2024-01-01 18:00",
                 },
                 {
                     "id": 2,
                     "username": "bob",
                     "session_id": "def456",
-                    "connected_at": "2024-01-01 11:00",
+                    "created_at": "2024-01-01 11:00",
                     "last_activity": "2024-01-01 11:15",
+                    "expires_at": "2024-01-01 19:00",
                 },
             ]
         }

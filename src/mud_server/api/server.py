@@ -28,10 +28,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from mud_server.api.auth import clear_all_sessions
 from mud_server.api.routes import register_routes
 from mud_server.config import config, print_config_summary
 from mud_server.core.engine import GameEngine
+from mud_server.db import database
 
 # ============================================================================
 # LIFESPAN EVENTS
@@ -50,10 +50,10 @@ async def lifespan(app: FastAPI):
     Shutdown:
         - Currently no cleanup needed (sessions cleared on next startup).
     """
-    # Startup: Clear any orphaned sessions from previous runs
-    removed = clear_all_sessions()
+    # Startup: Remove expired sessions so stale tokens cannot be reused
+    removed = database.cleanup_expired_sessions()
     if removed > 0:
-        print(f"Cleared {removed} orphaned session(s) from previous run")
+        print(f"Removed {removed} expired session(s) from previous run")
 
     yield  # Server runs here
 

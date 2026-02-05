@@ -341,7 +341,7 @@ class AdminAPIClient:
             # Intentionally catching all exceptions and ignoring them.
             #
             # We don't care if the server-side logout fails because:
-            # 1. The server has session cleanup mechanisms (cleanup_stale_sessions)
+            # 1. The server has session cleanup mechanisms (cleanup_expired_sessions)
             # 2. The user's intent is to end their local session
             # 3. Network errors, timeouts, or server downtime shouldn't prevent
             #    local logout from completing
@@ -482,7 +482,7 @@ class AdminAPIClient:
         Requires admin privileges.
 
         Returns:
-            list: List of session dictionaries with username, connected_at, etc.
+            list: List of session dictionaries with username, created_at, etc.
 
         Raises:
             AuthenticationError: If not authenticated or lacks permission.

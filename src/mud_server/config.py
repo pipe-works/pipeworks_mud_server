@@ -26,6 +26,9 @@ Environment Variable Mapping:
     MUD_CORS_ORIGINS   -> security.cors_origins
     MUD_DB_PATH        -> database.path
     MUD_LOG_LEVEL      -> logging.level
+    MUD_SESSION_TTL_MINUTES         -> session.ttl_minutes
+    MUD_SESSION_SLIDING_EXPIRATION  -> session.sliding_expiration
+    MUD_SESSION_ALLOW_MULTIPLE      -> session.allow_multiple_sessions
 """
 
 import configparser
@@ -76,8 +79,9 @@ class SecuritySettings:
 class SessionSettings:
     """Session management configuration."""
 
-    timeout_minutes: int = 0  # 0 = no timeout
-    max_sessions_per_user: int = 0  # 0 = unlimited
+    ttl_minutes: int = 480  # 8 hours default
+    sliding_expiration: bool = True  # Extend expiry on each validated request
+    allow_multiple_sessions: bool = False  # False = single session per user
 
 
 @dataclass
@@ -205,10 +209,16 @@ def _load_from_ini(parser: configparser.ConfigParser, cfg: ServerConfig) -> None
 
     # Session section
     if parser.has_section("session"):
-        if parser.has_option("session", "timeout_minutes"):
-            cfg.session.timeout_minutes = parser.getint("session", "timeout_minutes")
-        if parser.has_option("session", "max_sessions_per_user"):
-            cfg.session.max_sessions_per_user = parser.getint("session", "max_sessions_per_user")
+        if parser.has_option("session", "ttl_minutes"):
+            cfg.session.ttl_minutes = parser.getint("session", "ttl_minutes")
+        if parser.has_option("session", "sliding_expiration"):
+            cfg.session.sliding_expiration = _parse_bool(
+                parser.get("session", "sliding_expiration")
+            )
+        if parser.has_option("session", "allow_multiple_sessions"):
+            cfg.session.allow_multiple_sessions = _parse_bool(
+                parser.get("session", "allow_multiple_sessions")
+            )
 
     # Database section
     if parser.has_section("database"):
@@ -264,6 +274,14 @@ def _apply_env_overrides(cfg: ServerConfig) -> None:
     # Logging settings
     if env_log := os.getenv("MUD_LOG_LEVEL"):
         cfg.logging.level = env_log.upper()
+
+    # Session settings
+    if env_ttl := os.getenv("MUD_SESSION_TTL_MINUTES"):
+        cfg.session.ttl_minutes = int(env_ttl)
+    if env_sliding := os.getenv("MUD_SESSION_SLIDING_EXPIRATION"):
+        cfg.session.sliding_expiration = _parse_bool(env_sliding)
+    if env_allow_multiple := os.getenv("MUD_SESSION_ALLOW_MULTIPLE"):
+        cfg.session.allow_multiple_sessions = _parse_bool(env_allow_multiple)
 
 
 def load_config() -> ServerConfig:
@@ -362,6 +380,9 @@ def print_config_summary() -> None:
     print(f"CORS origins: {config.security.cors_origins}")
     print(f"Docs enabled: {config.docs_should_be_enabled}")
     print(f"Database:    {config.database.absolute_path}")
+    print(f"Session TTL: {config.session.ttl_minutes} minutes")
+    print(f"Sliding Exp: {config.session.sliding_expiration}")
+    print(f"Multi-Session: {config.session.allow_multiple_sessions}")
     print(f"Log level:   {config.logging.level}")
     print("=" * 60 + "\n")
 

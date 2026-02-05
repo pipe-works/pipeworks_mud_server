@@ -102,20 +102,9 @@ Session Creation
 Session Format
 ~~~~~~~~~~~~~~
 
-Sessions are stored as ``(username, role)`` tuples:
-
-.. code-block:: python
-
-    active_sessions: Dict[str, Tuple[str, str]] = {}
-
-Example:
-
-.. code-block:: python
-
-    {
-        "550e8400-e29b-41d4-a716-446655440000": ("alice", "player"),
-        "6ba7b810-9dad-11d1-80b4-00c04fd430c8": ("admin", "superuser")
-    }
+Sessions are stored in the database and identified by opaque session IDs.
+The server validates the session ID, enforces expiration, and resolves
+the user role on each request.
 
 Role-Based Access
 -----------------
