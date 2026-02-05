@@ -117,7 +117,9 @@ class GameEngine:
         # Initialize database schema (creates tables, default admin)
         database.init_database()
 
-    def login(self, username: str, password: str, session_id: str) -> tuple[bool, str, str | None]:
+    def login(
+        self, username: str, password: str, session_id: str, client_type: str = "unknown"
+    ) -> tuple[bool, str, str | None]:
         """
         Handle player login with authentication and session creation.
 
@@ -134,6 +136,7 @@ class GameEngine:
             username: Player's username (case-sensitive)
             password: Plain text password to verify
             session_id: UUID session identifier to create
+            client_type: UI client identifier (tui, browser, api)
 
         Returns:
             Tuple of (success, message, role)
@@ -150,9 +153,9 @@ class GameEngine:
             - Failed to create session
 
         Example:
-            >>> engine.login("player1", "secret123", "uuid-123")
+            >>> engine.login("player1", "secret123", "uuid-123", "browser")
             (True, "Welcome, player1!\\nRole: Player\\n\\n=== Spawn Zone ===...", "player")
-            >>> engine.login("player1", "wrong", "uuid-456")
+            >>> engine.login("player1", "wrong", "uuid-456", "browser")
             (False, "Invalid username or password.", None)
 
         Security Note:
@@ -178,7 +181,7 @@ class GameEngine:
             return False, "Failed to retrieve account information.", None
 
         # Create session
-        if not database.create_session(username, session_id):
+        if not database.create_session(username, session_id, client_type=client_type):
             return False, "Failed to create session.", None
 
         # Get current room and validate it exists in the world

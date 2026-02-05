@@ -293,3 +293,31 @@ def test_get_active_session_count_excludes_expired(test_db, db_with_users):
     conn.close()
 
     assert get_active_session_count() == 1
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_get_active_session_count_respects_activity_window(test_db, db_with_users):
+    """Sessions with stale last_activity should not count as active."""
+    from mud_server.config import config
+
+    session_id = "stale-session"
+    database.create_session("testplayer", session_id)
+
+    original_window = config.session.active_window_minutes
+    config.session.active_window_minutes = 1
+    try:
+        # Make last_activity older than the active window.
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        stale_ts = (datetime.now(UTC) - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            "UPDATE sessions SET last_activity = ? WHERE session_id = ?",
+            (stale_ts, session_id),
+        )
+        conn.commit()
+        conn.close()
+
+        assert get_active_session_count() == 0
+    finally:
+        config.session.active_window_minutes = original_window

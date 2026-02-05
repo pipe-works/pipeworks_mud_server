@@ -45,7 +45,7 @@ import os
 import signal
 import uuid
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 
 from mud_server.api.auth import (
     get_active_session_count,
@@ -60,8 +60,15 @@ from mud_server.api.models import (
     CommandRequest,
     CommandResponse,
     DatabaseChatResponse,
+    DatabaseConnectionsResponse,
+    DatabasePlayerLocationsResponse,
     DatabasePlayersResponse,
     DatabaseSessionsResponse,
+    DatabaseTableInfo,
+    DatabaseTableRowsResponse,
+    DatabaseTablesResponse,
+    KickSessionRequest,
+    KickSessionResponse,
     LoginRequest,
     LoginResponse,
     LogoutRequest,
@@ -97,6 +104,19 @@ def register_routes(app: FastAPI, engine: GameEngine):
     # Structure: {session_id: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
     ollama_conversation_history: dict[str, list[dict[str, str]]] = {}
 
+    def _resolve_zone_id(room_id: str | None) -> str | None:
+        """
+        Resolve a room_id to its zone id using the loaded world data.
+
+        Returns None if the room cannot be mapped to a zone.
+        """
+        if not room_id:
+            return None
+        for zone_id, zone in engine.world.zones.items():
+            if room_id in zone.rooms:
+                return zone_id
+        return None
+
     # ========================================================================
     # PUBLIC ENDPOINTS
     # ========================================================================
@@ -107,7 +127,7 @@ def register_routes(app: FastAPI, engine: GameEngine):
         return {"message": "MUD Server API", "version": "0.1.0"}
 
     @app.post("/login", response_model=LoginResponse)
-    async def login(request: LoginRequest):
+    async def login(request: LoginRequest, http_request: Request):
         """
         User login with username and password.
 
@@ -122,8 +142,18 @@ def register_routes(app: FastAPI, engine: GameEngine):
         # Create session ID
         session_id = str(uuid.uuid4())
 
+        # Capture client type for session metadata.
+        client_type = http_request.headers.get("X-Client-Type", "unknown").strip().lower()
+        if not client_type:
+            client_type = "unknown"
+
         # Attempt login with password verification
-        success, message, role = engine.login(username, password, session_id)
+        success, message, role = engine.login(
+            username,
+            password,
+            session_id,
+            client_type=client_type,
+        )
 
         if success and role:
             return LoginResponse(success=True, message=message, session_id=session_id, role=role)
@@ -355,6 +385,12 @@ Note: Commands can be used with or without the / prefix
         chat = engine.get_room_chat(username)
         return {"chat": chat}
 
+    @app.post("/ping/{session_id}")
+    async def heartbeat(session_id: str):
+        """Heartbeat to update session activity without other actions."""
+        validate_session(session_id)
+        return {"ok": True}
+
     @app.get("/status/{session_id}")
     async def get_status(session_id: str):
         """Get player status."""
@@ -429,6 +465,64 @@ Note: Commands can be used with or without the / prefix
 
         players = database.get_all_players_detailed()
         return DatabasePlayersResponse(players=players)
+
+    @app.get("/admin/database/connections", response_model=DatabaseConnectionsResponse)
+    async def get_database_connections(session_id: str):
+        """Get active session connections with activity age (Admin only)."""
+        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+
+        connections = database.get_active_connections()
+        return DatabaseConnectionsResponse(connections=connections)
+
+    @app.get("/admin/database/player-locations", response_model=DatabasePlayerLocationsResponse)
+    async def get_database_player_locations(session_id: str):
+        """Get player locations with zone context (Admin only)."""
+        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+
+        locations = []
+        for location in database.get_player_locations():
+            # Zone ID is derived from the in-memory world data so we can
+            # show high-level location context without storing it in the DB.
+            room_id = location.get("room_id")
+            zone_id = _resolve_zone_id(room_id)
+            locations.append(
+                {
+                    **location,
+                    "zone_id": zone_id,
+                }
+            )
+
+        return DatabasePlayerLocationsResponse(locations=locations)
+
+    @app.post("/admin/session/kick", response_model=KickSessionResponse)
+    async def kick_session(request: KickSessionRequest):
+        """Force-disconnect an active session (Admin/Superuser only)."""
+        username, role = validate_session_with_permission(request.session_id, Permission.KICK_USERS)
+
+        removed = remove_session(request.target_session_id)
+        if removed:
+            return KickSessionResponse(success=True, message="Session disconnected")
+        return KickSessionResponse(success=False, message="Session not found")
+
+    @app.get("/admin/database/tables", response_model=DatabaseTablesResponse)
+    async def get_database_tables(session_id: str):
+        """Get list of database tables with schema details (Admin only)."""
+        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+
+        tables = [DatabaseTableInfo(**table) for table in database.list_tables()]
+        return DatabaseTablesResponse(tables=tables)
+
+    @app.get("/admin/database/table/{table_name}", response_model=DatabaseTableRowsResponse)
+    async def get_database_table_rows(session_id: str, table_name: str, limit: int = 100):
+        """Get rows from a specific database table (Admin only)."""
+        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+
+        try:
+            columns, rows = database.get_table_rows(table_name, limit=limit)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        return DatabaseTableRowsResponse(table=table_name, columns=columns, rows=rows)
 
     @app.get("/admin/database/sessions", response_model=DatabaseSessionsResponse)
     async def get_database_sessions(session_id: str):

@@ -50,6 +50,12 @@ def test_init_database_creates_tables(temp_db_path):
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chat_messages'")
         assert cursor.fetchone() is not None
 
+        # Check player_locations table exists
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='player_locations'"
+        )
+        assert cursor.fetchone() is not None
+
         conn.close()
 
 
@@ -448,6 +454,25 @@ def test_create_session(test_db, temp_db_path, db_with_users):
         result = database.create_session("testplayer", "session-123")
         assert result is True
 
+        players = database.get_all_players_detailed()
+        matching = [player for player in players if player["username"] == "testplayer"]
+        assert matching
+        assert matching[0]["last_login"] is not None
+        session = database.get_session_by_id("session-123")
+        assert session is not None
+        assert session["client_type"] == "unknown"
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_create_session_normalizes_client_type(test_db, temp_db_path, db_with_users):
+    """Test create_session normalizes client_type input."""
+    with use_test_database(temp_db_path):
+        database.create_session("testplayer", "session-456", client_type="  TUI ")
+        session = database.get_session_by_id("session-456")
+        assert session is not None
+        assert session["client_type"] == "tui"
+
 
 @pytest.mark.unit
 @pytest.mark.db
@@ -586,6 +611,20 @@ def test_get_players_in_room(test_db, temp_db_path, db_with_users):
 
 @pytest.mark.unit
 @pytest.mark.db
+def test_get_player_locations(test_db, temp_db_path, db_with_users):
+    """Test fetching player location rows with usernames."""
+    with use_test_database(temp_db_path):
+        database.set_player_room("testplayer", "forest")
+
+        locations = database.get_player_locations()
+        by_username = {loc["username"]: loc for loc in locations}
+
+        assert "testplayer" in by_username
+        assert by_username["testplayer"]["room_id"] == "forest"
+
+
+@pytest.mark.unit
+@pytest.mark.db
 def test_update_session_activity(test_db, temp_db_path, db_with_users):
     """Test updating session activity timestamp."""
     with use_test_database(temp_db_path):
@@ -719,8 +758,39 @@ def test_session_schema_migration_from_legacy(temp_db_path):
             assert session is not None
             assert session["username"] == "legacy-user"
             assert session["expires_at"] is not None
+            assert session["client_type"] == "unknown"
     finally:
         config.session.ttl_minutes = original_ttl
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_session_client_type_migration_adds_column(temp_db_path):
+    """Test client_type column is added and defaults are set."""
+    conn = sqlite3.connect(str(temp_db_path))
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            session_id TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP
+        )
+    """)
+    cursor.execute(
+        "INSERT INTO sessions (username, session_id) VALUES (?, ?)",
+        ("legacy-user", "legacy-session"),
+    )
+    conn.commit()
+    conn.close()
+
+    with use_test_database(temp_db_path):
+        database.init_database(skip_superuser=True)
+        session = database.get_session_by_id("legacy-session")
+        assert session is not None
+        assert session["client_type"] == "unknown"
 
 
 @pytest.mark.unit
@@ -814,6 +884,7 @@ def test_get_all_sessions(test_db, temp_db_path, db_with_users):
         assert len(sessions) == 2
         assert "created_at" in sessions[0]
         assert "expires_at" in sessions[0]
+        assert sessions[0]["client_type"] == "unknown"
 
 
 @pytest.mark.unit
@@ -828,3 +899,39 @@ def test_get_all_chat_messages(test_db, temp_db_path, db_with_users):
 
         messages = database.get_all_chat_messages(limit=100)
         assert len(messages) == 3
+
+
+@pytest.mark.unit
+@pytest.mark.db
+@pytest.mark.admin
+def test_list_tables(test_db, temp_db_path, db_with_users):
+    """Test listing database tables with metadata."""
+    with use_test_database(temp_db_path):
+        tables = database.list_tables()
+        table_names = {table["name"] for table in tables}
+
+        assert {"players", "sessions", "chat_messages"}.issubset(table_names)
+        assert all("columns" in table for table in tables)
+        assert all("row_count" in table for table in tables)
+
+
+@pytest.mark.unit
+@pytest.mark.db
+@pytest.mark.admin
+def test_get_table_rows(test_db, temp_db_path, db_with_users):
+    """Test fetching columns and rows for a specific table."""
+    with use_test_database(temp_db_path):
+        columns, rows = database.get_table_rows("players", limit=10)
+
+        assert "username" in columns
+        assert len(rows) >= 1
+
+
+@pytest.mark.unit
+@pytest.mark.db
+@pytest.mark.admin
+def test_get_table_rows_invalid_table_raises(test_db, temp_db_path, db_with_users):
+    """Test invalid table name raises a ValueError."""
+    with use_test_database(temp_db_path):
+        with pytest.raises(ValueError, match="does not exist"):
+            database.get_table_rows("not_a_table")

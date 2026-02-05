@@ -4,20 +4,82 @@ Database viewer screen for PipeWorks Admin TUI.
 This module provides a database viewing interface that allows superusers
 to view the contents of various database tables (players, sessions, chat).
 
-The DatabaseScreen shows:
-- Tabbed interface for different tables
-- DataTable widgets for viewing records
-- Refresh functionality for each table
+    The DatabaseScreen shows:
+    - Tabbed interface for different tables
+    - DataTable widgets for viewing records
+    - A table browser for any database table
+    - Player locations view for room/zone occupancy
+    - Refresh functionality for each table
 """
 
 from textual import events, on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.screen import Screen
-from textual.widgets import Button, DataTable, Footer, Header, TabbedContent, TabPane
+from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen, Screen
+from textual.widgets import Button, DataTable, Footer, Header, Static, TabbedContent, TabPane
 
 from mud_server.admin_tui.api.client import AuthenticationError
+
+
+class ConfirmKickScreen(ModalScreen[bool]):
+    """Modal confirmation prompt for kicking a session."""
+
+    DEFAULT_CSS = """
+    ConfirmKickScreen {
+        align: center middle;
+    }
+
+    .confirm-dialog {
+        width: 60;
+        border: solid $primary;
+        padding: 1 2;
+        background: $surface;
+    }
+
+    .confirm-title {
+        text-style: bold;
+        color: $accent;
+        padding-bottom: 1;
+    }
+
+    .confirm-actions {
+        height: 3;
+        padding-top: 1;
+    }
+
+    .confirm-button {
+        margin-right: 1;
+    }
+    """
+
+    def __init__(self, username: str, session_id: str) -> None:
+        super().__init__()
+        self._username = username
+        self._session_id = session_id
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="confirm-dialog"):
+            yield Static("Kick Session", classes="confirm-title")
+            yield Static(
+                f"Kick {self._username}?\nSession: {self._session_id}",
+                id="confirm-message",
+            )
+            with Horizontal(classes="confirm-actions"):
+                yield Button(
+                    "Cancel", variant="default", id="confirm-cancel", classes="confirm-button"
+                )
+                yield Button(
+                    "Kick", variant="warning", id="confirm-accept", classes="confirm-button"
+                )
+
+    @on(Button.Pressed, "#confirm-cancel")
+    def _cancel(self) -> None:
+        self.dismiss(False)
+
+    @on(Button.Pressed, "#confirm-accept")
+    def _accept(self) -> None:
+        self.dismiss(True)
 
 
 class DatabaseScreen(Screen):
@@ -30,6 +92,7 @@ class DatabaseScreen(Screen):
     Key Bindings:
         r: Refresh current table
         b: Go back to dashboard
+        x: Kick selected session (connections/sessions tabs)
         q, ctrl+q: Quit application
 
     CSS Classes:
@@ -41,6 +104,7 @@ class DatabaseScreen(Screen):
     BINDINGS = [
         Binding("r", "refresh", "Refresh", priority=True),
         Binding("b", "back", "Back", priority=True),
+        Binding("x", "kick", "Kick", priority=True),
         Binding("q", "quit", "Quit", priority=True),
         Binding("ctrl+q", "quit", "Quit", priority=True, show=False),
     ]
@@ -111,20 +175,28 @@ class DatabaseScreen(Screen):
         yield Header()
 
         with Vertical(classes="database-container"):
-            # Action bar
-            with Vertical(classes="action-bar"):
-                yield Button("← Back", variant="default", id="btn-back", classes="action-button")
-
             # Tabbed content for different tables
             with TabbedContent(id="table-tabs"):
+                with TabPane("Tables", id="tab-tables"):
+                    yield DataTable(id="table-list")
+
                 with TabPane("Players", id="tab-players"):
                     yield DataTable(id="table-players")
+
+                with TabPane("Player Locations", id="tab-player-locations"):
+                    yield DataTable(id="table-player-locations")
+
+                with TabPane("Connections", id="tab-connections"):
+                    yield DataTable(id="table-connections")
 
                 with TabPane("Sessions", id="tab-sessions"):
                     yield DataTable(id="table-sessions")
 
                 with TabPane("Chat Messages", id="tab-chat"):
                     yield DataTable(id="table-chat")
+
+                with TabPane("Table Data", id="tab-table-data"):
+                    yield DataTable(id="table-data")
 
         yield Footer()
 
@@ -138,17 +210,41 @@ class DatabaseScreen(Screen):
             return
 
         # Set up tables
+        self._setup_tables_list_table()
         self._setup_players_table()
+        self._setup_player_locations_table()
+        self._setup_connections_table()
         self._setup_sessions_table()
         self._setup_chat_table()
+        self._setup_table_data_table()
 
         # Apply user-configured keybindings
         self._apply_keybindings()
 
+        # Track per-tab refresh state to prevent overlapping requests.
+        self._refreshing_tabs: set[str] = set()
+        # Track the selected table name for the generic table data tab.
+        self._active_table_name: str | None = None
+
         # Load initial data
+        self._load_tables()
         self._load_players()
+        self._load_player_locations()
+        self._load_connections()
         self._load_sessions()
         self._load_chat_messages()
+
+        # Auto-refresh the active tab on an interval for a lightweight live view.
+        self._auto_refresh_interval = 10.0
+        self._auto_refresh_timer = self.set_interval(
+            self._auto_refresh_interval, self._auto_refresh_active_tab
+        )
+
+    def on_unmount(self) -> None:
+        """Stop auto-refresh when the screen unmounts."""
+        timer = getattr(self, "_auto_refresh_timer", None)
+        if timer:
+            timer.stop()
 
     def _apply_keybindings(self) -> None:
         """
@@ -158,6 +254,7 @@ class DatabaseScreen(Screen):
         - Tab navigation (next/prev)
         - Table cursor movement (hjkl)
         - Selection (space/enter)
+        - Session management (kick)
         """
         bindings = getattr(self.app, "keybindings", None)
         if not bindings:
@@ -175,6 +272,7 @@ class DatabaseScreen(Screen):
             "cursor_left",
             "cursor_right",
             "select",
+            "kick",
         ):
             for key in bindings.get_keys(action):
                 # Preserve the first binding if duplicates exist.
@@ -203,9 +301,24 @@ class DatabaseScreen(Screen):
         table.add_columns(
             "ID",
             "Username",
+            "Client",
             "Session ID",
             "Created At",
             "Last Activity",
+            "Expires At",
+        )
+
+    def _setup_connections_table(self) -> None:
+        """Configure the connections DataTable columns."""
+        table = self.query_one("#table-connections", DataTable)
+        table.cursor_type = "row"
+        table.zebra_stripes = True
+        table.add_columns(
+            "Username",
+            "Client",
+            "Session ID",
+            "Last Activity",
+            "Age",
             "Expires At",
         )
 
@@ -222,13 +335,174 @@ class DatabaseScreen(Screen):
             "Timestamp",
         )
 
+    def _setup_player_locations_table(self) -> None:
+        """Configure the player locations DataTable columns."""
+        table = self.query_one("#table-player-locations", DataTable)
+        table.cursor_type = "row"
+        table.zebra_stripes = True
+        table.add_columns(
+            "Player ID",
+            "Username",
+            "Zone",
+            "Room",
+            "Updated",
+        )
+
+    def _setup_tables_list_table(self) -> None:
+        """Configure the table list DataTable columns."""
+        table = self.query_one("#table-list", DataTable)
+        table.cursor_type = "row"
+        table.zebra_stripes = True
+        table.add_columns(
+            "Table",
+            "Columns",
+            "Rows",
+        )
+
+    def _setup_table_data_table(self) -> None:
+        """Configure the generic table data DataTable."""
+        table = self.query_one("#table-data", DataTable)
+        table.cursor_type = "row"
+        table.zebra_stripes = True
+
+    @work(thread=False)
+    async def _load_tables(self) -> None:
+        """Fetch and display available database tables."""
+        table = self.query_one("#table-list", DataTable)
+        table.clear()
+
+        tab_id = "tab-tables"
+        if tab_id in self._refreshing_tabs:
+            return
+
+        try:
+            self._refreshing_tabs.add(tab_id)
+            tables = await self.app.api_client.get_tables()
+
+            for table_info in tables:
+                columns = ", ".join(table_info.get("columns", []))
+                table.add_row(
+                    table_info.get("name", ""),
+                    columns,
+                    str(table_info.get("row_count", 0)),
+                )
+
+        except AuthenticationError as e:
+            self.notify(f"Permission denied: {e.detail}", severity="error")
+        except Exception as e:
+            self.notify(f"Failed to load tables: {e}", severity="error")
+        finally:
+            self._refreshing_tabs.discard(tab_id)
+
+    @work(thread=False)
+    async def _load_player_locations(self) -> None:
+        """Fetch and display player locations."""
+        table = self.query_one("#table-player-locations", DataTable)
+        table.clear()
+
+        tab_id = "tab-player-locations"
+        if tab_id in self._refreshing_tabs:
+            return
+
+        try:
+            self._refreshing_tabs.add(tab_id)
+            locations = await self.app.api_client.get_player_locations()
+
+            for location in locations:
+                table.add_row(
+                    str(location.get("player_id", "")),
+                    location.get("username", ""),
+                    location.get("zone_id") or "-",
+                    location.get("room_id", ""),
+                    self._format_timestamp(location.get("updated_at", "")),
+                )
+
+        except AuthenticationError as e:
+            self.notify(f"Permission denied: {e.detail}", severity="error")
+        except Exception as e:
+            self.notify(f"Failed to load player locations: {e}", severity="error")
+        finally:
+            self._refreshing_tabs.discard(tab_id)
+
+    @work(thread=False)
+    async def _load_connections(self) -> None:
+        """Fetch and display active connections."""
+        table = self.query_one("#table-connections", DataTable)
+        table.clear()
+
+        tab_id = "tab-connections"
+        if tab_id in self._refreshing_tabs:
+            return
+
+        try:
+            self._refreshing_tabs.add(tab_id)
+            connections = await self.app.api_client.get_connections()
+
+            for connection in connections:
+                table.add_row(
+                    connection.get("username", ""),
+                    connection.get("client_type", "") or "-",
+                    connection.get("session_id", ""),
+                    self._format_timestamp(connection.get("last_activity", "")),
+                    self._format_duration(connection.get("age_seconds")),
+                    self._format_timestamp(connection.get("expires_at", "")),
+                )
+
+        except AuthenticationError as e:
+            self.notify(f"Permission denied: {e.detail}", severity="error")
+        except Exception as e:
+            self.notify(f"Failed to load connections: {e}", severity="error")
+        finally:
+            self._refreshing_tabs.discard(tab_id)
+
+    @work(thread=False)
+    async def _load_table_data(self, table_name: str) -> None:
+        """Fetch and display rows for a selected table."""
+        data_table = self.query_one("#table-data", DataTable)
+        data_table.clear(columns=True)
+
+        tab_id = "tab-table-data"
+        if tab_id in self._refreshing_tabs:
+            return
+
+        try:
+            self._refreshing_tabs.add(tab_id)
+            # Remember the active table so auto-refresh can reload it.
+            self._active_table_name = table_name
+            payload = await self.app.api_client.get_table_rows(table_name, limit=200)
+            columns = payload.get("columns", [])
+            rows = payload.get("rows", [])
+
+            if not columns:
+                self.notify(f"No columns found for {table_name}", severity="warning")
+                return
+
+            data_table.add_columns(*columns)
+            for row in rows:
+                data_table.add_row(*[self._format_cell(value) for value in row])
+
+            tabs = self.query_one("#table-tabs", TabbedContent)
+            tabs.active = "tab-table-data"
+
+        except AuthenticationError as e:
+            self.notify(f"Permission denied: {e.detail}", severity="error")
+        except Exception as e:
+            self.notify(f"Failed to load table data: {e}", severity="error")
+        finally:
+            self._refreshing_tabs.discard(tab_id)
+
     @work(thread=False)
     async def _load_players(self) -> None:
         """Fetch and display players from the database."""
         table = self.query_one("#table-players", DataTable)
         table.clear()
 
+        tab_id = "tab-players"
+        if tab_id in self._refreshing_tabs:
+            return
+
         try:
+            self._refreshing_tabs.add(tab_id)
             players = await self.app.api_client.get_players()
 
             for player in players:
@@ -242,12 +516,12 @@ class DatabaseScreen(Screen):
                     self._format_timestamp(player.get("last_login", "")),
                 )
 
-            self.notify(f"Loaded {len(players)} players", severity="information")
-
         except AuthenticationError as e:
             self.notify(f"Permission denied: {e.detail}", severity="error")
         except Exception as e:
             self.notify(f"Failed to load players: {e}", severity="error")
+        finally:
+            self._refreshing_tabs.discard(tab_id)
 
     @work(thread=False)
     async def _load_sessions(self) -> None:
@@ -255,25 +529,31 @@ class DatabaseScreen(Screen):
         table = self.query_one("#table-sessions", DataTable)
         table.clear()
 
+        tab_id = "tab-sessions"
+        if tab_id in self._refreshing_tabs:
+            return
+
         try:
+            self._refreshing_tabs.add(tab_id)
             sessions = await self.app.api_client.get_sessions()
 
             for session in sessions:
                 table.add_row(
                     str(session.get("id", "")),
                     session.get("username", ""),
+                    session.get("client_type", "") or "-",
                     self._truncate(session.get("session_id", ""), 20),
                     self._format_timestamp(session.get("created_at", "")),
                     self._format_timestamp(session.get("last_activity", "")),
                     self._format_timestamp(session.get("expires_at", "")),
                 )
 
-            self.notify(f"Loaded {len(sessions)} sessions", severity="information")
-
         except AuthenticationError as e:
             self.notify(f"Permission denied: {e.detail}", severity="error")
         except Exception as e:
             self.notify(f"Failed to load sessions: {e}", severity="error")
+        finally:
+            self._refreshing_tabs.discard(tab_id)
 
     @work(thread=False)
     async def _load_chat_messages(self) -> None:
@@ -281,7 +561,12 @@ class DatabaseScreen(Screen):
         table = self.query_one("#table-chat", DataTable)
         table.clear()
 
+        tab_id = "tab-chat"
+        if tab_id in self._refreshing_tabs:
+            return
+
         try:
+            self._refreshing_tabs.add(tab_id)
             messages = await self.app.api_client.get_chat_messages(limit=100)
 
             for msg in messages:
@@ -293,12 +578,12 @@ class DatabaseScreen(Screen):
                     self._format_timestamp(msg.get("timestamp", "")),
                 )
 
-            self.notify(f"Loaded {len(messages)} messages", severity="information")
-
         except AuthenticationError as e:
             self.notify(f"Permission denied: {e.detail}", severity="error")
         except Exception as e:
             self.notify(f"Failed to load chat messages: {e}", severity="error")
+        finally:
+            self._refreshing_tabs.discard(tab_id)
 
     def _format_timestamp(self, timestamp: str | None) -> str:
         """Format a timestamp for display."""
@@ -321,11 +606,6 @@ class DatabaseScreen(Screen):
     # Button Handlers
     # -------------------------------------------------------------------------
 
-    @on(Button.Pressed, "#btn-back")
-    def handle_back_button(self) -> None:
-        """Handle back button press."""
-        self.action_back()
-
     def on_key(self, event: events.Key) -> None:
         """
         Handle user-configured keybindings.
@@ -337,6 +617,14 @@ class DatabaseScreen(Screen):
         bindings_map = getattr(self, "_keybindings_by_key", {})
         action = bindings_map.get(event.key)
         if not action:
+            return
+
+        # Special-case kick to avoid clashing with cursor-up in other tabs.
+        # Only allow kick on Connections or Sessions tabs.
+        if action == "kick":
+            if self._is_connections_tab_active() or self._is_sessions_tab_active():
+                self.action_kick()
+                event.stop()
             return
 
         handler = getattr(self, f"action_{action}", None)
@@ -353,9 +641,22 @@ class DatabaseScreen(Screen):
     def action_refresh(self) -> None:
         """Refresh all tables (key: r)."""
         self._load_players()
+        self._load_player_locations()
+        self._load_connections()
         self._load_sessions()
         self._load_chat_messages()
-        self.notify("Refreshing all tables...", severity="information")
+        # No success toast; refresh silently to keep the UI clean.
+
+    def action_kick(self) -> None:
+        """Kick the selected session (key: x)."""
+        if not (self._is_connections_tab_active() or self._is_sessions_tab_active()):
+            return
+        self._kick_selected()
+
+    @on(TabbedContent.TabActivated)
+    def handle_tab_activated(self) -> None:
+        """Refresh the active tab when the user switches tabs."""
+        self._refresh_active_tab()
 
     def action_back(self) -> None:
         """Go back to dashboard (key: b)."""
@@ -404,8 +705,18 @@ class DatabaseScreen(Screen):
     def action_select(self) -> None:
         """Select the current row in the active table."""
         table = self._get_active_table()
-        if table:
-            table.action_select_cursor()
+        if not table:
+            return
+
+        if self._is_tables_tab_active():
+            selected_row = table.get_row_at(table.cursor_row)
+            if selected_row:
+                table_name = str(selected_row[0])
+                if table_name:
+                    self._load_table_data(table_name)
+            return
+
+        table.action_select_cursor()
 
     def _switch_tab(self, direction: int) -> None:
         """Rotate tab selection by +1 (next) or -1 (prev)."""
@@ -442,12 +753,147 @@ class DatabaseScreen(Screen):
             return None
 
         table_id_map = {
+            "tab-tables": "#table-list",
             "tab-players": "#table-players",
+            "tab-player-locations": "#table-player-locations",
+            "tab-connections": "#table-connections",
             "tab-sessions": "#table-sessions",
             "tab-chat": "#table-chat",
+            "tab-table-data": "#table-data",
         }
         table_selector = table_id_map.get(active_id)
         if not table_selector:
             return None
 
         return self.query_one(table_selector, DataTable)
+
+    def _is_tables_tab_active(self) -> bool:
+        """Return True if the table list tab is active."""
+        tabs = self.query_one("#table-tabs", TabbedContent)
+        active_id = tabs.active or (tabs.active_pane.id if tabs.active_pane else None)
+        return active_id == "tab-tables"
+
+    def _is_connections_tab_active(self) -> bool:
+        """Return True if the connections tab is active."""
+        tabs = self.query_one("#table-tabs", TabbedContent)
+        active_id = tabs.active or (tabs.active_pane.id if tabs.active_pane else None)
+        return active_id == "tab-connections"
+
+    def _is_sessions_tab_active(self) -> bool:
+        """Return True if the sessions tab is active."""
+        tabs = self.query_one("#table-tabs", TabbedContent)
+        active_id = tabs.active or (tabs.active_pane.id if tabs.active_pane else None)
+        return active_id == "tab-sessions"
+
+    def _format_cell(self, value: object) -> str:
+        """Format a generic cell value for display in the DataTable."""
+        if value is None:
+            return "-"
+        return str(value)
+
+    def _format_duration(self, seconds: object) -> str:
+        """Format seconds into HH:MM:SS."""
+        if seconds is None:
+            return "-"
+        try:
+            total = int(str(seconds))
+        except (TypeError, ValueError):
+            return "-"
+        hours = total // 3600
+        minutes = (total % 3600) // 60
+        secs = total % 60
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+    @work(thread=False)
+    async def _kick_selected(self) -> None:
+        """Prompt and kick the selected session from the connections table."""
+        target = self._get_kick_target()
+        if not target:
+            return
+
+        username, session_id = target
+
+        confirmed = await self.app.push_screen(
+            ConfirmKickScreen(username=username, session_id=session_id),
+            wait_for_dismiss=True,
+        )
+        if not confirmed:
+            return
+
+        try:
+            response = await self.app.api_client.kick_session(session_id)
+            if not response.get("success", False):
+                self.notify(response.get("message", "Failed to kick session"), severity="error")
+                return
+            self._load_connections()
+        except AuthenticationError as e:
+            self.notify(f"Permission denied: {e.detail}", severity="error")
+        except Exception as e:
+            self.notify(f"Failed to kick session: {e}", severity="error")
+
+    def _get_kick_target(self) -> tuple[str, str] | None:
+        """
+        Resolve the selected session target for a kick action.
+
+        Returns (username, session_id) when a valid row is selected.
+        Uses column positions based on the active tab's table schema.
+        """
+        if self._is_connections_tab_active():
+            table = self.query_one("#table-connections", DataTable)
+            username_idx = 0
+            session_idx = 2
+        elif self._is_sessions_tab_active():
+            table = self.query_one("#table-sessions", DataTable)
+            username_idx = 1
+            session_idx = 3
+        else:
+            return None
+
+        if table.row_count == 0:
+            return None
+
+        selected_row = table.get_row_at(table.cursor_row)
+        if not selected_row:
+            return None
+
+        username = str(selected_row[username_idx])
+        session_id = str(selected_row[session_idx])
+        return username, session_id
+
+    def _refresh_active_tab(self) -> None:
+        """
+        Refresh the currently active tab, if possible.
+
+        This is called by the auto-refresh timer and when a user switches tabs.
+        It avoids overlapping requests by respecting the per-tab refresh guard.
+        """
+        if self.app.screen is not self:
+            return
+
+        tabs = self.query_one("#table-tabs", TabbedContent)
+        active_id = tabs.active or (tabs.active_pane.id if tabs.active_pane else None)
+        if not active_id:
+            return
+
+        refresh_map = {
+            "tab-tables": self._load_tables,
+            "tab-players": self._load_players,
+            "tab-player-locations": self._load_player_locations,
+            "tab-connections": self._load_connections,
+            "tab-sessions": self._load_sessions,
+            "tab-chat": self._load_chat_messages,
+            "tab-table-data": self._refresh_table_data,
+        }
+        refresh_fn = refresh_map.get(active_id)
+        if refresh_fn:
+            refresh_fn()
+
+    def _refresh_table_data(self) -> None:
+        """Refresh the currently selected table data, if any."""
+        if not self._active_table_name:
+            return
+        self._load_table_data(self._active_table_name)
+
+    def _auto_refresh_active_tab(self) -> None:
+        """Auto-refresh hook for the periodic timer."""
+        self._refresh_active_tab()

@@ -39,6 +39,7 @@ class TestAuthAPIClientLogin:
         call_kwargs = mock_request.call_args.kwargs
         assert call_kwargs["json"]["username"] == "alice"
         assert call_kwargs["json"]["password"] == TEST_PASSWORD
+        assert call_kwargs["headers"]["X-Client-Type"] == "gradio"
 
         # Verify response format
         assert result["success"] is True
@@ -127,6 +128,7 @@ class TestAuthAPIClientLogin:
             # Verify username was stripped
             call_kwargs = mock_request.call_args.kwargs
             assert call_kwargs["json"]["username"] == "alice"
+            assert call_kwargs["headers"]["X-Client-Type"] == "gradio"
 
     @patch("mud_server.admin_gradio.api.base.requests.request")
     def test_login_connection_error(self, mock_request):
@@ -158,6 +160,17 @@ class TestAuthAPIClientLogin:
 
         # Should default to player
         assert result["data"]["role"] == "player"
+
+    def test_logout_logs_warning_on_exception(self, caplog):
+        """Test logout logs a warning if the request fails."""
+        client = AuthAPIClient()
+
+        with patch.object(client, "post", side_effect=RuntimeError("boom")):
+            with caplog.at_level("WARNING"):
+                result = client.logout("session-123")
+
+        assert result["success"] is True
+        assert any("Logout request failed" in record.message for record in caplog.records)
 
 
 class TestAuthAPIClientRegister:

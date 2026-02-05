@@ -190,14 +190,7 @@ def test_move_from_invalid_room(mock_engine, test_db, temp_db_path, db_with_user
     """Test movement when player is not in a valid room."""
     with use_test_database(temp_db_path):
         # Set invalid room (non-existent room ID)
-        conn = database.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE players SET current_room = ? WHERE username = ?",
-            ("invalid_room_xyz", "testplayer"),
-        )
-        conn.commit()
-        conn.close()
+        database.set_player_room("testplayer", "invalid_room_xyz")
 
         success, message = mock_engine.move("testplayer", "north")
 
@@ -308,14 +301,7 @@ def test_move_emits_player_move_failed_on_invalid_room(
     """
     with use_test_database(temp_db_path):
         # Set invalid room (non-existent room ID)
-        conn = database.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE players SET current_room = ? WHERE username = ?",
-            ("invalid_room_xyz", "testplayer"),
-        )
-        conn.commit()
-        conn.close()
+        database.set_player_room("testplayer", "invalid_room_xyz")
 
         current_bus = MudBus()
         initial_count = len(current_bus.get_event_log())
@@ -707,14 +693,7 @@ def test_look_invalid_room(mock_engine, test_db, temp_db_path, db_with_users):
     """Test looking when not in a valid room."""
     with use_test_database(temp_db_path):
         # Set invalid room (non-existent room ID)
-        conn = database.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE players SET current_room = ? WHERE username = ?",
-            ("invalid_room_xyz", "testplayer"),
-        )
-        conn.commit()
-        conn.close()
+        database.set_player_room("testplayer", "invalid_room_xyz")
 
         description = mock_engine.look("testplayer")
 
@@ -857,14 +836,25 @@ def test_recall_with_zone_configured(test_db, temp_db_path, db_with_users):
                 ),
             }
             engine.world.default_spawn = ("pub_zone", "pub_spawn")
-            engine.world.get_room = lambda rid: engine.world.rooms.get(rid)
-            engine.world.get_room_description = lambda rid, user: f"You are in {rid}"
+            with (
+                patch.object(
+                    engine.world,
+                    "get_room",
+                    side_effect=lambda rid: engine.world.rooms.get(rid),
+                    create=True,
+                ),
+                patch.object(
+                    engine.world,
+                    "get_room_description",
+                    side_effect=lambda rid, user: f"You are in {rid}",
+                    create=True,
+                ),
+            ):
+                # Set player in the zone's back_room
+                database.set_player_room("testplayer", "back_room")
 
-            # Set player in the zone's back_room
-            database.set_player_room("testplayer", "back_room")
-
-            # Recall should return to zone spawn
-            success, message = engine.recall("testplayer")
+                # Recall should return to zone spawn
+                success, message = engine.recall("testplayer")
 
             assert success is True
             assert "The Pub District" in message  # Zone name in message
@@ -901,14 +891,18 @@ def test_recall_database_failure(test_db, temp_db_path, db_with_users):
                     items=[],
                 ),
             }
-            engine.world.get_room = lambda rid: engine.world.rooms.get(rid)
+            with patch.object(
+                engine.world,
+                "get_room",
+                side_effect=lambda rid: engine.world.rooms.get(rid),
+                create=True,
+            ):
+                # Set player away from spawn
+                database.set_player_room("testplayer", "other_room")
 
-            # Set player away from spawn
-            database.set_player_room("testplayer", "other_room")
-
-            # Mock database failure
-            with patch.object(database, "set_player_room", return_value=False):
-                success, message = engine.recall("testplayer")
+                # Mock database failure
+                with patch.object(database, "set_player_room", return_value=False):
+                    success, message = engine.recall("testplayer")
 
             assert success is False
             assert "Failed to recall" in message

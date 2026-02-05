@@ -63,6 +63,7 @@ class TestBaseAPIClientPost:
             url="http://localhost:8000/test",
             json={"input": "data"},
             params=None,
+            headers=None,
             timeout=30,
         )
 
@@ -188,6 +189,7 @@ class TestBaseAPIClientGet:
             url="http://localhost:8000/items",
             json=None,
             params=None,
+            headers=None,
             timeout=30,
         )
 
