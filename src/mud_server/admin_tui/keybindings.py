@@ -44,6 +44,8 @@ DEFAULT_KEYBINDINGS: dict[str, list[str]] = {
     "select": ["space", "enter"],
     # Session management
     "kick": ["x"],
+    # User management
+    "remove_user": ["d"],
 }
 
 # Environment variable to override the keybindings file path.

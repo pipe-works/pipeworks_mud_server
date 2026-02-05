@@ -175,6 +175,52 @@ class TestAdminAPIClientLogin:
         assert route.called is True
         assert route.calls.last.request.headers.get("X-Client-Type") == "tui"
 
+
+class TestAdminAPIClientManageUser:
+    """Tests for manage_user helper."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_manage_user_success(self, client: AdminAPIClient):
+        """Test manage_user returns success payload."""
+        client.session = SessionState(
+            session_id="admin-session",
+            username="admin",
+            role="admin",
+        )
+
+        respx.post("http://test-server:8000/admin/user/manage").mock(
+            return_value=Response(
+                200,
+                json={"success": True, "message": "ok"},
+            )
+        )
+
+        result = await client.manage_user("target", "deactivate")
+
+        assert result["success"] is True
+        assert result["message"] == "ok"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_manage_user_permission_denied(self, client: AdminAPIClient):
+        """Test manage_user raises AuthenticationError on 403."""
+        client.session = SessionState(
+            session_id="admin-session",
+            username="admin",
+            role="admin",
+        )
+
+        respx.post("http://test-server:8000/admin/user/manage").mock(
+            return_value=Response(
+                403,
+                json={"detail": "Forbidden"},
+            )
+        )
+
+        with pytest.raises(AuthenticationError):
+            await client.manage_user("target", "delete")
+
     @pytest.mark.asyncio
     @respx.mock
     async def test_login_invalid_credentials(self, client: AdminAPIClient):

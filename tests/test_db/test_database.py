@@ -476,6 +476,47 @@ def test_create_session_normalizes_client_type(test_db, temp_db_path, db_with_us
 
 @pytest.mark.unit
 @pytest.mark.db
+def test_delete_player_removes_related_data(test_db, temp_db_path, db_with_users):
+    """Test delete_player removes sessions, locations, and chat messages."""
+    with use_test_database(temp_db_path):
+        database.create_session("testplayer", "session-999")
+        database.add_chat_message("testplayer", "Hello", "spawn")
+        database.add_chat_message("testadmin", "Whisper", "spawn", recipient="testplayer")
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM players WHERE username = ?", ("testplayer",))
+        player_id = cursor.fetchone()[0]
+        cursor.execute(
+            "UPDATE player_locations SET room_id = ? WHERE player_id = ?",
+            ("spawn", player_id),
+        )
+        conn.commit()
+        conn.close()
+
+        result = database.delete_player("testplayer")
+        assert result is True
+        assert database.player_exists("testplayer") is False
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM sessions WHERE username = ?", ("testplayer",))
+        assert cursor.fetchone()[0] == 0
+        cursor.execute(
+            "SELECT COUNT(*) FROM player_locations WHERE player_id = ?",
+            (player_id,),
+        )
+        assert cursor.fetchone()[0] == 0
+        cursor.execute(
+            "SELECT COUNT(*) FROM chat_messages WHERE username = ? OR recipient = ?",
+            ("testplayer", "testplayer"),
+        )
+        assert cursor.fetchone()[0] == 0
+        conn.close()
+
+
+@pytest.mark.unit
+@pytest.mark.db
 def test_create_session_no_ttl_sets_null_expiry(test_db, temp_db_path, db_with_users):
     """Test that TTL=0 stores NULL expiry."""
     from mud_server.config import config

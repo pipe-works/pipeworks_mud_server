@@ -721,6 +721,51 @@ def activate_player(username: str) -> bool:
 
 
 # ============================================================================
+# ACCOUNT DELETION
+# ============================================================================
+
+
+def delete_player(username: str) -> bool:
+    """
+    Permanently delete a player and related data.
+
+    This removes:
+      - Player record from players table
+      - Any player_locations row
+      - All active sessions for the user
+      - Chat messages sent by the user
+      - Chat messages where the user was the recipient
+
+    Returns True on success, False on error.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT id FROM players WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return False
+
+        player_id = row[0]
+
+        cursor.execute("DELETE FROM player_locations WHERE player_id = ?", (player_id,))
+        cursor.execute("DELETE FROM sessions WHERE username = ?", (username,))
+        cursor.execute(
+            "DELETE FROM chat_messages WHERE username = ? OR recipient = ?",
+            (username, username),
+        )
+        cursor.execute("DELETE FROM players WHERE username = ?", (username,))
+
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+# ============================================================================
 # PASSWORD MANAGEMENT
 # ============================================================================
 

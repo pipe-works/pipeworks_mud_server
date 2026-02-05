@@ -555,12 +555,17 @@ Note: Commands can be used with or without the / prefix
             required_permission = Permission.MANAGE_USERS
         elif action in ["ban", "unban"]:
             required_permission = Permission.BAN_USERS
+        elif action == "delete":
+            required_permission = Permission.MANAGE_USERS
         elif action == "change_password":
             required_permission = Permission.MANAGE_USERS
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid action '{request.action}'. Valid actions: change_role, ban, deactivate, unban, change_password",
+                detail=(
+                    f"Invalid action '{request.action}'. Valid actions: change_role, "
+                    "ban, deactivate, unban, delete, change_password"
+                ),
             )
 
         # Validate session with appropriate permission
@@ -630,6 +635,20 @@ Note: Commands can be used with or without the / prefix
             else:
                 raise HTTPException(status_code=500, detail="Failed to ban user")
 
+        elif action == "delete":
+            if role != "superuser":
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only superusers may permanently delete users",
+                )
+
+            if database.delete_player(target_username):
+                return UserManagementResponse(
+                    success=True, message=f"Successfully deleted {target_username}"
+                )
+            else:
+                raise HTTPException(status_code=500, detail="Failed to delete user")
+
         elif action == "unban":
             if database.activate_player(target_username):
                 return UserManagementResponse(
@@ -663,7 +682,10 @@ Note: Commands can be used with or without the / prefix
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid action '{action}'. Valid actions: change_role, ban, deactivate, unban, change_password",
+                detail=(
+                    f"Invalid action '{action}'. Valid actions: change_role, "
+                    "ban, deactivate, unban, delete, change_password"
+                ),
             )
 
     @app.post("/admin/server/stop", response_model=ServerStopResponse)
