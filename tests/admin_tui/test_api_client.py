@@ -5,6 +5,7 @@ This module tests the AdminAPIClient class, including authentication,
 session management, and API operations. Uses respx for mocking HTTP requests.
 """
 
+import json
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -220,6 +221,55 @@ class TestAdminAPIClientManageUser:
 
         with pytest.raises(AuthenticationError):
             await client.manage_user("target", "delete")
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_manage_user_includes_optional_fields(self, client: AdminAPIClient):
+        """Test manage_user sends new_role and new_password when provided."""
+        client.session = SessionState(
+            session_id="admin-session",
+            username="admin",
+            role="admin",
+        )
+
+        route = respx.post("http://test-server:8000/admin/user/manage").mock(
+            return_value=Response(
+                200,
+                json={"success": True, "message": "ok"},
+            )
+        )
+
+        await client.manage_user(
+            "target",
+            "change_role",
+            new_role="worldbuilder",
+            new_password="NewPassword123",
+        )
+
+        assert route.called is True
+        payload = json.loads(route.calls.last.request.content.decode())
+        assert payload["new_role"] == "worldbuilder"
+        assert payload["new_password"] == "NewPassword123"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_manage_user_server_error(self, client: AdminAPIClient):
+        """Test manage_user raises APIError on non-200 responses."""
+        client.session = SessionState(
+            session_id="admin-session",
+            username="admin",
+            role="admin",
+        )
+
+        respx.post("http://test-server:8000/admin/user/manage").mock(
+            return_value=Response(
+                500,
+                json={"detail": "Server error"},
+            )
+        )
+
+        with pytest.raises(APIError):
+            await client.manage_user("target", "deactivate")
 
     @pytest.mark.asyncio
     @respx.mock

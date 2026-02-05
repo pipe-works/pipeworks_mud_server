@@ -11,6 +11,8 @@ Tests cover:
 All tests verify proper permission checking and role-based access.
 """
 
+from unittest.mock import patch
+
 import pytest
 
 from mud_server.config import use_test_database
@@ -388,6 +390,31 @@ def test_admin_cannot_delete_user(test_client, test_db, temp_db_path, db_with_us
         )
 
         assert response.status_code == 403
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_delete_user_returns_500_when_delete_fails(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Test delete action surfaces failures from the database layer."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        with patch.object(database, "delete_player", return_value=False):
+            response = test_client.post(
+                "/admin/user/manage",
+                json={
+                    "session_id": session_id,
+                    "action": "delete",
+                    "target_username": "testplayer",
+                },
+            )
+
+        assert response.status_code == 500
 
 
 # ============================================================================

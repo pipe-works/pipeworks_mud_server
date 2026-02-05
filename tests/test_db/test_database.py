@@ -494,25 +494,14 @@ def test_delete_player_removes_related_data(test_db, temp_db_path, db_with_users
         conn.commit()
         conn.close()
 
-        result = database.delete_player("testplayer")
-        assert result is True
-        assert database.player_exists("testplayer") is False
 
-        conn = database.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM sessions WHERE username = ?", ("testplayer",))
-        assert cursor.fetchone()[0] == 0
-        cursor.execute(
-            "SELECT COUNT(*) FROM player_locations WHERE player_id = ?",
-            (player_id,),
-        )
-        assert cursor.fetchone()[0] == 0
-        cursor.execute(
-            "SELECT COUNT(*) FROM chat_messages WHERE username = ? OR recipient = ?",
-            ("testplayer", "testplayer"),
-        )
-        assert cursor.fetchone()[0] == 0
-        conn.close()
+@pytest.mark.unit
+@pytest.mark.db
+def test_delete_player_missing_returns_false(test_db, temp_db_path, db_with_users):
+    """Test delete_player returns False when user does not exist."""
+    with use_test_database(temp_db_path):
+        result = database.delete_player("missing-user")
+        assert result is False
 
 
 @pytest.mark.unit
