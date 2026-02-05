@@ -14,6 +14,7 @@ Tests cover:
 All tests use temporary databases for isolation.
 """
 
+import sqlite3
 from unittest.mock import patch
 
 import pytest
@@ -450,6 +451,24 @@ def test_create_session(test_db, temp_db_path, db_with_users):
 
 @pytest.mark.unit
 @pytest.mark.db
+def test_create_session_no_ttl_sets_null_expiry(test_db, temp_db_path, db_with_users):
+    """Test that TTL=0 stores NULL expiry."""
+    from mud_server.config import config
+
+    with use_test_database(temp_db_path):
+        original = config.session.ttl_minutes
+        config.session.ttl_minutes = 0
+        try:
+            database.create_session("testplayer", "session-123")
+            session = database.get_session_by_id("session-123")
+            assert session is not None
+            assert session["expires_at"] is None
+        finally:
+            config.session.ttl_minutes = original
+
+
+@pytest.mark.unit
+@pytest.mark.db
 def test_create_session_removes_old_session_when_single_session(
     test_db, temp_db_path, db_with_users
 ):
@@ -663,6 +682,45 @@ def test_cleanup_expired_sessions_empty_db(test_db, temp_db_path):
     with use_test_database(temp_db_path):
         removed = database.cleanup_expired_sessions()
         assert removed == 0
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_session_schema_migration_from_legacy(temp_db_path):
+    """Test legacy sessions schema is migrated with expiry populated."""
+    from mud_server.config import config
+
+    original_ttl = config.session.ttl_minutes
+    config.session.ttl_minutes = 60
+
+    try:
+        conn = sqlite3.connect(str(temp_db_path))
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                session_id TEXT UNIQUE NOT NULL,
+                connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute(
+            "INSERT INTO sessions (username, session_id) VALUES (?, ?)",
+            ("legacy-user", "legacy-session"),
+        )
+        conn.commit()
+        conn.close()
+
+        with use_test_database(temp_db_path):
+            database.init_database(skip_superuser=True)
+
+            session = database.get_session_by_id("legacy-session")
+            assert session is not None
+            assert session["username"] == "legacy-user"
+            assert session["expires_at"] is not None
+    finally:
+        config.session.ttl_minutes = original_ttl
 
 
 @pytest.mark.unit

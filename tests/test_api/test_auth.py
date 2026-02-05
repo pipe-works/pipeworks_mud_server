@@ -129,6 +129,27 @@ def test_validate_session_expired(test_db, db_with_users, session_config_default
 
 @pytest.mark.unit
 @pytest.mark.auth
+def test_validate_session_expired_on_bad_timestamp(test_db, db_with_users):
+    session_id = "bad-expiry-session"
+    database.create_session("testplayer", session_id)
+
+    conn = database.get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE sessions SET expires_at = ? WHERE session_id = ?",
+        ("not-a-timestamp", session_id),
+    )
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(HTTPException):
+        validate_session(session_id)
+
+    assert database.get_session_by_id(session_id) is None
+
+
+@pytest.mark.unit
+@pytest.mark.auth
 def test_validate_session_updates_activity_and_extends_expiry(
     test_db, db_with_users, session_config_defaults
 ):
@@ -195,6 +216,27 @@ def test_validate_session_with_permission_superuser_has_all(test_db, db_with_use
     username, role = validate_session_with_permission(session_id, Permission.MANAGE_USERS)
     assert username == "testsuperuser"
     assert role == "superuser"
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_get_username_and_role_returns_none_for_missing_role(test_db):
+    session_id = "orphaned-session"
+    database.create_session("missing-user", session_id)
+
+    assert get_username_and_role_from_session(session_id) is None
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_validate_session_rejects_missing_role(test_db):
+    session_id = "missing-role-session"
+    database.create_session("missing-user", session_id)
+
+    with pytest.raises(HTTPException) as exc_info:
+        validate_session(session_id)
+
+    assert exc_info.value.status_code == 401
 
 
 # =========================================================================
