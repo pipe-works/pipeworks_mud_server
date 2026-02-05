@@ -42,6 +42,8 @@ DEFAULT_KEYBINDINGS: dict[str, list[str]] = {
     "cursor_right": ["l"],
     # Selection
     "select": ["space", "enter"],
+    # Session management
+    "kick": ["x"],
 }
 
 # Environment variable to override the keybindings file path.

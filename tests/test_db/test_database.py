@@ -50,6 +50,12 @@ def test_init_database_creates_tables(temp_db_path):
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chat_messages'")
         assert cursor.fetchone() is not None
 
+        # Check player_locations table exists
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='player_locations'"
+        )
+        assert cursor.fetchone() is not None
+
         conn.close()
 
 
@@ -591,6 +597,20 @@ def test_get_players_in_room(test_db, temp_db_path, db_with_users):
 
 @pytest.mark.unit
 @pytest.mark.db
+def test_get_player_locations(test_db, temp_db_path, db_with_users):
+    """Test fetching player location rows with usernames."""
+    with use_test_database(temp_db_path):
+        database.set_player_room("testplayer", "forest")
+
+        locations = database.get_player_locations()
+        by_username = {loc["username"]: loc for loc in locations}
+
+        assert "testplayer" in by_username
+        assert by_username["testplayer"]["room_id"] == "forest"
+
+
+@pytest.mark.unit
+@pytest.mark.db
 def test_update_session_activity(test_db, temp_db_path, db_with_users):
     """Test updating session activity timestamp."""
     with use_test_database(temp_db_path):
@@ -724,6 +744,7 @@ def test_session_schema_migration_from_legacy(temp_db_path):
             assert session is not None
             assert session["username"] == "legacy-user"
             assert session["expires_at"] is not None
+            assert session["client_type"] == "unknown"
     finally:
         config.session.ttl_minutes = original_ttl
 
@@ -819,6 +840,7 @@ def test_get_all_sessions(test_db, temp_db_path, db_with_users):
         assert len(sessions) == 2
         assert "created_at" in sessions[0]
         assert "expires_at" in sessions[0]
+        assert sessions[0]["client_type"] == "unknown"
 
 
 @pytest.mark.unit

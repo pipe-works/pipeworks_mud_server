@@ -21,12 +21,16 @@ Response Format:
     }
 """
 
+import logging
+
 from mud_server.admin_gradio.api.base import BaseAPIClient
 from mud_server.admin_gradio.ui.validators import (
     validate_password,
     validate_password_confirmation,
     validate_username,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AuthAPIClient(BaseAPIClient):
@@ -99,6 +103,7 @@ class AuthAPIClient(BaseAPIClient):
         response = self.post(
             "/login",
             json={"username": username.strip(), "password": password},
+            headers={"X-Client-Type": "gradio"},
         )
 
         if response["success"]:
@@ -258,9 +263,9 @@ class AuthAPIClient(BaseAPIClient):
                 "/logout",
                 json={"session_id": session_id, "command": "logout"},
             )
-        except Exception:
-            # Ignore errors - we'll clear session anyway
-            pass
+        except Exception as exc:
+            # Ignore errors - we'll clear session anyway, but log for visibility.
+            logger.warning("Logout request failed: %s", exc)
 
         return {
             "success": True,

@@ -269,6 +269,7 @@ class AdminAPIClient:
             response = await self.http_client.post(
                 "/login",
                 json={"username": username, "password": password},
+                headers={"X-Client-Type": "tui"},
             )
         except Exception as e:
             raise APIError(
@@ -642,3 +643,120 @@ class AdminAPIClient:
 
         data = cast(dict[str, Any], response.json())
         return data
+
+    async def get_player_locations(self) -> list[dict[str, Any]]:
+        """
+        Get player locations with zone context for admin display.
+
+        Requires admin privileges.
+
+        Returns:
+            list: List of player location dictionaries.
+
+        Raises:
+            AuthenticationError: If not authenticated or lacks permission.
+            APIError: If the server returns an error.
+        """
+        self._require_auth()
+
+        response = await self.http_client.get(
+            "/admin/database/player-locations",
+            params={"session_id": self.session.session_id},
+        )
+
+        if response.status_code == 403:
+            raise AuthenticationError(
+                message="Permission denied",
+                status_code=403,
+                detail="Admin privileges required",
+            )
+
+        if response.status_code != 200:
+            error_data = response.json()
+            raise APIError(
+                message="Failed to get player locations",
+                status_code=response.status_code,
+                detail=error_data.get("detail", "Unknown error"),
+            )
+
+        data = cast(dict[str, Any], response.json())
+        return list(data.get("locations", []))
+
+    async def get_connections(self) -> list[dict[str, Any]]:
+        """
+        Get active session connections with activity age.
+
+        Requires admin privileges.
+
+        Returns:
+            list: List of connection dictionaries.
+
+        Raises:
+            AuthenticationError: If not authenticated or lacks permission.
+            APIError: If the server returns an error.
+        """
+        self._require_auth()
+
+        response = await self.http_client.get(
+            "/admin/database/connections",
+            params={"session_id": self.session.session_id},
+        )
+
+        if response.status_code == 403:
+            raise AuthenticationError(
+                message="Permission denied",
+                status_code=403,
+                detail="Admin privileges required",
+            )
+
+        if response.status_code != 200:
+            error_data = response.json()
+            raise APIError(
+                message="Failed to get connections",
+                status_code=response.status_code,
+                detail=error_data.get("detail", "Unknown error"),
+            )
+
+        data = cast(dict[str, Any], response.json())
+        return list(data.get("connections", []))
+
+    async def kick_session(
+        self, target_session_id: str, reason: str | None = None
+    ) -> dict[str, Any]:
+        """
+        Force-disconnect a session (admin/superuser only).
+
+        Args:
+            target_session_id: Session id to disconnect.
+            reason: Optional reason for the action.
+
+        Returns:
+            dict: Response payload with success/message.
+        """
+        self._require_auth()
+
+        response = await self.http_client.post(
+            "/admin/session/kick",
+            json={
+                "session_id": self.session.session_id,
+                "target_session_id": target_session_id,
+                "reason": reason,
+            },
+        )
+
+        if response.status_code == 403:
+            raise AuthenticationError(
+                message="Permission denied",
+                status_code=403,
+                detail="Admin privileges required",
+            )
+
+        if response.status_code != 200:
+            error_data = response.json()
+            raise APIError(
+                message="Failed to kick session",
+                status_code=response.status_code,
+                detail=error_data.get("detail", "Unknown error"),
+            )
+
+        return cast(dict[str, Any], response.json())

@@ -113,7 +113,9 @@ def init_database(*, skip_superuser: bool = False):
 
     # ========================================================================
     # CREATE PLAYERS TABLE
-    # Stores user accounts with authentication and game state
+    # Stores user accounts with authentication and identity information.
+    # Gameplay state (like room location) is intentionally kept elsewhere to
+    # avoid bloating this table and to allow more flexible state management.
     # ========================================================================
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS players (
@@ -121,13 +123,30 @@ def init_database(*, skip_superuser: bool = False):
             username TEXT UNIQUE NOT NULL,           -- Unique username (case-sensitive)
             password_hash TEXT NOT NULL,             -- Bcrypt password hash
             role TEXT NOT NULL DEFAULT 'player',     -- User role for permissions
-            current_room TEXT NOT NULL DEFAULT 'spawn', -- Current location
             inventory TEXT DEFAULT '[]',             -- JSON array of item IDs
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_login TIMESTAMP,
             is_active INTEGER DEFAULT 1              -- Account status (1=active, 0=banned)
         )
     """)
+
+    # ========================================================================
+    # CREATE PLAYER_LOCATIONS TABLE
+    # Tracks per-player location (room) outside the players table.
+    # This keeps dynamic state separate from core identity/auth fields.
+    # ========================================================================
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS player_locations (
+            player_id INTEGER PRIMARY KEY,
+            room_id TEXT NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(player_id) REFERENCES players(id) ON DELETE CASCADE
+        )
+    """)
+    # Index to make room lookups efficient (e.g., who is in a room).
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_player_locations_room_id ON player_locations(room_id)"
+    )
 
     # ========================================================================
     # CREATE CHAT_MESSAGES TABLE
@@ -155,12 +174,15 @@ def init_database(*, skip_superuser: bool = False):
             session_id TEXT UNIQUE NOT NULL,   -- Opaque session token (unique)
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            expires_at TIMESTAMP               -- NULL means no expiry
+            expires_at TIMESTAMP,              -- NULL means no expiry
+            client_type TEXT DEFAULT 'unknown' -- Client identifier (tui, browser, api)
         )
     """)
 
     # Migrate old sessions schema (username UNIQUE, missing expiry columns) if needed.
     _migrate_sessions_schema(conn)
+    _migrate_sessions_client_type(conn)
+    _migrate_player_locations(conn)
 
     # Commit table creation
     conn.commit()
@@ -188,10 +210,19 @@ def init_database(*, skip_superuser: bool = False):
                 password_hash = hash_password(admin_password)
                 cursor.execute(
                     """
-                    INSERT INTO players (username, password_hash, role, current_room)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO players (username, password_hash, role)
+                    VALUES (?, ?, ?)
                 """,
-                    (admin_user, password_hash, "superuser", "spawn"),
+                    (admin_user, password_hash, "superuser"),
+                )
+                # Initialize location in a separate table to keep players table lean.
+                player_id = cursor.lastrowid
+                cursor.execute(
+                    """
+                    INSERT INTO player_locations (player_id, room_id)
+                    VALUES (?, ?)
+                """,
+                    (player_id, "spawn"),
                 )
                 conn.commit()
 
@@ -269,7 +300,8 @@ def _migrate_sessions_schema(conn: sqlite3.Connection) -> None:
             session_id TEXT UNIQUE NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            expires_at TIMESTAMP
+            expires_at TIMESTAMP,
+            client_type TEXT DEFAULT 'unknown'
         )
     """)
 
@@ -297,12 +329,20 @@ def _migrate_sessions_schema(conn: sqlite3.Connection) -> None:
         expires_param = None
 
     insert_sql = f"""
-        INSERT INTO sessions (username, session_id, created_at, last_activity, expires_at)
+        INSERT INTO sessions (
+            username,
+            session_id,
+            created_at,
+            last_activity,
+            expires_at,
+            client_type
+        )
         SELECT username,
                session_id,
                {created_col},
                {last_col},
-               {expires_expr}
+               {expires_expr},
+               'unknown'
         FROM sessions_old
     """  # nosec B608 - column names are validated above
 
@@ -312,6 +352,70 @@ def _migrate_sessions_schema(conn: sqlite3.Connection) -> None:
         cursor.execute(insert_sql)
 
     cursor.execute("DROP TABLE sessions_old")
+
+
+def _migrate_sessions_client_type(conn: sqlite3.Connection) -> None:
+    """
+    Add the client_type column to sessions if missing.
+
+    This lightweight migration keeps existing data intact and is safe to run
+    multiple times. Older rows default to "unknown" when the column is added.
+    """
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(sessions)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "client_type" in columns:
+        return
+
+    cursor.execute("ALTER TABLE sessions ADD COLUMN client_type TEXT DEFAULT 'unknown'")
+    cursor.execute("UPDATE sessions SET client_type = 'unknown' WHERE client_type IS NULL")
+
+
+def _migrate_player_locations(conn: sqlite3.Connection) -> None:
+    """
+    Backfill player_locations from legacy players.current_room if needed.
+
+    This migration is safe to run multiple times. It only inserts location
+    rows when none exist yet.
+    """
+    cursor = conn.cursor()
+
+    # Only backfill when the location table is empty. This avoids overwriting
+    # valid data if the migration has already run in prior startups.
+    cursor.execute("SELECT COUNT(*) FROM player_locations")
+    existing = int(cursor.fetchone()[0])
+    if existing > 0:
+        return
+
+    # Detect legacy schema where players.current_room was stored inline.
+    cursor.execute("PRAGMA table_info(players)")
+    columns = [row[1] for row in cursor.fetchall()]
+    has_current_room = "current_room" in columns
+
+    if has_current_room:
+        # Legacy path: copy room values into player_locations.
+        cursor.execute("SELECT id, current_room FROM players")
+        rows = cursor.fetchall()
+        cursor.executemany(
+            """
+            INSERT OR IGNORE INTO player_locations (player_id, room_id)
+            VALUES (?, ?)
+        """,
+            [(row[0], row[1] or "spawn") for row in rows],
+        )
+    else:
+        # New schema path: default all players to spawn until gameplay moves them.
+        cursor.execute("SELECT id FROM players")
+        rows = cursor.fetchall()
+        cursor.executemany(
+            """
+            INSERT OR IGNORE INTO player_locations (player_id, room_id)
+            VALUES (?, ?)
+        """,
+            [(row[0], "spawn") for row in rows],
+        )
+
+    conn.commit()
 
 
 # ============================================================================
@@ -402,10 +506,19 @@ def create_player_with_password(username: str, password: str, role: str = "playe
         password_hash = hash_password(password)
         cursor.execute(
             """
-            INSERT INTO players (username, password_hash, role, current_room)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO players (username, password_hash, role)
+            VALUES (?, ?, ?)
         """,
-            (username, password_hash, role, "spawn"),
+            (username, password_hash, role),
+        )
+        # Seed initial location in its own table to keep the players table focused.
+        player_id = cursor.lastrowid
+        cursor.execute(
+            """
+            INSERT INTO player_locations (player_id, room_id)
+            VALUES (?, ?)
+        """,
+            (player_id, "spawn"),
         )
         conn.commit()
         conn.close()
@@ -653,7 +766,15 @@ def get_player_room(username: str) -> str | None:
     """Get the current room of a player."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT current_room FROM players WHERE username = ?", (username,))
+    # Resolve the player's id first, then join into player_locations.
+    cursor.execute("SELECT id FROM players WHERE username = ?", (username,))
+    player_row = cursor.fetchone()
+    if not player_row:
+        conn.close()
+        return None
+
+    player_id = player_row[0]
+    cursor.execute("SELECT room_id FROM player_locations WHERE player_id = ?", (player_id,))
     result = cursor.fetchone()
     conn.close()
     return result[0] if result else None
@@ -664,7 +785,24 @@ def set_player_room(username: str, room: str) -> bool:
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("UPDATE players SET current_room = ? WHERE username = ?", (room, username))
+        # Look up player id and upsert location for that player.
+        cursor.execute("SELECT id FROM players WHERE username = ?", (username,))
+        player_row = cursor.fetchone()
+        if not player_row:
+            conn.close()
+            return False
+
+        player_id = player_row[0]
+        cursor.execute(
+            """
+            INSERT INTO player_locations (player_id, room_id, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(player_id) DO UPDATE
+                SET room_id = excluded.room_id,
+                    updated_at = CURRENT_TIMESTAMP
+        """,
+            (player_id, room),
+        )
         conn.commit()
         conn.close()
         return True
@@ -775,7 +913,7 @@ def get_room_messages(
 # ============================================================================
 
 
-def create_session(username: str, session_id: str) -> bool:
+def create_session(username: str, session_id: str, client_type: str = "unknown") -> bool:
     """
     Create a new session record for a user.
 
@@ -785,8 +923,9 @@ def create_session(username: str, session_id: str) -> bool:
       - allow_multiple_sessions = True: the new session is added without
         removing existing sessions (multi-device support).
 
-    The new session will have created_at/last_activity set to now and
-    expires_at calculated using the configured session TTL.
+    The new session will have created_at/last_activity set to now,
+    expires_at calculated using the configured session TTL, and a
+    client_type tag for UI/connection tracking.
     """
     from mud_server.config import config
 
@@ -798,21 +937,37 @@ def create_session(username: str, session_id: str) -> bool:
             # Enforce one-session-per-user by removing existing sessions.
             cursor.execute("DELETE FROM sessions WHERE username = ?", (username,))
 
+        client_type = client_type.strip().lower() if client_type else "unknown"
+
         if config.session.ttl_minutes > 0:
             cursor.execute(
                 """
-                INSERT INTO sessions (username, session_id, created_at, last_activity, expires_at)
-                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, datetime('now', ?))
+                INSERT INTO sessions (
+                    username,
+                    session_id,
+                    created_at,
+                    last_activity,
+                    expires_at,
+                    client_type
+                )
+                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, datetime('now', ?), ?)
                 """,
-                (username, session_id, f"+{config.session.ttl_minutes} minutes"),
+                (username, session_id, f"+{config.session.ttl_minutes} minutes", client_type),
             )
         else:
             cursor.execute(
                 """
-                INSERT INTO sessions (username, session_id, created_at, last_activity, expires_at)
-                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)
+                INSERT INTO sessions (
+                    username,
+                    session_id,
+                    created_at,
+                    last_activity,
+                    expires_at,
+                    client_type
+                )
+                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, ?)
                 """,
-                (username, session_id),
+                (username, session_id, client_type),
             )
 
         # Update last_login for the user on successful session creation.
@@ -829,13 +984,22 @@ def create_session(username: str, session_id: str) -> bool:
 
 
 def get_active_players() -> list[str]:
-    """Get list of active players (deduplicated, excludes expired sessions)."""
+    """Get list of active players (deduplicated, excludes stale sessions)."""
+    from mud_server.config import config
+
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    where_clauses = ["(expires_at IS NULL OR datetime(expires_at) > datetime('now'))"]
+    params: list[str] = []
+    if config.session.active_window_minutes > 0:
+        where_clauses.append("datetime(last_activity) >= datetime('now', ?)")
+        params.append(f"-{config.session.active_window_minutes} minutes")
+
+    sql = f"""
         SELECT DISTINCT username FROM sessions
-        WHERE expires_at IS NULL OR datetime(expires_at) > datetime('now')
-        """)
+        WHERE {" AND ".join(where_clauses)}
+    """  # nosec B608 - clauses are built from fixed, internal strings
+    cursor.execute(sql, params)
     results = cursor.fetchall()
     conn.close()
     return [row[0] for row in results]
@@ -845,11 +1009,14 @@ def get_players_in_room(room: str) -> list[str]:
     """Get list of players currently in a room."""
     conn = get_connection()
     cursor = conn.cursor()
+    # Join player_locations to find players in the requested room, then
+    # filter to active (non-expired) sessions.
     cursor.execute(
         """
         SELECT DISTINCT p.username FROM players p
+        JOIN player_locations l ON p.id = l.player_id
         JOIN sessions s ON p.username = s.username
-        WHERE p.current_room = ?
+        WHERE l.room_id = ?
           AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
     """,
         (room,),
@@ -857,6 +1024,40 @@ def get_players_in_room(room: str) -> list[str]:
     results = cursor.fetchall()
     conn.close()
     return [row[0] for row in results]
+
+
+def get_player_locations() -> list[dict[str, Any]]:
+    """
+    Get player location rows with usernames for admin display.
+
+    Returns:
+        List of dicts with player_id, username, room_id, updated_at.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT p.id,
+               p.username,
+               l.room_id,
+               l.updated_at
+        FROM player_locations l
+        JOIN players p ON p.id = l.player_id
+        ORDER BY p.id
+    """)
+    results = cursor.fetchall()
+    conn.close()
+
+    locations: list[dict[str, Any]] = []
+    for row in results:
+        locations.append(
+            {
+                "player_id": row[0],
+                "username": row[1],
+                "room_id": row[2],
+                "updated_at": row[3],
+            }
+        )
+    return locations
 
 
 def remove_session(username: str) -> bool:
@@ -930,7 +1131,7 @@ def get_session_by_id(session_id: str) -> dict[str, Any] | None:
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT username, session_id, created_at, last_activity, expires_at
+        SELECT username, session_id, created_at, last_activity, expires_at, client_type
         FROM sessions WHERE session_id = ?
         """,
         (session_id,),
@@ -945,17 +1146,27 @@ def get_session_by_id(session_id: str) -> dict[str, Any] | None:
         "created_at": row[2],
         "last_activity": row[3],
         "expires_at": row[4],
+        "client_type": row[5],
     }
 
 
 def get_active_session_count() -> int:
-    """Count active (non-expired) sessions."""
+    """Count active sessions within the configured activity window."""
+    from mud_server.config import config
+
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    where_clauses = ["(expires_at IS NULL OR datetime(expires_at) > datetime('now'))"]
+    params: list[str] = []
+    if config.session.active_window_minutes > 0:
+        where_clauses.append("datetime(last_activity) >= datetime('now', ?)")
+        params.append(f"-{config.session.active_window_minutes} minutes")
+
+    sql = f"""
         SELECT COUNT(*) FROM sessions
-        WHERE expires_at IS NULL OR datetime(expires_at) > datetime('now')
-        """)
+        WHERE {" AND ".join(where_clauses)}
+    """  # nosec B608 - clauses are built from fixed, internal strings
+    cursor.execute(sql, params)
     row = cursor.fetchone()
     count = int(row[0]) if row else 0
     conn.close()
@@ -1125,11 +1336,21 @@ def get_all_players_detailed() -> list[dict[str, Any]]:
     """Get detailed player list including password hash prefix (for admin database viewer)."""
     conn = get_connection()
     cursor = conn.cursor()
+    # Pull current room from player_locations so admin views stay accurate
+    # after moving room state out of the players table.
     cursor.execute("""
-        SELECT id, username, password_hash, role, current_room, inventory,
-               created_at, last_login, is_active
-        FROM players
-        ORDER BY created_at DESC
+        SELECT p.id,
+               p.username,
+               p.password_hash,
+               p.role,
+               l.room_id,
+               p.inventory,
+               p.created_at,
+               p.last_login,
+               p.is_active
+        FROM players p
+        LEFT JOIN player_locations l ON p.id = l.player_id
+        ORDER BY p.created_at DESC
     """)
     results = cursor.fetchall()
     conn.close()
@@ -1157,7 +1378,7 @@ def get_all_sessions() -> list[dict[str, Any]]:
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, username, session_id, created_at, last_activity, expires_at
+        SELECT id, username, session_id, created_at, last_activity, expires_at, client_type
         FROM sessions
         WHERE expires_at IS NULL OR datetime(expires_at) > datetime('now')
         ORDER BY created_at DESC
@@ -1175,6 +1396,58 @@ def get_all_sessions() -> list[dict[str, Any]]:
                 "created_at": row[3],
                 "last_activity": row[4],
                 "expires_at": row[5],
+                "client_type": row[6],
+            }
+        )
+    return sessions
+
+
+def get_active_connections() -> list[dict[str, Any]]:
+    """
+    Get active sessions with activity age in seconds.
+
+    Sessions are filtered by expiry and the configured activity window.
+    """
+    from mud_server.config import config
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    where_clauses = ["(expires_at IS NULL OR datetime(expires_at) > datetime('now'))"]
+    params: list[str] = []
+    if config.session.active_window_minutes > 0:
+        where_clauses.append("datetime(last_activity) >= datetime('now', ?)")
+        params.append(f"-{config.session.active_window_minutes} minutes")
+
+    sql = f"""
+        SELECT id,
+               username,
+               session_id,
+               created_at,
+               last_activity,
+               expires_at,
+               client_type,
+               CAST(strftime('%s','now') - strftime('%s', last_activity) AS INTEGER) AS age_seconds
+        FROM sessions
+        WHERE {" AND ".join(where_clauses)}
+        ORDER BY last_activity DESC
+    """  # nosec B608 - clauses are built from fixed, internal strings
+    cursor.execute(sql, params)
+    results = cursor.fetchall()
+    conn.close()
+
+    sessions: list[dict[str, Any]] = []
+    for row in results:
+        sessions.append(
+            {
+                "id": row[0],
+                "username": row[1],
+                "session_id": row[2],
+                "created_at": row[3],
+                "last_activity": row[4],
+                "expires_at": row[5],
+                "client_type": row[6],
+                "age_seconds": row[7],
             }
         )
     return sessions

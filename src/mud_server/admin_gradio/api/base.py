@@ -49,6 +49,7 @@ class BaseAPIClient:
         endpoint: str,
         json: dict | None = None,
         params: dict | None = None,
+        headers: dict[str, str] | None = None,
         timeout: int = 30,
     ) -> dict[str, Any]:
         """
@@ -62,6 +63,7 @@ class BaseAPIClient:
             endpoint: API endpoint path (e.g., "/login", "/command")
             json: Optional JSON body for POST requests
             params: Optional query parameters for GET requests
+            headers: Optional headers to send with the request
             timeout: Request timeout in seconds (default: 30)
 
         Returns:
@@ -85,6 +87,7 @@ class BaseAPIClient:
                 url=url,
                 json=json,
                 params=params,
+                headers=headers,
                 timeout=timeout,
             )
 
@@ -140,6 +143,7 @@ class BaseAPIClient:
         self,
         endpoint: str,
         params: dict | None = None,
+        headers: dict[str, str] | None = None,
         timeout: int = 30,
     ) -> dict[str, Any]:
         """
@@ -148,17 +152,25 @@ class BaseAPIClient:
         Args:
             endpoint: API endpoint path
             params: Optional query parameters
+            headers: Optional headers to send with the request
             timeout: Request timeout in seconds
 
         Returns:
             Standardized response dictionary (see _make_request)
         """
-        return self._make_request("GET", endpoint, params=params, timeout=timeout)
+        return self._make_request(
+            "GET",
+            endpoint,
+            params=params,
+            headers=headers,
+            timeout=timeout,
+        )
 
     def post(
         self,
         endpoint: str,
         json: dict | None = None,
+        headers: dict[str, str] | None = None,
         timeout: int = 30,
     ) -> dict[str, Any]:
         """
@@ -167,9 +179,16 @@ class BaseAPIClient:
         Args:
             endpoint: API endpoint path
             json: Optional JSON body
+            headers: Optional headers to send with the request
             timeout: Request timeout in seconds
 
         Returns:
             Standardized response dictionary (see _make_request)
         """
-        return self._make_request("POST", endpoint, json=json, timeout=timeout)
+        return self._make_request(
+            "POST",
+            endpoint,
+            json=json,
+            headers=headers,
+            timeout=timeout,
+        )

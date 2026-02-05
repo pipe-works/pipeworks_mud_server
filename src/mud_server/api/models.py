@@ -252,7 +252,7 @@ class DatabasePlayersResponse(BaseModel):
             - username: Player username
             - password_hash: Truncated password hash (first 20 chars + "...")
             - role: User role
-            - current_room: Current location
+            - current_room: Current location (from player_locations when available)
             - inventory: JSON string of item IDs
             - created_at: Account creation timestamp
             - last_login: Last login timestamp
@@ -307,6 +307,75 @@ class DatabaseTableRowsResponse(BaseModel):
     rows: list[list[Any]]
 
 
+class DatabasePlayerLocationsResponse(BaseModel):
+    """
+    Admin response containing player locations with usernames.
+
+    Requires VIEW_LOGS permission. Useful for cross-referencing room occupancy.
+
+    Attributes:
+        locations: List of dicts with fields:
+            - player_id
+            - username
+            - zone_id
+            - room_id
+            - updated_at
+    """
+
+    locations: list[dict[str, Any]]
+
+
+class DatabaseConnectionsResponse(BaseModel):
+    """
+    Admin response containing active session connections.
+
+    Requires VIEW_LOGS permission. Includes activity age for dashboards.
+
+    Attributes:
+        connections: List of session dictionaries with fields:
+            - id
+            - username
+            - session_id
+            - created_at
+            - last_activity
+            - expires_at
+            - client_type
+            - age_seconds
+    """
+
+    connections: list[dict[str, Any]]
+
+
+class KickSessionRequest(BaseModel):
+    """
+    Request to force-disconnect a session.
+
+    Requires KICK_USERS permission.
+
+    Attributes:
+        session_id: Admin's active session id.
+        target_session_id: Session id to disconnect.
+        reason: Optional reason for audit/logging.
+    """
+
+    session_id: str
+    target_session_id: str
+    reason: str | None = None
+
+
+class KickSessionResponse(BaseModel):
+    """
+    Response for a kick session request.
+
+    Attributes:
+        success: True if session was removed.
+        message: Human-readable result.
+    """
+
+    success: bool
+    message: str
+
+
 class DatabaseSessionsResponse(BaseModel):
     """
     Admin response containing all active sessions from database.
@@ -321,6 +390,7 @@ class DatabaseSessionsResponse(BaseModel):
             - created_at: Login timestamp
             - last_activity: Most recent API request timestamp
             - expires_at: Session expiry timestamp (NULL means no expiry)
+            - client_type: Client identifier (tui, browser, api)
     """
 
     sessions: list[dict[str, Any]]

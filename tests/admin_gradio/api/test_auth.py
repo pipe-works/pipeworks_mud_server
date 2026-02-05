@@ -39,6 +39,7 @@ class TestAuthAPIClientLogin:
         call_kwargs = mock_request.call_args.kwargs
         assert call_kwargs["json"]["username"] == "alice"
         assert call_kwargs["json"]["password"] == TEST_PASSWORD
+        assert call_kwargs["headers"]["X-Client-Type"] == "gradio"
 
         # Verify response format
         assert result["success"] is True
@@ -127,6 +128,7 @@ class TestAuthAPIClientLogin:
             # Verify username was stripped
             call_kwargs = mock_request.call_args.kwargs
             assert call_kwargs["json"]["username"] == "alice"
+            assert call_kwargs["headers"]["X-Client-Type"] == "gradio"
 
     @patch("mud_server.admin_gradio.api.base.requests.request")
     def test_login_connection_error(self, mock_request):

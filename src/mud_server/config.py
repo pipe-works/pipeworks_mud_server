@@ -29,6 +29,7 @@ Environment Variable Mapping:
     MUD_SESSION_TTL_MINUTES         -> session.ttl_minutes
     MUD_SESSION_SLIDING_EXPIRATION  -> session.sliding_expiration
     MUD_SESSION_ALLOW_MULTIPLE      -> session.allow_multiple_sessions
+    MUD_SESSION_ACTIVE_WINDOW_MINUTES -> session.active_window_minutes
 """
 
 import configparser
@@ -82,6 +83,7 @@ class SessionSettings:
     ttl_minutes: int = 480  # 8 hours default
     sliding_expiration: bool = True  # Extend expiry on each validated request
     allow_multiple_sessions: bool = False  # False = single session per user
+    active_window_minutes: int = 30  # Active if last_activity within this window
 
 
 @dataclass
@@ -219,6 +221,8 @@ def _load_from_ini(parser: configparser.ConfigParser, cfg: ServerConfig) -> None
             cfg.session.allow_multiple_sessions = _parse_bool(
                 parser.get("session", "allow_multiple_sessions")
             )
+        if parser.has_option("session", "active_window_minutes"):
+            cfg.session.active_window_minutes = parser.getint("session", "active_window_minutes")
 
     # Database section
     if parser.has_section("database"):
@@ -282,6 +286,8 @@ def _apply_env_overrides(cfg: ServerConfig) -> None:
         cfg.session.sliding_expiration = _parse_bool(env_sliding)
     if env_allow_multiple := os.getenv("MUD_SESSION_ALLOW_MULTIPLE"):
         cfg.session.allow_multiple_sessions = _parse_bool(env_allow_multiple)
+    if env_active_window := os.getenv("MUD_SESSION_ACTIVE_WINDOW_MINUTES"):
+        cfg.session.active_window_minutes = int(env_active_window)
 
 
 def load_config() -> ServerConfig:
@@ -383,6 +389,7 @@ def print_config_summary() -> None:
     print(f"Session TTL: {config.session.ttl_minutes} minutes")
     print(f"Sliding Exp: {config.session.sliding_expiration}")
     print(f"Multi-Session: {config.session.allow_multiple_sessions}")
+    print(f"Active Window: {config.session.active_window_minutes} minutes")
     print(f"Log level:   {config.logging.level}")
     print("=" * 60 + "\n")
 

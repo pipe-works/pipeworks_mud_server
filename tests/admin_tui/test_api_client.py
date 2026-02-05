@@ -714,3 +714,209 @@ class TestAdminAPIClientAuthRequired:
 
         assert exc_info.value.status_code == 500
         assert "Failed to get table" in exc_info.value.message
+
+    @pytest.mark.asyncio
+    async def test_get_player_locations_requires_auth(self, client: AdminAPIClient):
+        """Test get_player_locations raises error when not authenticated."""
+        with pytest.raises(AuthenticationError, match="Not authenticated"):
+            await client.get_player_locations()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_player_locations_permission_denied(self, client: AdminAPIClient):
+        """Test get_player_locations with insufficient permissions."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "player"},
+            )
+        )
+        await client.login("player", "password")
+
+        respx.get("http://test-server:8000/admin/database/player-locations").mock(
+            return_value=Response(403, json={"detail": "Forbidden"})
+        )
+
+        with pytest.raises(AuthenticationError) as exc_info:
+            await client.get_player_locations()
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_player_locations_success(self, client: AdminAPIClient):
+        """Test successful get_player_locations call."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        respx.get("http://test-server:8000/admin/database/player-locations").mock(
+            return_value=Response(
+                200,
+                json={
+                    "locations": [
+                        {
+                            "player_id": 1,
+                            "username": "player1",
+                            "zone_id": "ledgerfall_alley",
+                            "room_id": "spawn",
+                            "updated_at": "2026-02-05 12:00:00",
+                        }
+                    ]
+                },
+            )
+        )
+
+        locations = await client.get_player_locations()
+
+        assert len(locations) == 1
+        assert locations[0]["username"] == "player1"
+        assert locations[0]["zone_id"] == "ledgerfall_alley"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_player_locations_server_error(self, client: AdminAPIClient):
+        """Test get_player_locations handles server errors."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        respx.get("http://test-server:8000/admin/database/player-locations").mock(
+            return_value=Response(500, json={"detail": "Internal server error"})
+        )
+
+        with pytest.raises(APIError) as exc_info:
+            await client.get_player_locations()
+
+        assert exc_info.value.status_code == 500
+        assert "Failed to get player locations" in exc_info.value.message
+
+    @pytest.mark.asyncio
+    async def test_get_connections_requires_auth(self, client: AdminAPIClient):
+        """Test get_connections raises error when not authenticated."""
+        with pytest.raises(AuthenticationError, match="Not authenticated"):
+            await client.get_connections()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_connections_permission_denied(self, client: AdminAPIClient):
+        """Test get_connections with insufficient permissions."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "player"},
+            )
+        )
+        await client.login("player", "password")
+
+        respx.get("http://test-server:8000/admin/database/connections").mock(
+            return_value=Response(403, json={"detail": "Forbidden"})
+        )
+
+        with pytest.raises(AuthenticationError) as exc_info:
+            await client.get_connections()
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_connections_success(self, client: AdminAPIClient):
+        """Test successful get_connections call."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        respx.get("http://test-server:8000/admin/database/connections").mock(
+            return_value=Response(
+                200,
+                json={
+                    "connections": [
+                        {
+                            "username": "player1",
+                            "session_id": "session-1",
+                            "last_activity": "2026-02-05 12:00:00",
+                            "age_seconds": 30,
+                        }
+                    ]
+                },
+            )
+        )
+
+        connections = await client.get_connections()
+
+        assert connections[0]["session_id"] == "session-1"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_connections_server_error(self, client: AdminAPIClient):
+        """Test get_connections handles server errors."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        respx.get("http://test-server:8000/admin/database/connections").mock(
+            return_value=Response(500, json={"detail": "Internal server error"})
+        )
+
+        with pytest.raises(APIError) as exc_info:
+            await client.get_connections()
+
+        assert exc_info.value.status_code == 500
+        assert "Failed to get connections" in exc_info.value.message
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_kick_session_success(self, client: AdminAPIClient):
+        """Test successful kick_session call."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "admin-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        respx.post("http://test-server:8000/admin/session/kick").mock(
+            return_value=Response(200, json={"success": True, "message": "Session disconnected"})
+        )
+
+        result = await client.kick_session("session-1")
+
+        assert result["success"] is True
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_kick_session_permission_denied(self, client: AdminAPIClient):
+        """Test kick_session with insufficient permissions."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "player-session", "role": "player"},
+            )
+        )
+        await client.login("player", "password")
+
+        respx.post("http://test-server:8000/admin/session/kick").mock(
+            return_value=Response(403, json={"detail": "Forbidden"})
+        )
+
+        with pytest.raises(AuthenticationError) as exc_info:
+            await client.kick_session("session-1")
+
+        assert exc_info.value.status_code == 403

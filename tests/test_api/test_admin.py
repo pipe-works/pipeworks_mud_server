@@ -135,7 +135,129 @@ def test_admin_view_table_rows_as_player_forbidden(
         )
         session_id = login_response.json()["session_id"]
 
-        response = test_client.get(f"/admin/database/table/players?session_id={session_id}")
+    response = test_client.get(f"/admin/database/table/players?session_id={session_id}")
+
+    assert response.status_code == 403
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_view_player_locations_as_admin(test_client, test_db, temp_db_path, db_with_users):
+    """Test admin can view player locations."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(f"/admin/database/player-locations?session_id={session_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "locations" in data
+        if data["locations"]:
+            assert "player_id" in data["locations"][0]
+            assert "username" in data["locations"][0]
+            assert "room_id" in data["locations"][0]
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_view_player_locations_as_player_forbidden(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Test regular player cannot view player locations."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+    response = test_client.get(f"/admin/database/player-locations?session_id={session_id}")
+
+    assert response.status_code == 403
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_view_connections_as_admin(test_client, test_db, temp_db_path, db_with_users):
+    """Test admin can view active connections."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(f"/admin/database/connections?session_id={session_id}")
+
+        assert response.status_code == 200
+        assert "connections" in response.json()
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_view_connections_as_player_forbidden(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Test regular player cannot view active connections."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(f"/admin/database/connections?session_id={session_id}")
+
+        assert response.status_code == 403
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_can_kick_session(test_client, test_db, temp_db_path, db_with_users):
+    """Test admin can kick an active session."""
+    with use_test_database(temp_db_path):
+        # Login as admin and create a player session.
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        admin_session = admin_login.json()["session_id"]
+
+        player_login = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        target_session = player_login.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/session/kick",
+            json={
+                "session_id": admin_session,
+                "target_session_id": target_session,
+                "reason": "test",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_player_cannot_kick_session(test_client, test_db, temp_db_path, db_with_users):
+    """Test player cannot kick sessions."""
+    with use_test_database(temp_db_path):
+        player_login = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        player_session = player_login.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/session/kick",
+            json={
+                "session_id": player_session,
+                "target_session_id": "missing-session",
+                "reason": "test",
+            },
+        )
 
         assert response.status_code == 403
 
