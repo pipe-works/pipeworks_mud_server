@@ -812,3 +812,55 @@ class AdminAPIClient:
             )
 
         return cast(dict[str, Any], response.json())
+
+    async def create_user(
+        self,
+        username: str,
+        password: str,
+        password_confirm: str,
+        role: str,
+    ) -> dict[str, Any]:
+        """
+        Create a new user account (admin/superuser only).
+
+        Args:
+            username: Username for the new account.
+            password: Initial password for the account.
+            password_confirm: Confirmation of the password.
+            role: Role to assign to the new account.
+
+        Returns:
+            dict: Response payload with success/message.
+
+        Raises:
+            AuthenticationError: If the current session lacks permissions.
+            APIError: If validation fails or the server rejects the request.
+        """
+        self._require_auth()
+
+        payload: dict[str, Any] = {
+            "session_id": self.session.session_id,
+            "username": username,
+            "password": password,
+            "password_confirm": password_confirm,
+            "role": role,
+        }
+
+        response = await self.http_client.post("/admin/user/create", json=payload)
+
+        if response.status_code == 403:
+            raise AuthenticationError(
+                message="Permission denied",
+                status_code=403,
+                detail="Admin privileges required",
+            )
+
+        if response.status_code != 200:
+            error_data = response.json()
+            raise APIError(
+                message="Failed to create user",
+                status_code=response.status_code,
+                detail=error_data.get("detail", "Unknown error"),
+            )
+
+        return cast(dict[str, Any], response.json())

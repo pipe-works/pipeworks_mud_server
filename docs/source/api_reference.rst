@@ -42,16 +42,25 @@ Game Actions
 ~~~~~~~~~~~~
 
 * ``POST /command`` - Execute game command
-* ``GET /status`` - Get player status
-* ``GET /chat`` - Get chat messages
+* ``GET /status/{session_id}`` - Get player status
+* ``GET /chat/{session_id}`` - Get chat messages
 
 Admin
 ~~~~~
 
-* ``GET /admin/users`` - List all users (Admin+)
-* ``PUT /admin/users/{username}/role`` - Change user role (Superuser)
-* ``PUT /admin/users/{username}/password`` - Reset password (Superuser)
-* ``PUT /admin/users/{username}/status`` - Activate/deactivate account (Admin+)
+* ``GET /admin/database/players`` - List players (Admin+)
+* ``GET /admin/database/connections`` - Active connections (Admin+)
+* ``GET /admin/database/player-locations`` - Player locations (Admin+)
+* ``GET /admin/database/tables`` - Database table metadata (Admin+)
+* ``GET /admin/database/table/{table_name}`` - Table rows (Admin+)
+* ``GET /admin/database/sessions`` - Sessions (Admin+)
+* ``GET /admin/database/chat-messages`` - Chat logs (Admin+)
+* ``POST /admin/user/create`` - Create user account (Admin/Superuser)
+* ``POST /admin/user/manage`` - Manage user (change role, ban, delete, password)
+* ``POST /admin/session/kick`` - Kick session (Admin+)
+* ``POST /admin/server/stop`` - Stop server (Admin+)
+* ``POST /admin/ollama/command`` - Run Ollama command (Admin+)
+* ``POST /admin/ollama/clear-context`` - Clear Ollama context (Admin+)
 
 Health
 ~~~~~~
@@ -61,7 +70,9 @@ Health
 Authentication
 --------------
 
-All protected endpoints require a ``session_id`` in the request body.
+All protected endpoints require a ``session_id``. Depending on the endpoint,
+it is provided in the request body (POST), query string (GET), or URL path
+(``/status/{session_id}``, ``/chat/{session_id}``).
 
 Password Requirements
 ~~~~~~~~~~~~~~~~~~~~~
@@ -122,7 +133,7 @@ Four user roles with hierarchical permissions:
    * - **WorldBuilder**
      - Player + create/edit rooms and items
    * - **Admin**
-     - WorldBuilder + user management (limited)
+     - WorldBuilder + create users, ban users, view logs, stop server
    * - **Superuser**
      - Admin + role management, full system access
 

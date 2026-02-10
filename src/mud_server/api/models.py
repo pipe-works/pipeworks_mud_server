@@ -95,6 +95,33 @@ class UserManagementRequest(BaseModel):
     new_password: str | None = None
 
 
+class CreateUserRequest(BaseModel):
+    """
+    Admin request to create a new user account.
+
+    Requires admin or superuser permissions. Admins may create Player or
+    WorldBuilder accounts. Superusers may create any role, including Admin
+    and Superuser.
+
+    Passwords must meet the STANDARD password policy, and password_confirm
+    must match password.
+
+    Attributes:
+        session_id: Active session ID (must have appropriate permission)
+        username: Desired username (2-20 characters, must be unique)
+        password: Desired password (must meet STANDARD policy)
+        password_confirm: Password confirmation (must match password)
+        role: Role to assign to the new account
+            Valid roles: "player", "worldbuilder", "admin", "superuser"
+    """
+
+    session_id: str
+    username: str
+    password: str
+    password_confirm: str
+    role: str
+
+
 class ServerStopRequest(BaseModel):
     """
     Admin request to stop the server gracefully.
@@ -183,6 +210,19 @@ class LoginResponse(BaseModel):
 class RegisterResponse(BaseModel):
     """
     Response to registration request.
+
+    Attributes:
+        success: True if account created, False otherwise
+        message: Success confirmation or error details
+    """
+
+    success: bool
+    message: str
+
+
+class CreateUserResponse(BaseModel):
+    """
+    Response to admin user creation request.
 
     Attributes:
         success: True if account created, False otherwise

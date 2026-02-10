@@ -59,6 +59,8 @@ from mud_server.api.models import (
     ClearOllamaContextResponse,
     CommandRequest,
     CommandResponse,
+    CreateUserRequest,
+    CreateUserResponse,
     DatabaseChatResponse,
     DatabaseConnectionsResponse,
     DatabasePlayerLocationsResponse,
@@ -687,6 +689,78 @@ Note: Commands can be used with or without the / prefix
                     "ban, deactivate, unban, delete, change_password"
                 ),
             )
+
+    @app.post("/admin/user/create", response_model=CreateUserResponse)
+    async def create_user(request: CreateUserRequest):
+        """
+        Create a new user account (Admin/Superuser only).
+
+        Validation steps:
+        1. Session has CREATE_USERS permission
+        2. Username length and uniqueness
+        3. Role allowed for the requesting user
+        4. Password confirmation match
+        5. STANDARD password policy enforcement
+        """
+        from mud_server.api.password_policy import PolicyLevel, validate_password_strength
+
+        _creator_username, creator_role = validate_session_with_permission(
+            request.session_id, Permission.CREATE_USERS
+        )
+
+        username = request.username.strip()
+        role = request.role.strip().lower()
+        password = request.password
+        password_confirm = request.password_confirm
+
+        # Validate username
+        if not username or len(username) < 2 or len(username) > 20:
+            raise HTTPException(status_code=400, detail="Username must be 2-20 characters")
+
+        # Validate role
+        valid_roles = {"player", "worldbuilder", "admin", "superuser"}
+        if role not in valid_roles:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid role. Valid roles: {', '.join(sorted(valid_roles))}",
+            )
+
+        # Enforce role creation rules
+        if creator_role == "admin":
+            allowed_roles = {"player", "worldbuilder"}
+        elif creator_role == "superuser":
+            allowed_roles = valid_roles
+        else:
+            allowed_roles = set()
+
+        if role not in allowed_roles:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Insufficient permissions to create role '{role}'",
+            )
+
+        # Check if username already exists
+        if database.player_exists(username):
+            raise HTTPException(status_code=400, detail="Username already taken")
+
+        # Validate passwords match
+        if password != password_confirm:
+            raise HTTPException(status_code=400, detail="Passwords do not match")
+
+        # Validate password strength against security policy
+        result = validate_password_strength(password, level=PolicyLevel.STANDARD)
+        if not result.is_valid:
+            error_detail = " ".join(result.errors)
+            raise HTTPException(status_code=400, detail=error_detail)
+
+        # Create user account
+        if database.create_player_with_password(username, password, role=role):
+            return CreateUserResponse(
+                success=True,
+                message=f"User '{username}' created with role '{role}'.",
+            )
+
+        raise HTTPException(status_code=500, detail="Failed to create account. Please try again.")
 
     @app.post("/admin/server/stop", response_model=ServerStopResponse)
     async def stop_server(request: ServerStopRequest):

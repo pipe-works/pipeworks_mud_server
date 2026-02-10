@@ -163,7 +163,7 @@ Four user roles with hierarchical permissions:
    * - WorldBuilder
      - Player permissions + create/edit rooms and items (future)
    * - Admin
-     - Player permissions + kick/ban users, view logs (future)
+     - Player permissions + create users, kick/ban users, view logs, stop server
    * - Superuser
      - All permissions including role management
 

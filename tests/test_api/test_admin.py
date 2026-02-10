@@ -19,6 +19,8 @@ from mud_server.config import use_test_database
 from mud_server.db import database
 from tests.constants import TEST_PASSWORD
 
+CREATE_USER_PASSWORD = "R7$kM2%vH9!q"
+
 # ============================================================================
 # ADMIN DATABASE VIEWING TESTS
 # ============================================================================
@@ -194,6 +196,157 @@ def test_admin_view_connections_as_admin(test_client, test_db, temp_db_path, db_
 
         assert response.status_code == 200
         assert "connections" in response.json()
+
+
+# ============================================================================
+# ADMIN USER CREATION TESTS
+# ============================================================================
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_can_create_player(test_client, test_db, temp_db_path, db_with_users):
+    """Test admin can create player accounts."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/user/create",
+            json={
+                "session_id": session_id,
+                "username": "newplayer",
+                "password": CREATE_USER_PASSWORD,
+                "password_confirm": CREATE_USER_PASSWORD,
+                "role": "player",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_cannot_create_admin_or_superuser(test_client, test_db, temp_db_path, db_with_users):
+    """Test admin cannot create admin or superuser accounts."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        for role in ("admin", "superuser"):
+            response = test_client.post(
+                "/admin/user/create",
+                json={
+                    "session_id": session_id,
+                    "username": f"new-{role}",
+                    "password": CREATE_USER_PASSWORD,
+                    "password_confirm": CREATE_USER_PASSWORD,
+                    "role": role,
+                },
+            )
+            assert response.status_code == 403
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_superuser_can_create_admin(test_client, test_db, temp_db_path, db_with_users):
+    """Test superuser can create admin accounts."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/user/create",
+            json={
+                "session_id": session_id,
+                "username": "newadmin",
+                "password": CREATE_USER_PASSWORD,
+                "password_confirm": CREATE_USER_PASSWORD,
+                "role": "admin",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_create_user_rejects_password_mismatch(test_client, test_db, temp_db_path, db_with_users):
+    """Test create user rejects mismatched passwords."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/user/create",
+            json={
+                "session_id": session_id,
+                "username": "badpass",
+                "password": CREATE_USER_PASSWORD,
+                "password_confirm": "DifferentPass#1234",
+                "role": "player",
+            },
+        )
+
+        assert response.status_code == 400
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_create_user_rejects_weak_password(test_client, test_db, temp_db_path, db_with_users):
+    """Test create user enforces password policy."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/user/create",
+            json={
+                "session_id": session_id,
+                "username": "weakpass",
+                "password": "short",
+                "password_confirm": "short",
+                "role": "player",
+            },
+        )
+
+        assert response.status_code == 400
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_create_user_rejects_duplicate_username(test_client, test_db, temp_db_path, db_with_users):
+    """Test create user rejects duplicate usernames."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/user/create",
+            json={
+                "session_id": session_id,
+                "username": "testplayer",
+                "password": CREATE_USER_PASSWORD,
+                "password_confirm": CREATE_USER_PASSWORD,
+                "role": "player",
+            },
+        )
+
+        assert response.status_code == 400
 
 
 @pytest.mark.admin

@@ -199,6 +199,7 @@ The TUI provides:
 
 * Login screen with username/password authentication
 * Dashboard with server status and quick actions
+* Create user workflow (role selection + password confirmation)
 * Keyboard shortcuts for common operations
 
 Requires API server to be running.
