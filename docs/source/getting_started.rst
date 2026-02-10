@@ -204,6 +204,13 @@ The TUI provides:
 
 Requires API server to be running.
 
+Visitor Registration
+--------------------
+
+The public ``/register`` endpoint creates **temporary visitor** accounts for
+testing/dev. These are plain player accounts (username + password only) and
+are automatically purged after 24 hours.
+
 Environment Variables
 ---------------------
 

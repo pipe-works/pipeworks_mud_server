@@ -22,8 +22,9 @@ Configuration:
         MUD_CORS_ORIGINS: Comma-separated allowed origins
 """
 
+import asyncio
 import socket
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -55,7 +56,27 @@ async def lifespan(app: FastAPI):
     if removed > 0:
         print(f"Removed {removed} expired session(s) from previous run")
 
-    yield  # Server runs here
+    # Startup: Remove expired visitor accounts (temporary registrations).
+    removed_visitors = database.cleanup_temporary_accounts()
+    if removed_visitors > 0:
+        print(f"Removed {removed_visitors} expired visitor account(s) on startup")
+
+    async def temporary_account_sweeper() -> None:
+        """Periodic cleanup for temporary visitor accounts."""
+        while True:
+            await asyncio.sleep(24 * 60 * 60)
+            removed_temp = database.cleanup_temporary_accounts()
+            if removed_temp > 0:
+                print(f"Removed {removed_temp} expired visitor account(s)")
+
+    sweeper_task = asyncio.create_task(temporary_account_sweeper())
+
+    try:
+        yield  # Server runs here
+    finally:
+        sweeper_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await sweeper_task
 
     # Shutdown: (nothing to do - sessions will be cleared on next startup)
 

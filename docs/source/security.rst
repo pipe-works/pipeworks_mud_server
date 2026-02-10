@@ -167,6 +167,15 @@ Four user roles with hierarchical permissions:
    * - Superuser
      - All permissions including role management
 
+Visitor Accounts
+~~~~~~~~~~~~~~~~
+
+Visitor registrations are temporary and created via the public ``/register``
+endpoint for testing/dev workflows. These accounts are marked with an
+``account_origin`` of ``visitor`` and are automatically purged after 24 hours.
+Accounts created by admins/superusers (or system bootstrap accounts) are not
+purged by this cleanup.
+
 **Checking Permissions**
 
 .. code-block:: python

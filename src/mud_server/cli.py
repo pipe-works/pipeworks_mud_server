@@ -206,7 +206,9 @@ def cmd_create_superuser(args: argparse.Namespace) -> int:
 
     # Create the superuser
     try:
-        success = create_player_with_password(username, password, role="superuser")
+        success = create_player_with_password(
+            username, password, role="superuser", account_origin="superuser"
+        )
         if success:
             print(f"\nSuperuser '{username}' created successfully.")
             return 0

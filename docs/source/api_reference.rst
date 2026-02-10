@@ -33,7 +33,7 @@ API Endpoints
 Authentication
 ~~~~~~~~~~~~~~
 
-* ``POST /register`` - Register new account (password must meet STANDARD policy)
+* ``POST /register`` - Register **temporary visitor** account (password must meet STANDARD policy)
 * ``POST /login`` - Log in and create session
 * ``POST /logout`` - Log out and destroy session
 * ``POST /change-password`` - Change password (password must meet STANDARD policy)
@@ -101,6 +101,13 @@ Registration and password changes enforce the **STANDARD** password policy:
     }
 
 See :doc:`security` for complete password policy documentation.
+
+Visitor Accounts
+~~~~~~~~~~~~~~~~
+
+Visitor registrations are intended for testing/dev. Accounts created via
+``POST /register`` are marked as temporary and automatically purged after
+24 hours. Admin- or superuser-created accounts are not affected.
 
 Session Creation
 ~~~~~~~~~~~~~~~~

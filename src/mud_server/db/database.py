@@ -126,7 +126,8 @@ def init_database(*, skip_superuser: bool = False):
             inventory TEXT DEFAULT '[]',             -- JSON array of item IDs
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_login TIMESTAMP,
-            is_active INTEGER DEFAULT 1              -- Account status (1=active, 0=banned)
+            is_active INTEGER DEFAULT 1,             -- Account status (1=active, 0=banned)
+            account_origin TEXT NOT NULL DEFAULT 'legacy' -- Account provenance for cleanup
         )
     """)
 
@@ -147,6 +148,9 @@ def init_database(*, skip_superuser: bool = False):
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_player_locations_room_id ON player_locations(room_id)"
     )
+
+    # Ensure newer columns exist on legacy databases.
+    _migrate_players_account_origin(conn)
 
     # ========================================================================
     # CREATE CHAT_MESSAGES TABLE
@@ -210,10 +214,10 @@ def init_database(*, skip_superuser: bool = False):
                 password_hash = hash_password(admin_password)
                 cursor.execute(
                     """
-                    INSERT INTO players (username, password_hash, role)
-                    VALUES (?, ?, ?)
+                    INSERT INTO players (username, password_hash, role, account_origin)
+                    VALUES (?, ?, ?, ?)
                 """,
-                    (admin_user, password_hash, "superuser"),
+                    (admin_user, password_hash, "superuser", "system"),
                 )
                 # Initialize location in a separate table to keep players table lean.
                 player_id = cursor.lastrowid
@@ -418,6 +422,32 @@ def _migrate_player_locations(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_players_account_origin(conn: sqlite3.Connection) -> None:
+    """
+    Add account_origin column to players if missing.
+
+    Legacy databases predate account_origin tracking. This migration adds the
+    column with a safe default ("legacy") so existing accounts are treated as
+    non-temporary and are never purged by visitor cleanup.
+    """
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(players)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "account_origin" not in columns:
+        cursor.execute(
+            "ALTER TABLE players ADD COLUMN account_origin TEXT NOT NULL DEFAULT 'legacy'"
+        )
+        conn.commit()
+        return
+
+    cursor.execute(
+        "UPDATE players SET account_origin = 'legacy' "
+        "WHERE account_origin IS NULL OR account_origin = ''"
+    )
+    conn.commit()
+
+
 # ============================================================================
 # CONNECTION MANAGEMENT
 # ============================================================================
@@ -469,7 +499,12 @@ def create_player(username: str) -> bool:
     return False
 
 
-def create_player_with_password(username: str, password: str, role: str = "player") -> bool:
+def create_player_with_password(
+    username: str,
+    password: str,
+    role: str = "player",
+    account_origin: str = "legacy",
+) -> bool:
     """
     Create a new player account with hashed password.
 
@@ -481,6 +516,8 @@ def create_player_with_password(username: str, password: str, role: str = "playe
         password: Plain text password (will be hashed with bcrypt)
         role: User role, one of: "player", "worldbuilder", "admin", "superuser"
               Defaults to "player"
+        account_origin: Account provenance marker used for cleanup decisions.
+            Common values: "visitor", "admin", "superuser", "system", "legacy"
 
     Returns:
         True if player created successfully
@@ -506,10 +543,10 @@ def create_player_with_password(username: str, password: str, role: str = "playe
         password_hash = hash_password(password)
         cursor.execute(
             """
-            INSERT INTO players (username, password_hash, role)
-            VALUES (?, ?, ?)
+            INSERT INTO players (username, password_hash, role, account_origin)
+            VALUES (?, ?, ?, ?)
         """,
-            (username, password_hash, role),
+            (username, password_hash, role, account_origin),
         )
         # Seed initial location in its own table to keep the players table focused.
         player_id = cursor.lastrowid
@@ -683,6 +720,24 @@ def get_all_players() -> list[dict[str, Any]]:
     return players
 
 
+def get_player_account_origin(username: str) -> str | None:
+    """
+    Return the account_origin marker for a user.
+
+    Args:
+        username: Username to look up.
+
+    Returns:
+        The account_origin string, or None if the user does not exist.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT account_origin FROM players WHERE username = ?", (username,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
 # ============================================================================
 # ACCOUNT STATUS MANAGEMENT
 # ============================================================================
@@ -763,6 +818,76 @@ def delete_player(username: str) -> bool:
         return True
     except Exception:
         return False
+
+
+# ============================================================================
+# TEMPORARY ACCOUNT CLEANUP
+# ============================================================================
+
+
+def cleanup_temporary_accounts(max_age_hours: int = 24, origin: str = "visitor") -> int:
+    """
+    Delete temporary accounts older than the specified age.
+
+    This is used for visitor/dev accounts that should be purged regularly.
+    It removes related sessions, chat messages, and player_locations rows.
+
+    Args:
+        max_age_hours: Age threshold in hours. Accounts older than this are deleted.
+        origin: account_origin marker to target (default: "visitor").
+
+    Returns:
+        Number of player accounts removed.
+    """
+    if max_age_hours <= 0:
+        return 0
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cutoff = f"-{int(max_age_hours)} hours"
+    cursor.execute(
+        """
+        SELECT id, username
+        FROM players
+        WHERE account_origin = ?
+          AND created_at <= datetime('now', ?)
+        """,
+        (origin, cutoff),
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        conn.close()
+        return 0
+
+    player_ids = [row[0] for row in rows]
+    usernames = [row[1] for row in rows]
+
+    player_placeholders = ",".join(["?"] * len(player_ids))
+    username_placeholders = ",".join(["?"] * len(usernames))
+
+    # These IN clauses are built from fixed placeholders to avoid injection.
+    cursor.execute(
+        f"DELETE FROM player_locations WHERE player_id IN ({player_placeholders})",  # nosec B608
+        player_ids,
+    )
+    cursor.execute(
+        f"DELETE FROM sessions WHERE username IN ({username_placeholders})",  # nosec B608
+        usernames,
+    )
+    cursor.execute(
+        f"DELETE FROM chat_messages WHERE username IN ({username_placeholders}) "  # nosec B608
+        f"OR recipient IN ({username_placeholders})",
+        usernames + usernames,
+    )
+    cursor.execute(
+        f"DELETE FROM players WHERE id IN ({player_placeholders})",  # nosec B608
+        player_ids,
+    )
+
+    conn.commit()
+    conn.close()
+    return len(rows)
 
 
 # ============================================================================
@@ -1388,6 +1513,7 @@ def get_all_players_detailed() -> list[dict[str, Any]]:
                p.username,
                p.password_hash,
                p.role,
+               p.account_origin,
                l.room_id,
                p.inventory,
                p.created_at,
@@ -1408,11 +1534,12 @@ def get_all_players_detailed() -> list[dict[str, Any]]:
                 "username": row[1],
                 "password_hash": row[2][:20] + "..." if len(row[2]) > 20 else row[2],
                 "role": row[3],
-                "current_room": row[4],
-                "inventory": row[5],
-                "created_at": row[6],
-                "last_login": row[7],
-                "is_active": bool(row[8]),
+                "account_origin": row[4],
+                "current_room": row[5],
+                "inventory": row[6],
+                "created_at": row[7],
+                "last_login": row[8],
+                "is_active": bool(row[9]),
             }
         )
     return players

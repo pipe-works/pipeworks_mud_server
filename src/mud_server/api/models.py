@@ -293,6 +293,7 @@ class DatabasePlayersResponse(BaseModel):
             - username: Player username
             - password_hash: Truncated password hash (first 20 chars + "...")
             - role: User role
+            - account_origin: Account provenance ("visitor", "admin", "superuser", "system", "legacy")
             - current_room: Current location (from player_locations when available)
             - inventory: JSON string of item IDs
             - created_at: Account creation timestamp
