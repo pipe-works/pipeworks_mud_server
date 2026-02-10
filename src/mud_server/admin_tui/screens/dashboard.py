@@ -9,6 +9,7 @@ The DashboardScreen shows:
 - Active player count
 - Quick action buttons
 - User session information
+- User creation entry point (admin/superuser)
 """
 
 from textual import events, on, work
@@ -18,6 +19,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Static
 
+from mud_server.admin_tui.screens.create_user import CreateUserScreen
 from mud_server.admin_tui.screens.database import DatabaseScreen
 
 
@@ -31,6 +33,7 @@ class DashboardScreen(Screen):
     Key Bindings:
         r: Refresh server status
         d: View database tables (superuser only)
+        u: Create user (admin or superuser)
         l: Logout
         q, ctrl+q: Quit application
 
@@ -48,6 +51,7 @@ class DashboardScreen(Screen):
     BINDINGS = [
         Binding("r", "refresh", "Refresh", priority=True),
         Binding("d", "view_database", "Database", priority=True),
+        Binding("u", "create_user", "Create User", priority=True),
         Binding("l", "logout", "Logout", priority=True),
         Binding("q", "quit", "Quit", priority=True),
         Binding("ctrl+q", "quit", "Quit", priority=True, show=False),
@@ -162,6 +166,12 @@ class DashboardScreen(Screen):
                     )
                     yield Button(
                         "Database", variant="primary", id="btn-database", classes="action-button"
+                    )
+                    yield Button(
+                        "Create User",
+                        variant="success",
+                        id="btn-create-user",
+                        classes="action-button",
                     )
                     yield Button(
                         "Logout", variant="warning", id="btn-logout", classes="action-button"
@@ -282,6 +292,11 @@ class DashboardScreen(Screen):
         """Handle logout button press."""
         await self.action_logout()
 
+    @on(Button.Pressed, "#btn-create-user")
+    def handle_create_user_button(self) -> None:
+        """Handle create user button press."""
+        self.action_create_user()
+
     # -------------------------------------------------------------------------
     # Actions (Bound to Keys)
     # -------------------------------------------------------------------------
@@ -297,6 +312,27 @@ class DashboardScreen(Screen):
             self.notify("Superuser access required to view database", severity="warning")
             return
         self.app.push_screen(DatabaseScreen())
+
+    def action_create_user(self) -> None:
+        """Create a new user account (key: u). Requires admin or superuser."""
+        api_client = self.app.api_client
+        if not api_client or not api_client.session.is_admin:
+            self.notify("Admin access required to create users", severity="warning")
+            return
+
+        role = api_client.session.role or "player"
+        if role == "admin":
+            allowed_roles = ["player", "worldbuilder"]
+        elif role == "superuser":
+            allowed_roles = ["player", "worldbuilder", "admin", "superuser"]
+        else:
+            allowed_roles = []
+
+        if not allowed_roles:
+            self.notify("No roles available for your account", severity="warning")
+            return
+
+        self.app.push_screen(CreateUserScreen(allowed_roles=allowed_roles))
 
     async def action_logout(self) -> None:
         """Logout and return to login screen (key: l)."""

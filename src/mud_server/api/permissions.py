@@ -100,6 +100,7 @@ class Permission(Enum):
     # ADMIN PERMISSIONS
     # User management and server administration
     # ========================================================================
+    CREATE_USERS = "create_users"  # Can create new user accounts
     KICK_USERS = "kick_users"  # Can kick users from the server (future)
     BAN_USERS = "ban_users"  # Can ban/unban user accounts
     VIEW_LOGS = "view_logs"  # Can view system logs and player activity
@@ -145,6 +146,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     Role.ADMIN: {
         Permission.PLAY_GAME,
         Permission.CHAT,
+        Permission.CREATE_USERS,
         Permission.KICK_USERS,
         Permission.BAN_USERS,
         Permission.VIEW_LOGS,

@@ -8,7 +8,11 @@
   },
   "zones": [
     "crooked_pipe",
-    "cobbled_street"
+    "cobbled_street",
+    "ledgerfall_alley",
+    "pipe_works",
+    "shematica_01",
+    "the_north_gardens"
   ],
   "global_items": {}
 }

@@ -10,6 +10,8 @@ Tests cover:
 All tests are pure unit tests with no external dependencies.
 """
 
+from typing import cast
+
 import pytest
 
 from mud_server.api.permissions import (
@@ -45,6 +47,7 @@ def test_permission_enum_values():
     """Test Permission enum has expected values."""
     assert Permission.PLAY_GAME.value == "play_game"
     assert Permission.CHAT.value == "chat"
+    assert Permission.CREATE_USERS.value == "create_users"
     assert Permission.MANAGE_USERS.value == "manage_users"
     assert Permission.FULL_ACCESS.value == "full_access"
 
@@ -102,6 +105,13 @@ def test_admin_has_view_logs_permission():
 def test_admin_has_ban_users_permission():
     """Test that admin role has BAN_USERS permission."""
     assert has_permission("admin", Permission.BAN_USERS) is True
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_admin_has_create_users_permission():
+    """Test that admin role can create users."""
+    assert has_permission("admin", Permission.CREATE_USERS) is True
 
 
 @pytest.mark.unit
@@ -180,6 +190,7 @@ def test_admin_permissions_set():
     admin_perms = ROLE_PERMISSIONS[Role.ADMIN]
     assert Permission.PLAY_GAME in admin_perms
     assert Permission.CHAT in admin_perms
+    assert Permission.CREATE_USERS in admin_perms
     assert Permission.BAN_USERS in admin_perms
     assert Permission.VIEW_LOGS in admin_perms
     assert Permission.STOP_SERVER in admin_perms
@@ -328,7 +339,7 @@ def test_has_permission_with_none_role():
     """Test has_permission handles None role gracefully."""
     # Should not raise exception, just return False
     try:
-        result = has_permission(None, Permission.PLAY_GAME)
+        result = has_permission(cast(str, None), Permission.PLAY_GAME)
         # If it doesn't raise, it should return False
         assert result is False
     except (AttributeError, ValueError, TypeError):

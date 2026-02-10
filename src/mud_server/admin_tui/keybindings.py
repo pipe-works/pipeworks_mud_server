@@ -46,6 +46,7 @@ DEFAULT_KEYBINDINGS: dict[str, list[str]] = {
     "kick": ["x"],
     # User management
     "remove_user": ["d"],
+    "create_user": ["u"],
 }
 
 # Environment variable to override the keybindings file path.

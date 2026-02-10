@@ -1,0 +1,27 @@
+{
+  "id": "pipe_works",
+  "name": "The Pipe Works",
+  "description": "This is a place where goblins break things on purpose. Mistakes are expected. Traces are kept. Nothing here is neutral.",
+  "spawn_room": "spawn",
+  "rooms": {
+    "spawn": {
+      "id": "spawn",
+      "name": "The Pavement",
+      "description": "The pavement is cracked and worn smooth by years of trade.  A faint smell of oil hangs in the air, mingling with the earthy scent of wood dust. A low hum vibrates from somewhere deep within the workshop.",
+      "exits": {
+        "north": "the_pipe_works"
+      },
+      "items": []
+    },
+    "the_pipe_works": {
+      "id": "the_pipe_works",
+      "name": "The Pipe Works",
+      "description": "Copper pipes snake across the floor, some dripping with a mixture of grease and grime. The air is thick with the smell of solder and burning oil.  A cacophony of haggling and clanging metal fills your ears as you stand at the front door, surrounded by a chaotic symphony of activity.",
+      "exits": {
+        "south": "spawn"
+      },
+      "items": []
+    }
+  },
+  "items": {}
+}

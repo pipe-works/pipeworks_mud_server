@@ -197,10 +197,82 @@ class TestAdminAPIClientManageUser:
             )
         )
 
-        result = await client.manage_user("target", "deactivate")
+        await client.manage_user("target", "deactivate")
+
+
+class TestAdminAPIClientCreateUser:
+    """Tests for create_user helper."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_create_user_success(self, client: AdminAPIClient):
+        """Test create_user returns success payload."""
+        client.session = SessionState(
+            session_id="admin-session",
+            username="admin",
+            role="admin",
+        )
+
+        respx.post("http://test-server:8000/admin/user/create").mock(
+            return_value=Response(
+                200,
+                json={"success": True, "message": "created"},
+            )
+        )
+
+        result = await client.create_user(
+            username="newuser",
+            password="StrongPass#1234",
+            password_confirm="StrongPass#1234",
+            role="player",
+        )
 
         assert result["success"] is True
-        assert result["message"] == "ok"
+        assert result["message"] == "created"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_create_user_forbidden(self, client: AdminAPIClient):
+        """Test create_user raises AuthenticationError for 403."""
+        client.session = SessionState(
+            session_id="admin-session",
+            username="admin",
+            role="admin",
+        )
+
+        respx.post("http://test-server:8000/admin/user/create").mock(
+            return_value=Response(403, json={"detail": "Forbidden"})
+        )
+
+        with pytest.raises(AuthenticationError):
+            await client.create_user(
+                username="newuser",
+                password="StrongPass#1234",
+                password_confirm="StrongPass#1234",
+                role="player",
+            )
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_create_user_error(self, client: AdminAPIClient):
+        """Test create_user raises APIError for non-200 responses."""
+        client.session = SessionState(
+            session_id="admin-session",
+            username="admin",
+            role="admin",
+        )
+
+        respx.post("http://test-server:8000/admin/user/create").mock(
+            return_value=Response(400, json={"detail": "Bad request"})
+        )
+
+        with pytest.raises(APIError):
+            await client.create_user(
+                username="newuser",
+                password="StrongPass#1234",
+                password_confirm="StrongPass#1234",
+                role="player",
+            )
 
     @pytest.mark.asyncio
     @respx.mock
