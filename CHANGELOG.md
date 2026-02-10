@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.3.0](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.10...mud_server-v0.3.0) (2026-02-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* **auth:** sessions are now database-backed with TTL + sliding expiration; session config keys have changed (ttl_minutes, sliding_expiration, allow_multiple_sessions).
+
+### Features
+
+* **admin-tui:** add admin user creation ([dbac2e5](https://github.com/pipe-works/pipeworks_mud_server/commit/dbac2e5022520405d592ba015894cb6045381d27))
+* **admin-tui:** add admin user creation ([099b5b8](https://github.com/pipe-works/pipeworks_mud_server/commit/099b5b8f54b6234ac2b064c81c1bc48adf79cacd))
+* **admin:** add client type to sessions ([33f64e3](https://github.com/pipe-works/pipeworks_mud_server/commit/33f64e3a7ff290ca391ecde6d6830bb557f198a8))
+* **admin:** add user removal tools ([43e9545](https://github.com/pipe-works/pipeworks_mud_server/commit/43e9545ebb982e8302b3cf2921dcb2a081d42827))
+* **admin:** add user removal tools ([0d1693d](https://github.com/pipe-works/pipeworks_mud_server/commit/0d1693d19db573e6f8d826f7389056d62b53e9a4))
+* **auth:** add temporary visitor accounts ([bdb509d](https://github.com/pipe-works/pipeworks_mud_server/commit/bdb509d672a93bf2c53bdc22f778a8c6467c7f28))
+* **auth:** add temporary visitor accounts ([621d7ab](https://github.com/pipe-works/pipeworks_mud_server/commit/621d7abdb0f1a5d70640696d4df492f320bf77b8))
+* **auth:** move sessions to db-backed ttl with sliding expiration ([671f037](https://github.com/pipe-works/pipeworks_mud_server/commit/671f03796e836519f8761562e4e12e7a5632200f))
+* **tui:** add configurable keybindings ([41b026e](https://github.com/pipe-works/pipeworks_mud_server/commit/41b026e2b6c30440abf2776f211b16c46c841dde))
+* **tui:** add configurable keybindings ([403c2a1](https://github.com/pipe-works/pipeworks_mud_server/commit/403c2a180814a2d3c0ce81917b7098b004227e80))
+* **tui:** add database table browser ([9aa9f07](https://github.com/pipe-works/pipeworks_mud_server/commit/9aa9f075f287f98ba60c9716a422566852e388b8))
+* **tui:** add database table browser ([87a3b47](https://github.com/pipe-works/pipeworks_mud_server/commit/87a3b47bcb9bb7cc0a6f9b8f39f921f50b32103e))
+
+
+### Bug Fixes
+
+* **db:** update last_login on session creation ([36e915d](https://github.com/pipe-works/pipeworks_mud_server/commit/36e915df51362231efb13cd45653af4630d25327))
+* **tests:** align client header expectations ([4c53e96](https://github.com/pipe-works/pipeworks_mud_server/commit/4c53e9672a7498dc6a9d9f8b09e761e67a0992e0))
+* **tui:** ensure database tables expand to fill tab ([b36c092](https://github.com/pipe-works/pipeworks_mud_server/commit/b36c092eb12df8e919398ba3d9178c1efc415af9))
+* **tui:** pass session_id as query param for db views ([acdbd76](https://github.com/pipe-works/pipeworks_mud_server/commit/acdbd765e02afb6a033e862372eda41ceb687aba))
+* **tui:** pass session_id as query param for db views ([f93d895](https://github.com/pipe-works/pipeworks_mud_server/commit/f93d895139037d65e1388c593551e053a43e2d80))
+
 ## [0.2.10](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.9...mud_server-v0.2.10) (2026-02-01)
 
 
