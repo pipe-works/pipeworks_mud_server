@@ -71,6 +71,10 @@ instance/
 # Sphinx documentation
 docs/_build/
 
+# Generated API contract artifacts
+docs/openapi.json
+docs/api-contract.md
+
 # PyBuilder
 .pybuilder/
 target/
