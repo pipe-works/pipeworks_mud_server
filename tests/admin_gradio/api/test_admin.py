@@ -27,6 +27,7 @@ class TestAdminAPIClientGetDatabasePlayers:
                     "id": 1,
                     "username": "alice",
                     "role": "player",
+                    "account_origin": "visitor",
                     "is_active": True,
                     "current_room": "spawn",
                     "inventory": "[]",
@@ -64,6 +65,7 @@ class TestAdminAPIClientGetDatabasePlayers:
         assert "bob" in result["message"]
         assert "ACTIVE" in result["message"]
         assert "BANNED" in result["message"]
+        assert "Origin: visitor" in result["message"]
 
     @patch("mud_server.admin_gradio.api.base.requests.request")
     def test_get_players_empty(self, mock_request):

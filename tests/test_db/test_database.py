@@ -506,6 +506,74 @@ def test_delete_player_missing_returns_false(test_db, temp_db_path, db_with_user
 
 @pytest.mark.unit
 @pytest.mark.db
+def test_cleanup_temporary_accounts(test_db, temp_db_path):
+    """Test cleanup removes only expired visitor accounts."""
+    with use_test_database(temp_db_path):
+        database.create_player_with_password(
+            "temp_old", TEST_PASSWORD, role="player", account_origin="visitor"
+        )
+        database.create_player_with_password(
+            "temp_new", TEST_PASSWORD, role="player", account_origin="visitor"
+        )
+        database.create_player_with_password(
+            "admin_user", TEST_PASSWORD, role="admin", account_origin="admin"
+        )
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE players SET created_at = datetime('now', '-48 hours') "
+            "WHERE username = 'temp_old'"
+        )
+        conn.commit()
+        conn.close()
+
+        removed = database.cleanup_temporary_accounts(max_age_hours=24)
+
+        assert removed == 1
+        assert database.player_exists("temp_old") is False
+        assert database.player_exists("temp_new") is True
+        assert database.player_exists("admin_user") is True
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_cleanup_temporary_accounts_no_rows(test_db, temp_db_path):
+    """Test cleanup returns 0 when no visitor accounts exist."""
+    with use_test_database(temp_db_path):
+        removed = database.cleanup_temporary_accounts(max_age_hours=24)
+        assert removed == 0
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_cleanup_temporary_accounts_zero_age(test_db, temp_db_path):
+    """Test cleanup is a no-op when max_age_hours is non-positive."""
+    with use_test_database(temp_db_path):
+        removed = database.cleanup_temporary_accounts(max_age_hours=0)
+        assert removed == 0
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_migrate_players_account_origin_fills_missing(test_db, temp_db_path, db_with_users):
+    """Test migration fills blank account_origin values with legacy."""
+    with use_test_database(temp_db_path):
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE players SET account_origin = '' WHERE username = 'testplayer'")
+        conn.commit()
+        conn.close()
+
+        conn = database.get_connection()
+        database._migrate_players_account_origin(conn)
+        conn.close()
+
+        assert database.get_player_account_origin("testplayer") == "legacy"
+
+
+@pytest.mark.unit
+@pytest.mark.db
 def test_create_session_no_ttl_sets_null_expiry(test_db, temp_db_path, db_with_users):
     """Test that TTL=0 stores NULL expiry."""
     from mud_server.config import config

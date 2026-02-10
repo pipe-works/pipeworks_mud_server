@@ -127,6 +127,8 @@ class AdminAPIClient(BaseAPIClient):
                 output.append(f"ID: {player['id']}")
                 output.append(f"  Username: {player['username']}")
                 output.append(f"  Role: {player['role']}")
+                if "account_origin" in player:
+                    output.append(f"  Origin: {player['account_origin']}")
                 output.append(f"  Status: {status}")
                 output.append(f"  Room: {player['current_room']}")
                 output.append(f"  Inventory: {player['inventory']}")

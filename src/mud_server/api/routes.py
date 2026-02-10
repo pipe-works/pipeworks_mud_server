@@ -165,7 +165,7 @@ def register_routes(app: FastAPI, engine: GameEngine):
     @app.post("/register", response_model=RegisterResponse)
     async def register(request: RegisterRequest):
         """
-        Register a new player account with password policy enforcement.
+        Register a new temporary visitor account with password policy enforcement.
 
         The registration process validates:
         1. Username format (2-20 characters, unique)
@@ -180,6 +180,7 @@ def register_routes(app: FastAPI, engine: GameEngine):
 
         Returns:
             RegisterResponse with success status and message.
+            Visitor accounts are purged after 24 hours.
 
         Raises:
             HTTPException 400: Invalid input (username, password policy, mismatch)
@@ -210,11 +211,15 @@ def register_routes(app: FastAPI, engine: GameEngine):
             error_detail = " ".join(result.errors)
             raise HTTPException(status_code=400, detail=error_detail)
 
-        # Create player with default 'player' role
-        if database.create_player_with_password(username, password, role="player"):
+        # Create visitor account (temporary; cleaned up automatically)
+        if database.create_player_with_password(
+            username, password, role="player", account_origin="visitor"
+        ):
             return RegisterResponse(
                 success=True,
-                message=f"Account created successfully! You can now login as {username}.",
+                message=(
+                    "Temporary account created successfully! " f"You can now login as {username}."
+                ),
             )
         else:
             raise HTTPException(
@@ -754,7 +759,9 @@ Note: Commands can be used with or without the / prefix
             raise HTTPException(status_code=400, detail=error_detail)
 
         # Create user account
-        if database.create_player_with_password(username, password, role=role):
+        if database.create_player_with_password(
+            username, password, role=role, account_origin=creator_role
+        ):
             return CreateUserResponse(
                 success=True,
                 message=f"User '{username}' created with role '{role}'.",

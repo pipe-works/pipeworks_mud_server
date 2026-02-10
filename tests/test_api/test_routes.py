@@ -66,6 +66,7 @@ def test_register_success(test_client, test_db, temp_db_path):
         data = response.json()
         assert data["success"] is True
         assert "created successfully" in data["message"].lower()
+        assert database.get_player_account_origin("newuser") == "visitor"
 
 
 @pytest.mark.api
