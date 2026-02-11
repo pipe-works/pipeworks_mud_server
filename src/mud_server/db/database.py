@@ -1556,7 +1556,15 @@ def get_all_chat_messages(limit: int = 100) -> list[dict[str, Any]]:
 
 def player_exists(username: str) -> bool:
     """Backward-compatible alias for user_exists()."""
-    return user_exists(username)
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id FROM users WHERE username = ? AND tombstoned_at IS NULL",
+        (username,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return row is not None
 
 
 def get_player_role(username: str) -> str | None:

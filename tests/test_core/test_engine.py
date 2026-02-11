@@ -863,11 +863,19 @@ def test_recall_database_failure(test_db, temp_db_path, db_with_users):
                     items=[],
                 ),
             }
-            with patch.object(
-                engine.world,
-                "get_room",
-                side_effect=lambda rid: engine.world.rooms.get(rid),
-                create=True,
+            with (
+                patch.object(
+                    engine.world,
+                    "get_room",
+                    side_effect=lambda rid: engine.world.rooms.get(rid),
+                    create=True,
+                ),
+                patch.object(
+                    engine.world,
+                    "get_room_description",
+                    side_effect=lambda rid, user: f"You are in {rid}",
+                    create=True,
+                ),
             ):
                 # Set player away from spawn
                 database.set_player_room("testplayer", "other_room")

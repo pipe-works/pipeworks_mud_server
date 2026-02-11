@@ -88,8 +88,8 @@ def test_cmd_init_db_error():
 def test_cmd_create_superuser_from_env_vars():
     """Test create-superuser uses environment variables."""
     with patch("mud_server.db.database.init_database"):
-        with patch("mud_server.db.database.player_exists", return_value=False):
-            with patch("mud_server.db.database.create_player_with_password", return_value=True):
+        with patch("mud_server.db.database.user_exists", return_value=False):
+            with patch("mud_server.db.database.create_user_with_password", return_value=True):
                 # Password must meet STANDARD policy: 12+ chars, no sequences (123, abc)
                 with patch.dict(
                     "os.environ",
@@ -105,7 +105,7 @@ def test_cmd_create_superuser_from_env_vars():
 def test_cmd_create_superuser_user_exists():
     """Test create-superuser fails if user already exists."""
     with patch("mud_server.db.database.init_database"):
-        with patch("mud_server.db.database.player_exists", return_value=True):
+        with patch("mud_server.db.database.user_exists", return_value=True):
             # Use valid password to ensure we test the "user exists" failure path
             with patch.dict(
                 "os.environ",

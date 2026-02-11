@@ -152,7 +152,7 @@ def register_routes(app: FastAPI, engine: GameEngine):
             raise HTTPException(status_code=401, detail="Invalid username or password")
 
         if not database.is_user_active(username):
-            raise HTTPException(status_code=403, detail="Account is deactivated")
+            raise HTTPException(status_code=401, detail="Account is deactivated")
 
         user_id = database.get_user_id(username)
         if not user_id:
