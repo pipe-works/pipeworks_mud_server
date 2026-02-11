@@ -167,7 +167,7 @@ def test_logout(mock_engine, test_db, temp_db_path, db_with_users):
 
         # Session should be removed
         active_players = database.get_active_players()
-        assert "testplayer" not in active_players
+        assert "testplayer_char" not in active_players
 
 
 @pytest.mark.unit
@@ -751,8 +751,8 @@ def test_get_active_players(mock_engine, test_db, temp_db_path, db_with_users):
         active = mock_engine.get_active_players()
 
         assert len(active) == 2
-        assert "testplayer" in active
-        assert "testadmin" in active
+        assert "testplayer_char" in active
+        assert "testadmin_char" in active
 
 
 @pytest.mark.unit

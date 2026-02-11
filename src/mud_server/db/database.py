@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 # ==========================================================================
 # CONFIGURATION
@@ -247,7 +247,7 @@ def _create_character_limit_triggers(conn: sqlite3.Connection, *, max_slots: int
         """)  # nosec B608 - limit is validated and interpolated into DDL
 
 
-def _generate_default_character_name(cursor: sqlite3.Cursor, username: str) -> str:
+def _generate_default_character_name(cursor: Any, username: str) -> str:
     """
     Generate a unique default character name for the given username.
 
@@ -265,7 +265,7 @@ def _generate_default_character_name(cursor: sqlite3.Cursor, username: str) -> s
         candidate = f"{base}_{counter}"
 
 
-def _create_default_character(cursor: sqlite3.Cursor, user_id: int, username: str) -> int:
+def _create_default_character(cursor: Any, user_id: int, username: str) -> int:
     """
     Create a default character for a user during bootstrap flows.
 
@@ -286,7 +286,7 @@ def _create_default_character(cursor: sqlite3.Cursor, user_id: int, username: st
     return int(character_id)
 
 
-def _seed_character_location(cursor: sqlite3.Cursor, character_id: int) -> None:
+def _seed_character_location(cursor: Any, character_id: int) -> None:
     """Seed a new character's location to the spawn room."""
     cursor.execute(
         """
@@ -295,6 +295,33 @@ def _seed_character_location(cursor: sqlite3.Cursor, character_id: int) -> None:
     """,
         (character_id, "spawn"),
     )
+
+
+def _resolve_character_name(cursor: Any, name: str) -> str | None:
+    """
+    Resolve a character name from either a character name or a username.
+
+    This preserves compatibility with legacy callers that pass usernames
+    into character-facing functions by mapping them to the user's first
+    character (oldest by created_at).
+    """
+    cursor.execute("SELECT name FROM characters WHERE name = ? LIMIT 1", (name,))
+    row = cursor.fetchone()
+    if row:
+        return cast(str, row[0])
+
+    cursor.execute("SELECT id FROM users WHERE username = ? LIMIT 1", (name,))
+    user_row = cursor.fetchone()
+    if not user_row:
+        return None
+
+    user_id = int(user_row[0])
+    cursor.execute(
+        "SELECT name FROM characters WHERE user_id = ? ORDER BY created_at ASC LIMIT 1",
+        (user_id,),
+    )
+    char_row = cursor.fetchone()
+    return cast(str, char_row[0]) if char_row else None
 
 
 # ==========================================================================
@@ -741,7 +768,12 @@ def get_character_room(name: str) -> str | None:
     """Return the current room for a character by name."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM characters WHERE name = ?", (name,))
+    resolved_name = _resolve_character_name(cursor, name)
+    if not resolved_name:
+        conn.close()
+        return None
+
+    cursor.execute("SELECT id FROM characters WHERE name = ?", (resolved_name,))
     row = cursor.fetchone()
     if not row:
         conn.close()
@@ -761,7 +793,12 @@ def set_character_room(name: str, room: str) -> bool:
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM characters WHERE name = ?", (name,))
+        resolved_name = _resolve_character_name(cursor, name)
+        if not resolved_name:
+            conn.close()
+            return False
+
+        cursor.execute("SELECT id FROM characters WHERE name = ?", (resolved_name,))
         row = cursor.fetchone()
         if not row:
             conn.close()
@@ -814,7 +851,12 @@ def get_character_inventory(name: str) -> list[str]:
     """Return the character inventory as a list of item ids."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT inventory FROM characters WHERE name = ?", (name,))
+    resolved_name = _resolve_character_name(cursor, name)
+    if not resolved_name:
+        conn.close()
+        return []
+
+    cursor.execute("SELECT inventory FROM characters WHERE name = ?", (resolved_name,))
     row = cursor.fetchone()
     conn.close()
     if not row:
@@ -828,9 +870,14 @@ def set_character_inventory(name: str, inventory: list[str]) -> bool:
     try:
         conn = get_connection()
         cursor = conn.cursor()
+        resolved_name = _resolve_character_name(cursor, name)
+        if not resolved_name:
+            conn.close()
+            return False
+
         cursor.execute(
             "UPDATE characters SET inventory = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?",
-            (json.dumps(inventory), name),
+            (json.dumps(inventory), resolved_name),
         )
         conn.commit()
         conn.close()
@@ -856,7 +903,12 @@ def add_chat_message(
         conn = get_connection()
         cursor = conn.cursor()
 
-        cursor.execute("SELECT id, user_id FROM characters WHERE name = ?", (character_name,))
+        resolved_sender = _resolve_character_name(cursor, character_name)
+        if not resolved_sender:
+            conn.close()
+            return False
+
+        cursor.execute("SELECT id, user_id FROM characters WHERE name = ?", (resolved_sender,))
         sender_row = cursor.fetchone()
         if not sender_row:
             conn.close()
@@ -870,6 +922,10 @@ def add_chat_message(
             recipient_character_name = recipient
 
         if recipient_character_name:
+            resolved_recipient = _resolve_character_name(cursor, recipient_character_name)
+            if resolved_recipient:
+                recipient_character_name = resolved_recipient
+
             cursor.execute("SELECT id FROM characters WHERE name = ?", (recipient_character_name,))
             recipient_row = cursor.fetchone()
             if recipient_row:
@@ -908,11 +964,15 @@ def get_room_messages(
     conn = get_connection()
     cursor = conn.cursor()
 
-    if character_name is None and username is not None:
-        character_name = username
-
     if character_name:
-        cursor.execute("SELECT id FROM characters WHERE name = ?", (character_name,))
+        resolved_name = _resolve_character_name(cursor, character_name)
+        if resolved_name is None and username is not None:
+            resolved_name = _resolve_character_name(cursor, username)
+        if not resolved_name:
+            conn.close()
+            return []
+
+        cursor.execute("SELECT id FROM characters WHERE name = ?", (resolved_name,))
         row = cursor.fetchone()
         if not row:
             conn.close()

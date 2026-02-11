@@ -519,7 +519,7 @@ def test_delete_player_removes_related_data(test_db, temp_db_path, db_with_users
 
         conn = database.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM characters WHERE name = ?", ("testplayer",))
+        cursor.execute("SELECT id FROM characters WHERE name = ?", ("testplayer_char",))
         character_id = cursor.fetchone()[0]
         cursor.execute(
             "UPDATE character_locations SET room_id = ? WHERE character_id = ?",
@@ -967,8 +967,8 @@ def test_get_active_players(test_db, temp_db_path, db_with_users):
     with use_test_database(temp_db_path):
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
-        player_character = database.get_character_by_name("testplayer")
-        admin_character = database.get_character_by_name("testadmin")
+        player_character = database.get_character_by_name("testplayer_char")
+        admin_character = database.get_character_by_name("testadmin_char")
         assert player_character is not None
         assert admin_character is not None
         database.set_session_character("session-1", player_character["id"])
@@ -976,8 +976,8 @@ def test_get_active_players(test_db, temp_db_path, db_with_users):
 
         active = database.get_active_players()
         assert len(active) == 2
-        assert "testplayer" in active
-        assert "testadmin" in active
+        assert "testplayer_char" in active
+        assert "testadmin_char" in active
 
 
 @pytest.mark.unit
@@ -988,8 +988,8 @@ def test_get_players_in_room(test_db, temp_db_path, db_with_users):
         # Create sessions for online players
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
-        player_character = database.get_character_by_name("testplayer")
-        admin_character = database.get_character_by_name("testadmin")
+        player_character = database.get_character_by_name("testplayer_char")
+        admin_character = database.get_character_by_name("testadmin_char")
         assert player_character is not None
         assert admin_character is not None
         database.set_session_character("session-1", player_character["id"])
@@ -1001,12 +1001,12 @@ def test_get_players_in_room(test_db, temp_db_path, db_with_users):
         # Get players in spawn
         players_in_spawn = database.get_players_in_room("spawn")
         assert len(players_in_spawn) == 1
-        assert "testplayer" in players_in_spawn
+        assert "testplayer_char" in players_in_spawn
 
         # Get players in forest
         players_in_forest = database.get_players_in_room("forest")
         assert len(players_in_forest) == 1
-        assert "testadmin" in players_in_forest
+        assert "testadmin_char" in players_in_forest
 
 
 @pytest.mark.unit
@@ -1019,8 +1019,8 @@ def test_get_character_locations(test_db, temp_db_path, db_with_users):
         locations = database.get_character_locations()
         by_username = {loc["character_name"]: loc for loc in locations}
 
-        assert "testplayer" in by_username
-        assert by_username["testplayer"]["room_id"] == "forest"
+        assert "testplayer_char" in by_username
+        assert by_username["testplayer_char"]["room_id"] == "forest"
 
 
 @pytest.mark.unit
@@ -1047,7 +1047,7 @@ def test_cleanup_expired_sessions_removes_old(test_db, temp_db_path, db_with_use
         # Create a session
         session_id = "session-123"
         database.create_session("testplayer", session_id)
-        player_character = database.get_character_by_name("testplayer")
+        player_character = database.get_character_by_name("testplayer_char")
         assert player_character is not None
         database.set_session_character(session_id, player_character["id"])
 
@@ -1068,7 +1068,7 @@ def test_cleanup_expired_sessions_removes_old(test_db, temp_db_path, db_with_use
 
         # Session should be gone
         active = database.get_active_players()
-        assert "testplayer" not in active
+        assert "testplayer_char" not in active
 
 
 @pytest.mark.unit
@@ -1078,7 +1078,7 @@ def test_cleanup_expired_sessions_keeps_active(test_db, temp_db_path, db_with_us
     with use_test_database(temp_db_path):
         # Create a session (will have current timestamp)
         database.create_session("testplayer", "session-123")
-        player_character = database.get_character_by_name("testplayer")
+        player_character = database.get_character_by_name("testplayer_char")
         assert player_character is not None
         database.set_session_character("session-123", player_character["id"])
 
@@ -1088,7 +1088,7 @@ def test_cleanup_expired_sessions_keeps_active(test_db, temp_db_path, db_with_us
 
         # Session should still exist
         active = database.get_active_players()
-        assert "testplayer" in active
+        assert "testplayer_char" in active
 
 
 @pytest.mark.unit
@@ -1099,8 +1099,8 @@ def test_cleanup_expired_sessions_mixed(test_db, temp_db_path, db_with_users):
         # Create sessions for multiple users
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
-        player_character = database.get_character_by_name("testplayer")
-        admin_character = database.get_character_by_name("testadmin")
+        player_character = database.get_character_by_name("testplayer_char")
+        admin_character = database.get_character_by_name("testadmin_char")
         assert player_character is not None
         assert admin_character is not None
         database.set_session_character("session-1", player_character["id"])
@@ -1123,8 +1123,8 @@ def test_cleanup_expired_sessions_mixed(test_db, temp_db_path, db_with_users):
 
         # Only testadmin should remain
         active = database.get_active_players()
-        assert "testplayer" not in active
-        assert "testadmin" in active
+        assert "testplayer_char" not in active
+        assert "testadmin_char" in active
 
 
 @pytest.mark.unit
@@ -1145,9 +1145,9 @@ def test_clear_all_sessions(test_db, temp_db_path, db_with_users):
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
         database.create_session("testsuperuser", "session-3")
-        player_character = database.get_character_by_name("testplayer")
-        admin_character = database.get_character_by_name("testadmin")
-        super_character = database.get_character_by_name("testsuperuser")
+        player_character = database.get_character_by_name("testplayer_char")
+        admin_character = database.get_character_by_name("testadmin_char")
+        super_character = database.get_character_by_name("testsuperuser_char")
         assert player_character is not None
         assert admin_character is not None
         assert super_character is not None
