@@ -207,7 +207,7 @@ Session Management
 ~~~~~~~~~~~~~~~~~~
 
 * UUID-based sessions stored in memory and database
-* Session tuples: ``(username: str, role: str)``
+* Session tuples: ``(user_id: int, role: str, character_id: int | None)``
 * Activity tracking updated on each API call
 * Validation decorator: ``@validate_session()``
 
@@ -240,35 +240,60 @@ Repository Pattern
 Database Schema
 ---------------
 
-Players Table
-~~~~~~~~~~~~~
+Users Table
+~~~~~~~~~~~
 
-* ``username`` (TEXT, PRIMARY KEY)
+* ``id`` (INTEGER, PRIMARY KEY)
+* ``username`` (TEXT, UNIQUE)
 * ``password_hash`` (TEXT)
+* ``email_hash`` (TEXT, UNIQUE, NULLABLE) - placeholder for hashed emails
 * ``role`` (TEXT) - Player, WorldBuilder, Admin, Superuser
-* ``current_room`` (TEXT) - Current location
-* ``inventory`` (TEXT) - JSON array of item IDs
+* ``is_active`` (INTEGER)
+* ``is_guest`` (INTEGER)
+* ``guest_expires_at`` (TIMESTAMP, NULLABLE)
+* ``account_origin`` (TEXT) - e.g. legacy, visitor, admin
 * ``created_at`` (TIMESTAMP)
 * ``last_login`` (TIMESTAMP)
+* ``tombstoned_at`` (TIMESTAMP, NULLABLE)
+
+Characters Table
+~~~~~~~~~~~~~~~~
+
+* ``id`` (INTEGER, PRIMARY KEY)
+* ``user_id`` (INTEGER, NULLABLE)
+* ``name`` (TEXT, UNIQUE)
+* ``inventory`` (TEXT) - JSON array of item IDs
+* ``is_guest_created`` (INTEGER)
+* ``created_at`` (TIMESTAMP)
+* ``updated_at`` (TIMESTAMP)
+
+Character Locations Table
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``character_id`` (INTEGER, PRIMARY KEY)
+* ``room_id`` (TEXT)
+* ``updated_at`` (TIMESTAMP)
 
 Sessions Table
 ~~~~~~~~~~~~~~
 
-* ``session_id`` (TEXT, PRIMARY KEY) - UUID
-* ``username`` (TEXT)
-* ``role`` (TEXT)
+* ``session_id`` (TEXT, UNIQUE) - UUID
+* ``user_id`` (INTEGER)
+* ``character_id`` (INTEGER, NULLABLE)
 * ``created_at`` (TIMESTAMP)
 * ``last_activity`` (TIMESTAMP)
+* ``expires_at`` (TIMESTAMP, NULLABLE)
+* ``client_type`` (TEXT)
 
 Chat Messages Table
-~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~
 
 * ``id`` (INTEGER, PRIMARY KEY)
-* ``username`` (TEXT)
+* ``character_id`` (INTEGER, NULLABLE)
+* ``user_id`` (INTEGER, NULLABLE)
 * ``message`` (TEXT)
-* ``room_id`` (TEXT)
-* ``message_type`` (TEXT) - say, yell, whisper
-* ``target_username`` (TEXT) - for whispers
+* ``room`` (TEXT)
+* ``recipient_character_id`` (INTEGER, NULLABLE)
 * ``timestamp`` (TIMESTAMP)
 
 Security Considerations
@@ -301,10 +326,8 @@ See :doc:`security` for complete details.
 Known Limitations
 ~~~~~~~~~~~~~~~~~
 
-* Sessions not persisted (lost on restart)
-* No session expiration time
-* No rate limiting on authentication endpoints
-* No email verification
+* SQLite concurrency limits for high-traffic deployments
+* No email verification (email hashes are placeholders for future use)
 * No two-factor authentication
 
 Performance
