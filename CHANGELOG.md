@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.1](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.0...mud_server-v0.3.1) (2026-02-11)
+
+
+### Features
+
+* **db:** introduce users and characters schema ([afecf6c](https://github.com/pipe-works/pipeworks_mud_server/commit/afecf6cc3b4d05706d4d09a58620fa6e2b3cc855))
+* **db:** introduce users and characters schema ([8b728cc](https://github.com/pipe-works/pipeworks_mud_server/commit/8b728cc19d2b393a8abf02c648ebcd9ff01f6079))
+
+
+### Bug Fixes
+
+* **db:** align tests with user/character schema ([a93669b](https://github.com/pipe-works/pipeworks_mud_server/commit/a93669bf3715246a8008b4817e39bc055fe19af0))
+
 ## [0.3.0](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.10...mud_server-v0.3.0) (2026-02-10)
 
 
