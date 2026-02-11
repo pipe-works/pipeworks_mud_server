@@ -194,7 +194,7 @@ def test_get_room_description_with_items(mock_world):
 @pytest.mark.unit
 def test_get_room_description_with_exits(mock_world):
     """Test room description includes exits."""
-    with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
+    with patch("mud_server.core.world.database.get_characters_in_room", return_value=[]):
         desc = mock_world.get_room_description("spawn", "testplayer")
 
         # Check exits section
@@ -418,7 +418,7 @@ def test_cross_zone_movement(tmp_path):
         assert dest == "main_room"  # Returns room ID, not "pub:main_room"
 
         # Test room description shows correct exit names
-        with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
+        with patch("mud_server.core.world.database.get_characters_in_room", return_value=[]):
             desc = w.get_room_description("main_room", "testplayer")
             assert "East Pier" in desc  # Cross-zone exit shows destination room name
 

@@ -9,6 +9,7 @@ Tests cover:
 """
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
@@ -20,10 +21,11 @@ from mud_server.api.auth import (
     get_username_from_session,
     remove_session,
     validate_session,
+    validate_session_for_game,
     validate_session_with_permission,
 )
 from mud_server.api.permissions import Permission
-from mud_server.config import config
+from mud_server.config import config, use_test_database
 from mud_server.db import database
 
 
@@ -78,6 +80,27 @@ def test_get_username_and_role_from_session_existing(test_db, db_with_users, db_
 @pytest.mark.auth
 def test_get_username_and_role_from_session_nonexistent(test_db, db_with_users):
     assert get_username_and_role_from_session("invalid-session") is None
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_get_username_and_role_from_session_missing_user():
+    with (
+        patch("mud_server.api.auth._get_valid_session", return_value={"user_id": 999}),
+        patch.object(database, "get_username_by_id", return_value=None),
+    ):
+        assert get_username_and_role_from_session("session") is None
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_get_username_and_role_from_session_missing_role():
+    with (
+        patch("mud_server.api.auth._get_valid_session", return_value={"user_id": 123}),
+        patch.object(database, "get_username_by_id", return_value="testplayer"),
+        patch.object(database, "get_user_role", return_value=None),
+    ):
+        assert get_username_and_role_from_session("session") is None
 
 
 # =========================================================================
@@ -235,6 +258,135 @@ def test_validate_session_rejects_missing_role(test_db):
 
     with pytest.raises(HTTPException) as exc_info:
         validate_session(session_id)
+
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_validate_session_rejects_missing_user():
+    with (
+        patch("mud_server.api.auth._get_valid_session", return_value={"user_id": 999}),
+        patch.object(database, "get_username_by_id", return_value=None),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            validate_session("session")
+
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_validate_session_rejects_missing_role_lookup():
+    with (
+        patch("mud_server.api.auth._get_valid_session", return_value={"user_id": 123}),
+        patch.object(database, "get_username_by_id", return_value="testplayer"),
+        patch.object(database, "get_user_role", return_value=None),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            validate_session("session")
+
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_validate_session_for_game_auto_selects_single_character(test_db, db_with_users):
+    session_id = "game-session"
+    database.create_session("testplayer", session_id)
+    conn = database.get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE sessions SET character_id = NULL WHERE session_id = ?", (session_id,))
+    conn.commit()
+    conn.close()
+
+    with patch.object(
+        database, "set_session_character", wraps=database.set_session_character
+    ) as spy:
+        user_id, username, role, character_id, character_name = validate_session_for_game(
+            session_id
+        )
+
+        assert spy.called is True
+
+    assert username == "testplayer"
+    assert role == "player"
+    assert character_id is not None
+    assert character_name == "testplayer"
+    session = database.get_session_by_id(session_id)
+    assert session is not None
+    assert session["character_id"] == character_id
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_validate_session_for_game_requires_selection_when_multiple(test_db, db_with_users):
+    user_id = database.get_user_id("testplayer")
+    assert user_id is not None
+    database.create_character_for_user(user_id, "altplayer")
+
+    session_id = "multi-char-session"
+    database.create_session("testplayer", session_id)
+
+    with pytest.raises(HTTPException) as exc_info:
+        validate_session_for_game(session_id)
+
+    assert exc_info.value.status_code == 409
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_validate_session_for_game_missing_character_row(test_db, db_with_users):
+    session_id = "missing-character-session"
+    database.create_session("testplayer", session_id)
+
+    conn = database.get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE sessions SET character_id = ? WHERE session_id = ?",
+        (9999, session_id),
+    )
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(HTTPException) as exc_info:
+        validate_session_for_game(session_id)
+
+    assert exc_info.value.status_code == 409
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_validate_session_for_game_missing_user(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO sessions (user_id, character_id, session_id, created_at, last_activity)
+            VALUES (?, NULL, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (999, "orphan-session"),
+        )
+        conn.commit()
+        conn.close()
+
+        with pytest.raises(HTTPException) as exc_info:
+            validate_session_for_game("orphan-session")
+
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_validate_session_for_game_missing_role(test_db, temp_db_path, db_with_users):
+    with use_test_database(temp_db_path):
+        session_id = "missing-role-session"
+        database.create_session("testplayer", session_id)
+
+        with patch.object(database, "get_user_role", return_value=None):
+            with pytest.raises(HTTPException) as exc_info:
+                validate_session_for_game(session_id)
 
     assert exc_info.value.status_code == 401
 

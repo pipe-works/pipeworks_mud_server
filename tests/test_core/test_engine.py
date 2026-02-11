@@ -88,6 +88,60 @@ def test_login_nonexistent_user(mock_engine, test_db, temp_db_path):
 
 @pytest.mark.unit
 @pytest.mark.game
+def test_login_missing_user_id(mock_engine):
+    """Test login fails when user id lookup fails."""
+    with (
+        patch.object(database, "user_exists", return_value=True),
+        patch.object(database, "verify_password_for_user", return_value=True),
+        patch.object(database, "is_user_active", return_value=True),
+        patch.object(database, "get_user_role", return_value="player"),
+        patch.object(database, "get_user_id", return_value=None),
+    ):
+        success, message, role = mock_engine.login("testplayer", TEST_PASSWORD, "session-123")
+
+    assert success is False
+    assert "Failed to retrieve account information" in message
+    assert role is None
+
+
+@pytest.mark.unit
+@pytest.mark.game
+def test_login_missing_role(mock_engine):
+    """Test login fails when role lookup fails."""
+    with (
+        patch.object(database, "user_exists", return_value=True),
+        patch.object(database, "verify_password_for_user", return_value=True),
+        patch.object(database, "is_user_active", return_value=True),
+        patch.object(database, "get_user_role", return_value=None),
+    ):
+        success, message, role = mock_engine.login("testplayer", TEST_PASSWORD, "session-123")
+
+    assert success is False
+    assert "Failed to retrieve account information" in message
+    assert role is None
+
+
+@pytest.mark.unit
+@pytest.mark.game
+def test_login_create_session_failure(mock_engine):
+    """Test login fails when session creation fails."""
+    with (
+        patch.object(database, "user_exists", return_value=True),
+        patch.object(database, "verify_password_for_user", return_value=True),
+        patch.object(database, "is_user_active", return_value=True),
+        patch.object(database, "get_user_role", return_value="player"),
+        patch.object(database, "get_user_id", return_value=1),
+        patch.object(database, "create_session", return_value=False),
+    ):
+        success, message, role = mock_engine.login("testplayer", TEST_PASSWORD, "session-123")
+
+    assert success is False
+    assert "Failed to create session" in message
+    assert role is None
+
+
+@pytest.mark.unit
+@pytest.mark.game
 def test_login_inactive_account(mock_engine, test_db, temp_db_path, db_with_users):
     """Test login with deactivated account."""
     with use_test_database(temp_db_path):
@@ -114,6 +168,14 @@ def test_logout(mock_engine, test_db, temp_db_path, db_with_users):
         # Session should be removed
         active_players = database.get_active_players()
         assert "testplayer" not in active_players
+
+
+@pytest.mark.unit
+@pytest.mark.game
+def test_logout_missing_user_id(mock_engine):
+    """Test logout returns False when user id lookup fails."""
+    with patch.object(database, "get_user_id", return_value=None):
+        assert mock_engine.logout("missing") is False
 
 
 # ============================================================================

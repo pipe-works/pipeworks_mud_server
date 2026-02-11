@@ -22,6 +22,37 @@ from mud_server.config import use_test_database
 from mud_server.db import database
 from tests.constants import TEST_PASSWORD
 
+
+class _FakeCursor:
+    def __init__(self, *, lastrowid=None, fetchone=None):
+        self.lastrowid = lastrowid
+        self._fetchone = fetchone
+        self.rowcount = 0
+
+    def execute(self, _sql, _params=None):  # noqa: D401 - minimal fake
+        return None
+
+    def fetchone(self):
+        return self._fetchone
+
+    def fetchall(self):
+        return []
+
+
+class _FakeConnection:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self):
+        return self._cursor
+
+    def commit(self):
+        return None
+
+    def close(self):
+        return None
+
+
 # ============================================================================
 # DATABASE INITIALIZATION TESTS
 # ============================================================================
@@ -572,6 +603,212 @@ def test_cleanup_temporary_accounts_zero_age(test_db, temp_db_path):
     with use_test_database(temp_db_path):
         removed = database.cleanup_temporary_accounts(max_age_hours=0)
         assert removed == 0
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_create_character_for_user_success(test_db, temp_db_path):
+    """Test creating a character for a user succeeds and seeds location."""
+    with use_test_database(temp_db_path):
+        database.create_user_with_password("charuser", TEST_PASSWORD)
+        user_id = database.get_user_id("charuser")
+        assert user_id is not None
+
+        result = database.create_character_for_user(user_id, "charuser_alt")
+        assert result is True
+        assert database.get_character_by_name("charuser_alt") is not None
+        assert database.get_character_room("charuser_alt") == "spawn"
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_create_user_with_password_missing_lastrowid_raises():
+    fake_cursor = _FakeCursor(lastrowid=None)
+    fake_conn = _FakeConnection(fake_cursor)
+
+    with patch.object(database, "get_connection", return_value=fake_conn):
+        with pytest.raises(ValueError):
+            database.create_user_with_password("baduser", TEST_PASSWORD)
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_create_character_for_user_missing_lastrowid_raises():
+    fake_cursor = _FakeCursor(lastrowid=None)
+    fake_conn = _FakeConnection(fake_cursor)
+
+    with patch.object(database, "get_connection", return_value=fake_conn):
+        with pytest.raises(ValueError):
+            database.create_character_for_user(1, "badchar")
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_create_default_character_missing_lastrowid_raises():
+    fake_cursor = _FakeCursor(lastrowid=None)
+
+    with pytest.raises(ValueError):
+        database._create_default_character(fake_cursor, 1, "badchar")
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_character_by_name_missing_returns_none(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        assert database.get_character_by_name("nope") is None
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_character_by_id_missing_returns_none(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        assert database.get_character_by_id(9999) is None
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_unlink_characters_for_user(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        database.create_user_with_password("unlinker", TEST_PASSWORD)
+        user_id = database.get_user_id("unlinker")
+        assert user_id is not None
+
+        database.unlink_characters_for_user(user_id)
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id FROM characters WHERE name = ?", ("unlinker",))
+        user_id_row = cursor.fetchone()
+        conn.close()
+
+        assert user_id_row[0] is None
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_set_character_room_missing_character_returns_false(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        assert database.set_character_room("missing", "spawn") is False
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_add_chat_message_missing_sender_returns_false(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        assert database.add_chat_message("ghost", "boo", "spawn") is False
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_room_messages_unknown_character_returns_empty(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        assert database.get_room_messages("spawn", character_name="ghost") == []
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_remove_session_missing_user_returns_false(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        assert database.remove_session("missing-user") is False
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_player_locations_shim(test_db, temp_db_path, db_with_users):
+    with use_test_database(temp_db_path):
+        locations = database.get_player_locations()
+        assert isinstance(locations, list)
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_init_database_missing_superuser_lastrowid_raises(monkeypatch):
+    class _InitCursor(_FakeCursor):
+        def __init__(self):
+            super().__init__(lastrowid=None, fetchone=(0,))
+
+        def execute(self, _sql, _params=None):
+            return None
+
+    fake_conn = _FakeConnection(_InitCursor())
+
+    with (
+        patch.dict("os.environ", {"MUD_ADMIN_USER": "admin", "MUD_ADMIN_PASSWORD": TEST_PASSWORD}),
+        patch.object(database.sqlite3, "connect", return_value=fake_conn),
+    ):
+        with pytest.raises(ValueError):
+            database.init_database(skip_superuser=False)
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_database_helpers_return_false_on_db_error():
+    with patch.object(database, "get_connection", side_effect=Exception("db error")):
+        assert database.set_user_role("testplayer", "admin") is False
+        assert database.deactivate_user("testplayer") is False
+        assert database.activate_user("testplayer") is False
+        assert database.change_password_for_user("testplayer", TEST_PASSWORD) is False
+        assert database.set_character_room("testplayer", "spawn") is False
+        assert database.set_character_inventory("testplayer", []) is False
+        assert database.add_chat_message("testplayer", "hi", "spawn") is False
+        assert database.create_session("testplayer", "session-x") is False
+        assert database.set_session_character("session-x", 1) is False
+        assert database.remove_session_by_id("session-x") is False
+        assert database.remove_sessions_for_user(1) is False
+        assert database.update_session_activity("session-x") is False
+        assert database.cleanup_expired_sessions() == 0
+        assert database.clear_all_sessions() == 0
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_delete_user_returns_false_on_db_error(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        database.create_user_with_password("todelete", TEST_PASSWORD)
+        user_id = database.get_user_id("todelete")
+        assert user_id is not None
+        with (
+            patch.object(database, "get_user_id", return_value=user_id),
+            patch.object(database, "get_connection", side_effect=Exception("db error")),
+        ):
+            assert database.delete_user("todelete") is False
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_tombstone_user_updates_row(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        database.create_user_with_password("ghost", TEST_PASSWORD)
+        user_id = database.get_user_id("ghost")
+        assert user_id is not None
+
+        database.tombstone_user(user_id)
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT tombstoned_at, is_active FROM users WHERE id = ?", (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        assert row is not None
+        assert row[0] is not None
+        assert row[1] == 0
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_update_session_activity_without_sliding_expiration(test_db, temp_db_path, db_with_users):
+    from mud_server.config import config
+
+    original_sliding = config.session.sliding_expiration
+    try:
+        config.session.sliding_expiration = False
+        with use_test_database(temp_db_path):
+            session_id = "session-no-slide"
+            database.create_session("testplayer", session_id)
+            assert database.update_session_activity(session_id) is True
+    finally:
+        config.session.sliding_expiration = original_sliding
 
 
 @pytest.mark.unit
