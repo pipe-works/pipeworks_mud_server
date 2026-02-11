@@ -677,7 +677,7 @@ def test_unlink_characters_for_user(test_db, temp_db_path):
 
         conn = database.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT user_id FROM characters WHERE name = ?", ("unlinker",))
+        cursor.execute("SELECT user_id FROM characters WHERE name = ?", ("unlinker_char",))
         user_id_row = cursor.fetchone()
         conn.close()
 
@@ -832,7 +832,7 @@ def test_cleanup_expired_guest_accounts_tombstones_user(test_db, temp_db_path):
         cursor = conn.cursor()
         cursor.execute("SELECT tombstoned_at FROM users WHERE username = ?", ("guest_user",))
         tombstoned = cursor.fetchone()[0]
-        cursor.execute("SELECT user_id FROM characters WHERE name = ?", ("guest_user",))
+        cursor.execute("SELECT user_id FROM characters WHERE name = ?", ("guest_user_char",))
         user_id = cursor.fetchone()[0]
         conn.close()
 

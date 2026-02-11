@@ -783,8 +783,8 @@ def test_get_room_chat_with_messages(mock_engine, test_db, temp_db_path, db_with
         chat_text = mock_engine.get_room_chat("testplayer", limit=10)
 
         assert "[Recent messages]:" in chat_text
-        assert "testplayer: Hello!" in chat_text
-        assert "testadmin: Hi there!" in chat_text
+        assert "testplayer_char: Hello!" in chat_text
+        assert "testadmin_char: Hi there!" in chat_text
 
 
 @pytest.mark.unit

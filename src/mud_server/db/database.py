@@ -324,6 +324,20 @@ def _resolve_character_name(cursor: Any, name: str) -> str | None:
     return cast(str, char_row[0]) if char_row else None
 
 
+def resolve_character_name(name: str) -> str | None:
+    """
+    Public wrapper for resolving character names from usernames or character names.
+
+    This preserves legacy call sites that still supply usernames while the
+    character model is being adopted across the codebase.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    resolved = _resolve_character_name(cursor, name)
+    conn.close()
+    return resolved
+
+
 # ==========================================================================
 # CONNECTION MANAGEMENT
 # ==========================================================================
@@ -963,6 +977,9 @@ def get_room_messages(
     """
     conn = get_connection()
     cursor = conn.cursor()
+
+    if character_name is None and username is not None:
+        character_name = username
 
     if character_name:
         resolved_name = _resolve_character_name(cursor, character_name)
