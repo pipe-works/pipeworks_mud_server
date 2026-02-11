@@ -178,7 +178,7 @@ class DatabaseScreen(Screen):
         s: Sort users by selected column
         x: Kick selected session (connections/sessions tabs)
         d: Deactivate/delete selected user (users tab)
-        q, ctrl+q: Quit application
+        ctrl+q: Quit application
 
     CSS Classes:
         .database-container: Main content container.
@@ -191,8 +191,7 @@ class DatabaseScreen(Screen):
         Binding("b", "back", "Back", priority=True),
         Binding("x", "kick", "Kick", priority=True),
         Binding("d", "remove_user", "Remove User", priority=True),
-        Binding("q", "quit", "Quit", priority=True),
-        Binding("ctrl+q", "quit", "Quit", priority=True, show=False),
+        Binding("ctrl+q", "quit", "Quit", priority=True),
     ]
 
     CSS = """
@@ -926,6 +925,25 @@ class DatabaseScreen(Screen):
         """Open detail screens when a row is activated with mouse or Enter."""
         if event.data_table.id == "table-players":
             self._open_selected_user_detail()
+            return
+
+        if event.data_table.id == "table-player-locations":
+            selected_row = event.data_table.get_row_at(event.data_table.cursor_row)
+            if not selected_row:
+                return
+
+            character_id = str(selected_row[0])
+            character_name = str(selected_row[1]) if len(selected_row) > 1 else ""
+            from mud_server.admin_tui.screens.character_detail import CharacterDetailScreen
+
+            self.app.push_screen(
+                CharacterDetailScreen(
+                    character={
+                        "id": character_id,
+                        "name": character_name,
+                    }
+                )
+            )
 
     def _switch_tab(self, direction: int) -> None:
         """Rotate tab selection by +1 (next) or -1 (prev)."""

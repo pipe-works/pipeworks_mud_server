@@ -20,8 +20,7 @@ class CharacterDetailScreen(Screen):
 
     BINDINGS = [
         Binding("b", "back", "Back", priority=True),
-        Binding("q", "quit", "Quit", priority=True),
-        Binding("ctrl+q", "quit", "Quit", priority=True, show=False),
+        Binding("ctrl+q", "quit", "Quit", priority=True),
     ]
 
     CSS = """

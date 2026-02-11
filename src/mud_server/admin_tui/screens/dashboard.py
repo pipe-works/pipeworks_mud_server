@@ -37,7 +37,7 @@ class DashboardScreen(Screen):
         u: Create user (admin or superuser)
         c: View characters (admin or superuser)
         l: Logout
-        q, ctrl+q: Quit application
+        ctrl+q: Quit application
 
     CSS Classes:
         .dashboard-container: Main content container.
@@ -56,8 +56,7 @@ class DashboardScreen(Screen):
         Binding("u", "create_user", "Create User", priority=True),
         Binding("c", "view_characters", "Characters", priority=True),
         Binding("l", "logout", "Logout", priority=True),
-        Binding("q", "quit", "Quit", priority=True),
-        Binding("ctrl+q", "quit", "Quit", priority=True, show=False),
+        Binding("ctrl+q", "quit", "Quit", priority=True),
     ]
 
     CSS = """

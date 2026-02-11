@@ -25,8 +25,7 @@ class CharactersScreen(Screen):
 
     BINDINGS = [
         Binding("b", "back", "Back", priority=True),
-        Binding("q", "quit", "Quit", priority=True),
-        Binding("ctrl+q", "quit", "Quit", priority=True, show=False),
+        Binding("ctrl+q", "quit", "Quit", priority=True),
     ]
 
     CSS = """
@@ -223,6 +222,21 @@ class CharactersScreen(Screen):
             return
 
         character_id = str(selected[0])
+        character = next(
+            (entry for entry in self._characters_cache if str(entry.get("id")) == character_id),
+            None,
+        )
+        if not character:
+            return
+
+        self.app.push_screen(CharacterDetailScreen(character=character))
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Open character detail when a row is activated with mouse or Enter."""
+        if event.data_table.id != "table-characters":
+            return
+
+        character_id = str(event.row_key)
         character = next(
             (entry for entry in self._characters_cache if str(entry.get("id")) == character_id),
             None,

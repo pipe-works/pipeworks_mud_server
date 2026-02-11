@@ -247,19 +247,38 @@ def _create_character_limit_triggers(conn: sqlite3.Connection, *, max_slots: int
         """)  # nosec B608 - limit is validated and interpolated into DDL
 
 
-def _create_default_character(cursor: sqlite3.Cursor, user_id: int, name: str) -> int:
+def _generate_default_character_name(cursor: sqlite3.Cursor, username: str) -> str:
+    """
+    Generate a unique default character name for the given username.
+
+    The name intentionally differs from the account username to reduce
+    confusion in admin views (characters vs. users).
+    """
+    base = f"{username}_char"
+    candidate = base
+    counter = 1
+    while True:
+        cursor.execute("SELECT 1 FROM characters WHERE name = ? LIMIT 1", (candidate,))
+        if cursor.fetchone() is None:
+            return candidate
+        counter += 1
+        candidate = f"{base}_{counter}"
+
+
+def _create_default_character(cursor: sqlite3.Cursor, user_id: int, username: str) -> int:
     """
     Create a default character for a user during bootstrap flows.
 
     Returns:
         The newly created character id.
     """
+    character_name = _generate_default_character_name(cursor, username)
     cursor.execute(
         """
         INSERT INTO characters (user_id, name, is_guest_created)
         VALUES (?, ?, 0)
     """,
-        (user_id, name),
+        (user_id, character_name),
     )
     character_id = cursor.lastrowid
     if character_id is None:
