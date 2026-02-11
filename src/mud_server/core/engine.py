@@ -529,27 +529,30 @@ class GameEngine:
 
         logger = logging.getLogger(__name__)
 
-        sender_room = database.get_character_room(username)
+        resolved_sender = database.resolve_character_name(username)
+        sender_name = resolved_sender or username
+        sender_room = database.get_character_room(sender_name)
         logger.info(f"Whisper: {username} in room {sender_room} attempting to whisper to {target}")
 
         if not sender_room:
             logger.warning(f"Whisper failed: {username} not in valid room")
             return False, "You are not in a valid room."
 
+        resolved_target = database.resolve_character_name(target)
         # Check if target player exists
-        if not database.character_exists(target):
+        if not resolved_target or not database.character_exists(resolved_target):
             logger.warning(f"Whisper failed: target {target} does not exist")
             return False, f"Player '{target}' does not exist."
 
         # Check if target is online (has an active session)
         active_players = database.get_active_characters()
         logger.info(f"Active players: {active_players}")
-        if target not in active_players:
+        if resolved_target not in active_players:
             logger.warning(f"Whisper failed: target {target} not online")
             return False, f"Player '{target}' is not online."
 
         # Check if target is in the same room
-        target_room = database.get_character_room(target)
+        target_room = database.get_character_room(resolved_target)
         logger.info(f"Target {target} is in room {target_room}")
         if target_room != sender_room:
             logger.warning(f"Whisper failed: {target} in {target_room}, sender in {sender_room}")
@@ -559,8 +562,10 @@ class GameEngine:
         safe_message = sanitize_chat_message(message)
 
         # Add whisper message with recipient (include both sender and target for clarity)
-        whisper_message = f"[WHISPER: {username} → {target}] {safe_message}"
-        result = database.add_chat_message(username, whisper_message, sender_room, recipient=target)
+        whisper_message = f"[WHISPER: {sender_name} → {target}] {safe_message}"
+        result = database.add_chat_message(
+            sender_name, whisper_message, sender_room, recipient=resolved_target
+        )
         logger.info(f"Whisper message save result: {result}")
 
         if not result:

@@ -167,7 +167,7 @@ def test_logout(mock_engine, test_db, temp_db_path, db_with_users):
 
         # Session should be removed
         active_players = database.get_active_players()
-        assert "testplayer" not in active_players
+        assert "testplayer_char" not in active_players
 
 
 @pytest.mark.unit
@@ -751,8 +751,8 @@ def test_get_active_players(mock_engine, test_db, temp_db_path, db_with_users):
         active = mock_engine.get_active_players()
 
         assert len(active) == 2
-        assert "testplayer" in active
-        assert "testadmin" in active
+        assert "testplayer_char" in active
+        assert "testadmin_char" in active
 
 
 @pytest.mark.unit
@@ -783,8 +783,8 @@ def test_get_room_chat_with_messages(mock_engine, test_db, temp_db_path, db_with
         chat_text = mock_engine.get_room_chat("testplayer", limit=10)
 
         assert "[Recent messages]:" in chat_text
-        assert "testplayer: Hello!" in chat_text
-        assert "testadmin: Hi there!" in chat_text
+        assert "testplayer_char: Hello!" in chat_text
+        assert "testadmin_char: Hi there!" in chat_text
 
 
 @pytest.mark.unit

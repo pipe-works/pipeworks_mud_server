@@ -13,6 +13,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
+from textual.widget import SkipAction
 from textual.widgets import DataTable, Footer, Header, Static
 
 from mud_server.admin_tui.api.client import AuthenticationError
@@ -28,8 +29,7 @@ class UserDetailScreen(Screen):
 
     BINDINGS = [
         Binding("b", "back", "Back", priority=True),
-        Binding("q", "quit", "Quit", priority=True),
-        Binding("ctrl+q", "quit", "Quit", priority=True, show=False),
+        Binding("ctrl+q", "quit", "Quit", priority=True),
     ]
 
     CSS = """
@@ -60,6 +60,15 @@ class UserDetailScreen(Screen):
 
     .summary-value {
         color: $text;
+    }
+
+    .characters-panel {
+        height: 1fr;
+    }
+
+    DataTable {
+        height: 1fr;
+        width: 100%;
     }
     """
 
@@ -99,19 +108,19 @@ class UserDetailScreen(Screen):
                     "Last Login", self._format_timestamp(self._user.get("last_login"))
                 )
 
-            with Horizontal():
+            with Vertical(classes="characters-panel"):
                 yield Static("Characters", classes="summary-title")
-
-            yield DataTable(id="table-user-characters")
+                yield DataTable(id="table-user-characters")
 
         yield Footer()
 
     def _build_summary_row(self, label: str, value: str) -> Horizontal:
         """Build a labeled summary row for the user metadata panel."""
-        row = Horizontal(classes="summary-row")
-        row.mount(Static(f"{label}:", classes="summary-label"))
-        row.mount(Static(value or "-", classes="summary-value"))
-        return row
+        return Horizontal(
+            Static(f"{label}:", classes="summary-label"),
+            Static(value or "-", classes="summary-value"),
+            classes="summary-row",
+        )
 
     def on_mount(self) -> None:
         """Validate permissions and load the user's character list."""
@@ -188,8 +197,14 @@ class UserDetailScreen(Screen):
             updated_idx = columns.index("updated_at") if "updated_at" in columns else None
 
             self._characters_cache = []
+            user_id = self._user.get("id")
+            try:
+                user_id = int(user_id) if user_id is not None else None
+            except (TypeError, ValueError):
+                user_id = None
+
             for row in rows:
-                if row[user_id_idx] != self._user.get("id"):
+                if user_id is None or row[user_id_idx] != user_id:
                     continue
 
                 character = {
@@ -230,12 +245,18 @@ class UserDetailScreen(Screen):
     def action_cursor_left(self) -> None:
         """Move selection left one column."""
         table = self.query_one("#table-user-characters", DataTable)
-        table.action_cursor_left()
+        try:
+            table.action_cursor_left()
+        except SkipAction:
+            return
 
     def action_cursor_right(self) -> None:
         """Move selection right one column."""
         table = self.query_one("#table-user-characters", DataTable)
-        table.action_cursor_right()
+        try:
+            table.action_cursor_right()
+        except SkipAction:
+            return
 
     def action_select(self) -> None:
         """Open the selected character in a detail placeholder."""

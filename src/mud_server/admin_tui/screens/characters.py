@@ -13,6 +13,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
+from textual.widget import SkipAction
 from textual.widgets import DataTable, Footer, Header, Static
 
 from mud_server.admin_tui.api.client import AuthenticationError
@@ -24,8 +25,7 @@ class CharactersScreen(Screen):
 
     BINDINGS = [
         Binding("b", "back", "Back", priority=True),
-        Binding("q", "quit", "Quit", priority=True),
-        Binding("ctrl+q", "quit", "Quit", priority=True, show=False),
+        Binding("ctrl+q", "quit", "Quit", priority=True),
     ]
 
     CSS = """
@@ -201,12 +201,18 @@ class CharactersScreen(Screen):
     def action_cursor_left(self) -> None:
         """Move selection left one column."""
         table = self.query_one("#table-characters", DataTable)
-        table.action_cursor_left()
+        try:
+            table.action_cursor_left()
+        except SkipAction:
+            return
 
     def action_cursor_right(self) -> None:
         """Move selection right one column."""
         table = self.query_one("#table-characters", DataTable)
-        table.action_cursor_right()
+        try:
+            table.action_cursor_right()
+        except SkipAction:
+            return
 
     def action_select(self) -> None:
         """Open the detail screen for the selected character."""
@@ -216,6 +222,21 @@ class CharactersScreen(Screen):
             return
 
         character_id = str(selected[0])
+        character = next(
+            (entry for entry in self._characters_cache if str(entry.get("id")) == character_id),
+            None,
+        )
+        if not character:
+            return
+
+        self.app.push_screen(CharacterDetailScreen(character=character))
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Open character detail when a row is activated with mouse or Enter."""
+        if event.data_table.id != "table-characters":
+            return
+
+        character_id = str(event.row_key)
         character = next(
             (entry for entry in self._characters_cache if str(entry.get("id")) == character_id),
             None,

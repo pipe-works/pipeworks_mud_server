@@ -19,6 +19,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
+from textual.widget import SkipAction
 from textual.widgets import Button, DataTable, Footer, Header, Static, TabbedContent, TabPane
 
 from mud_server.admin_tui.api.client import AuthenticationError
@@ -177,7 +178,7 @@ class DatabaseScreen(Screen):
         s: Sort users by selected column
         x: Kick selected session (connections/sessions tabs)
         d: Deactivate/delete selected user (users tab)
-        q, ctrl+q: Quit application
+        ctrl+q: Quit application
 
     CSS Classes:
         .database-container: Main content container.
@@ -190,8 +191,7 @@ class DatabaseScreen(Screen):
         Binding("b", "back", "Back", priority=True),
         Binding("x", "kick", "Kick", priority=True),
         Binding("d", "remove_user", "Remove User", priority=True),
-        Binding("q", "quit", "Quit", priority=True),
-        Binding("ctrl+q", "quit", "Quit", priority=True, show=False),
+        Binding("ctrl+q", "quit", "Quit", priority=True),
     ]
 
     CSS = """
@@ -867,13 +867,19 @@ class DatabaseScreen(Screen):
         """Move selection left in the active table."""
         table = self._get_active_table()
         if table:
-            table.action_cursor_left()
+            try:
+                table.action_cursor_left()
+            except SkipAction:
+                return
 
     def action_cursor_right(self) -> None:
         """Move selection right in the active table."""
         table = self._get_active_table()
         if table:
-            table.action_cursor_right()
+            try:
+                table.action_cursor_right()
+            except SkipAction:
+                return
 
     def action_select(self) -> None:
         """Select the current row in the active table."""
@@ -914,6 +920,30 @@ class DatabaseScreen(Screen):
         sorted_users = self._sort_users(self._users_cache, column_index, ascending)
         self._users_sort_state = (column_index, ascending)
         self._render_users_table(sorted_users)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Open detail screens when a row is activated with mouse or Enter."""
+        if event.data_table.id == "table-players":
+            self._open_selected_user_detail()
+            return
+
+        if event.data_table.id == "table-player-locations":
+            selected_row = event.data_table.get_row_at(event.data_table.cursor_row)
+            if not selected_row:
+                return
+
+            character_id = str(selected_row[0])
+            character_name = str(selected_row[1]) if len(selected_row) > 1 else ""
+            from mud_server.admin_tui.screens.character_detail import CharacterDetailScreen
+
+            self.app.push_screen(
+                CharacterDetailScreen(
+                    character={
+                        "id": character_id,
+                        "name": character_name,
+                    }
+                )
+            )
 
     def _switch_tab(self, direction: int) -> None:
         """Rotate tab selection by +1 (next) or -1 (prev)."""

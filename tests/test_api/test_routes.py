@@ -309,7 +309,7 @@ def test_list_characters(test_client, test_db, temp_db_path, db_with_users):
         assert response.status_code == 200
         data = response.json()
         assert "characters" in data
-        assert any(char["name"] == "testplayer" for char in data["characters"])
+        assert any(char["name"] == "testplayer_char" for char in data["characters"])
 
 
 @pytest.mark.api
@@ -333,7 +333,7 @@ def test_select_character_success(test_client, test_db, temp_db_path, db_with_us
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert data["character_name"] == "testplayer"
+        assert data["character_name"] == "testplayer_char"
 
 
 @pytest.mark.api
@@ -727,7 +727,7 @@ def test_command_whisper_success(authenticated_client, test_db, temp_db_path, db
     """Test /command whisper with a valid target and message."""
     with use_test_database(temp_db_path):
         database.create_session("testadmin", "admin-session")
-        admin_char = database.get_character_by_name("testadmin")
+        admin_char = database.get_character_by_name("testadmin_char")
         assert admin_char is not None
         database.set_session_character("admin-session", admin_char["id"])
 
@@ -763,7 +763,7 @@ def test_command_who_lists_players(authenticated_client, test_db, temp_db_path, 
     """Test /command who lists active players."""
     with use_test_database(temp_db_path):
         database.create_session("testadmin", "admin-session")
-        admin_char = database.get_character_by_name("testadmin")
+        admin_char = database.get_character_by_name("testadmin_char")
         assert admin_char is not None
         database.set_session_character("admin-session", admin_char["id"])
 

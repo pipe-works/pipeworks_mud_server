@@ -312,7 +312,7 @@ def test_validate_session_for_game_auto_selects_single_character(test_db, db_wit
     assert username == "testplayer"
     assert role == "player"
     assert character_id is not None
-    assert character_name == "testplayer"
+    assert character_name == "testplayer_char"
     session = database.get_session_by_id(session_id)
     assert session is not None
     assert session["character_id"] == character_id

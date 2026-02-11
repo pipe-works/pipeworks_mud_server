@@ -224,3 +224,6 @@ config/server.ini
 
 # claude
 .claude/settings.local.json
+# Sphinx build artifacts
+/docs/build/
+/docs/source/autoapi/
