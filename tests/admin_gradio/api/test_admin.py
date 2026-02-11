@@ -60,7 +60,7 @@ class TestAdminAPIClientGetDatabasePlayers:
 
         # Verify response format
         assert result["success"] is True
-        assert "PLAYERS TABLE (2 records)" in result["message"]
+        assert "USERS TABLE (2 records)" in result["message"]
         assert "alice" in result["message"]
         assert "bob" in result["message"]
         assert "ACTIVE" in result["message"]

@@ -133,6 +133,23 @@ def test_register_duplicate_username(test_client, test_db, temp_db_path, db_with
         assert "already taken" in response.json()["detail"].lower()
 
 
+@pytest.mark.api
+def test_register_create_user_failure(test_client, test_db, temp_db_path):
+    """Test registration returns 500 when account creation fails."""
+    with use_test_database(temp_db_path):
+        with patch.object(database, "create_user_with_password", return_value=False):
+            response = test_client.post(
+                "/register",
+                json={
+                    "username": "newuser",
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                },
+            )
+
+        assert response.status_code == 500
+
+
 # ============================================================================
 # LOGIN TESTS
 # ============================================================================
@@ -151,7 +168,7 @@ def test_login_success(test_client, test_db, temp_db_path, db_with_users):
         assert data["success"] is True
         assert "session_id" in data
         assert data["role"] == "player"
-        assert "Welcome" in data["message"]
+        assert "Login successful" in data["message"]
 
 
 @pytest.mark.api
@@ -188,7 +205,7 @@ def test_login_creates_session(test_client, test_db, temp_db_path, db_with_users
         session_id = response.json()["session_id"]
         session = database.get_session_by_id(session_id)
         assert session is not None
-        assert session["username"] == "testplayer"
+        assert session["user_id"] == database.get_user_id("testplayer")
         assert session["client_type"] == "unknown"
 
 
@@ -232,6 +249,134 @@ def test_login_username_too_short(test_client):
     response = test_client.post("/login", json={"username": "a", "password": TEST_PASSWORD})
 
     assert response.status_code == 400
+
+
+@pytest.mark.api
+def test_login_deactivated_user(test_client, test_db, temp_db_path, db_with_users):
+    """Test login with a deactivated account."""
+    with use_test_database(temp_db_path):
+        database.deactivate_user("testplayer")
+        response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+
+        assert response.status_code == 401
+        assert "deactivated" in response.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_login_invalid_user_record(test_client, test_db, temp_db_path, db_with_users):
+    """Test login fails when user id lookup fails."""
+    with use_test_database(temp_db_path):
+        with patch.object(database, "get_user_id", return_value=None):
+            response = test_client.post(
+                "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+            )
+
+        assert response.status_code == 401
+        assert "invalid user record" in response.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_login_create_session_failure(test_client, test_db, temp_db_path, db_with_users):
+    """Test login fails when session creation fails."""
+    with use_test_database(temp_db_path):
+        with patch.object(database, "create_session", return_value=False):
+            response = test_client.post(
+                "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+            )
+
+        assert response.status_code == 500
+        assert "failed to create session" in response.json()["detail"].lower()
+
+
+# ============================================================================
+# CHARACTER SELECTION TESTS
+# ============================================================================
+
+
+@pytest.mark.api
+def test_list_characters(test_client, test_db, temp_db_path, db_with_users):
+    """Test listing characters for a valid session."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get("/characters", params={"session_id": session_id})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "characters" in data
+        assert any(char["name"] == "testplayer" for char in data["characters"])
+
+
+@pytest.mark.api
+def test_select_character_success(test_client, test_db, temp_db_path, db_with_users):
+    """Test selecting a character for the session."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+        characters = database.get_user_characters(user_id)
+        character_id = characters[0]["id"]
+
+        response = test_client.post(
+            "/characters/select",
+            json={"session_id": session_id, "character_id": character_id},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["character_name"] == "testplayer"
+
+
+@pytest.mark.api
+def test_select_character_not_owned(test_client, test_db, temp_db_path, db_with_users):
+    """Test selecting a character that is not owned by the user."""
+    with use_test_database(temp_db_path):
+        database.create_user_with_password("otheruser", TEST_PASSWORD)
+        other_id = database.get_user_id("otheruser")
+        assert other_id is not None
+        other_character = database.get_user_characters(other_id)[0]
+
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/characters/select",
+            json={"session_id": session_id, "character_id": other_character["id"]},
+        )
+
+        assert response.status_code == 404
+
+
+@pytest.mark.api
+def test_select_character_failure_sets_error(test_client, test_db, temp_db_path, db_with_users):
+    """Test select character returns 500 when session update fails."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+        character_id = database.get_user_characters(user_id)[0]["id"]
+
+        with patch.object(database, "set_session_character", return_value=False):
+            response = test_client.post(
+                "/characters/select",
+                json={"session_id": session_id, "character_id": character_id},
+            )
+
+        assert response.status_code == 500
 
 
 # ============================================================================
@@ -279,7 +424,7 @@ def test_logout_invalid_session(test_client):
 def test_command_look(authenticated_client, test_db, temp_db_path):
     """Test /command endpoint with 'look' command."""
     with use_test_database(temp_db_path):
-        with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
+        with patch("mud_server.core.world.database.get_characters_in_room", return_value=[]):
             session_id = authenticated_client["session_id"]
             client = authenticated_client["client"]
 
@@ -447,6 +592,218 @@ def test_command_invalid_session(test_client):
     assert response.status_code == 401
 
 
+@pytest.mark.api
+@pytest.mark.game
+def test_command_get_requires_item(authenticated_client, test_db, temp_db_path):
+    """Test /command get requires an item argument."""
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post("/command", json={"session_id": session_id, "command": "get"})
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_get_item(authenticated_client, test_db, temp_db_path):
+    """Test /command get with a valid item."""
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post("/command", json={"session_id": session_id, "command": "get torch"})
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_drop_requires_item(authenticated_client, test_db, temp_db_path):
+    """Test /command drop requires an item argument."""
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post("/command", json={"session_id": session_id, "command": "drop"})
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_drop_item(authenticated_client, test_db, temp_db_path):
+    """Test /command drop with a valid item."""
+    with use_test_database(temp_db_path):
+        database.set_character_inventory("testplayer", ["torch"])
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post("/command", json={"session_id": session_id, "command": "drop torch"})
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_say_requires_message(authenticated_client, test_db, temp_db_path):
+    """Test /command say requires a message."""
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post("/command", json={"session_id": session_id, "command": "say"})
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_yell_requires_message(authenticated_client, test_db, temp_db_path):
+    """Test /command yell requires a message."""
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post("/command", json={"session_id": session_id, "command": "yell"})
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_yell_success(authenticated_client, test_db, temp_db_path):
+    """Test /command yell with a message."""
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post("/command", json={"session_id": session_id, "command": "yell hello"})
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_whisper_requires_target(authenticated_client, test_db, temp_db_path):
+    """Test /command whisper requires a target and message."""
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post("/command", json={"session_id": session_id, "command": "whisper"})
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_whisper_requires_message(authenticated_client, test_db, temp_db_path):
+    """Test /command whisper requires a message after target."""
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post(
+            "/command", json={"session_id": session_id, "command": "whisper targetonly"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_whisper_success(authenticated_client, test_db, temp_db_path, db_with_users):
+    """Test /command whisper with a valid target and message."""
+    with use_test_database(temp_db_path):
+        database.create_session("testadmin", "admin-session")
+        admin_char = database.get_character_by_name("testadmin")
+        assert admin_char is not None
+        database.set_session_character("admin-session", admin_char["id"])
+
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post(
+            "/command",
+            json={"session_id": session_id, "command": "whisper testadmin hello"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_unknown(authenticated_client, test_db, temp_db_path):
+    """Test /command unknown command handling."""
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post("/command", json={"session_id": session_id, "command": "blorf"})
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_who_lists_players(authenticated_client, test_db, temp_db_path, db_with_users):
+    """Test /command who lists active players."""
+    with use_test_database(temp_db_path):
+        database.create_session("testadmin", "admin-session")
+        admin_char = database.get_character_by_name("testadmin")
+        assert admin_char is not None
+        database.set_session_character("admin-session", admin_char["id"])
+
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post("/command", json={"session_id": session_id, "command": "who"})
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_help(authenticated_client, test_db, temp_db_path):
+    """Test /command help returns help text."""
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post("/command", json={"session_id": session_id, "command": "help"})
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_accepts_slash_prefix(authenticated_client, test_db, temp_db_path):
+    """Test /command handles slash-prefixed commands."""
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post("/command", json={"session_id": session_id, "command": "/look"})
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
 # ============================================================================
 # STATUS ENDPOINT TESTS
 # ============================================================================
@@ -494,7 +851,7 @@ def test_chat_endpoint(authenticated_client, test_db, temp_db_path):
 def test_full_user_flow(test_client, test_db, temp_db_path):
     """Integration test of complete user flow: register -> login -> play -> logout."""
     with use_test_database(temp_db_path):
-        with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
+        with patch("mud_server.core.world.database.get_characters_in_room", return_value=[]):
             # 1. Register
             register_response = test_client.post(
                 "/register",

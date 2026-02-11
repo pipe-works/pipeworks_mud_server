@@ -25,7 +25,6 @@ Future Improvements:
 """
 
 from datetime import UTC, datetime
-from typing import cast
 
 from fastapi import HTTPException
 
@@ -99,7 +98,7 @@ def get_username_from_session(session_id: str) -> str | None:
     session = _get_valid_session(session_id)
     if not session:
         return None
-    return cast(str, session["username"])
+    return database.get_username_by_id(int(session["user_id"]))
 
 
 def get_username_and_role_from_session(session_id: str) -> tuple[str, str] | None:
@@ -112,8 +111,12 @@ def get_username_and_role_from_session(session_id: str) -> tuple[str, str] | Non
     if not session:
         return None
 
-    username = cast(str, session["username"])
-    role = database.get_player_role(username)
+    user_id = int(session["user_id"])
+    username = database.get_username_by_id(user_id)
+    if not username:
+        return None
+
+    role = database.get_user_role(username)
     if not role:
         return None
 
@@ -125,13 +128,12 @@ def get_username_and_role_from_session(session_id: str) -> tuple[str, str] | Non
 # ============================================================================
 
 
-def validate_session(session_id: str) -> tuple[str, str]:
+def validate_session(session_id: str) -> tuple[int, str, str]:
     """
     Validate session and return user information.
 
-    This is the primary function used by API endpoints to authenticate
-    requests. It verifies the session exists, enforces expiration, and
-    updates the activity timestamp in the database.
+    Returns:
+        (user_id, username, role)
 
     Raises:
         HTTPException(401): If session_id is invalid or expired
@@ -140,17 +142,65 @@ def validate_session(session_id: str) -> tuple[str, str]:
     if not session:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
 
-    # Update the last activity timestamp (and extend expiry if configured).
     database.update_session_activity(session_id)
 
-    role = database.get_player_role(session["username"])
+    user_id = int(session["user_id"])
+    username = database.get_username_by_id(user_id)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid session user")
+
+    role = database.get_user_role(username)
     if not role:
         raise HTTPException(status_code=401, detail="Invalid session user")
 
-    return session["username"], role
+    return user_id, username, role
 
 
-def validate_session_with_permission(session_id: str, permission: Permission) -> tuple[str, str]:
+def validate_session_for_game(session_id: str) -> tuple[int, str, str, int, str]:
+    """
+    Validate session and ensure a character is selected for gameplay.
+
+    Returns:
+        (user_id, username, role, character_id, character_name)
+
+    Raises:
+        HTTPException(401): If session_id is invalid or expired
+        HTTPException(409): If no character is selected for this session
+    """
+    session = _get_valid_session(session_id)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+    database.update_session_activity(session_id)
+
+    user_id = int(session["user_id"])
+    username = database.get_username_by_id(user_id)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid session user")
+
+    role = database.get_user_role(username)
+    if not role:
+        raise HTTPException(status_code=401, detail="Invalid session user")
+
+    character_id = session.get("character_id")
+    if not character_id:
+        characters = database.get_user_characters(user_id)
+        if len(characters) == 1:
+            character_id = characters[0]["id"]
+            database.set_session_character(session_id, int(character_id))
+        else:
+            raise HTTPException(status_code=409, detail="No character selected for session")
+
+    character_name = database.get_character_name_by_id(int(character_id))
+    if not character_name:
+        raise HTTPException(status_code=409, detail="Selected character not found")
+
+    return user_id, username, role, int(character_id), character_name
+
+
+def validate_session_with_permission(
+    session_id: str, permission: Permission
+) -> tuple[int, str, str]:
     """
     Validate session and check if user has required permission.
 
@@ -159,7 +209,7 @@ def validate_session_with_permission(session_id: str, permission: Permission) ->
         HTTPException(403): If session valid but user lacks required permission
     """
     # First validate the session (raises 401 if invalid)
-    username, role = validate_session(session_id)
+    user_id, username, role = validate_session(session_id)
 
     # Then check if the user's role has the required permission
     if not has_permission(role, permission):
@@ -168,7 +218,7 @@ def validate_session_with_permission(session_id: str, permission: Permission) ->
             detail=f"Insufficient permissions. Required: {permission.value}",
         )
 
-    return username, role
+    return user_id, username, role
 
 
 # ============================================================================

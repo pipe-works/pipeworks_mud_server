@@ -14,7 +14,6 @@ Tests cover:
 All tests use temporary databases for isolation.
 """
 
-import sqlite3
 from unittest.mock import patch
 
 import pytest
@@ -22,6 +21,37 @@ import pytest
 from mud_server.config import use_test_database
 from mud_server.db import database
 from tests.constants import TEST_PASSWORD
+
+
+class _FakeCursor:
+    def __init__(self, *, lastrowid=None, fetchone=None):
+        self.lastrowid = lastrowid
+        self._fetchone = fetchone
+        self.rowcount = 0
+
+    def execute(self, _sql, _params=None):  # noqa: D401 - minimal fake
+        return None
+
+    def fetchone(self):
+        return self._fetchone
+
+    def fetchall(self):
+        return []
+
+
+class _FakeConnection:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self):
+        return self._cursor
+
+    def commit(self):
+        return None
+
+    def close(self):
+        return None
+
 
 # ============================================================================
 # DATABASE INITIALIZATION TESTS
@@ -39,7 +69,7 @@ def test_init_database_creates_tables(temp_db_path):
         cursor = conn.cursor()
 
         # Check players table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='players'")
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
         assert cursor.fetchone() is not None
 
         # Check sessions table exists
@@ -50,9 +80,13 @@ def test_init_database_creates_tables(temp_db_path):
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chat_messages'")
         assert cursor.fetchone() is not None
 
-        # Check player_locations table exists
+        # Check characters table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='characters'")
+        assert cursor.fetchone() is not None
+
+        # Check character_locations table exists
         cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='player_locations'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='character_locations'"
         )
         assert cursor.fetchone() is not None
 
@@ -90,7 +124,7 @@ def test_init_database_no_superuser_without_env_vars(temp_db_path):
             # Check that tables were still created
             conn = database.get_connection()
             cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='players'")
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
             assert cursor.fetchone() is not None
             conn.close()
 
@@ -477,7 +511,7 @@ def test_create_session_normalizes_client_type(test_db, temp_db_path, db_with_us
 @pytest.mark.unit
 @pytest.mark.db
 def test_delete_player_removes_related_data(test_db, temp_db_path, db_with_users):
-    """Test delete_player removes sessions, locations, and chat messages."""
+    """Test delete_player tombstones user and unlinks characters."""
     with use_test_database(temp_db_path):
         database.create_session("testplayer", "session-999")
         database.add_chat_message("testplayer", "Hello", "spawn")
@@ -485,14 +519,31 @@ def test_delete_player_removes_related_data(test_db, temp_db_path, db_with_users
 
         conn = database.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM players WHERE username = ?", ("testplayer",))
-        player_id = cursor.fetchone()[0]
+        cursor.execute("SELECT id FROM characters WHERE name = ?", ("testplayer",))
+        character_id = cursor.fetchone()[0]
         cursor.execute(
-            "UPDATE player_locations SET room_id = ? WHERE player_id = ?",
-            ("spawn", player_id),
+            "UPDATE character_locations SET room_id = ? WHERE character_id = ?",
+            ("spawn", character_id),
         )
         conn.commit()
         conn.close()
+
+        assert database.delete_player("testplayer") is True
+        assert database.user_exists("testplayer") is True
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT tombstoned_at FROM users WHERE username = ?", ("testplayer",))
+        tombstoned = cursor.fetchone()[0]
+        cursor.execute("SELECT user_id FROM characters WHERE id = ?", (character_id,))
+        user_id = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM sessions WHERE session_id = ?", ("session-999",))
+        session_count = cursor.fetchone()[0]
+        conn.close()
+
+        assert tombstoned is not None
+        assert user_id is None
+        assert session_count == 0
 
 
 @pytest.mark.unit
@@ -522,7 +573,7 @@ def test_cleanup_temporary_accounts(test_db, temp_db_path):
         conn = database.get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE players SET created_at = datetime('now', '-48 hours') "
+            "UPDATE users SET created_at = datetime('now', '-48 hours') "
             "WHERE username = 'temp_old'"
         )
         conn.commit()
@@ -556,20 +607,256 @@ def test_cleanup_temporary_accounts_zero_age(test_db, temp_db_path):
 
 @pytest.mark.unit
 @pytest.mark.db
-def test_migrate_players_account_origin_fills_missing(test_db, temp_db_path, db_with_users):
-    """Test migration fills blank account_origin values with legacy."""
+def test_create_character_for_user_success(test_db, temp_db_path):
+    """Test creating a character for a user succeeds and seeds location."""
     with use_test_database(temp_db_path):
+        database.create_user_with_password("charuser", TEST_PASSWORD)
+        user_id = database.get_user_id("charuser")
+        assert user_id is not None
+
+        result = database.create_character_for_user(user_id, "charuser_alt")
+        assert result is True
+        assert database.get_character_by_name("charuser_alt") is not None
+        assert database.get_character_room("charuser_alt") == "spawn"
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_create_user_with_password_missing_lastrowid_raises():
+    fake_cursor = _FakeCursor(lastrowid=None)
+    fake_conn = _FakeConnection(fake_cursor)
+
+    with patch.object(database, "get_connection", return_value=fake_conn):
+        with pytest.raises(ValueError):
+            database.create_user_with_password("baduser", TEST_PASSWORD)
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_create_character_for_user_missing_lastrowid_raises():
+    fake_cursor = _FakeCursor(lastrowid=None)
+    fake_conn = _FakeConnection(fake_cursor)
+
+    with patch.object(database, "get_connection", return_value=fake_conn):
+        with pytest.raises(ValueError):
+            database.create_character_for_user(1, "badchar")
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_create_default_character_missing_lastrowid_raises():
+    fake_cursor = _FakeCursor(lastrowid=None)
+
+    with pytest.raises(ValueError):
+        database._create_default_character(fake_cursor, 1, "badchar")
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_character_by_name_missing_returns_none(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        assert database.get_character_by_name("nope") is None
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_character_by_id_missing_returns_none(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        assert database.get_character_by_id(9999) is None
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_unlink_characters_for_user(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        database.create_user_with_password("unlinker", TEST_PASSWORD)
+        user_id = database.get_user_id("unlinker")
+        assert user_id is not None
+
+        database.unlink_characters_for_user(user_id)
+
         conn = database.get_connection()
         cursor = conn.cursor()
-        cursor.execute("UPDATE players SET account_origin = '' WHERE username = 'testplayer'")
-        conn.commit()
+        cursor.execute("SELECT user_id FROM characters WHERE name = ?", ("unlinker",))
+        user_id_row = cursor.fetchone()
         conn.close()
+
+        assert user_id_row[0] is None
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_set_character_room_missing_character_returns_false(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        assert database.set_character_room("missing", "spawn") is False
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_add_chat_message_missing_sender_returns_false(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        assert database.add_chat_message("ghost", "boo", "spawn") is False
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_room_messages_unknown_character_returns_empty(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        assert database.get_room_messages("spawn", character_name="ghost") == []
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_remove_session_missing_user_returns_false(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        assert database.remove_session("missing-user") is False
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_player_locations_shim(test_db, temp_db_path, db_with_users):
+    with use_test_database(temp_db_path):
+        locations = database.get_player_locations()
+        assert isinstance(locations, list)
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_init_database_missing_superuser_lastrowid_raises(monkeypatch):
+    class _InitCursor(_FakeCursor):
+        def __init__(self):
+            super().__init__(lastrowid=None, fetchone=(0,))
+
+        def execute(self, _sql, _params=None):
+            return None
+
+    fake_conn = _FakeConnection(_InitCursor())
+
+    with (
+        patch.dict("os.environ", {"MUD_ADMIN_USER": "admin", "MUD_ADMIN_PASSWORD": TEST_PASSWORD}),
+        patch.object(database.sqlite3, "connect", return_value=fake_conn),
+    ):
+        with pytest.raises(ValueError):
+            database.init_database(skip_superuser=False)
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_database_helpers_return_false_on_db_error():
+    with patch.object(database, "get_connection", side_effect=Exception("db error")):
+        assert database.set_user_role("testplayer", "admin") is False
+        assert database.deactivate_user("testplayer") is False
+        assert database.activate_user("testplayer") is False
+        assert database.change_password_for_user("testplayer", TEST_PASSWORD) is False
+        assert database.set_character_room("testplayer", "spawn") is False
+        assert database.set_character_inventory("testplayer", []) is False
+        assert database.add_chat_message("testplayer", "hi", "spawn") is False
+        assert database.create_session("testplayer", "session-x") is False
+        assert database.set_session_character("session-x", 1) is False
+        assert database.remove_session_by_id("session-x") is False
+        assert database.remove_sessions_for_user(1) is False
+        assert database.update_session_activity("session-x") is False
+        assert database.cleanup_expired_sessions() == 0
+        assert database.clear_all_sessions() == 0
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_delete_user_returns_false_on_db_error(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        database.create_user_with_password("todelete", TEST_PASSWORD)
+        user_id = database.get_user_id("todelete")
+        assert user_id is not None
+        with (
+            patch.object(database, "get_user_id", return_value=user_id),
+            patch.object(database, "get_connection", side_effect=Exception("db error")),
+        ):
+            assert database.delete_user("todelete") is False
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_tombstone_user_updates_row(test_db, temp_db_path):
+    with use_test_database(temp_db_path):
+        database.create_user_with_password("ghost", TEST_PASSWORD)
+        user_id = database.get_user_id("ghost")
+        assert user_id is not None
+
+        database.tombstone_user(user_id)
 
         conn = database.get_connection()
-        database._migrate_players_account_origin(conn)
+        cursor = conn.cursor()
+        cursor.execute("SELECT tombstoned_at, is_active FROM users WHERE id = ?", (user_id,))
+        row = cursor.fetchone()
         conn.close()
 
-        assert database.get_player_account_origin("testplayer") == "legacy"
+        assert row is not None
+        assert row[0] is not None
+        assert row[1] == 0
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_update_session_activity_without_sliding_expiration(test_db, temp_db_path, db_with_users):
+    from mud_server.config import config
+
+    original_sliding = config.session.sliding_expiration
+    try:
+        config.session.sliding_expiration = False
+        with use_test_database(temp_db_path):
+            session_id = "session-no-slide"
+            database.create_session("testplayer", session_id)
+            assert database.update_session_activity(session_id) is True
+    finally:
+        config.session.sliding_expiration = original_sliding
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_cleanup_expired_guest_accounts_tombstones_user(test_db, temp_db_path):
+    """Test guest expiry tombstones the account and unlinks characters."""
+    with use_test_database(temp_db_path):
+        database.create_user_with_password(
+            "guest_user",
+            TEST_PASSWORD,
+            role="player",
+            account_origin="visitor",
+            is_guest=True,
+            guest_expires_at="2000-01-01 00:00:00",
+        )
+
+        removed = database.cleanup_expired_guest_accounts()
+        assert removed == 1
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT tombstoned_at FROM users WHERE username = ?", ("guest_user",))
+        tombstoned = cursor.fetchone()[0]
+        cursor.execute("SELECT user_id FROM characters WHERE name = ?", ("guest_user",))
+        user_id = cursor.fetchone()[0]
+        conn.close()
+
+        assert tombstoned is not None
+        assert user_id is None
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_character_limit_trigger_enforced(temp_db_path):
+    """Test character slot limit trigger prevents over-allocation."""
+    from mud_server.config import config
+
+    original_max = config.characters.max_slots
+    config.characters.max_slots = 1
+    try:
+        with use_test_database(temp_db_path):
+            database.init_database(skip_superuser=True)
+            database.create_user_with_password("limit_user", TEST_PASSWORD)
+            user_id = database.get_user_id("limit_user")
+            assert user_id is not None
+            assert database.create_character_for_user(user_id, "extra_char") is False
+    finally:
+        config.characters.max_slots = original_max
 
 
 @pytest.mark.unit
@@ -608,7 +895,8 @@ def test_create_session_removes_old_session_when_single_session(
             # Only one session should exist
             conn = database.get_connection()
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM sessions WHERE username = ?", ("testplayer",))
+            user_id = database.get_user_id("testplayer")
+            cursor.execute("SELECT COUNT(*) FROM sessions WHERE user_id = ?", (user_id,))
             count = cursor.fetchone()[0]
             conn.close()
 
@@ -630,7 +918,8 @@ def test_create_session_allows_multiple_when_enabled(test_db, temp_db_path, db_w
 
             conn = database.get_connection()
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM sessions WHERE username = ?", ("testplayer",))
+            user_id = database.get_user_id("testplayer")
+            cursor.execute("SELECT COUNT(*) FROM sessions WHERE user_id = ?", (user_id,))
             count = cursor.fetchone()[0]
             conn.close()
 
@@ -651,7 +940,8 @@ def test_remove_session(test_db, temp_db_path, db_with_users):
         # Session should be gone
         conn = database.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM sessions WHERE username = ?", ("testplayer",))
+        user_id = database.get_user_id("testplayer")
+        cursor.execute("SELECT COUNT(*) FROM sessions WHERE user_id = ?", (user_id,))
         count = cursor.fetchone()[0]
         conn.close()
 
@@ -677,6 +967,12 @@ def test_get_active_players(test_db, temp_db_path, db_with_users):
     with use_test_database(temp_db_path):
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
+        player_character = database.get_character_by_name("testplayer")
+        admin_character = database.get_character_by_name("testadmin")
+        assert player_character is not None
+        assert admin_character is not None
+        database.set_session_character("session-1", player_character["id"])
+        database.set_session_character("session-2", admin_character["id"])
 
         active = database.get_active_players()
         assert len(active) == 2
@@ -692,6 +988,12 @@ def test_get_players_in_room(test_db, temp_db_path, db_with_users):
         # Create sessions for online players
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
+        player_character = database.get_character_by_name("testplayer")
+        admin_character = database.get_character_by_name("testadmin")
+        assert player_character is not None
+        assert admin_character is not None
+        database.set_session_character("session-1", player_character["id"])
+        database.set_session_character("session-2", admin_character["id"])
 
         # Move testadmin to forest
         database.set_player_room("testadmin", "forest")
@@ -709,13 +1011,13 @@ def test_get_players_in_room(test_db, temp_db_path, db_with_users):
 
 @pytest.mark.unit
 @pytest.mark.db
-def test_get_player_locations(test_db, temp_db_path, db_with_users):
+def test_get_character_locations(test_db, temp_db_path, db_with_users):
     """Test fetching player location rows with usernames."""
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "forest")
 
-        locations = database.get_player_locations()
-        by_username = {loc["username"]: loc for loc in locations}
+        locations = database.get_character_locations()
+        by_username = {loc["character_name"]: loc for loc in locations}
 
         assert "testplayer" in by_username
         assert by_username["testplayer"]["room_id"] == "forest"
@@ -745,6 +1047,9 @@ def test_cleanup_expired_sessions_removes_old(test_db, temp_db_path, db_with_use
         # Create a session
         session_id = "session-123"
         database.create_session("testplayer", session_id)
+        player_character = database.get_character_by_name("testplayer")
+        assert player_character is not None
+        database.set_session_character(session_id, player_character["id"])
 
         # Expire the session.
         conn = database.get_connection()
@@ -773,6 +1078,9 @@ def test_cleanup_expired_sessions_keeps_active(test_db, temp_db_path, db_with_us
     with use_test_database(temp_db_path):
         # Create a session (will have current timestamp)
         database.create_session("testplayer", "session-123")
+        player_character = database.get_character_by_name("testplayer")
+        assert player_character is not None
+        database.set_session_character("session-123", player_character["id"])
 
         removed = database.cleanup_expired_sessions()
 
@@ -791,13 +1099,20 @@ def test_cleanup_expired_sessions_mixed(test_db, temp_db_path, db_with_users):
         # Create sessions for multiple users
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
+        player_character = database.get_character_by_name("testplayer")
+        admin_character = database.get_character_by_name("testadmin")
+        assert player_character is not None
+        assert admin_character is not None
+        database.set_session_character("session-1", player_character["id"])
+        database.set_session_character("session-2", admin_character["id"])
 
         # Expire testplayer's session.
         conn = database.get_connection()
         cursor = conn.cursor()
+        user_id = database.get_user_id("testplayer")
         cursor.execute(
-            "UPDATE sessions SET expires_at = datetime('now', '-10 minutes') " "WHERE username = ?",
-            ("testplayer",),
+            "UPDATE sessions SET expires_at = datetime('now', '-10 minutes') WHERE user_id = ?",
+            (user_id,),
         )
         conn.commit()
         conn.close()
@@ -823,76 +1138,6 @@ def test_cleanup_expired_sessions_empty_db(test_db, temp_db_path):
 
 @pytest.mark.unit
 @pytest.mark.db
-def test_session_schema_migration_from_legacy(temp_db_path):
-    """Test legacy sessions schema is migrated with expiry populated."""
-    from mud_server.config import config
-
-    original_ttl = config.session.ttl_minutes
-    config.session.ttl_minutes = 60
-
-    try:
-        conn = sqlite3.connect(str(temp_db_path))
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                session_id TEXT UNIQUE NOT NULL,
-                connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cursor.execute(
-            "INSERT INTO sessions (username, session_id) VALUES (?, ?)",
-            ("legacy-user", "legacy-session"),
-        )
-        conn.commit()
-        conn.close()
-
-        with use_test_database(temp_db_path):
-            database.init_database(skip_superuser=True)
-
-            session = database.get_session_by_id("legacy-session")
-            assert session is not None
-            assert session["username"] == "legacy-user"
-            assert session["expires_at"] is not None
-            assert session["client_type"] == "unknown"
-    finally:
-        config.session.ttl_minutes = original_ttl
-
-
-@pytest.mark.unit
-@pytest.mark.db
-def test_session_client_type_migration_adds_column(temp_db_path):
-    """Test client_type column is added and defaults are set."""
-    conn = sqlite3.connect(str(temp_db_path))
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            session_id TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            expires_at TIMESTAMP
-        )
-    """)
-    cursor.execute(
-        "INSERT INTO sessions (username, session_id) VALUES (?, ?)",
-        ("legacy-user", "legacy-session"),
-    )
-    conn.commit()
-    conn.close()
-
-    with use_test_database(temp_db_path):
-        database.init_database(skip_superuser=True)
-        session = database.get_session_by_id("legacy-session")
-        assert session is not None
-        assert session["client_type"] == "unknown"
-
-
-@pytest.mark.unit
-@pytest.mark.db
 def test_clear_all_sessions(test_db, temp_db_path, db_with_users):
     """Test that clear_all_sessions removes all sessions."""
     with use_test_database(temp_db_path):
@@ -900,6 +1145,15 @@ def test_clear_all_sessions(test_db, temp_db_path, db_with_users):
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
         database.create_session("testsuperuser", "session-3")
+        player_character = database.get_character_by_name("testplayer")
+        admin_character = database.get_character_by_name("testadmin")
+        super_character = database.get_character_by_name("testsuperuser")
+        assert player_character is not None
+        assert admin_character is not None
+        assert super_character is not None
+        database.set_session_character("session-1", player_character["id"])
+        database.set_session_character("session-2", admin_character["id"])
+        database.set_session_character("session-3", super_character["id"])
 
         # Verify sessions exist
         assert len(database.get_active_players()) == 3
@@ -1008,7 +1262,9 @@ def test_list_tables(test_db, temp_db_path, db_with_users):
         tables = database.list_tables()
         table_names = {table["name"] for table in tables}
 
-        assert {"players", "sessions", "chat_messages"}.issubset(table_names)
+        assert {"users", "characters", "character_locations", "sessions", "chat_messages"}.issubset(
+            table_names
+        )
         assert all("columns" in table for table in tables)
         assert all("row_count" in table for table in tables)
 
@@ -1019,7 +1275,7 @@ def test_list_tables(test_db, temp_db_path, db_with_users):
 def test_get_table_rows(test_db, temp_db_path, db_with_users):
     """Test fetching columns and rows for a specific table."""
     with use_test_database(temp_db_path):
-        columns, rows = database.get_table_rows("players", limit=10)
+        columns, rows = database.get_table_rows("users", limit=10)
 
         assert "username" in columns
         assert len(rows) >= 1

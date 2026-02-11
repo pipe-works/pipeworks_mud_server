@@ -103,11 +103,11 @@ def test_admin_view_table_rows_as_admin(test_client, test_db, temp_db_path, db_w
         )
         session_id = login_response.json()["session_id"]
 
-        response = test_client.get(f"/admin/database/table/players?session_id={session_id}")
+        response = test_client.get(f"/admin/database/table/users?session_id={session_id}")
 
         assert response.status_code == 200
         data = response.json()
-        assert data["table"] == "players"
+        assert data["table"] == "users"
         assert "columns" in data
         assert "rows" in data
 
@@ -139,7 +139,7 @@ def test_admin_view_table_rows_as_player_forbidden(
         )
         session_id = login_response.json()["session_id"]
 
-    response = test_client.get(f"/admin/database/table/players?session_id={session_id}")
+    response = test_client.get(f"/admin/database/table/users?session_id={session_id}")
 
     assert response.status_code == 403
 
@@ -160,8 +160,8 @@ def test_admin_view_player_locations_as_admin(test_client, test_db, temp_db_path
         data = response.json()
         assert "locations" in data
         if data["locations"]:
-            assert "player_id" in data["locations"][0]
-            assert "username" in data["locations"][0]
+            assert "character_id" in data["locations"][0]
+            assert "character_name" in data["locations"][0]
             assert "room_id" in data["locations"][0]
 
 
@@ -557,7 +557,7 @@ def test_delete_user_returns_500_when_delete_fails(
         )
         session_id = login_response.json()["session_id"]
 
-        with patch.object(database, "delete_player", return_value=False):
+        with patch.object(database, "delete_user", return_value=False):
             response = test_client.post(
                 "/admin/user/manage",
                 json={

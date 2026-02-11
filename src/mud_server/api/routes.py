@@ -51,10 +51,12 @@ from mud_server.api.auth import (
     get_active_session_count,
     remove_session,
     validate_session,
+    validate_session_for_game,
     validate_session_with_permission,
 )
 from mud_server.api.models import (
     ChangePasswordRequest,
+    CharactersResponse,
     ClearOllamaContextRequest,
     ClearOllamaContextResponse,
     CommandRequest,
@@ -78,6 +80,8 @@ from mud_server.api.models import (
     OllamaCommandResponse,
     RegisterRequest,
     RegisterResponse,
+    SelectCharacterRequest,
+    SelectCharacterResponse,
     ServerStopRequest,
     ServerStopResponse,
     StatusResponse,
@@ -141,26 +145,38 @@ def register_routes(app: FastAPI, engine: GameEngine):
         if not username or len(username) < 2 or len(username) > 20:
             raise HTTPException(status_code=400, detail="Username must be 2-20 characters")
 
-        # Create session ID
-        session_id = str(uuid.uuid4())
+        if not database.user_exists(username):
+            raise HTTPException(status_code=401, detail="Invalid username or password")
 
-        # Capture client type for session metadata.
+        if not database.verify_password_for_user(username, password):
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+
+        if not database.is_user_active(username):
+            raise HTTPException(status_code=401, detail="Account is deactivated")
+
+        user_id = database.get_user_id(username)
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user record")
+
+        session_id = str(uuid.uuid4())
         client_type = http_request.headers.get("X-Client-Type", "unknown").strip().lower()
         if not client_type:
             client_type = "unknown"
 
-        # Attempt login with password verification
-        success, message, role = engine.login(
-            username,
-            password,
-            session_id,
-            client_type=client_type,
-        )
+        if not database.create_session(user_id, session_id, client_type=client_type):
+            raise HTTPException(status_code=500, detail="Failed to create session")
 
-        if success and role:
-            return LoginResponse(success=True, message=message, session_id=session_id, role=role)
-        else:
-            raise HTTPException(status_code=401, detail=message)
+        role = database.get_user_role(username)
+        characters = database.get_user_characters(user_id)
+        message = "Login successful. Select a character to enter the world."
+
+        return LoginResponse(
+            success=True,
+            message=message,
+            session_id=session_id,
+            role=role,
+            characters=characters,
+        )
 
     @app.post("/register", response_model=RegisterResponse)
     async def register(request: RegisterRequest):
@@ -197,7 +213,7 @@ def register_routes(app: FastAPI, engine: GameEngine):
             raise HTTPException(status_code=400, detail="Username must be 2-20 characters")
 
         # Check if username already exists
-        if database.player_exists(username):
+        if database.user_exists(username):
             raise HTTPException(status_code=400, detail="Username already taken")
 
         # Validate passwords match
@@ -212,8 +228,16 @@ def register_routes(app: FastAPI, engine: GameEngine):
             raise HTTPException(status_code=400, detail=error_detail)
 
         # Create visitor account (temporary; cleaned up automatically)
-        if database.create_player_with_password(
-            username, password, role="player", account_origin="visitor"
+        from datetime import UTC, datetime, timedelta
+
+        guest_expires_at = (datetime.now(UTC) + timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+        if database.create_user_with_password(
+            username,
+            password,
+            role="player",
+            account_origin="visitor",
+            is_guest=True,
+            guest_expires_at=guest_expires_at,
         ):
             return RegisterResponse(
                 success=True,
@@ -232,12 +256,34 @@ def register_routes(app: FastAPI, engine: GameEngine):
 
     @app.post("/logout")
     async def logout(request: LogoutRequest):
-        """Logout player and remove session from memory and database."""
-        username, role = validate_session(request.session_id)
-
+        """Logout user and remove session from database."""
+        _, username, _ = validate_session(request.session_id)
         remove_session(request.session_id)
-
         return {"success": True, "message": f"Goodbye, {username}!"}
+
+    @app.get("/characters", response_model=CharactersResponse)
+    async def list_characters(session_id: str):
+        """List available characters for the logged-in user."""
+        user_id, _, _ = validate_session(session_id)
+        characters = database.get_user_characters(user_id)
+        return CharactersResponse(characters=characters)
+
+    @app.post("/characters/select", response_model=SelectCharacterResponse)
+    async def select_character(request: SelectCharacterRequest):
+        """Select a character for the current session."""
+        user_id, _, _ = validate_session(request.session_id)
+        character = database.get_character_by_id(request.character_id)
+        if not character or character.get("user_id") != user_id:
+            raise HTTPException(status_code=404, detail="Character not found for this user")
+
+        if not database.set_session_character(request.session_id, request.character_id):
+            raise HTTPException(status_code=500, detail="Failed to select character")
+
+        return SelectCharacterResponse(
+            success=True,
+            message="Character selected.",
+            character_name=character["name"],
+        )
 
     @app.post("/command", response_model=CommandResponse)
     async def execute_command(request: CommandRequest):
@@ -254,7 +300,7 @@ def register_routes(app: FastAPI, engine: GameEngine):
             - Chat: say, yell, whisper/w
             - Info: who, help/?
         """
-        username, role = validate_session(request.session_id)
+        _, _, _, _, character_name = validate_session_for_game(request.session_id)
 
         command = request.command.strip()
 
@@ -286,40 +332,40 @@ def register_routes(app: FastAPI, engine: GameEngine):
                 "d": "down",
             }
             direction = direction_map.get(cmd, cmd)
-            success, message = engine.move(username, direction)
+            success, message = engine.move(character_name, direction)
             return CommandResponse(success=success, message=message)
 
         elif cmd in ["look", "l"]:
-            message = engine.look(username)
+            message = engine.look(character_name)
             return CommandResponse(success=True, message=message)
 
         elif cmd in ["inventory", "inv", "i"]:
-            message = engine.get_inventory(username)
+            message = engine.get_inventory(character_name)
             return CommandResponse(success=True, message=message)
 
         elif cmd in ["get", "take"]:
             if not args:
                 return CommandResponse(success=False, message="Get what?")
-            success, message = engine.pickup_item(username, args)
+            success, message = engine.pickup_item(character_name, args)
             return CommandResponse(success=success, message=message)
 
         elif cmd == "drop":
             if not args:
                 return CommandResponse(success=False, message="Drop what?")
-            success, message = engine.drop_item(username, args)
+            success, message = engine.drop_item(character_name, args)
             return CommandResponse(success=success, message=message)
 
         elif cmd in ["say", "chat"]:
             if not args:
                 return CommandResponse(success=False, message="Say what?")
-            success, message = engine.chat(username, args)
+            success, message = engine.chat(character_name, args)
             return CommandResponse(success=success, message=message)
 
         elif cmd == "yell":
             if not args:
                 return CommandResponse(success=False, message="Yell what?")
             # Yell sends to current room and all adjoining rooms
-            success, message = engine.yell(username, args)
+            success, message = engine.yell(character_name, args)
             return CommandResponse(success=success, message=message)
 
         elif cmd in ["whisper", "w"]:
@@ -336,12 +382,12 @@ def register_routes(app: FastAPI, engine: GameEngine):
             target = whisper_parts[0]
             msg = whisper_parts[1]
             # Send private whisper
-            success, message = engine.whisper(username, target, msg)
+            success, message = engine.whisper(character_name, target, msg)
             return CommandResponse(success=success, message=message)
 
         elif cmd in ["recall", "flee", "scurry"]:
             # Recall to zone spawn point
-            success, message = engine.recall(username)
+            success, message = engine.recall(character_name)
             return CommandResponse(success=success, message=message)
 
         elif cmd == "who":
@@ -388,8 +434,8 @@ Note: Commands can be used with or without the / prefix
     @app.get("/chat/{session_id}")
     async def get_chat(session_id: str):
         """Get recent chat messages from current room."""
-        username, role = validate_session(session_id)
-        chat = engine.get_room_chat(username)
+        _, _, _, _, character_name = validate_session_for_game(session_id)
+        chat = engine.get_room_chat(character_name)
         return {"chat": chat}
 
     @app.post("/ping/{session_id}")
@@ -401,10 +447,10 @@ Note: Commands can be used with or without the / prefix
     @app.get("/status/{session_id}")
     async def get_status(session_id: str):
         """Get player status."""
-        username, role = validate_session(session_id)
+        _, _, _, _, character_name = validate_session_for_game(session_id)
 
-        current_room = database.get_player_room(username)
-        inventory = engine.get_inventory(username)
+        current_room = database.get_character_room(character_name)
+        inventory = engine.get_inventory(character_name)
         active_players = engine.get_active_players()
 
         return StatusResponse(
@@ -437,7 +483,7 @@ Note: Commands can be used with or without the / prefix
         """
         from mud_server.api.password_policy import PolicyLevel, validate_password_strength
 
-        username, role = validate_session(request.session_id)
+        _, username, _ = validate_session(request.session_id)
 
         # Verify old password
         if not database.verify_password_for_user(username, request.old_password):
@@ -467,27 +513,27 @@ Note: Commands can be used with or without the / prefix
 
     @app.get("/admin/database/players", response_model=DatabasePlayersResponse)
     async def get_database_players(session_id: str):
-        """Get all players from database with details (Requires VIEW_LOGS permission)."""
-        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+        """Get all users from database with details (Requires VIEW_LOGS permission)."""
+        _, _, _ = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
 
-        players = database.get_all_players_detailed()
-        return DatabasePlayersResponse(players=players)
+        users = database.get_all_users_detailed()
+        return DatabasePlayersResponse(players=users)
 
     @app.get("/admin/database/connections", response_model=DatabaseConnectionsResponse)
     async def get_database_connections(session_id: str):
         """Get active session connections with activity age (Admin only)."""
-        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+        _, _, _ = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
 
         connections = database.get_active_connections()
         return DatabaseConnectionsResponse(connections=connections)
 
     @app.get("/admin/database/player-locations", response_model=DatabasePlayerLocationsResponse)
     async def get_database_player_locations(session_id: str):
-        """Get player locations with zone context (Admin only)."""
-        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+        """Get character locations with zone context (Admin only)."""
+        _, _, _ = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
 
         locations = []
-        for location in database.get_player_locations():
+        for location in database.get_character_locations():
             # Zone ID is derived from the in-memory world data so we can
             # show high-level location context without storing it in the DB.
             room_id = location.get("room_id")
@@ -504,7 +550,7 @@ Note: Commands can be used with or without the / prefix
     @app.post("/admin/session/kick", response_model=KickSessionResponse)
     async def kick_session(request: KickSessionRequest):
         """Force-disconnect an active session (Admin/Superuser only)."""
-        username, role = validate_session_with_permission(request.session_id, Permission.KICK_USERS)
+        _, _, _ = validate_session_with_permission(request.session_id, Permission.KICK_USERS)
 
         removed = remove_session(request.target_session_id)
         if removed:
@@ -514,7 +560,7 @@ Note: Commands can be used with or without the / prefix
     @app.get("/admin/database/tables", response_model=DatabaseTablesResponse)
     async def get_database_tables(session_id: str):
         """Get list of database tables with schema details (Admin only)."""
-        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+        _, username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
 
         tables = [DatabaseTableInfo(**table) for table in database.list_tables()]
         return DatabaseTablesResponse(tables=tables)
@@ -522,7 +568,7 @@ Note: Commands can be used with or without the / prefix
     @app.get("/admin/database/table/{table_name}", response_model=DatabaseTableRowsResponse)
     async def get_database_table_rows(session_id: str, table_name: str, limit: int = 100):
         """Get rows from a specific database table (Admin only)."""
-        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+        _, username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
 
         try:
             columns, rows = database.get_table_rows(table_name, limit=limit)
@@ -534,7 +580,7 @@ Note: Commands can be used with or without the / prefix
     @app.get("/admin/database/sessions", response_model=DatabaseSessionsResponse)
     async def get_database_sessions(session_id: str):
         """Get all active sessions from the database (Admin only)."""
-        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+        _, username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
 
         sessions = database.get_all_sessions()
         return DatabaseSessionsResponse(sessions=sessions)
@@ -542,7 +588,7 @@ Note: Commands can be used with or without the / prefix
     @app.get("/admin/database/chat-messages", response_model=DatabaseChatResponse)
     async def get_database_chat_messages(session_id: str, limit: int = 100):
         """Get recent chat messages from the database (Admin only)."""
-        username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+        _, username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
 
         messages = database.get_all_chat_messages(limit=limit)
         return DatabaseChatResponse(messages=messages)
@@ -576,16 +622,18 @@ Note: Commands can be used with or without the / prefix
             )
 
         # Validate session with appropriate permission
-        username, role = validate_session_with_permission(request.session_id, required_permission)
+        _, username, role = validate_session_with_permission(
+            request.session_id, required_permission
+        )
 
         target_username = request.target_username
 
         # Check if target user exists
-        if not database.player_exists(target_username):
+        if not database.user_exists(target_username):
             raise HTTPException(status_code=404, detail=f"User '{target_username}' not found")
 
         # Get target user's role
-        target_role = database.get_player_role(target_username)
+        target_role = database.get_user_role(target_username)
         if not target_role:
             raise HTTPException(status_code=404, detail="Target user not found")
 
@@ -623,7 +671,7 @@ Note: Commands can be used with or without the / prefix
                     detail=f"Insufficient permissions to assign role '{new_role}'",
                 )
 
-            if database.set_player_role(target_username, new_role):
+            if database.set_user_role(target_username, new_role):
                 return UserManagementResponse(
                     success=True,
                     message=f"Successfully changed {target_username}'s role to {new_role}",
@@ -632,9 +680,10 @@ Note: Commands can be used with or without the / prefix
                 raise HTTPException(status_code=500, detail="Failed to change role")
 
         elif action == "ban":
-            if database.deactivate_player(target_username):
-                # Also remove all their sessions
-                database.remove_session(target_username)
+            if database.deactivate_user(target_username):
+                user_id = database.get_user_id(target_username)
+                if user_id:
+                    database.remove_sessions_for_user(user_id)
 
                 return UserManagementResponse(
                     success=True, message=f"Successfully banned {target_username}"
@@ -649,7 +698,7 @@ Note: Commands can be used with or without the / prefix
                     detail="Only superusers may permanently delete users",
                 )
 
-            if database.delete_player(target_username):
+            if database.delete_user(target_username):
                 return UserManagementResponse(
                     success=True, message=f"Successfully deleted {target_username}"
                 )
@@ -657,7 +706,7 @@ Note: Commands can be used with or without the / prefix
                 raise HTTPException(status_code=500, detail="Failed to delete user")
 
         elif action == "unban":
-            if database.activate_player(target_username):
+            if database.activate_user(target_username):
                 return UserManagementResponse(
                     success=True, message=f"Successfully unbanned {target_username}"
                 )
@@ -709,7 +758,7 @@ Note: Commands can be used with or without the / prefix
         """
         from mud_server.api.password_policy import PolicyLevel, validate_password_strength
 
-        _creator_username, creator_role = validate_session_with_permission(
+        _, _creator_username, creator_role = validate_session_with_permission(
             request.session_id, Permission.CREATE_USERS
         )
 
@@ -745,7 +794,7 @@ Note: Commands can be used with or without the / prefix
             )
 
         # Check if username already exists
-        if database.player_exists(username):
+        if database.user_exists(username):
             raise HTTPException(status_code=400, detail="Username already taken")
 
         # Validate passwords match
@@ -759,7 +808,7 @@ Note: Commands can be used with or without the / prefix
             raise HTTPException(status_code=400, detail=error_detail)
 
         # Create user account
-        if database.create_player_with_password(
+        if database.create_user_with_password(
             username, password, role=role, account_origin=creator_role
         ):
             return CreateUserResponse(
@@ -772,7 +821,7 @@ Note: Commands can be used with or without the / prefix
     @app.post("/admin/server/stop", response_model=ServerStopResponse)
     async def stop_server(request: ServerStopRequest):
         """Stop the server (Admin and Superuser only)."""
-        username, role = validate_session_with_permission(
+        _, username, role = validate_session_with_permission(
             request.session_id, Permission.STOP_SERVER
         )
 
@@ -798,7 +847,9 @@ Note: Commands can be used with or without the / prefix
         Sends commands to the Ollama server API and returns the output.
         Supports any ollama CLI command via the API.
         """
-        username, role = validate_session_with_permission(request.session_id, Permission.VIEW_LOGS)
+        _, username, role = validate_session_with_permission(
+            request.session_id, Permission.VIEW_LOGS
+        )
 
         import json
 
@@ -993,7 +1044,9 @@ Note: Commands can be used with or without the / prefix
 
         Removes all stored conversation history, allowing a fresh start with the model.
         """
-        username, role = validate_session_with_permission(request.session_id, Permission.VIEW_LOGS)
+        _, username, role = validate_session_with_permission(
+            request.session_id, Permission.VIEW_LOGS
+        )
 
         session_id = request.session_id
 

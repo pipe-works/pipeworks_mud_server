@@ -18,3 +18,14 @@ def test_session_env_overrides(monkeypatch):
     assert cfg.session.sliding_expiration is False
     assert cfg.session.allow_multiple_sessions is True
     assert cfg.session.active_window_minutes == 45
+
+
+@pytest.mark.unit
+def test_character_env_overrides(monkeypatch):
+    monkeypatch.setenv("MUD_CHAR_DEFAULT_SLOTS", "3")
+    monkeypatch.setenv("MUD_CHAR_MAX_SLOTS", "9")
+
+    cfg = load_config()
+
+    assert cfg.characters.default_slots == 3
+    assert cfg.characters.max_slots == 9

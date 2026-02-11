@@ -30,6 +30,8 @@ Environment Variable Mapping:
     MUD_SESSION_SLIDING_EXPIRATION  -> session.sliding_expiration
     MUD_SESSION_ALLOW_MULTIPLE      -> session.allow_multiple_sessions
     MUD_SESSION_ACTIVE_WINDOW_MINUTES -> session.active_window_minutes
+    MUD_CHAR_DEFAULT_SLOTS          -> characters.default_slots
+    MUD_CHAR_MAX_SLOTS              -> characters.max_slots
 """
 
 import configparser
@@ -120,6 +122,14 @@ class RateLimitSettings:
 
 
 @dataclass
+class CharacterSettings:
+    """Character slot limits and defaults."""
+
+    default_slots: int = 2
+    max_slots: int = 10
+
+
+@dataclass
 class FeatureSettings:
     """Feature flags."""
 
@@ -142,6 +152,7 @@ class ServerConfig:
     database: DatabaseSettings = field(default_factory=DatabaseSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     rate_limit: RateLimitSettings = field(default_factory=RateLimitSettings)
+    characters: CharacterSettings = field(default_factory=CharacterSettings)
     features: FeatureSettings = field(default_factory=FeatureSettings)
 
     @property
@@ -249,6 +260,13 @@ def _load_from_ini(parser: configparser.ConfigParser, cfg: ServerConfig) -> None
         if parser.has_option("rate_limit", "api_per_second"):
             cfg.rate_limit.api_per_second = parser.getint("rate_limit", "api_per_second")
 
+    # Character slots section
+    if parser.has_section("characters"):
+        if parser.has_option("characters", "default_slots"):
+            cfg.characters.default_slots = parser.getint("characters", "default_slots")
+        if parser.has_option("characters", "max_slots"):
+            cfg.characters.max_slots = parser.getint("characters", "max_slots")
+
     # Features section
     if parser.has_section("features"):
         if parser.has_option("features", "ollama_enabled"):
@@ -288,6 +306,12 @@ def _apply_env_overrides(cfg: ServerConfig) -> None:
         cfg.session.allow_multiple_sessions = _parse_bool(env_allow_multiple)
     if env_active_window := os.getenv("MUD_SESSION_ACTIVE_WINDOW_MINUTES"):
         cfg.session.active_window_minutes = int(env_active_window)
+
+    # Character slots
+    if env_default_slots := os.getenv("MUD_CHAR_DEFAULT_SLOTS"):
+        cfg.characters.default_slots = int(env_default_slots)
+    if env_max_slots := os.getenv("MUD_CHAR_MAX_SLOTS"):
+        cfg.characters.max_slots = int(env_max_slots)
 
 
 def load_config() -> ServerConfig:
