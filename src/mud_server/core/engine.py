@@ -121,81 +121,33 @@ class GameEngine:
         self, username: str, password: str, session_id: str, client_type: str = "unknown"
     ) -> tuple[bool, str, str | None]:
         """
-        Handle player login with authentication and session creation.
+        Handle account login with authentication and session creation.
 
-        This method performs complete login validation:
-        1. Verifies username exists in database
-        2. Verifies password against bcrypt hash
-        3. Checks account is active (not banned)
-        4. Retrieves user role for permission system
-        5. Creates session in database
-        6. Ensures player has a valid room location
-        7. Generates welcome message with room description
-
-        Args:
-            username: Player's username (case-sensitive)
-            password: Plain text password to verify
-            session_id: UUID session identifier to create
-            client_type: UI client identifier (tui, browser, api)
-
-        Returns:
-            Tuple of (success, message, role)
-            - success: True if login succeeded, False otherwise
-            - message: Welcome message with room description OR error message
-            - role: User's role string ("player", "worldbuilder", "admin", "superuser")
-                   None if login failed
-
-        Failure Cases:
-            - Username doesn't exist
-            - Password incorrect
-            - Account is deactivated/banned
-            - Failed to retrieve role
-            - Failed to create session
-
-        Example:
-            >>> engine.login("player1", "secret123", "uuid-123", "browser")
-            (True, "Welcome, player1!\\nRole: Player\\n\\n=== Spawn Zone ===...", "player")
-            >>> engine.login("player1", "wrong", "uuid-456", "browser")
-            (False, "Invalid username or password.", None)
-
-        Security Note:
-            Password verification always performs a bcrypt comparison, even for
-            non-existent users. This prevents timing attacks that could be used
-            to enumerate valid usernames.
+        This method validates the account and creates a session, but does not
+        select a character. Character selection happens separately.
         """
-        # Verify password (handles non-existent users with constant-time response)
         if not database.verify_password_for_user(username, password):
             return False, "Invalid username or password.", None
 
-        # Check if player is active (not banned)
-        if not database.is_player_active(username):
+        if not database.is_user_active(username):
             return (
                 False,
                 "This account has been deactivated. Please contact an administrator.",
                 None,
             )
 
-        # Get player role
-        role = database.get_player_role(username)
+        role = database.get_user_role(username)
         if not role:
             return False, "Failed to retrieve account information.", None
 
-        # Create session
-        if not database.create_session(username, session_id, client_type=client_type):
+        user_id = database.get_user_id(username)
+        if not user_id:
+            return False, "Failed to retrieve account information.", None
+
+        if not database.create_session(user_id, session_id, client_type=client_type):
             return False, "Failed to create session.", None
 
-        # Get current room and validate it exists in the world
-        room = database.get_player_room(username)
-        if not room or not self.world.get_room(room):
-            # Room is missing or doesn't exist in world data - reset to default spawn
-            _zone, room = self.world.default_spawn
-            database.set_player_room(username, room)
-
-        # Generate welcome message
-        message = f"Welcome, {username}!\n"
-        message += f"Role: {role.capitalize()}\n\n"
-        message += self.world.get_room_description(room, username)
-
+        message = "Login successful. Select a character to enter the world."
         return True, message, role
 
     def logout(self, username: str) -> bool:
@@ -219,7 +171,10 @@ class GameEngine:
             This removes all sessions for the user. If you want to remove a
             single session (multi-device support), use database.remove_session_by_id().
         """
-        return database.remove_session(username)
+        user_id = database.get_user_id(username)
+        if not user_id:
+            return False
+        return database.remove_sessions_for_user(user_id)
 
     def move(self, username: str, direction: str) -> tuple[bool, str]:
         """
@@ -262,7 +217,7 @@ class GameEngine:
             >>> engine.move("player1", "west")
             (False, "You cannot move west from here.")
         """
-        current_room = database.get_player_room(username)
+        current_room = database.get_character_room(username)
         if not current_room:
             # Emit failure event - player has no valid room
             _get_bus().emit(
@@ -305,7 +260,7 @@ class GameEngine:
             return False, f"You cannot move {direction} from here."
 
         # Update player room in database
-        if not database.set_player_room(username, destination):
+        if not database.set_character_room(username, destination):
             # Emit failure event - database update failed
             _get_bus().emit(
                 Events.PLAYER_MOVE_FAILED,
@@ -370,7 +325,7 @@ class GameEngine:
             - Updates player's current_room in database
             - Broadcasts departure/arrival messages (when implemented)
         """
-        current_room = database.get_player_room(username)
+        current_room = database.get_character_room(username)
 
         # Find which zone the player is in
         current_zone = None
@@ -393,7 +348,7 @@ class GameEngine:
             return True, "You are already at the spawn point."
 
         # Update player location
-        if not database.set_player_room(username, destination):
+        if not database.set_character_room(username, destination):
             return False, "Failed to recall."
 
         # Broadcast departure (when implemented)
@@ -444,7 +399,7 @@ class GameEngine:
         Security Note:
             Messages are sanitized to prevent XSS attacks before storage.
         """
-        room = database.get_player_room(username)
+        room = database.get_character_room(username)
         if not room:
             return False, "You are not in a valid room."
 
@@ -495,7 +450,7 @@ class GameEngine:
         Security Note:
             Messages are sanitized to prevent XSS attacks before storage.
         """
-        current_room_id = database.get_player_room(username)
+        current_room_id = database.get_character_room(username)
         if not current_room_id:
             return False, "You are not in a valid room."
 
@@ -574,7 +529,7 @@ class GameEngine:
 
         logger = logging.getLogger(__name__)
 
-        sender_room = database.get_player_room(username)
+        sender_room = database.get_character_room(username)
         logger.info(f"Whisper: {username} in room {sender_room} attempting to whisper to {target}")
 
         if not sender_room:
@@ -582,19 +537,19 @@ class GameEngine:
             return False, "You are not in a valid room."
 
         # Check if target player exists
-        if not database.player_exists(target):
+        if not database.character_exists(target):
             logger.warning(f"Whisper failed: target {target} does not exist")
             return False, f"Player '{target}' does not exist."
 
         # Check if target is online (has an active session)
-        active_players = database.get_active_players()
+        active_players = database.get_active_characters()
         logger.info(f"Active players: {active_players}")
         if target not in active_players:
             logger.warning(f"Whisper failed: target {target} not online")
             return False, f"Player '{target}' is not online."
 
         # Check if target is in the same room
-        target_room = database.get_player_room(target)
+        target_room = database.get_character_room(target)
         logger.info(f"Target {target} is in room {target_room}")
         if target_room != sender_room:
             logger.warning(f"Whisper failed: {target} in {target_room}, sender in {sender_room}")
@@ -643,11 +598,11 @@ class GameEngine:
             player3: [YELL] Can anyone help?
             '''
         """
-        room = database.get_player_room(username)
+        room = database.get_character_room(username)
         if not room:
             return "No messages."
 
-        messages = database.get_room_messages(room, limit, username=username)
+        messages = database.get_room_messages(room, limit=limit, username=username)
         if not messages:
             return "[No messages in this room yet]"
 
@@ -677,7 +632,7 @@ class GameEngine:
             >>> engine.get_inventory("new_player")
             "Your inventory is empty."
         """
-        inventory = database.get_player_inventory(username)
+        inventory = database.get_character_inventory(username)
         if not inventory:
             return "Your inventory is empty."
 
@@ -720,7 +675,7 @@ class GameEngine:
             >>> engine.pickup_item("player1", "sword")
             (False, "There is no 'sword' here.")
         """
-        room_id = database.get_player_room(username)
+        room_id = database.get_character_room(username)
         if not room_id:
             return False, "You are not in a valid room."
 
@@ -740,10 +695,10 @@ class GameEngine:
             return False, f"There is no '{item_name}' here."
 
         # Add to inventory
-        inventory = database.get_player_inventory(username)
+        inventory = database.get_character_inventory(username)
         if matching_item not in inventory:
             inventory.append(matching_item)
-            database.set_player_inventory(username, inventory)
+            database.set_character_inventory(username, inventory)
 
         item = self.world.get_item(matching_item)
         item_name_display = item.name if item else matching_item
@@ -779,7 +734,7 @@ class GameEngine:
             >>> engine.drop_item("player1", "sword")
             (False, "You don't have a 'sword'.")
         """
-        inventory = database.get_player_inventory(username)
+        inventory = database.get_character_inventory(username)
 
         # Find matching item in inventory
         matching_item = None
@@ -794,7 +749,7 @@ class GameEngine:
 
         # Remove from inventory
         inventory.remove(matching_item)
-        database.set_player_inventory(username, inventory)
+        database.set_character_inventory(username, inventory)
 
         item = self.world.get_item(matching_item)
         item_name_display = item.name if item else matching_item
@@ -832,7 +787,7 @@ class GameEngine:
               - south: Golden Desert
             '''
         """
-        room_id = database.get_player_room(username)
+        room_id = database.get_character_room(username)
         if not room_id:
             return "You are not in a valid room."
 
@@ -844,19 +799,19 @@ class GameEngine:
 
     def get_active_players(self) -> list[str]:
         """
-        Get list of all currently active (logged in) players.
+        Get list of all currently active (logged in) characters.
 
-        Queries the database sessions table to get all players with active
-        sessions. These are players currently logged into the server.
+        Queries the database sessions table to get all characters with active
+        sessions. These are characters currently logged into the server.
 
         Returns:
-            List of usernames for all active players
+            List of character names for all active players
 
         Example:
             >>> engine.get_active_players()
             ['player1', 'Admin', 'Mendit']
         """
-        return database.get_active_players()
+        return database.get_active_characters()
 
     def _broadcast_to_room(self, room_id: str, message: str, exclude: str | None = None):
         """

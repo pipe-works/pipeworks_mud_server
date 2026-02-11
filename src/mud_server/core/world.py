@@ -572,7 +572,7 @@ class World:
 
         # Add players section (query database for active players in this room)
         # Exclude the requesting player from the list
-        other_players = [p for p in database.get_players_in_room(room_id) if p != username]
+        other_players = [p for p in database.get_characters_in_room(room_id) if p != username]
         if other_players:
             desc += "\n[Players here]:\n"
             for player in other_players:

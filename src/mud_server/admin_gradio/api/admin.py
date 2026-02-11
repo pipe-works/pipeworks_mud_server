@@ -52,13 +52,13 @@ class AdminAPIClient(BaseAPIClient):
         role: str,
     ) -> dict:
         """
-        Fetch and format all players from database (Admin/Superuser only).
+        Fetch and format all users from database (Admin/Superuser only).
 
-        Returns detailed information about all player accounts including:
+        Returns detailed information about all accounts including:
         - ID, username, role, status
-        - Current room and inventory
+        - Character count and guest flags
         - Created date and last login
-        - Password hash
+        - Password hash prefix
 
         Args:
             session_id: User's session ID from login
@@ -121,7 +121,7 @@ class AdminAPIClient(BaseAPIClient):
                 }
 
             # Format as text table
-            output = [f"=== PLAYERS TABLE ({len(players)} records) ===\n"]
+            output = [f"=== USERS TABLE ({len(players)} records) ===\n"]
             for player in players:
                 status = "ACTIVE" if player["is_active"] else "BANNED"
                 output.append(f"ID: {player['id']}")
@@ -129,9 +129,10 @@ class AdminAPIClient(BaseAPIClient):
                 output.append(f"  Role: {player['role']}")
                 if "account_origin" in player:
                     output.append(f"  Origin: {player['account_origin']}")
+                output.append(f"  Guest: {'Yes' if player.get('is_guest') else 'No'}")
+                output.append(f"  Guest Expires: {player.get('guest_expires_at')}")
+                output.append(f"  Characters: {player.get('character_count')}")
                 output.append(f"  Status: {status}")
-                output.append(f"  Room: {player['current_room']}")
-                output.append(f"  Inventory: {player['inventory']}")
                 output.append(f"  Created: {player['created_at']}")
                 output.append(f"  Last Login: {player['last_login']}")
                 output.append(f"  Password Hash: {player['password_hash']}")
@@ -227,6 +228,7 @@ class AdminAPIClient(BaseAPIClient):
             for session in sessions:
                 output.append(f"ID: {session['id']}")
                 output.append(f"  Username: {session['username']}")
+                output.append(f"  Character: {session.get('character_name')}")
                 output.append(f"  Session ID: {session['session_id']}")
                 output.append(f"  Created: {session['created_at']}")
                 output.append(f"  Last Activity: {session['last_activity']}")

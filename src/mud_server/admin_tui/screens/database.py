@@ -363,7 +363,7 @@ class DatabaseScreen(Screen):
                 self._keybindings_by_key.setdefault(key, action)
 
     def _setup_players_table(self) -> None:
-        """Configure the players DataTable columns."""
+        """Configure the users DataTable columns."""
         table = self.query_one("#table-players", DataTable)
         table.cursor_type = "row"
         table.zebra_stripes = True
@@ -371,7 +371,9 @@ class DatabaseScreen(Screen):
             "ID",
             "Username",
             "Role",
-            "Room",
+            "Characters",
+            "Guest",
+            "Guest Expires",
             "Active",
             "Created",
             "Last Login",
@@ -385,6 +387,7 @@ class DatabaseScreen(Screen):
         table.add_columns(
             "ID",
             "Username",
+            "Character",
             "Client",
             "Session ID",
             "Created At",
@@ -420,13 +423,13 @@ class DatabaseScreen(Screen):
         )
 
     def _setup_player_locations_table(self) -> None:
-        """Configure the player locations DataTable columns."""
+        """Configure the character locations DataTable columns."""
         table = self.query_one("#table-player-locations", DataTable)
         table.cursor_type = "row"
         table.zebra_stripes = True
         table.add_columns(
-            "Player ID",
-            "Username",
+            "Character ID",
+            "Character",
             "Zone",
             "Room",
             "Updated",
@@ -480,7 +483,7 @@ class DatabaseScreen(Screen):
 
     @work(thread=False)
     async def _load_player_locations(self) -> None:
-        """Fetch and display player locations."""
+        """Fetch and display character locations."""
         table = self.query_one("#table-player-locations", DataTable)
         table.clear()
 
@@ -494,8 +497,8 @@ class DatabaseScreen(Screen):
 
             for location in locations:
                 table.add_row(
-                    str(location.get("player_id", "")),
-                    location.get("username", ""),
+                    str(location.get("character_id", "")),
+                    location.get("character_name", ""),
                     location.get("zone_id") or "-",
                     location.get("room_id", ""),
                     self._format_timestamp(location.get("updated_at", "")),
@@ -504,7 +507,7 @@ class DatabaseScreen(Screen):
         except AuthenticationError as e:
             self.notify(f"Permission denied: {e.detail}", severity="error")
         except Exception as e:
-            self.notify(f"Failed to load player locations: {e}", severity="error")
+            self.notify(f"Failed to load character locations: {e}", severity="error")
         finally:
             self._refreshing_tabs.discard(tab_id)
 
@@ -577,7 +580,7 @@ class DatabaseScreen(Screen):
 
     @work(thread=False)
     async def _load_players(self) -> None:
-        """Fetch and display players from the database."""
+        """Fetch and display users from the database."""
         table = self.query_one("#table-players", DataTable)
         table.clear()
 
@@ -594,7 +597,9 @@ class DatabaseScreen(Screen):
                     str(player.get("id", "")),
                     player.get("username", ""),
                     player.get("role", ""),
-                    player.get("current_room", ""),
+                    str(player.get("character_count", "")),
+                    "Yes" if player.get("is_guest", False) else "No",
+                    self._format_timestamp(player.get("guest_expires_at", "")),
                     "Yes" if player.get("is_active", False) else "No",
                     self._format_timestamp(player.get("created_at", "")),
                     self._format_timestamp(player.get("last_login", "")),
@@ -625,6 +630,7 @@ class DatabaseScreen(Screen):
                 table.add_row(
                     str(session.get("id", "")),
                     session.get("username", ""),
+                    session.get("character_name", "") or "-",
                     session.get("client_type", "") or "-",
                     self._truncate(session.get("session_id", ""), 20),
                     self._format_timestamp(session.get("created_at", "")),

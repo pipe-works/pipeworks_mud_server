@@ -151,7 +151,7 @@ def test_login_success(test_client, test_db, temp_db_path, db_with_users):
         assert data["success"] is True
         assert "session_id" in data
         assert data["role"] == "player"
-        assert "Welcome" in data["message"]
+        assert "Login successful" in data["message"]
 
 
 @pytest.mark.api
@@ -188,7 +188,7 @@ def test_login_creates_session(test_client, test_db, temp_db_path, db_with_users
         session_id = response.json()["session_id"]
         session = database.get_session_by_id(session_id)
         assert session is not None
-        assert session["username"] == "testplayer"
+        assert session["user_id"] == database.get_user_id("testplayer")
         assert session["client_type"] == "unknown"
 
 

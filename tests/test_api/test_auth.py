@@ -88,7 +88,7 @@ def test_get_username_and_role_from_session_nonexistent(test_db, db_with_users):
 @pytest.mark.unit
 @pytest.mark.auth
 def test_validate_session_success(test_db, db_with_users, db_with_session):
-    username, role = validate_session(db_with_session)
+    _user_id, username, role = validate_session(db_with_session)
     assert username == "testplayer"
     assert role == "player"
 
@@ -180,7 +180,7 @@ def test_validate_session_with_permission_success(test_db, db_with_users):
     session_id = "admin-session"
     database.create_session("testadmin", session_id)
 
-    username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+    _user_id, username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
     assert username == "testadmin"
     assert role == "admin"
 
@@ -213,7 +213,7 @@ def test_validate_session_with_permission_superuser_has_all(test_db, db_with_use
     session_id = "superuser-session"
     database.create_session("testsuperuser", session_id)
 
-    username, role = validate_session_with_permission(session_id, Permission.MANAGE_USERS)
+    _user_id, username, role = validate_session_with_permission(session_id, Permission.MANAGE_USERS)
     assert username == "testsuperuser"
     assert role == "superuser"
 

@@ -58,8 +58,7 @@ def test_login_success(mock_engine, test_db, temp_db_path, db_with_users):
         success, message, role = mock_engine.login("testplayer", TEST_PASSWORD, "session-123")
 
         assert success is True
-        assert "Welcome" in message
-        assert "testplayer" in message
+        assert "Login successful" in message
         assert role == "player"
 
 
@@ -98,33 +97,6 @@ def test_login_inactive_account(mock_engine, test_db, temp_db_path, db_with_user
         assert success is False
         assert "deactivated" in message.lower()
         assert role is None
-
-
-@pytest.mark.unit
-@pytest.mark.game
-def test_login_resets_orphaned_room_to_spawn(mock_engine, test_db, temp_db_path, db_with_users):
-    """Test login resets player to spawn if their room doesn't exist in world data.
-
-    This covers the "Forest That Wasn't There" scenario: a player's current_room
-    in the database points to a room that no longer exists in world_data.json.
-    On login, they should be gracefully reset to spawn rather than stuck in limbo.
-    """
-    with use_test_database(temp_db_path):
-        # Set player in a room that doesn't exist in the world
-        database.set_player_room("testplayer", "nonexistent_forest")
-
-        # Verify they're in the orphaned room
-        assert database.get_player_room("testplayer") == "nonexistent_forest"
-
-        # Login should succeed and reset them to spawn
-        success, message, role = mock_engine.login("testplayer", TEST_PASSWORD, "session-123")
-
-        assert success is True
-        assert "Welcome" in message
-        assert role == "player"
-
-        # Player should now be in spawn, not the nonexistent room
-        assert database.get_player_room("testplayer") == "spawn"
 
 
 @pytest.mark.unit

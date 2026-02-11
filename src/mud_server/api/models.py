@@ -27,7 +27,7 @@ class LoginRequest(BaseModel):
     Login request with username and password.
 
     Attributes:
-        username: Player's username (case-sensitive for database lookup)
+        username: Account username (case-sensitive for database lookup)
         password: Plain text password (will be verified against bcrypt hash)
     """
 
@@ -48,6 +48,19 @@ class RegisterRequest(BaseModel):
     username: str
     password: str
     password_confirm: str
+
+
+class SelectCharacterRequest(BaseModel):
+    """
+    Request to select an active character for a session.
+
+    Attributes:
+        session_id: Active session ID for authentication
+        character_id: Character id to bind to the session
+    """
+
+    session_id: str
+    character_id: int
 
 
 class ChangePasswordRequest(BaseModel):
@@ -199,12 +212,40 @@ class LoginResponse(BaseModel):
         session_id: (Optional) UUID session identifier on successful login
         role: (Optional) User's role on successful login
             ("player", "worldbuilder", "admin", or "superuser")
+        characters: List of available characters for selection
     """
 
     success: bool
     message: str
     session_id: str | None = None
     role: str | None = None
+    characters: list[dict[str, Any]] = []
+
+
+class SelectCharacterResponse(BaseModel):
+    """
+    Response to character selection request.
+
+    Attributes:
+        success: True if character selected
+        message: Success or error message
+        character_name: Selected character name on success
+    """
+
+    success: bool
+    message: str
+    character_name: str | None = None
+
+
+class CharactersResponse(BaseModel):
+    """
+    Response containing the user's characters.
+
+    Attributes:
+        characters: List of character summaries
+    """
+
+    characters: list[dict[str, Any]]
 
 
 class RegisterResponse(BaseModel):
@@ -282,20 +323,20 @@ class UserListResponse(BaseModel):
 
 class DatabasePlayersResponse(BaseModel):
     """
-    Admin response containing all player records from database.
+    Admin response containing all user records from database.
 
-    Requires VIEW_LOGS permission. Includes detailed player information
-    including password hash prefixes, roles, and account status.
+    Requires VIEW_LOGS permission. Includes account details and character counts.
 
     Attributes:
-        players: List of player data dictionaries with fields:
+        players: List of user data dictionaries with fields:
             - id: Database record ID
-            - username: Player username
+            - username: Account username
             - password_hash: Truncated password hash (first 20 chars + "...")
             - role: User role
             - account_origin: Account provenance ("visitor", "admin", "superuser", "system", "legacy")
-            - current_room: Current location (from player_locations when available)
-            - inventory: JSON string of item IDs
+            - is_guest: Guest flag
+            - guest_expires_at: Guest expiry timestamp
+            - character_count: Number of linked characters
             - created_at: Account creation timestamp
             - last_login: Last login timestamp
             - is_active: Account status (True=active, False=banned)
@@ -351,14 +392,14 @@ class DatabaseTableRowsResponse(BaseModel):
 
 class DatabasePlayerLocationsResponse(BaseModel):
     """
-    Admin response containing player locations with usernames.
+    Admin response containing character locations with names.
 
     Requires VIEW_LOGS permission. Useful for cross-referencing room occupancy.
 
     Attributes:
         locations: List of dicts with fields:
-            - player_id
-            - username
+            - character_id
+            - character_name
             - zone_id
             - room_id
             - updated_at
@@ -427,7 +468,8 @@ class DatabaseSessionsResponse(BaseModel):
     Attributes:
         sessions: List of session data dictionaries with fields:
             - id: Database record ID
-            - username: Logged in player
+            - username: Logged in account
+            - character_name: Active character for the session (if selected)
             - session_id: UUID session identifier
             - created_at: Login timestamp
             - last_activity: Most recent API request timestamp

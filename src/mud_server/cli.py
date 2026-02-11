@@ -163,7 +163,7 @@ def cmd_create_superuser(args: argparse.Namespace) -> int:
     Returns:
         0 on success, 1 on error
     """
-    from mud_server.db.database import create_player_with_password, init_database, player_exists
+    from mud_server.db.database import create_user_with_password, init_database, user_exists
 
     # Ensure database exists (skip superuser creation - we'll do it ourselves)
     init_database(skip_superuser=True)
@@ -188,7 +188,7 @@ def cmd_create_superuser(args: argparse.Namespace) -> int:
         username, password = prompt_for_credentials()
 
     # Check if user already exists
-    if player_exists(username):
+    if user_exists(username):
         print(f"Error: User '{username}' already exists.", file=sys.stderr)
         return 1
 
@@ -206,7 +206,7 @@ def cmd_create_superuser(args: argparse.Namespace) -> int:
 
     # Create the superuser
     try:
-        success = create_player_with_password(
+        success = create_user_with_password(
             username, password, role="superuser", account_origin="superuser"
         )
         if success:
