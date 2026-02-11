@@ -2,7 +2,7 @@
 Database viewer screen for PipeWorks Admin TUI.
 
 This module provides a database viewing interface that allows superusers
-to view the contents of various database tables (players, sessions, chat).
+to view the contents of various database tables (users, sessions, chat).
 
     The DatabaseScreen shows:
     - Tabbed interface for different tables
@@ -167,13 +167,13 @@ class DatabaseScreen(Screen):
     Database viewer screen for superusers.
 
     Displays database tables in a tabbed interface with DataTable widgets.
-    Allows viewing of players, sessions, and chat messages.
+    Allows viewing of users, sessions, and chat messages.
 
     Key Bindings:
         r: Refresh current table
         b: Go back to dashboard
         x: Kick selected session (connections/sessions tabs)
-        d: Deactivate/delete selected user (players tab)
+        d: Deactivate/delete selected user (users tab)
         q, ctrl+q: Quit application
 
     CSS Classes:
@@ -262,10 +262,10 @@ class DatabaseScreen(Screen):
                 with TabPane("Tables", id="tab-tables"):
                     yield DataTable(id="table-list")
 
-                with TabPane("Players", id="tab-players"):
+                with TabPane("Users", id="tab-players"):
                     yield DataTable(id="table-players")
 
-                with TabPane("Player Locations", id="tab-player-locations"):
+                with TabPane("Character Locations", id="tab-player-locations"):
                     yield DataTable(id="table-player-locations")
 
                 with TabPane("Connections", id="tab-connections"):
@@ -371,12 +371,15 @@ class DatabaseScreen(Screen):
             "ID",
             "Username",
             "Role",
+            "Origin",
             "Characters",
             "Guest",
             "Guest Expires",
             "Active",
+            "Tombstoned",
             "Created",
             "Last Login",
+            "Password Hash",
         )
 
     def _setup_sessions_table(self) -> None:
@@ -597,12 +600,15 @@ class DatabaseScreen(Screen):
                     str(player.get("id", "")),
                     player.get("username", ""),
                     player.get("role", ""),
+                    player.get("account_origin", "") or "-",
                     str(player.get("character_count", "")),
                     "Yes" if player.get("is_guest", False) else "No",
                     self._format_timestamp(player.get("guest_expires_at", "")),
                     "Yes" if player.get("is_active", False) else "No",
+                    self._format_timestamp(player.get("tombstoned_at", "")),
                     self._format_timestamp(player.get("created_at", "")),
                     self._format_timestamp(player.get("last_login", "")),
+                    player.get("password_hash", "") or "-",
                 )
 
         except AuthenticationError as e:
