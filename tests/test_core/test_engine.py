@@ -881,7 +881,7 @@ def test_recall_database_failure(test_db, temp_db_path, db_with_users):
                 database.set_player_room("testplayer", "other_room")
 
                 # Mock database failure
-                with patch.object(database, "set_player_room", return_value=False):
+                with patch.object(database, "set_character_room", return_value=False):
                     success, message = engine.recall("testplayer")
 
             assert success is False
