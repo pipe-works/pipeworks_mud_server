@@ -62,6 +62,9 @@ Installation:
    mud-server init-db
    mud-server create-superuser
 
+``init-db`` bootstraps the schema and can also create the initial superuser
+if ``MUD_ADMIN_USER`` and ``MUD_ADMIN_PASSWORD`` are set and no users exist.
+
 Running the Server:
 
 .. code-block:: bash

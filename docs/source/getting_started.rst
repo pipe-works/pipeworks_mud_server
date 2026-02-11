@@ -37,7 +37,9 @@ Initialize Database
     # Initialize the database schema
     mud-server init-db
 
-This creates the SQLite database with required tables.
+This creates the SQLite database with required tables. If ``MUD_ADMIN_USER``
+and ``MUD_ADMIN_PASSWORD`` are set and no users exist, ``init-db`` also
+bootstraps the superuser.
 
 Create Superuser
 ~~~~~~~~~~~~~~~~
@@ -204,12 +206,12 @@ The TUI provides:
 
 Requires API server to be running.
 
-Visitor Registration
---------------------
+Guest Registration
+------------------
 
-The public ``/register`` endpoint creates **temporary visitor** accounts for
-testing/dev. These are plain player accounts (username + password only) and
-are automatically purged after 24 hours.
+The public ``/register`` endpoint creates **temporary guest** accounts for
+testing/dev. Each guest account gets a single character and is automatically
+purged after 24 hours.
 
 Environment Variables
 ---------------------
@@ -234,10 +236,10 @@ Optional configuration:
      - Client API endpoint
    * - ``MUD_ADMIN_USER``
      - (none)
-     - Superuser username for init-db
+     - Superuser username for create-superuser or init-db bootstrap
    * - ``MUD_ADMIN_PASSWORD``
      - (none)
-     - Superuser password for init-db
+     - Superuser password for create-superuser or init-db bootstrap
    * - ``MUD_REQUEST_TIMEOUT``
      - ``30``
      - HTTP request timeout (seconds) for TUI
@@ -275,3 +277,9 @@ Next Steps
 * Read the :doc:`architecture` to understand the system design
 * Learn how to :doc:`extending` the server with new features
 * Explore the :doc:`api_reference` for API documentation
+   * - ``MUD_CHAR_DEFAULT_SLOTS``
+     - ``2``
+     - Default character slots per account
+   * - ``MUD_CHAR_MAX_SLOTS``
+     - ``10``
+     - Maximum character slots per account

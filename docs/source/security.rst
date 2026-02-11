@@ -133,7 +133,7 @@ The server uses UUID-based session tokens for authentication:
 
 1. **Login**: User provides username/password, receives UUID session_id
 2. **Requests**: All authenticated endpoints require session_id
-3. **Validation**: Server verifies session exists and extracts (username, role)
+3. **Validation**: Server verifies session exists and extracts (user_id, role, character_id)
 4. **Logout**: Session is removed from the database
 
 **Session Storage**
@@ -167,14 +167,14 @@ Four user roles with hierarchical permissions:
    * - Superuser
      - All permissions including role management
 
-Visitor Accounts
-~~~~~~~~~~~~~~~~
+Guest Accounts
+~~~~~~~~~~~~~~
 
-Visitor registrations are temporary and created via the public ``/register``
-endpoint for testing/dev workflows. These accounts are marked with an
-``account_origin`` of ``visitor`` and are automatically purged after 24 hours.
-Accounts created by admins/superusers (or system bootstrap accounts) are not
-purged by this cleanup.
+Guest registrations are temporary and created via the public ``/register``
+endpoint for testing/dev workflows. These accounts are marked with
+``is_guest = 1``, carry an ``account_origin`` of ``visitor``, and are
+automatically purged after 24 hours. Accounts created by admins/superusers
+(or system bootstrap accounts) are not purged by this cleanup.
 
 **Checking Permissions**
 

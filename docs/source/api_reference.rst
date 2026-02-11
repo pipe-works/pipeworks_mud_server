@@ -33,24 +33,26 @@ API Endpoints
 Authentication
 ~~~~~~~~~~~~~~
 
-* ``POST /register`` - Register **temporary visitor** account (password must meet STANDARD policy)
-* ``POST /login`` - Log in and create session
+* ``POST /register`` - Register **temporary guest** account (password must meet STANDARD policy)
+* ``POST /login`` - Log in and create session (returns character list)
 * ``POST /logout`` - Log out and destroy session
 * ``POST /change-password`` - Change password (password must meet STANDARD policy)
+* ``GET /characters`` - List characters for session
+* ``POST /characters/select`` - Select active character for session
 
 Game Actions
 ~~~~~~~~~~~~
 
 * ``POST /command`` - Execute game command
-* ``GET /status/{session_id}`` - Get player status
+* ``GET /status/{session_id}`` - Get character status
 * ``GET /chat/{session_id}`` - Get chat messages
 
 Admin
 ~~~~~
 
-* ``GET /admin/database/players`` - List players (Admin+)
+* ``GET /admin/database/players`` - List users (Admin+)
 * ``GET /admin/database/connections`` - Active connections (Admin+)
-* ``GET /admin/database/player-locations`` - Player locations (Admin+)
+* ``GET /admin/database/player-locations`` - Character locations (Admin+)
 * ``GET /admin/database/tables`` - Database table metadata (Admin+)
 * ``GET /admin/database/table/{table_name}`` - Table rows (Admin+)
 * ``GET /admin/database/sessions`` - Sessions (Admin+)
@@ -102,10 +104,10 @@ Registration and password changes enforce the **STANDARD** password policy:
 
 See :doc:`security` for complete password policy documentation.
 
-Visitor Accounts
-~~~~~~~~~~~~~~~~
+Guest Accounts
+~~~~~~~~~~~~~~
 
-Visitor registrations are intended for testing/dev. Accounts created via
+Guest registrations are intended for testing/dev. Accounts created via
 ``POST /register`` are marked as temporary and automatically purged after
 24 hours. Admin- or superuser-created accounts are not affected.
 
@@ -113,8 +115,8 @@ Session Creation
 ~~~~~~~~~~~~~~~~
 
 1. **Register**: ``POST /register`` with username and password (must meet policy)
-2. **Login**: ``POST /login`` with credentials
-3. **Receive**: Session ID returned in response
+2. **Login**: ``POST /login`` with credentials and receive character list
+3. **Select**: ``POST /characters/select`` with chosen character ID (if needed)
 4. **Use**: Include session_id in all subsequent requests
 
 Session Format

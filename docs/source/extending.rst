@@ -123,10 +123,10 @@ In ``src/mud_server/db/database.py``:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS achievements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL,
+                character_id INTEGER NOT NULL,
                 achievement_id TEXT NOT NULL,
                 earned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (username) REFERENCES players (username)
+                FOREIGN KEY (character_id) REFERENCES characters (id)
             )
         """)
 
@@ -135,23 +135,23 @@ Add CRUD Functions
 
 .. code-block:: python
 
-    def add_achievement(username: str, achievement_id: str):
-        """Record an achievement for a player."""
+    def add_achievement(character_id: int, achievement_id: str):
+        """Record an achievement for a character."""
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO achievements (username, achievement_id) VALUES (?, ?)",
-                (username, achievement_id)
+                "INSERT INTO achievements (character_id, achievement_id) VALUES (?, ?)",
+                (character_id, achievement_id)
             )
             conn.commit()
 
-    def get_achievements(username: str) -> list[dict]:
-        """Get all achievements for a player."""
+    def get_achievements(character_id: int) -> list[dict]:
+        """Get all achievements for a character."""
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT * FROM achievements WHERE username = ?",
-                (username,)
+                "SELECT * FROM achievements WHERE character_id = ?",
+                (character_id,)
             )
             return [dict(row) for row in cursor.fetchall()]
 
@@ -162,13 +162,13 @@ In ``src/mud_server/api/routes.py``:
 
 .. code-block:: python
 
-    @app.get("/api/achievements/{username}")
-    async def get_player_achievements(username: str):
-        """Get all achievements for a player."""
+    @app.get("/api/achievements/{character_id}")
+    async def get_player_achievements(character_id: int):
+        """Get all achievements for a character."""
         if not validate_session(request):
             raise HTTPException(status_code=401, detail="Not authenticated")
 
-        achievements = db.get_achievements(username)
+        achievements = db.get_achievements(character_id)
         return achievements
 
 Add Client Wrapper
@@ -178,9 +178,9 @@ In ``src/mud_server/client/api/game.py``:
 
 .. code-block:: python
 
-    def get_achievements(self, username: str) -> dict:
-        """Fetch achievements for a player."""
-        response = self._get(f"/api/achievements/{username}")
+    def get_achievements(self, character_id: int) -> dict:
+        """Fetch achievements for a character."""
+        response = self._get(f"/api/achievements/{character_id}")
         return self._parse_response(response)
 
 Adding API Endpoints
