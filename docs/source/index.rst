@@ -13,6 +13,7 @@ JSON-driven world data, and clean architecture.
 
    getting_started
    architecture
+   database
    security
    extending
    examples

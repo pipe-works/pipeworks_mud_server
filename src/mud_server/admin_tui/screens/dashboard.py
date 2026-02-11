@@ -19,6 +19,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Static
 
+from mud_server.admin_tui.screens.characters import CharactersScreen
 from mud_server.admin_tui.screens.create_user import CreateUserScreen
 from mud_server.admin_tui.screens.database import DatabaseScreen
 
@@ -34,6 +35,7 @@ class DashboardScreen(Screen):
         r: Refresh server status
         d: View database tables (superuser only)
         u: Create user (admin or superuser)
+        c: View characters (admin or superuser)
         l: Logout
         q, ctrl+q: Quit application
 
@@ -52,6 +54,7 @@ class DashboardScreen(Screen):
         Binding("r", "refresh", "Refresh", priority=True),
         Binding("d", "view_database", "Database", priority=True),
         Binding("u", "create_user", "Create User", priority=True),
+        Binding("c", "view_characters", "Characters", priority=True),
         Binding("l", "logout", "Logout", priority=True),
         Binding("q", "quit", "Quit", priority=True),
         Binding("ctrl+q", "quit", "Quit", priority=True, show=False),
@@ -166,6 +169,12 @@ class DashboardScreen(Screen):
                     )
                     yield Button(
                         "Database", variant="primary", id="btn-database", classes="action-button"
+                    )
+                    yield Button(
+                        "Characters",
+                        variant="primary",
+                        id="btn-characters",
+                        classes="action-button",
                     )
                     yield Button(
                         "Create User",
@@ -292,6 +301,11 @@ class DashboardScreen(Screen):
         """Handle logout button press."""
         await self.action_logout()
 
+    @on(Button.Pressed, "#btn-characters")
+    def handle_characters_button(self) -> None:
+        """Handle characters button press."""
+        self.action_view_characters()
+
     @on(Button.Pressed, "#btn-create-user")
     def handle_create_user_button(self) -> None:
         """Handle create user button press."""
@@ -333,6 +347,15 @@ class DashboardScreen(Screen):
             return
 
         self.app.push_screen(CreateUserScreen(allowed_roles=allowed_roles))
+
+    def action_view_characters(self) -> None:
+        """View all characters (key: c). Requires admin or superuser."""
+        api_client = self.app.api_client
+        if not api_client or not api_client.session.is_admin:
+            self.notify("Admin access required to view characters", severity="warning")
+            return
+
+        self.app.push_screen(CharactersScreen())
 
     async def action_logout(self) -> None:
         """Logout and return to login screen (key: l)."""
