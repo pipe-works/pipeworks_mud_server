@@ -42,11 +42,15 @@ DEFAULT_KEYBINDINGS: dict[str, list[str]] = {
     "cursor_right": ["l"],
     # Selection
     "select": ["space", "enter"],
+    # Sorting
+    "sort": ["s"],
     # Session management
     "kick": ["x"],
     # User management
     "remove_user": ["d"],
     "create_user": ["u"],
+    # Navigation shortcuts
+    "view_characters": ["c"],
 }
 
 # Environment variable to override the keybindings file path.

@@ -8,9 +8,11 @@ to view the contents of various database tables (users, sessions, chat).
     - Tabbed interface for different tables
     - DataTable widgets for viewing records
     - A table browser for any database table
-    - Player locations view for room/zone occupancy
+    - Character locations view for room/zone occupancy
     - Refresh functionality for each table
 """
+
+from typing import Any
 
 from textual import events, on, work
 from textual.app import ComposeResult
@@ -172,6 +174,7 @@ class DatabaseScreen(Screen):
     Key Bindings:
         r: Refresh current table
         b: Go back to dashboard
+        s: Sort users by selected column
         x: Kick selected session (connections/sessions tabs)
         d: Deactivate/delete selected user (users tab)
         q, ctrl+q: Quit application
@@ -307,6 +310,9 @@ class DatabaseScreen(Screen):
         self._refreshing_tabs: set[str] = set()
         # Track the selected table name for the generic table data tab.
         self._active_table_name: str | None = None
+        # Cache users for sorting and detail views.
+        self._users_cache: list[dict[str, Any]] = []
+        self._users_sort_state: tuple[int, bool] | None = None
 
         # Load initial data
         self._load_tables()
@@ -355,6 +361,7 @@ class DatabaseScreen(Screen):
             "cursor_left",
             "cursor_right",
             "select",
+            "sort",
             "kick",
             "remove_user",
         ):
@@ -595,21 +602,9 @@ class DatabaseScreen(Screen):
             self._refreshing_tabs.add(tab_id)
             players = await self.app.api_client.get_players()
 
-            for player in players:
-                table.add_row(
-                    str(player.get("id", "")),
-                    player.get("username", ""),
-                    player.get("role", ""),
-                    player.get("account_origin", "") or "-",
-                    str(player.get("character_count", "")),
-                    "Yes" if player.get("is_guest", False) else "No",
-                    self._format_timestamp(player.get("guest_expires_at", "")),
-                    "Yes" if player.get("is_active", False) else "No",
-                    self._format_timestamp(player.get("tombstoned_at", "")),
-                    self._format_timestamp(player.get("created_at", "")),
-                    self._format_timestamp(player.get("last_login", "")),
-                    player.get("password_hash", "") or "-",
-                )
+            self._users_cache = list(players)
+            self._users_sort_state = None
+            self._render_users_table(self._users_cache)
 
         except AuthenticationError as e:
             self.notify(f"Permission denied: {e.detail}", severity="error")
@@ -697,6 +692,77 @@ class DatabaseScreen(Screen):
         if len(text) <= max_length:
             return text
         return text[: max_length - 3] + "..."
+
+    def _render_users_table(self, users: list[dict[str, Any]]) -> None:
+        """Render users into the users table."""
+        table = self.query_one("#table-players", DataTable)
+        table.clear()
+        for user in users:
+            table.add_row(
+                str(user.get("id", "")),
+                user.get("username", ""),
+                user.get("role", ""),
+                user.get("account_origin", "") or "-",
+                str(user.get("character_count", "")),
+                "Yes" if user.get("is_guest", False) else "No",
+                self._format_timestamp(user.get("guest_expires_at", "")),
+                "Yes" if user.get("is_active", False) else "No",
+                self._format_timestamp(user.get("tombstoned_at", "")),
+                self._format_timestamp(user.get("created_at", "")),
+                self._format_timestamp(user.get("last_login", "")),
+                user.get("password_hash", "") or "-",
+            )
+
+    def _sort_users(
+        self, users: list[dict[str, Any]], column_index: int, ascending: bool
+    ) -> list[dict[str, Any]]:
+        """Sort the users list by the given column index."""
+        column_keys = [
+            "id",
+            "username",
+            "role",
+            "account_origin",
+            "character_count",
+            "is_guest",
+            "guest_expires_at",
+            "is_active",
+            "tombstoned_at",
+            "created_at",
+            "last_login",
+            "password_hash",
+        ]
+        key_name = column_keys[column_index] if column_index < len(column_keys) else "id"
+
+        def sort_key(item: dict[str, Any]) -> tuple[int, str]:
+            value = item.get(key_name)
+            if value is None:
+                return (1, "")
+            if isinstance(value, bool):
+                return (0, "1" if value else "0")
+            return (0, str(value).lower())
+
+        return sorted(users, key=sort_key, reverse=not ascending)
+
+    def _open_selected_user_detail(self) -> None:
+        """Open the user detail screen for the selected row."""
+        from mud_server.admin_tui.screens.user_detail import UserDetailScreen
+
+        table = self.query_one("#table-players", DataTable)
+        selected_row = table.get_row_at(table.cursor_row)
+        if not selected_row:
+            return
+
+        user_id = str(selected_row[0])
+        if not user_id:
+            return
+
+        # Use cached user data to avoid another API call.
+        user = next((entry for entry in self._users_cache if str(entry.get("id")) == user_id), None)
+        if not user:
+            self.notify("Unable to resolve user details", severity="warning")
+            return
+
+        self.app.push_screen(UserDetailScreen(user=user))
 
     # -------------------------------------------------------------------------
     # Button Handlers
@@ -815,6 +881,10 @@ class DatabaseScreen(Screen):
         if not table:
             return
 
+        if self._is_players_tab_active():
+            self._open_selected_user_detail()
+            return
+
         if self._is_tables_tab_active():
             selected_row = table.get_row_at(table.cursor_row)
             if selected_row:
@@ -824,6 +894,26 @@ class DatabaseScreen(Screen):
             return
 
         table.action_select_cursor()
+
+    def action_sort(self) -> None:
+        """Sort the users table by the current column."""
+        if not self._is_players_tab_active():
+            return
+
+        table = self.query_one("#table-players", DataTable)
+        if not self._users_cache or table.cursor_column is None:
+            return
+
+        # Toggle sort direction if sorting the same column again.
+        column_index = int(table.cursor_column)
+        previous = self._users_sort_state
+        ascending = True
+        if previous and previous[0] == column_index:
+            ascending = not previous[1]
+
+        sorted_users = self._sort_users(self._users_cache, column_index, ascending)
+        self._users_sort_state = (column_index, ascending)
+        self._render_users_table(sorted_users)
 
     def _switch_tab(self, direction: int) -> None:
         """Rotate tab selection by +1 (next) or -1 (prev)."""
