@@ -13,6 +13,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
+from textual.widget import SkipAction
 from textual.widgets import DataTable, Footer, Header, Static
 
 from mud_server.admin_tui.api.client import AuthenticationError
@@ -230,12 +231,18 @@ class UserDetailScreen(Screen):
     def action_cursor_left(self) -> None:
         """Move selection left one column."""
         table = self.query_one("#table-user-characters", DataTable)
-        table.action_cursor_left()
+        try:
+            table.action_cursor_left()
+        except SkipAction:
+            return
 
     def action_cursor_right(self) -> None:
         """Move selection right one column."""
         table = self.query_one("#table-user-characters", DataTable)
-        table.action_cursor_right()
+        try:
+            table.action_cursor_right()
+        except SkipAction:
+            return
 
     def action_select(self) -> None:
         """Open the selected character in a detail placeholder."""

@@ -19,6 +19,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
+from textual.widget import SkipAction
 from textual.widgets import Button, DataTable, Footer, Header, Static, TabbedContent, TabPane
 
 from mud_server.admin_tui.api.client import AuthenticationError
@@ -867,13 +868,19 @@ class DatabaseScreen(Screen):
         """Move selection left in the active table."""
         table = self._get_active_table()
         if table:
-            table.action_cursor_left()
+            try:
+                table.action_cursor_left()
+            except SkipAction:
+                return
 
     def action_cursor_right(self) -> None:
         """Move selection right in the active table."""
         table = self._get_active_table()
         if table:
-            table.action_cursor_right()
+            try:
+                table.action_cursor_right()
+            except SkipAction:
+                return
 
     def action_select(self) -> None:
         """Select the current row in the active table."""
@@ -914,6 +921,11 @@ class DatabaseScreen(Screen):
         sorted_users = self._sort_users(self._users_cache, column_index, ascending)
         self._users_sort_state = (column_index, ascending)
         self._render_users_table(sorted_users)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Open detail screens when a row is activated with mouse or Enter."""
+        if event.data_table.id == "table-players":
+            self._open_selected_user_detail()
 
     def _switch_tab(self, direction: int) -> None:
         """Rotate tab selection by +1 (next) or -1 (prev)."""
