@@ -254,7 +254,7 @@ Users Table
 * ``account_origin`` (TEXT) - e.g. legacy, visitor, admin
 * ``created_at`` (TIMESTAMP)
 * ``last_login`` (TIMESTAMP)
-* ``tombstoned_at`` (TIMESTAMP, NULLABLE)
+* ``tombstoned_at`` (TIMESTAMP, NULLABLE) - set for deactivated users; guest accounts are deleted on expiry
 
 Characters Table
 ~~~~~~~~~~~~~~~~

@@ -29,6 +29,7 @@ from mud_server.admin_tui.screens.database_tabs import (
     SessionsTab,
     TableDataTab,
     TablesListTab,
+    TombstonedTab,
     UsersTab,
 )
 
@@ -54,6 +55,7 @@ class DatabaseScreen(Screen):
         r: Refresh current table
         b: Go back to dashboard
         s: Sort users by selected column
+        t: Toggle tombstoned users
         x: Kick selected session (connections/sessions tabs)
         d: Deactivate/delete selected user (users tab)
         ctrl+q: Quit application
@@ -67,6 +69,7 @@ class DatabaseScreen(Screen):
     BINDINGS = [
         Binding("r", "refresh", "Refresh", priority=True),
         Binding("b", "back", "Back", priority=True),
+        Binding("t", "toggle_tombstoned", "Toggle Tombstoned", priority=True),
         Binding("x", "kick", "Kick", priority=True),
         Binding("d", "remove_user", "Remove User", priority=True),
         Binding("ctrl+q", "quit", "Quit", priority=True),
@@ -115,9 +118,7 @@ class DatabaseScreen(Screen):
         border-bottom: solid $primary-darken-2;
     }
 
-    .action-button {
-        margin-right: 1;
-    }
+
 
     TabbedContent {
         height: 1fr;
@@ -158,6 +159,9 @@ class DatabaseScreen(Screen):
                 with TabPane("Chat Messages", id="tab-chat"):
                     yield DataTable(id="table-chat")
 
+                with TabPane("Tombstoned", id="tab-tombstoned"):
+                    yield DataTable(id="table-tombstoned-users")
+
                 with TabPane("Table Data", id="tab-table-data"):
                     yield DataTable(id="table-data")
 
@@ -181,6 +185,7 @@ class DatabaseScreen(Screen):
             "sessions": SessionsTab(self),
             "chat": ChatTab(self),
             "table_data": TableDataTab(self),
+            "tombstoned": TombstonedTab(self),
         }
         self._actions = DatabaseActions(self)
 
@@ -191,6 +196,7 @@ class DatabaseScreen(Screen):
         self._tabs["sessions"].setup()
         self._tabs["chat"].setup()
         self._tabs["table_data"].setup()
+        self._tabs["tombstoned"].setup()
 
         # Apply user-configured keybindings
         self._apply_keybindings()
@@ -199,6 +205,9 @@ class DatabaseScreen(Screen):
         self._refreshing_tabs: set[str] = set()
         # Track the selected table name for the generic table data tab.
         self._active_table_name: str | None = None
+        # Track the last selected users for refresh-safe cursor restoration.
+        self.selected_user_id: str | None = None
+        self.selected_tombstoned_id: str | None = None
 
         # Load initial data
         self._load_tables()
@@ -207,6 +216,7 @@ class DatabaseScreen(Screen):
         self._load_connections()
         self._load_sessions()
         self._load_chat_messages()
+        self._load_tombstoned()
 
         # Auto-refresh the active tab on an interval for a lightweight live view.
         self._auto_refresh_interval = 10.0
@@ -248,6 +258,7 @@ class DatabaseScreen(Screen):
             "cursor_right",
             "select",
             "sort",
+            "toggle_tombstoned",
             "kick",
             "remove_user",
         ):
@@ -326,6 +337,19 @@ class DatabaseScreen(Screen):
             self._refreshing_tabs.discard(tab_id)
 
     @work(thread=False)
+    async def _load_tombstoned(self) -> None:
+        """Fetch and display tombstoned users."""
+        tab_id = "tab-tombstoned"
+        if tab_id in self._refreshing_tabs:
+            return
+
+        try:
+            self._refreshing_tabs.add(tab_id)
+            await self._tabs["tombstoned"].load()
+        finally:
+            self._refreshing_tabs.discard(tab_id)
+
+    @work(thread=False)
     async def _load_sessions(self) -> None:
         """Fetch and display active sessions from the database."""
         tab_id = "tab-sessions"
@@ -387,6 +411,28 @@ class DatabaseScreen(Screen):
 
         handler()
         event.stop()
+        self._capture_user_selection()
+
+    def _capture_user_selection(self) -> None:
+        """Record the current user/tombstoned selection for refresh stability."""
+        if self._is_players_tab_active():
+            table = self.query_one("#table-players", DataTable)
+            if table.row_count:
+                row = table.get_row_at(table.cursor_row)
+                if row:
+                    self.selected_user_id = str(row[0])
+        tabs = self.query_one("#table-tabs", TabbedContent)
+        active_id = tabs.active or (tabs.active_pane.id if tabs.active_pane else None)
+        if active_id == "tab-tombstoned":
+            table = self.query_one("#table-tombstoned-users", DataTable)
+            if table.row_count:
+                row = table.get_row_at(table.cursor_row)
+                if row:
+                    self.selected_tombstoned_id = str(row[0])
+
+    def action_toggle_tombstoned(self) -> None:
+        """Keyboard action to toggle tombstoned users from the users tab."""
+        cast(UsersTab, self._tabs["users"]).toggle_tombstoned_visibility()
 
     # -------------------------------------------------------------------------
     # Actions (Bound to Keys)
@@ -540,6 +586,7 @@ class DatabaseScreen(Screen):
             "tab-connections": "#table-connections",
             "tab-sessions": "#table-sessions",
             "tab-chat": "#table-chat",
+            "tab-tombstoned": "#table-tombstoned-users",
             "tab-table-data": "#table-data",
         }
         table_selector = table_id_map.get(active_id)
@@ -628,6 +675,8 @@ class DatabaseScreen(Screen):
         if not selected_row:
             return None
 
+        user_id = str(selected_row[0])
+        self.selected_user_id = user_id
         username = str(selected_row[1])
         role = str(selected_row[2])
         return username, role
@@ -654,6 +703,7 @@ class DatabaseScreen(Screen):
             "tab-connections": self._load_connections,
             "tab-sessions": self._load_sessions,
             "tab-chat": self._load_chat_messages,
+            "tab-tombstoned": self._load_tombstoned,
             "tab-table-data": self._refresh_table_data,
         }
         refresh_fn = refresh_map.get(active_id)

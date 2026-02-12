@@ -813,8 +813,8 @@ def test_update_session_activity_without_sliding_expiration(test_db, temp_db_pat
 
 @pytest.mark.unit
 @pytest.mark.db
-def test_cleanup_expired_guest_accounts_tombstones_user(test_db, temp_db_path):
-    """Test guest expiry tombstones the account and unlinks characters."""
+def test_cleanup_expired_guest_accounts_deletes_user(test_db, temp_db_path):
+    """Test guest expiry deletes the account and unlinks characters."""
     with use_test_database(temp_db_path):
         database.create_user_with_password(
             "guest_user",
@@ -830,13 +830,13 @@ def test_cleanup_expired_guest_accounts_tombstones_user(test_db, temp_db_path):
 
         conn = database.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT tombstoned_at FROM users WHERE username = ?", ("guest_user",))
-        tombstoned = cursor.fetchone()[0]
+        cursor.execute("SELECT id FROM users WHERE username = ?", ("guest_user",))
+        user_row = cursor.fetchone()
         cursor.execute("SELECT user_id FROM characters WHERE name = ?", ("guest_user_char",))
         user_id = cursor.fetchone()[0]
         conn.close()
 
-        assert tombstoned is not None
+        assert user_row is None
         assert user_id is None
 
 

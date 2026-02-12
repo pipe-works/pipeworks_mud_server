@@ -56,18 +56,18 @@ async def lifespan(app: FastAPI):
     if removed > 0:
         print(f"Removed {removed} expired session(s) from previous run")
 
-    # Startup: Tombstone expired guest accounts.
+    # Startup: Delete expired guest accounts.
     removed_visitors = database.cleanup_expired_guest_accounts()
     if removed_visitors > 0:
-        print(f"Tombstoned {removed_visitors} expired guest account(s) on startup")
+        print(f"Deleted {removed_visitors} expired guest account(s) on startup")
 
     async def temporary_account_sweeper() -> None:
-        """Periodic cleanup for guest accounts."""
+        """Periodic cleanup for expired guest accounts."""
         while True:
             await asyncio.sleep(24 * 60 * 60)
             removed_temp = database.cleanup_expired_guest_accounts()
             if removed_temp > 0:
-                print(f"Tombstoned {removed_temp} expired guest account(s)")
+                print(f"Deleted {removed_temp} expired guest account(s)")
 
     sweeper_task = asyncio.create_task(temporary_account_sweeper())
 

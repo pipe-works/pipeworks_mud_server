@@ -176,9 +176,17 @@ class CharactersScreen(Screen):
     def _render_characters_table(self, characters: list[dict[str, Any]]) -> None:
         """Render character rows into the table."""
         table = self.query_one("#table-characters", DataTable)
+        selected_key = None
+        selected_index = table.cursor_row
+        if table.row_count:
+            row = table.get_row_at(table.cursor_row)
+            if row and row[0] is not None:
+                selected_key = str(row[0])
+
         table.clear()
+        key_map: dict[str, int] = {}
         for character in characters:
-            table.add_row(
+            row = (
                 str(character.get("id", "")),
                 character.get("name", ""),
                 character.get("username", "-"),
@@ -187,6 +195,14 @@ class CharactersScreen(Screen):
                 self._format_timestamp(character.get("created_at")),
                 self._format_timestamp(character.get("updated_at")),
             )
+            table.add_row(*row)
+            if row[0]:
+                key_map[str(row[0])] = table.row_count - 1
+
+        if selected_key and selected_key in key_map:
+            table.move_cursor(row=key_map[selected_key], column=table.cursor_column, animate=False)
+        elif 0 <= selected_index < table.row_count:
+            table.move_cursor(row=selected_index, column=table.cursor_column, animate=False)
 
     def action_cursor_up(self) -> None:
         """Move selection up one row."""
