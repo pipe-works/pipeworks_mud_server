@@ -215,6 +215,51 @@ the username server-side, while ``/register`` accepts a client-supplied
 username. Each guest account gets a single character and is automatically
 purged after 24 hours (the user is deleted, characters are unlinked).
 
+Example: ``POST /register`` (client-supplied username)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+    curl -s -X POST http://localhost:8000/register \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "username": "guest_demo",
+        "password": "SecurePass#1234",
+        "password_confirm": "SecurePass#1234"
+      }'
+
+**Response** (200):
+
+.. code-block:: json
+
+    {
+      "success": true,
+      "message": "Temporary account created successfully! You can now login as guest_demo."
+    }
+
+Example: ``POST /register-guest`` (server-generated username)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+    curl -s -X POST http://localhost:8000/register-guest \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "password": "SecurePass#1234",
+        "password_confirm": "SecurePass#1234",
+        "character_name": "Guest Wanderer"
+      }'
+
+**Response** (200):
+
+.. code-block:: json
+
+    {
+      "success": true,
+      "message": "Temporary guest account created successfully! You can now login as guest_00421.",
+      "username": "guest_00421"
+    }
+
 Environment Variables
 ---------------------
 

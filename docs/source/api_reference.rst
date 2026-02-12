@@ -41,6 +41,52 @@ Authentication
 * ``GET /characters`` - List characters for session
 * ``POST /characters/select`` - Select active character for session
 
+Register Guest Examples
+~~~~~~~~~~~~~~~~~~~~~~~
+
+**POST /register** (client-supplied username)
+
+.. code-block:: bash
+
+    curl -s -X POST http://localhost:8000/register \
+      -H "Content-Type: application/json" \
+      -d '{
+        "username": "guest_demo",
+        "password": "SecurePass#1234",
+        "password_confirm": "SecurePass#1234"
+      }'
+
+**Response** (200):
+
+.. code-block:: json
+
+    {
+      "success": true,
+      "message": "Temporary account created successfully! You can now login as guest_demo."
+    }
+
+**POST /register-guest** (server-generated username)
+
+.. code-block:: bash
+
+    curl -s -X POST http://localhost:8000/register-guest \
+      -H "Content-Type: application/json" \
+      -d '{
+        "password": "SecurePass#1234",
+        "password_confirm": "SecurePass#1234",
+        "character_name": "Guest Wanderer"
+      }'
+
+**Response** (200):
+
+.. code-block:: json
+
+    {
+      "success": true,
+      "message": "Temporary guest account created successfully! You can now login as guest_00421.",
+      "username": "guest_00421"
+    }
+
 Game Actions
 ~~~~~~~~~~~~
 
