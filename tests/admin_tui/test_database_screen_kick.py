@@ -72,7 +72,7 @@ async def test_get_kick_target_from_connections_tab() -> None:
         table = active.query_one("#table-connections", DataTable)
         table.add_row("user1", "tui", "session-1", "2026-02-05 12:00:00", "00:00:30", "-")
 
-        target = active._get_kick_target()
+        target = active.get_selected_session_target()
         assert target == ("user1", "session-1")
 
 
@@ -100,5 +100,5 @@ async def test_get_kick_target_from_sessions_tab() -> None:
             "-",
         )
 
-        target = active._get_kick_target()
+        target = active.get_selected_session_target()
         assert target == ("user2", "session-2")

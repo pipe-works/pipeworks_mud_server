@@ -73,3 +73,14 @@ The ASCII diagram below reflects the current SQLite schema in ``data/mud.db``.
     |     recipient_character_id INTEGER | FK -> characters.id (ON DELETE SET NULL)
     |     timestamp          TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
     +----------------------------------+
+
+Notes
+-----
+
+- ``users.email_hash`` stores a hashed email address (no plaintext email). The column
+  is nullable during development but intended to be required later; the unique index
+  keeps that migration path open.
+- ``users.is_guest`` + ``users.guest_expires_at`` model temporary accounts that are
+  auto-purged; related characters are unlinked (``user_id`` set to NULL) rather than deleted.
+- ``characters.name`` is a plain TEXT field, so names with spaces (e.g., first + last)
+  are supported.
