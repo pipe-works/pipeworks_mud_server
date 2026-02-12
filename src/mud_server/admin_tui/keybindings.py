@@ -44,6 +44,8 @@ DEFAULT_KEYBINDINGS: dict[str, list[str]] = {
     "select": ["space", "enter"],
     # Sorting
     "sort": ["s"],
+    # Toggle tombstoned users in admin user list
+    "toggle_tombstoned": ["t"],
     # Session management
     "kick": ["x"],
     # User management

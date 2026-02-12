@@ -1311,10 +1311,10 @@ def get_active_characters() -> list[str]:
 
 def cleanup_expired_guest_accounts() -> int:
     """
-    Tombstone expired guest accounts and unlink their characters.
+    Delete expired guest accounts and unlink their characters.
 
     Returns:
-        Number of guest users tombstoned.
+        Number of guest users deleted.
     """
     conn = get_connection()
     cursor = conn.cursor()
@@ -1345,8 +1345,11 @@ def cleanup_expired_guest_accounts() -> int:
         user_ids,
     )
     cursor.execute(
-        f"UPDATE users SET is_active = 0, tombstoned_at = CURRENT_TIMESTAMP "
-        f"WHERE id IN ({placeholders})",  # nosec B608
+        f"DELETE FROM sessions WHERE user_id IN ({placeholders})",  # nosec B608
+        user_ids,
+    )
+    cursor.execute(
+        f"DELETE FROM users WHERE id IN ({placeholders})",  # nosec B608
         user_ids,
     )
 

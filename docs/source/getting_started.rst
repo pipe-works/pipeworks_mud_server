@@ -209,9 +209,11 @@ Requires API server to be running.
 Guest Registration
 ------------------
 
-The public ``/register`` endpoint creates **temporary guest** accounts for
-testing/dev. Each guest account gets a single character and is automatically
-purged after 24 hours.
+The public ``/register`` and ``/register-guest`` endpoints create
+**temporary guest** accounts for testing/dev. ``/register-guest`` generates
+the username server-side, while ``/register`` accepts a client-supplied
+username. Each guest account gets a single character and is automatically
+purged after 24 hours (the user is deleted, characters are unlinked).
 
 Environment Variables
 ---------------------

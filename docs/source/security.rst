@@ -171,10 +171,12 @@ Guest Accounts
 ~~~~~~~~~~~~~~
 
 Guest registrations are temporary and created via the public ``/register``
-endpoint for testing/dev workflows. These accounts are marked with
-``is_guest = 1``, carry an ``account_origin`` of ``visitor``, and are
-automatically purged after 24 hours. Accounts created by admins/superusers
-(or system bootstrap accounts) are not purged by this cleanup.
+or ``/register-guest`` endpoints for testing/dev workflows. These accounts
+are marked with ``is_guest = 1``, carry an ``account_origin`` of ``visitor``,
+and are automatically purged after 24 hours. The purge deletes the user
+account but leaves any characters unlinked for analysis. Accounts created
+by admins/superusers (or system bootstrap accounts) are not purged by this
+cleanup.
 
 **Checking Permissions**
 
