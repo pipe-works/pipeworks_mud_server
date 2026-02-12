@@ -34,6 +34,7 @@ Authentication
 ~~~~~~~~~~~~~~
 
 * ``POST /register`` - Register **temporary guest** account (password must meet STANDARD policy)
+* ``POST /register-guest`` - Register guest account with server-generated username
 * ``POST /login`` - Log in and create session (returns character list)
 * ``POST /logout`` - Log out and destroy session
 * ``POST /change-password`` - Change password (password must meet STANDARD policy)
