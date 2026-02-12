@@ -78,6 +78,8 @@ from mud_server.api.models import (
     LogoutRequest,
     OllamaCommandRequest,
     OllamaCommandResponse,
+    RegisterGuestRequest,
+    RegisterGuestResponse,
     RegisterRequest,
     RegisterResponse,
     SelectCharacterRequest,
@@ -130,7 +132,7 @@ def register_routes(app: FastAPI, engine: GameEngine):
     @app.get("/")
     async def root():
         """Root endpoint showing API info."""
-        return {"message": "MUD Server API", "version": "0.1.0"}
+        return {"message": "MUD Server API", "version": "0.3.2"}
 
     @app.post("/login", response_model=LoginResponse)
     async def login(request: LoginRequest, http_request: Request):
@@ -249,6 +251,99 @@ def register_routes(app: FastAPI, engine: GameEngine):
             raise HTTPException(
                 status_code=500, detail="Failed to create account. Please try again."
             )
+
+    @app.post("/register-guest", response_model=RegisterGuestResponse)
+    async def register_guest(request: RegisterGuestRequest):
+        """
+        Register a new temporary guest account with a server-generated username.
+
+        This endpoint enforces password policy and creates a single character
+        for the guest account. Username generation is handled server-side to
+        ensure consistent formatting, uniqueness, and future-proofing.
+
+        The guest flow validates:
+        1. Password strength against STANDARD security policy
+        2. Password confirmation match
+        3. Character name presence + uniqueness
+
+        Returns:
+            RegisterGuestResponse with generated username and status.
+            Guest accounts are purged after 24 hours.
+
+        Raises:
+            HTTPException 400: Invalid input (password policy, mismatch, character name)
+            HTTPException 500: Database error during account creation
+        """
+        from datetime import UTC, datetime, timedelta
+        from secrets import randbelow
+
+        from mud_server.api.password_policy import PolicyLevel, validate_password_strength
+
+        password = request.password
+        password_confirm = request.password_confirm
+        character_name = request.character_name.strip()
+
+        if not character_name:
+            raise HTTPException(status_code=400, detail="Character name is required")
+
+        if database.character_exists(character_name):
+            raise HTTPException(status_code=400, detail="Character name already taken")
+
+        if password != password_confirm:
+            raise HTTPException(status_code=400, detail="Passwords do not match")
+
+        result = validate_password_strength(password, level=PolicyLevel.STANDARD)
+        if not result.is_valid:
+            error_detail = " ".join(result.errors)
+            raise HTTPException(status_code=400, detail=error_detail)
+
+        # Generate a short, unique guest username (fits 2-20 char constraint).
+        guest_prefix = "guest_"
+        max_attempts = 20
+        username = None
+        for _ in range(max_attempts):
+            candidate = f"{guest_prefix}{randbelow(100000):05d}"
+            if not database.user_exists(candidate):
+                username = candidate
+                break
+
+        if username is None:
+            raise HTTPException(status_code=500, detail="Failed to allocate a guest username")
+
+        guest_expires_at = (datetime.now(UTC) + timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+        if not database.create_user_with_password(
+            username,
+            password,
+            role="player",
+            account_origin="visitor",
+            is_guest=True,
+            guest_expires_at=guest_expires_at,
+            create_default_character=False,
+        ):
+            raise HTTPException(
+                status_code=500, detail="Failed to create guest account. Please try again."
+            )
+
+        user_id = database.get_user_id(username)
+        if user_id is None:
+            database.delete_user(username)
+            raise HTTPException(status_code=500, detail="Failed to finalize guest account")
+
+        if not database.create_character_for_user(
+            user_id,
+            character_name,
+            is_guest_created=True,
+        ):
+            database.delete_user(username)
+            raise HTTPException(status_code=400, detail="Character name already taken")
+
+        return RegisterGuestResponse(
+            success=True,
+            message=(
+                "Temporary guest account created successfully! " f"You can now login as {username}."
+            ),
+            username=username,
+        )
 
     # ========================================================================
     # AUTHENTICATED ENDPOINTS (Require Valid Session)

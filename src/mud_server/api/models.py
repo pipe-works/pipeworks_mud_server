@@ -50,6 +50,21 @@ class RegisterRequest(BaseModel):
     password_confirm: str
 
 
+class RegisterGuestRequest(BaseModel):
+    """
+    Registration request for creating a temporary guest account.
+
+    Attributes:
+        password: Desired password (validated against STANDARD policy)
+        password_confirm: Password confirmation (must match password)
+        character_name: Initial character name for the guest account
+    """
+
+    password: str
+    password_confirm: str
+    character_name: str
+
+
 class SelectCharacterRequest(BaseModel):
     """
     Request to select an active character for a session.
@@ -259,6 +274,21 @@ class RegisterResponse(BaseModel):
 
     success: bool
     message: str
+
+
+class RegisterGuestResponse(BaseModel):
+    """
+    Response to guest registration request.
+
+    Attributes:
+        success: True if account created, False otherwise
+        message: Success confirmation or error details
+        username: Generated guest username for login
+    """
+
+    success: bool
+    message: str
+    username: str | None = None
 
 
 class CreateUserResponse(BaseModel):

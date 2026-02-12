@@ -151,6 +151,73 @@ def test_register_create_user_failure(test_client, test_db, temp_db_path):
 
 
 # ============================================================================
+# GUEST REGISTRATION TESTS
+# ============================================================================
+
+
+@pytest.mark.api
+def test_register_guest_success(test_client, test_db, temp_db_path):
+    """Test successful guest registration with server-generated username."""
+    with use_test_database(temp_db_path):
+        response = test_client.post(
+            "/register-guest",
+            json={
+                "password": TEST_PASSWORD,
+                "password_confirm": TEST_PASSWORD,
+                "character_name": "Guest Traveler",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["username"].startswith("guest_")
+        assert len(data["username"]) <= 20
+        assert database.get_user_account_origin(data["username"]) == "visitor"
+
+        character = database.get_character_by_name("Guest Traveler")
+        assert character is not None
+        assert character["is_guest_created"] is True
+
+
+@pytest.mark.api
+def test_register_guest_character_name_taken(test_client, test_db, temp_db_path, db_with_users):
+    """Test guest registration fails when character name already exists."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+        assert database.create_character_for_user(user_id, "TakenName") is True
+
+        response = test_client.post(
+            "/register-guest",
+            json={
+                "password": TEST_PASSWORD,
+                "password_confirm": TEST_PASSWORD,
+                "character_name": "TakenName",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "already taken" in response.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_register_guest_passwords_dont_match(test_client):
+    """Test guest registration rejects mismatched passwords."""
+    response = test_client.post(
+        "/register-guest",
+        json={
+            "password": TEST_PASSWORD,
+            "password_confirm": "different123",
+            "character_name": "Guest Wanderer",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "do not match" in response.json()["detail"].lower()
+
+
+# ============================================================================
 # LOGIN TESTS
 # ============================================================================
 
