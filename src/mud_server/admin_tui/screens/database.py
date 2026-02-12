@@ -12,157 +12,35 @@ to view the contents of various database tables (users, sessions, chat).
     - Refresh functionality for each table
 """
 
-from typing import Any
+from typing import Any, Protocol, cast
 
 from textual import events, on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen, Screen
-from textual.widget import SkipAction
-from textual.widgets import Button, DataTable, Footer, Header, Static, TabbedContent, TabPane
+from textual.containers import Vertical
+from textual.screen import Screen
+from textual.widgets import DataTable, Footer, Header, TabbedContent, TabPane
 
-from mud_server.admin_tui.api.client import AuthenticationError
-
-
-class ConfirmKickScreen(ModalScreen[bool]):
-    """Modal confirmation prompt for kicking a session."""
-
-    DEFAULT_CSS = """
-    ConfirmKickScreen {
-        align: center middle;
-    }
-
-    .confirm-dialog {
-        width: 60;
-        border: solid $primary;
-        padding: 1 2;
-        background: $surface;
-    }
-
-    .confirm-title {
-        text-style: bold;
-        color: $accent;
-        padding-bottom: 1;
-    }
-
-    .confirm-actions {
-        height: 3;
-        padding-top: 1;
-    }
-
-    .confirm-button {
-        margin-right: 1;
-    }
-    """
-
-    def __init__(self, username: str, session_id: str) -> None:
-        super().__init__()
-        self._username = username
-        self._session_id = session_id
-
-    def compose(self) -> ComposeResult:
-        with Vertical(classes="confirm-dialog"):
-            yield Static("Kick Session", classes="confirm-title")
-            yield Static(
-                f"Kick {self._username}?\nSession: {self._session_id}",
-                id="confirm-message",
-            )
-            with Horizontal(classes="confirm-actions"):
-                yield Button(
-                    "Cancel", variant="default", id="confirm-cancel", classes="confirm-button"
-                )
-                yield Button(
-                    "Kick", variant="warning", id="confirm-accept", classes="confirm-button"
-                )
-
-    @on(Button.Pressed, "#confirm-cancel")
-    def _cancel(self) -> None:
-        self.dismiss(False)
-
-    @on(Button.Pressed, "#confirm-accept")
-    def _accept(self) -> None:
-        self.dismiss(True)
+from mud_server.admin_tui.screens.database_actions import DatabaseActions
+from mud_server.admin_tui.screens.database_tabs import (
+    CharacterLocationsTab,
+    ChatTab,
+    ConnectionsTab,
+    SessionsTab,
+    TableDataTab,
+    TablesListTab,
+    UsersTab,
+)
 
 
-class ConfirmUserRemovalScreen(ModalScreen[str | None]):
-    """Modal confirmation prompt for user deactivation or deletion."""
+class _DatabaseTab(Protocol):
+    """Common interface for database screen tabs."""
 
-    DEFAULT_CSS = """
-    ConfirmUserRemovalScreen {
-        align: center middle;
-    }
+    def setup(self) -> None:
+        """Prepare table columns and defaults."""
 
-    .confirm-dialog {
-        width: 70;
-        border: solid $primary;
-        padding: 1 2;
-        background: $surface;
-    }
-
-    .confirm-title {
-        text-style: bold;
-        color: $accent;
-        padding-bottom: 1;
-    }
-
-    .confirm-actions {
-        height: 3;
-        padding-top: 1;
-    }
-
-    .confirm-button {
-        margin-right: 1;
-    }
-    """
-
-    def __init__(self, username: str, role: str) -> None:
-        super().__init__()
-        self._username = username
-        self._role = role
-
-    def compose(self) -> ComposeResult:
-        with Vertical(classes="confirm-dialog"):
-            yield Static("Remove User", classes="confirm-title")
-            yield Static(
-                "\n".join(
-                    [
-                        f"User: {self._username} ({self._role})",
-                        "",
-                        "Deactivate: disables login and removes active sessions.",
-                        "Delete: permanently removes the user and related data.",
-                    ]
-                ),
-                id="confirm-message",
-            )
-            with Horizontal(classes="confirm-actions"):
-                yield Button(
-                    "Cancel", variant="default", id="confirm-cancel", classes="confirm-button"
-                )
-                yield Button(
-                    "Deactivate",
-                    variant="warning",
-                    id="confirm-deactivate",
-                    classes="confirm-button",
-                )
-                yield Button(
-                    "Delete",
-                    variant="error",
-                    id="confirm-delete",
-                    classes="confirm-button",
-                )
-
-    @on(Button.Pressed, "#confirm-cancel")
-    def _cancel(self) -> None:
-        self.dismiss(None)
-
-    @on(Button.Pressed, "#confirm-deactivate")
-    def _deactivate(self) -> None:
-        self.dismiss("deactivate")
-
-    @on(Button.Pressed, "#confirm-delete")
-    def _delete(self) -> None:
-        self.dismiss("delete")
+    async def load(self, *args: Any, **kwargs: Any) -> None:
+        """Fetch and render tab data."""
 
 
 class DatabaseScreen(Screen):
@@ -294,14 +172,25 @@ class DatabaseScreen(Screen):
             self.app.pop_screen()
             return
 
-        # Set up tables
-        self._setup_tables_list_table()
-        self._setup_players_table()
-        self._setup_player_locations_table()
-        self._setup_connections_table()
-        self._setup_sessions_table()
-        self._setup_chat_table()
-        self._setup_table_data_table()
+        # Set up table handlers
+        self._tabs: dict[str, _DatabaseTab] = {
+            "tables": TablesListTab(self),
+            "users": UsersTab(self),
+            "character_locations": CharacterLocationsTab(self),
+            "connections": ConnectionsTab(self),
+            "sessions": SessionsTab(self),
+            "chat": ChatTab(self),
+            "table_data": TableDataTab(self),
+        }
+        self._actions = DatabaseActions(self)
+
+        self._tabs["tables"].setup()
+        self._tabs["users"].setup()
+        self._tabs["character_locations"].setup()
+        self._tabs["connections"].setup()
+        self._tabs["sessions"].setup()
+        self._tabs["chat"].setup()
+        self._tabs["table_data"].setup()
 
         # Apply user-configured keybindings
         self._apply_keybindings()
@@ -310,9 +199,6 @@ class DatabaseScreen(Screen):
         self._refreshing_tabs: set[str] = set()
         # Track the selected table name for the generic table data tab.
         self._active_table_name: str | None = None
-        # Cache users for sorting and detail views.
-        self._users_cache: list[dict[str, Any]] = []
-        self._users_sort_state: tuple[int, bool] | None = None
 
         # Load initial data
         self._load_tables()
@@ -369,195 +255,48 @@ class DatabaseScreen(Screen):
                 # Preserve the first binding if duplicates exist.
                 self._keybindings_by_key.setdefault(key, action)
 
-    def _setup_players_table(self) -> None:
-        """Configure the users DataTable columns."""
-        table = self.query_one("#table-players", DataTable)
-        table.cursor_type = "row"
-        table.zebra_stripes = True
-        table.add_columns(
-            "ID",
-            "Username",
-            "Role",
-            "Origin",
-            "Characters",
-            "Guest",
-            "Guest Expires",
-            "Active",
-            "Tombstoned",
-            "Created",
-            "Last Login",
-            "Password Hash",
-        )
-
-    def _setup_sessions_table(self) -> None:
-        """Configure the sessions DataTable columns."""
-        table = self.query_one("#table-sessions", DataTable)
-        table.cursor_type = "row"
-        table.zebra_stripes = True
-        table.add_columns(
-            "ID",
-            "Username",
-            "Character",
-            "Client",
-            "Session ID",
-            "Created At",
-            "Last Activity",
-            "Expires At",
-        )
-
-    def _setup_connections_table(self) -> None:
-        """Configure the connections DataTable columns."""
-        table = self.query_one("#table-connections", DataTable)
-        table.cursor_type = "row"
-        table.zebra_stripes = True
-        table.add_columns(
-            "Username",
-            "Client",
-            "Session ID",
-            "Last Activity",
-            "Age",
-            "Expires At",
-        )
-
-    def _setup_chat_table(self) -> None:
-        """Configure the chat messages DataTable columns."""
-        table = self.query_one("#table-chat", DataTable)
-        table.cursor_type = "row"
-        table.zebra_stripes = True
-        table.add_columns(
-            "ID",
-            "Username",
-            "Room",
-            "Message",
-            "Timestamp",
-        )
-
-    def _setup_player_locations_table(self) -> None:
-        """Configure the character locations DataTable columns."""
-        table = self.query_one("#table-player-locations", DataTable)
-        table.cursor_type = "row"
-        table.zebra_stripes = True
-        table.add_columns(
-            "Character ID",
-            "Character",
-            "Zone",
-            "Room",
-            "Updated",
-        )
-
-    def _setup_tables_list_table(self) -> None:
-        """Configure the table list DataTable columns."""
-        table = self.query_one("#table-list", DataTable)
-        table.cursor_type = "row"
-        table.zebra_stripes = True
-        table.add_columns(
-            "Table",
-            "Columns",
-            "Rows",
-        )
-
-    def _setup_table_data_table(self) -> None:
-        """Configure the generic table data DataTable."""
-        table = self.query_one("#table-data", DataTable)
-        table.cursor_type = "row"
-        table.zebra_stripes = True
-
     @work(thread=False)
     async def _load_tables(self) -> None:
         """Fetch and display available database tables."""
-        table = self.query_one("#table-list", DataTable)
-        table.clear()
-
         tab_id = "tab-tables"
         if tab_id in self._refreshing_tabs:
             return
 
         try:
             self._refreshing_tabs.add(tab_id)
-            tables = await self.app.api_client.get_tables()
-
-            for table_info in tables:
-                columns = ", ".join(table_info.get("columns", []))
-                table.add_row(
-                    table_info.get("name", ""),
-                    columns,
-                    str(table_info.get("row_count", 0)),
-                )
-
-        except AuthenticationError as e:
-            self.notify(f"Permission denied: {e.detail}", severity="error")
-        except Exception as e:
-            self.notify(f"Failed to load tables: {e}", severity="error")
+            await self._tabs["tables"].load()
         finally:
             self._refreshing_tabs.discard(tab_id)
 
     @work(thread=False)
     async def _load_player_locations(self) -> None:
         """Fetch and display character locations."""
-        table = self.query_one("#table-player-locations", DataTable)
-        table.clear()
-
         tab_id = "tab-player-locations"
         if tab_id in self._refreshing_tabs:
             return
 
         try:
             self._refreshing_tabs.add(tab_id)
-            locations = await self.app.api_client.get_player_locations()
-
-            for location in locations:
-                table.add_row(
-                    str(location.get("character_id", "")),
-                    location.get("character_name", ""),
-                    location.get("zone_id") or "-",
-                    location.get("room_id", ""),
-                    self._format_timestamp(location.get("updated_at", "")),
-                )
-
-        except AuthenticationError as e:
-            self.notify(f"Permission denied: {e.detail}", severity="error")
-        except Exception as e:
-            self.notify(f"Failed to load character locations: {e}", severity="error")
+            await self._tabs["character_locations"].load()
         finally:
             self._refreshing_tabs.discard(tab_id)
 
     @work(thread=False)
     async def _load_connections(self) -> None:
         """Fetch and display active connections."""
-        table = self.query_one("#table-connections", DataTable)
-        table.clear()
-
         tab_id = "tab-connections"
         if tab_id in self._refreshing_tabs:
             return
 
         try:
             self._refreshing_tabs.add(tab_id)
-            connections = await self.app.api_client.get_connections()
-
-            for connection in connections:
-                table.add_row(
-                    connection.get("username", ""),
-                    connection.get("client_type", "") or "-",
-                    connection.get("session_id", ""),
-                    self._format_timestamp(connection.get("last_activity", "")),
-                    self._format_duration(connection.get("age_seconds")),
-                    self._format_timestamp(connection.get("expires_at", "")),
-                )
-
-        except AuthenticationError as e:
-            self.notify(f"Permission denied: {e.detail}", severity="error")
-        except Exception as e:
-            self.notify(f"Failed to load connections: {e}", severity="error")
+            await self._tabs["connections"].load()
         finally:
             self._refreshing_tabs.discard(tab_id)
 
     @work(thread=False)
     async def _load_table_data(self, table_name: str) -> None:
         """Fetch and display rows for a selected table."""
-        data_table = self.query_one("#table-data", DataTable)
-        data_table.clear(columns=True)
-
         tab_id = "tab-table-data"
         if tab_id in self._refreshing_tabs:
             return
@@ -566,203 +305,51 @@ class DatabaseScreen(Screen):
             self._refreshing_tabs.add(tab_id)
             # Remember the active table so auto-refresh can reload it.
             self._active_table_name = table_name
-            payload = await self.app.api_client.get_table_rows(table_name, limit=200)
-            columns = payload.get("columns", [])
-            rows = payload.get("rows", [])
-
-            if not columns:
-                self.notify(f"No columns found for {table_name}", severity="warning")
-                return
-
-            data_table.add_columns(*columns)
-            for row in rows:
-                data_table.add_row(*[self._format_cell(value) for value in row])
+            await self._tabs["table_data"].load(table_name, limit=200)
 
             tabs = self.query_one("#table-tabs", TabbedContent)
             tabs.active = "tab-table-data"
-
-        except AuthenticationError as e:
-            self.notify(f"Permission denied: {e.detail}", severity="error")
-        except Exception as e:
-            self.notify(f"Failed to load table data: {e}", severity="error")
         finally:
             self._refreshing_tabs.discard(tab_id)
 
     @work(thread=False)
     async def _load_players(self) -> None:
         """Fetch and display users from the database."""
-        table = self.query_one("#table-players", DataTable)
-        table.clear()
-
         tab_id = "tab-players"
         if tab_id in self._refreshing_tabs:
             return
 
         try:
             self._refreshing_tabs.add(tab_id)
-            players = await self.app.api_client.get_players()
-
-            self._users_cache = list(players)
-            self._users_sort_state = None
-            self._render_users_table(self._users_cache)
-
-        except AuthenticationError as e:
-            self.notify(f"Permission denied: {e.detail}", severity="error")
-        except Exception as e:
-            self.notify(f"Failed to load players: {e}", severity="error")
+            await self._tabs["users"].load()
         finally:
             self._refreshing_tabs.discard(tab_id)
 
     @work(thread=False)
     async def _load_sessions(self) -> None:
         """Fetch and display active sessions from the database."""
-        table = self.query_one("#table-sessions", DataTable)
-        table.clear()
-
         tab_id = "tab-sessions"
         if tab_id in self._refreshing_tabs:
             return
 
         try:
             self._refreshing_tabs.add(tab_id)
-            sessions = await self.app.api_client.get_sessions()
-
-            for session in sessions:
-                table.add_row(
-                    str(session.get("id", "")),
-                    session.get("username", ""),
-                    session.get("character_name", "") or "-",
-                    session.get("client_type", "") or "-",
-                    self._truncate(session.get("session_id", ""), 20),
-                    self._format_timestamp(session.get("created_at", "")),
-                    self._format_timestamp(session.get("last_activity", "")),
-                    self._format_timestamp(session.get("expires_at", "")),
-                )
-
-        except AuthenticationError as e:
-            self.notify(f"Permission denied: {e.detail}", severity="error")
-        except Exception as e:
-            self.notify(f"Failed to load sessions: {e}", severity="error")
+            await self._tabs["sessions"].load()
         finally:
             self._refreshing_tabs.discard(tab_id)
 
     @work(thread=False)
     async def _load_chat_messages(self) -> None:
         """Fetch and display chat messages from the database."""
-        table = self.query_one("#table-chat", DataTable)
-        table.clear()
-
         tab_id = "tab-chat"
         if tab_id in self._refreshing_tabs:
             return
 
         try:
             self._refreshing_tabs.add(tab_id)
-            messages = await self.app.api_client.get_chat_messages(limit=100)
-
-            for msg in messages:
-                table.add_row(
-                    str(msg.get("id", "")),
-                    msg.get("username", ""),
-                    msg.get("room", ""),
-                    self._truncate(msg.get("message", ""), 50),
-                    self._format_timestamp(msg.get("timestamp", "")),
-                )
-
-        except AuthenticationError as e:
-            self.notify(f"Permission denied: {e.detail}", severity="error")
-        except Exception as e:
-            self.notify(f"Failed to load chat messages: {e}", severity="error")
+            await self._tabs["chat"].load()
         finally:
             self._refreshing_tabs.discard(tab_id)
-
-    def _format_timestamp(self, timestamp: str | None) -> str:
-        """Format a timestamp for display."""
-        if not timestamp:
-            return "-"
-        # Truncate microseconds for cleaner display
-        if "." in timestamp:
-            timestamp = timestamp.split(".")[0]
-        return timestamp
-
-    def _truncate(self, text: str, max_length: int) -> str:
-        """Truncate text to a maximum length."""
-        if not text:
-            return ""
-        if len(text) <= max_length:
-            return text
-        return text[: max_length - 3] + "..."
-
-    def _render_users_table(self, users: list[dict[str, Any]]) -> None:
-        """Render users into the users table."""
-        table = self.query_one("#table-players", DataTable)
-        table.clear()
-        for user in users:
-            table.add_row(
-                str(user.get("id", "")),
-                user.get("username", ""),
-                user.get("role", ""),
-                user.get("account_origin", "") or "-",
-                str(user.get("character_count", "")),
-                "Yes" if user.get("is_guest", False) else "No",
-                self._format_timestamp(user.get("guest_expires_at", "")),
-                "Yes" if user.get("is_active", False) else "No",
-                self._format_timestamp(user.get("tombstoned_at", "")),
-                self._format_timestamp(user.get("created_at", "")),
-                self._format_timestamp(user.get("last_login", "")),
-                user.get("password_hash", "") or "-",
-            )
-
-    def _sort_users(
-        self, users: list[dict[str, Any]], column_index: int, ascending: bool
-    ) -> list[dict[str, Any]]:
-        """Sort the users list by the given column index."""
-        column_keys = [
-            "id",
-            "username",
-            "role",
-            "account_origin",
-            "character_count",
-            "is_guest",
-            "guest_expires_at",
-            "is_active",
-            "tombstoned_at",
-            "created_at",
-            "last_login",
-            "password_hash",
-        ]
-        key_name = column_keys[column_index] if column_index < len(column_keys) else "id"
-
-        def sort_key(item: dict[str, Any]) -> tuple[int, str]:
-            value = item.get(key_name)
-            if value is None:
-                return (1, "")
-            if isinstance(value, bool):
-                return (0, "1" if value else "0")
-            return (0, str(value).lower())
-
-        return sorted(users, key=sort_key, reverse=not ascending)
-
-    def _open_selected_user_detail(self) -> None:
-        """Open the user detail screen for the selected row."""
-        from mud_server.admin_tui.screens.user_detail import UserDetailScreen
-
-        table = self.query_one("#table-players", DataTable)
-        selected_row = table.get_row_at(table.cursor_row)
-        if not selected_row:
-            return
-
-        user_id = str(selected_row[0])
-        if not user_id:
-            return
-
-        # Use cached user data to avoid another API call.
-        user = next((entry for entry in self._users_cache if str(entry.get("id")) == user_id), None)
-        if not user:
-            self.notify("Unable to resolve user details", severity="warning")
-            return
-
-        self.app.push_screen(UserDetailScreen(user=user))
 
     # -------------------------------------------------------------------------
     # Button Handlers
@@ -853,42 +440,32 @@ class DatabaseScreen(Screen):
 
     def action_cursor_up(self) -> None:
         """Move selection up in the active table."""
-        table = self._get_active_table()
+        table = self.get_active_table()
         if table:
             table.action_cursor_up()
 
     def action_cursor_down(self) -> None:
         """Move selection down in the active table."""
-        table = self._get_active_table()
+        table = self.get_active_table()
         if table:
             table.action_cursor_down()
 
     def action_cursor_left(self) -> None:
         """Move selection left in the active table."""
-        table = self._get_active_table()
-        if table:
-            try:
-                table.action_cursor_left()
-            except SkipAction:
-                return
+        self._actions.safe_cursor_left()
 
     def action_cursor_right(self) -> None:
         """Move selection right in the active table."""
-        table = self._get_active_table()
-        if table:
-            try:
-                table.action_cursor_right()
-            except SkipAction:
-                return
+        self._actions.safe_cursor_right()
 
     def action_select(self) -> None:
         """Select the current row in the active table."""
-        table = self._get_active_table()
+        table = self.get_active_table()
         if not table:
             return
 
         if self._is_players_tab_active():
-            self._open_selected_user_detail()
+            self._actions.open_user_detail()
             return
 
         if self._is_tables_tab_active():
@@ -907,43 +484,20 @@ class DatabaseScreen(Screen):
             return
 
         table = self.query_one("#table-players", DataTable)
-        if not self._users_cache or table.cursor_column is None:
+        if table.cursor_column is None:
             return
 
-        # Toggle sort direction if sorting the same column again.
         column_index = int(table.cursor_column)
-        previous = self._users_sort_state
-        ascending = True
-        if previous and previous[0] == column_index:
-            ascending = not previous[1]
-
-        sorted_users = self._sort_users(self._users_cache, column_index, ascending)
-        self._users_sort_state = (column_index, ascending)
-        self._render_users_table(sorted_users)
+        cast(UsersTab, self._tabs["users"]).sort_by_column(column_index)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Open detail screens when a row is activated with mouse or Enter."""
         if event.data_table.id == "table-players":
-            self._open_selected_user_detail()
+            self._actions.open_user_detail()
             return
 
         if event.data_table.id == "table-player-locations":
-            selected_row = event.data_table.get_row_at(event.data_table.cursor_row)
-            if not selected_row:
-                return
-
-            character_id = str(selected_row[0])
-            character_name = str(selected_row[1]) if len(selected_row) > 1 else ""
-            from mud_server.admin_tui.screens.character_detail import CharacterDetailScreen
-
-            self.app.push_screen(
-                CharacterDetailScreen(
-                    character={
-                        "id": character_id,
-                        "name": character_name,
-                    }
-                )
-            )
+            self._actions.open_character_detail_from_locations()
 
     def _switch_tab(self, direction: int) -> None:
         """Rotate tab selection by +1 (next) or -1 (prev)."""
@@ -965,7 +519,7 @@ class DatabaseScreen(Screen):
         next_index = (current_index + direction) % len(pane_ids)
         tabs.active = pane_ids[next_index]
 
-    def _get_active_table(self) -> DataTable | None:
+    def get_active_table(self) -> DataTable | None:
         """
         Get the DataTable for the currently active tab.
 
@@ -1018,89 +572,17 @@ class DatabaseScreen(Screen):
         active_id = tabs.active or (tabs.active_pane.id if tabs.active_pane else None)
         return active_id == "tab-sessions"
 
-    def _format_cell(self, value: object) -> str:
-        """Format a generic cell value for display in the DataTable."""
-        if value is None:
-            return "-"
-        return str(value)
-
-    def _format_duration(self, seconds: object) -> str:
-        """Format seconds into HH:MM:SS."""
-        if seconds is None:
-            return "-"
-        try:
-            total = int(str(seconds))
-        except (TypeError, ValueError):
-            return "-"
-        hours = total // 3600
-        minutes = (total % 3600) // 60
-        secs = total % 60
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-
     @work(thread=False)
     async def _kick_selected(self) -> None:
         """Prompt and kick the selected session from the connections table."""
-        target = self._get_kick_target()
-        if not target:
-            return
-
-        username, session_id = target
-
-        confirmed = await self.app.push_screen(
-            ConfirmKickScreen(username=username, session_id=session_id),
-            wait_for_dismiss=True,
-        )
-        if not confirmed:
-            return
-
-        try:
-            response = await self.app.api_client.kick_session(session_id)
-            if not response.get("success", False):
-                self.notify(response.get("message", "Failed to kick session"), severity="error")
-                return
-            self._load_connections()
-        except AuthenticationError as e:
-            self.notify(f"Permission denied: {e.detail}", severity="error")
-        except Exception as e:
-            self.notify(f"Failed to kick session: {e}", severity="error")
+        await self._actions.kick_selected()
 
     @work(thread=False)
     async def _remove_selected_player(self) -> None:
         """Prompt and remove the selected player (deactivate or delete)."""
-        target = self._get_selected_player()
-        if not target:
-            return
+        await self._actions.remove_selected_user()
 
-        username, role = target
-
-        if username == (self.app.api_client.session.username or ""):
-            self.notify("Cannot remove your own account", severity="error")
-            return
-
-        action = await self.app.push_screen(
-            ConfirmUserRemovalScreen(username=username, role=role),
-            wait_for_dismiss=True,
-        )
-        if action is None:
-            return
-
-        try:
-            response = await self.app.api_client.manage_user(username, action)
-            if not response.get("success", False):
-                self.notify(response.get("message", "Failed to update user"), severity="error")
-                return
-
-            # Refresh related tabs after updates.
-            self._load_players()
-            self._load_player_locations()
-            self._load_sessions()
-            self._load_connections()
-        except AuthenticationError as e:
-            self.notify(f"Permission denied: {e.detail}", severity="error")
-        except Exception as e:
-            self.notify(f"Failed to update user: {e}", severity="error")
-
-    def _get_kick_target(self) -> tuple[str, str] | None:
+    def get_selected_session_target(self) -> tuple[str, str] | None:
         """
         Resolve the selected session target for a kick action.
 
@@ -1129,7 +611,7 @@ class DatabaseScreen(Screen):
         session_id = str(selected_row[session_idx])
         return username, session_id
 
-    def _get_selected_player(self) -> tuple[str, str] | None:
+    def get_selected_user_target(self) -> tuple[str, str] | None:
         """
         Resolve the selected player from the players table.
 
