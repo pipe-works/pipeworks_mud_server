@@ -217,6 +217,81 @@ def test_register_guest_passwords_dont_match(test_client):
     assert "do not match" in response.json()["detail"].lower()
 
 
+@pytest.mark.api
+def test_register_guest_username_allocation_failure(test_client, test_db, temp_db_path):
+    """Test guest registration fails when no usernames can be allocated."""
+    with use_test_database(temp_db_path):
+        with patch.object(database, "user_exists", return_value=True):
+            response = test_client.post(
+                "/register-guest",
+                json={
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                    "character_name": "Guest Nomad",
+                },
+            )
+
+        assert response.status_code == 500
+        assert "allocate" in response.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_register_guest_create_user_failure(test_client, test_db, temp_db_path):
+    """Test guest registration fails when account creation returns False."""
+    with use_test_database(temp_db_path):
+        with patch.object(database, "create_user_with_password", return_value=False):
+            response = test_client.post(
+                "/register-guest",
+                json={
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                    "character_name": "Guest Baker",
+                },
+            )
+
+        assert response.status_code == 500
+        assert "create guest account" in response.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_register_guest_user_id_missing_rolls_back(test_client, test_db, temp_db_path):
+    """Test guest registration rolls back when user id cannot be resolved."""
+    with use_test_database(temp_db_path):
+        with (
+            patch.object(database, "get_user_id", return_value=None),
+            patch.object(database, "delete_user") as delete_user,
+        ):
+            response = test_client.post(
+                "/register-guest",
+                json={
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                    "character_name": "Guest Sailor",
+                },
+            )
+
+        assert response.status_code == 500
+        delete_user.assert_called_once()
+
+
+@pytest.mark.api
+def test_register_guest_character_creation_failure(test_client, test_db, temp_db_path):
+    """Test guest registration fails when character creation returns False."""
+    with use_test_database(temp_db_path):
+        with patch.object(database, "create_character_for_user", return_value=False):
+            response = test_client.post(
+                "/register-guest",
+                json={
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                    "character_name": "Guest Weaver",
+                },
+            )
+
+        assert response.status_code == 400
+        assert "character name already taken" in response.json()["detail"].lower()
+
+
 # ============================================================================
 # LOGIN TESTS
 # ============================================================================
