@@ -2,19 +2,52 @@
 
 > **A deterministic, procedural multiplayer text game engine for building accountable interactive fiction worlds.**
 
-[![CI](https://github.com/pipe-works/pipeworks_mud_server/actions/workflows/ci.yml/badge.svg)](https://github.com/pipe-works/pipeworks_mud_server/actions/workflows/ci.yml)
-[![Documentation](https://readthedocs.org/projects/pipeworks-mud-server/badge/?version=latest)](https://pipeworks-mud-server.readthedocs.io/en/latest/?badge=latest)
-[![codecov](https://codecov.io/gh/pipe-works/pipeworks_mud_server/branch/main/graph/badge.svg)](https://codecov.io/gh/pipe-works/pipeworks_mud_server)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+<!-- markdownlint-disable MD013 -->
+[![CI][ci-badge]][ci-url]
+[![Documentation][docs-badge]][docs-url]
+[![codecov][codecov-badge]][codecov-url]
+[![Python 3.12+][python-badge]][python-url]
+[![License: GPL v3][license-badge]][license-url]
+[![Code style: black][black-badge]][black-url]
+[![Ruff][ruff-badge]][ruff-url]
+
+<!-- markdownlint-disable-next-line MD013 -->
+[ci-badge]: https://github.com/pipe-works/pipeworks_mud_server/actions/workflows/ci.yml/badge.svg
+<!-- markdownlint-disable-next-line MD013 -->
+[ci-url]: https://github.com/pipe-works/pipeworks_mud_server/actions/workflows/ci.yml
+<!-- markdownlint-disable-next-line MD013 -->
+[docs-badge]: https://readthedocs.org/projects/pipeworks-mud-server/badge/?version=latest
+<!-- markdownlint-disable-next-line MD013 -->
+[docs-url]: https://pipeworks-mud-server.readthedocs.io/en/latest/?badge=latest
+<!-- markdownlint-disable-next-line MD013 -->
+[codecov-badge]: https://codecov.io/gh/pipe-works/pipeworks_mud_server/branch/main/graph/badge.svg
+<!-- markdownlint-disable-next-line MD013 -->
+[codecov-url]: https://codecov.io/gh/pipe-works/pipeworks_mud_server
+<!-- markdownlint-disable-next-line MD013 -->
+[python-badge]: https://img.shields.io/badge/python-3.12+-blue.svg
+<!-- markdownlint-disable-next-line MD013 -->
+[python-url]: https://www.python.org/downloads/
+<!-- markdownlint-disable-next-line MD013 -->
+[license-badge]: https://img.shields.io/badge/License-GPLv3-blue.svg
+<!-- markdownlint-disable-next-line MD013 -->
+[license-url]: https://www.gnu.org/licenses/gpl-3.0
+<!-- markdownlint-disable-next-line MD013 -->
+[black-badge]: https://img.shields.io/badge/code%20style-black-000000.svg
+<!-- markdownlint-disable-next-line MD013 -->
+[black-url]: https://github.com/psf/black
+<!-- markdownlint-disable-next-line MD013 -->
+[ruff-badge]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json
+<!-- markdownlint-disable-next-line MD013 -->
+[ruff-url]: https://github.com/astral-sh/ruff
+<!-- markdownlint-enable MD013 -->
 
 ---
 
 ## What is PipeWorks MUD Server?
 
-A **generic, extensible MUD (Multi-User Dungeon) server** for building text-based multiplayer games. Built with modern Python tooling, this server provides the technical foundation for creating interactive fiction worlds with:
+A **generic, extensible MUD (Multi-User Dungeon) server** for building text-based multiplayer
+games. Built with modern Python tooling, this server provides the technical foundation for
+creating interactive fiction worlds with:
 
 - **Deterministic game mechanics** - Reproducible outcomes for testing and replay
 - **JSON-driven world data** - Define rooms, items, and connections without code changes
@@ -23,7 +56,8 @@ A **generic, extensible MUD (Multi-User Dungeon) server** for building text-base
 - **Role-based access control** - Built-in auth and permission system
 - **Modular architecture** - Clean separation between client, server, and game logic
 
-**Use it to build:** Fantasy MUDs, sci-fi adventures, educational games, procedural narratives, or any text-based multiplayer experience.
+**Use it to build:** Fantasy MUDs, sci-fi adventures, educational games, procedural narratives,
+or any text-based multiplayer experience.
 
 **[Read the full documentation](https://pipeworks-mud-server.readthedocs.io/)**
 
@@ -72,12 +106,14 @@ Press `Ctrl+C` to stop both services.
 ### Creating a Superuser
 
 **Interactive** (recommended):
+
 ```bash
 mud-server create-superuser
 # Enter username and password when prompted
 ```
 
 **Via environment variables** (for CI/Docker):
+
 ```bash
 MUD_ADMIN_USER=myadmin MUD_ADMIN_PASSWORD=securepass123 mud-server init-db
 ```
@@ -205,6 +241,10 @@ pytest -k "test_login"
 # Skip coverage for faster iteration
 pytest --no-cov
 ```
+
+### API Notes
+
+- `register_routes` moved to `mud_server.api.routes.register` (the package root no longer re-exports it).
 
 ### Code Quality
 
