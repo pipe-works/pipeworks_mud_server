@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.3.2](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.1...mud_server-v0.3.2) (2026-02-13)
+
+
+### Features
+
+* **admin_tui:** add user and character dashboards ([50ade69](https://github.com/pipe-works/pipeworks_mud_server/commit/50ade690fd33414f3a4d3d4f8c298e13ff029855))
+* **admin_tui:** add user and character dashboards ([f35f639](https://github.com/pipe-works/pipeworks_mud_server/commit/f35f639ed52695e792ab2adfc984b710ad40bde0))
+* **admin_tui:** add worlds tab and harden world loader ([a5ebcca](https://github.com/pipe-works/pipeworks_mud_server/commit/a5ebcca5bfa1ab36b3737125d68b2a7cc932eae2))
+* **admin-tui:** stabilize table selection ([dcacaaf](https://github.com/pipe-works/pipeworks_mud_server/commit/dcacaaf174f015b5378cdfb550b4ec8fbdae3ca6))
+* **admin-tui:** stabilize table selection ([df04e88](https://github.com/pipe-works/pipeworks_mud_server/commit/df04e88c5d127588922cf8010e822d064511cfd5))
+* **api:** add register-guest endpoint ([923e0a0](https://github.com/pipe-works/pipeworks_mud_server/commit/923e0a07666fa4ba71cb613e051be90ab824a0bf))
+* **api:** add register-guest endpoint ([c4286d4](https://github.com/pipe-works/pipeworks_mud_server/commit/c4286d4c94db2da3837d9297f380a2c183095a49))
+* **cli:** add init-db migrate option ([6ece6b4](https://github.com/pipe-works/pipeworks_mud_server/commit/6ece6b4b76a93eade330fdff931aa65c37277232))
+* **core:** use world registry in engine ([baa32c0](https://github.com/pipe-works/pipeworks_mud_server/commit/baa32c0401452d7adb2a39419f2f1a49167424d6))
+* **data:** add multi-world data layout ([e945e67](https://github.com/pipe-works/pipeworks_mud_server/commit/e945e67db0e622970f2fa6071a7398ee7e24cca6))
+* **multiworld:** add world scoping and auth flow ([1450880](https://github.com/pipe-works/pipeworks_mud_server/commit/1450880007ca88a598dac2e7a507010cd990b997))
+* **multiworld:** add world scoping and auth flow ([e087254](https://github.com/pipe-works/pipeworks_mud_server/commit/e0872544d4a63a4a47ab5601d41d4d84bc5f0eaf))
+
+
+### Bug Fixes
+
+* **admin_tui:** align users table ([1cae99a](https://github.com/pipe-works/pipeworks_mud_server/commit/1cae99a5f63c2824ada0876364f9e6f3e0d4d8ab))
+* **admin_tui:** align users table ([60c1fc3](https://github.com/pipe-works/pipeworks_mud_server/commit/60c1fc32322f74bec03055a45b0f38bad2b5447a))
+* **admin_tui:** improve navigation and character naming ([31f7d57](https://github.com/pipe-works/pipeworks_mud_server/commit/31f7d573647d2efa148982fb9c6c27721ea58f31))
+* **admin_tui:** open user detail and avoid cursor crashes ([969c77b](https://github.com/pipe-works/pipeworks_mud_server/commit/969c77ba6425fa5c71946e6447b8cba54eb9ba6f))
+* **admin_tui:** selection and cursor navigation ([302a7aa](https://github.com/pipe-works/pipeworks_mud_server/commit/302a7aa98799b622d5f438b28326b49f5c9c40e8))
+* **chat:** resolve usernames to characters ([06fd374](https://github.com/pipe-works/pipeworks_mud_server/commit/06fd3745c63757c2d4814319219d2792b0cb5748))
+* **db:** map usernames to default characters ([d14bccb](https://github.com/pipe-works/pipeworks_mud_server/commit/d14bccbe86cbe1c5101f624565b81d9fd45f535f))
+* **test:** avoid fixture call and guard migrate arg ([4fdf1cf](https://github.com/pipe-works/pipeworks_mud_server/commit/4fdf1cfc5fda5a524318bafdd1de788c501c7052))
+
+
+### Documentation
+
+* **api:** add register guest examples ([008cb3e](https://github.com/pipe-works/pipeworks_mud_server/commit/008cb3e3b3350accf9f1d46de3e6f2b00c1ad810))
+* **api:** add register guest examples ([fe06426](https://github.com/pipe-works/pipeworks_mud_server/commit/fe06426fa5cfe13714114f7ca21874af295ec1a7))
+* **db:** update schema and bootstrap notes ([f87277d](https://github.com/pipe-works/pipeworks_mud_server/commit/f87277d70e5b5e714b05ac6d6782094f00217591))
+* **db:** update schema and bootstrap notes ([d6c22cd](https://github.com/pipe-works/pipeworks_mud_server/commit/d6c22cd37d22af063e3ee2c4272bf95a186fc16d))
+* update schema notes and add static dir ([368a123](https://github.com/pipe-works/pipeworks_mud_server/commit/368a123aa156371a41b1ad39ac88215583241952))
+
 ## [0.3.1](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.0...mud_server-v0.3.1) (2026-02-11)
 
 
