@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.3](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.2...mud_server-v0.3.3) (2026-02-13)
+
+
+### Documentation
+
+* **api:** note register_routes import path change ([c46c5b8](https://github.com/pipe-works/pipeworks_mud_server/commit/c46c5b8853f4227fb8ae97188213ba7fd97952ca))
+* **api:** note register_routes import path change ([2efe672](https://github.com/pipe-works/pipeworks_mud_server/commit/2efe67242a600fe3edd3dab889e7f4d6b2c59b39))
+
 ## [0.3.2](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.1...mud_server-v0.3.2) (2026-02-13)
 
 
