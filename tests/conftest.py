@@ -163,19 +163,8 @@ def mock_world_data() -> dict:
     }
 
 
-@pytest.fixture(scope="function")
-def mock_world(mock_world_data: dict) -> World:
-    """
-    Create a mock World instance for testing.
-
-    Bypasses disk loading and injects mock zones, rooms, and items directly.
-
-    Args:
-        mock_world_data: Mock world data (from fixture)
-
-    Returns:
-        World instance with mock data loaded
-    """
+def _build_mock_world(mock_world_data: dict) -> World:
+    """Build a mock World instance without hitting the filesystem."""
     with patch.object(World, "_load_world", lambda self: None):
         world = World()
 
@@ -209,6 +198,16 @@ def mock_world(mock_world_data: dict) -> World:
     world.default_spawn = ("test_zone", "spawn")
     world.world_name = "Test World"
     return world
+
+
+@pytest.fixture(scope="function")
+def mock_world(mock_world_data: dict) -> World:
+    """
+    Create a mock World instance for testing.
+
+    Bypasses disk loading and injects mock zones, rooms, and items directly.
+    """
+    return _build_mock_world(mock_world_data)
 
 
 @pytest.fixture(scope="function")
@@ -273,7 +272,7 @@ def test_client(test_db, mock_world_data) -> TestClient:
     # Create engine with mocked World loading
     with patch.object(database, "init_database"):
         engine = GameEngine()
-        world = mock_world(mock_world_data)
+        world = _build_mock_world(mock_world_data)
         engine.world_registry = SimpleNamespace(get_world=lambda _world_id: world)
         engine._get_world = lambda _world_id: world
 

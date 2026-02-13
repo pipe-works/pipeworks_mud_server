@@ -156,7 +156,7 @@ def cmd_init_db(args: argparse.Namespace) -> int:
             copy2(db_path, backup_path)
             print(f"Existing database backed up to {backup_path}")
 
-        if args.migrate:
+        if getattr(args, "migrate", False):
             import importlib.util
             from pathlib import Path
 
