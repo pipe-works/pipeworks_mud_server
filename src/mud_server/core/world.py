@@ -46,13 +46,6 @@ DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
 WORLD_JSON_PATH = DATA_DIR / "world.json"
 ZONES_DIR = DATA_DIR / "zones"
 
-# Legacy single-file structure (fallback)
-LEGACY_WORLD_DATA_PATH = DATA_DIR / "world_data.json"
-
-# For backward compatibility with tests that reference this
-WORLD_DATA_PATH = LEGACY_WORLD_DATA_PATH
-
-
 # ============================================================================
 # DATA STRUCTURES
 # ============================================================================
@@ -198,8 +191,7 @@ class World:
         """
         Initialize the World by loading data from JSON files.
 
-        Tries zone-based loading first (world.json + zones/), falls back
-        to legacy single-file loading (world_data.json) if zones not found.
+        Loads zone-based data (world.json + zones/).
 
         Args:
             world_root: Optional path to a world package directory. When provided,
@@ -214,11 +206,9 @@ class World:
         if world_root is not None:
             self._world_json_path = world_root / "world.json"
             self._zones_dir = world_root / "zones"
-            self._legacy_world_data_path = world_root / "world_data.json"
         else:
             self._world_json_path = WORLD_JSON_PATH
             self._zones_dir = ZONES_DIR
-            self._legacy_world_data_path = LEGACY_WORLD_DATA_PATH
 
         # Initialize empty dictionaries for world data
         self.rooms: dict[str, Room] = {}  # room_id -> Room object
@@ -234,40 +224,23 @@ class World:
 
     def _load_world(self):
         """
-        Load world data, trying legacy structure first, then zone-based.
-
-        Loading Priority:
-        1. Try legacy world_data.json first (for backward compatibility + tests)
-        2. If legacy file not found, try zone-based structure
-        3. Else raise FileNotFoundError
-
-        This order ensures existing installations and test mocks continue to work,
-        while allowing new zone-based worlds to be loaded.
+        Load world data from zone-based structure.
 
         Side Effects:
             Populates self.rooms, self.items, self.zones dictionaries
             Sets self.world_name and self.default_spawn
         """
-        # Try legacy loading first (for backward compatibility and test mocks)
-        try:
-            self._load_legacy()
-            # If we got here and loaded rooms, we're done
-            if self.rooms:
-                return
-        except FileNotFoundError:
-            pass  # No legacy file, try zones
-
         # Try zone-based loading
         try:
             self._load_from_zones()
             if self.rooms:
                 return
         except FileNotFoundError:
-            pass  # No zone files either
+            pass  # No zone files
 
         # If we get here with no rooms, something is wrong
         if not self.rooms:
-            logger.warning("No world data loaded - check data/world_data.json or data/zones/")
+            logger.warning("No world data loaded - check data/worlds/<world_id>/world.json")
 
     def _load_from_zones(self):
         """
@@ -368,61 +341,6 @@ class World:
             )
 
         logger.debug(f"Loaded zone '{zone_id}': {len(zone.rooms)} rooms")
-
-    def _load_legacy(self):
-        """
-        Load world data from legacy single-file structure.
-
-        This is the original loading method, kept for backward compatibility
-        with existing world_data.json files and test mocks.
-
-        JSON Structure Expected:
-            {
-                "rooms": {
-                    "room_id": {
-                        "id": "room_id",
-                        "name": "Room Name",
-                        "description": "Room description",
-                        "exits": {"north": "other_room_id"},
-                        "items": ["item_id"]
-                    }
-                },
-                "items": {
-                    "item_id": {
-                        "id": "item_id",
-                        "name": "Item Name",
-                        "description": "Item description"
-                    }
-                }
-            }
-
-        Side Effects:
-            Populates self.rooms and self.items dictionaries
-        """
-        # Read and parse JSON file
-        with open(self._legacy_world_data_path) as f:
-            data = json.load(f)
-
-        # Load all rooms from JSON
-        for room_id, room_data in data.get("rooms", {}).items():
-            self.rooms[room_id] = Room(
-                id=room_data["id"],
-                name=room_data["name"],
-                description=room_data["description"],
-                exits=room_data.get("exits", {}),
-                items=room_data.get("items", []),
-            )
-
-        # Load all items from JSON
-        for item_id, item_data in data.get("items", {}).items():
-            self.items[item_id] = Item(
-                id=item_data["id"],
-                name=item_data["name"],
-                description=item_data["description"],
-            )
-
-        self.world_name = "Legacy World"
-        logger.info(f"Loaded legacy world: {len(self.rooms)} rooms, {len(self.items)} items")
 
     def _parse_room_ref(self, room_ref: str) -> tuple[str | None, str]:
         """

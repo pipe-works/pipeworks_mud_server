@@ -12,20 +12,19 @@ Fixtures are organized by scope (function, module, session) to optimize
 test performance and isolation.
 """
 
-import json
 import shutil
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import mock_open, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from mud_server.config import use_test_database
 from mud_server.core.engine import GameEngine
-from mud_server.core.world import Item, Room, World
+from mud_server.core.world import Item, Room, World, Zone
 from mud_server.db import database
 
 # Import shared test constant
@@ -169,8 +168,7 @@ def mock_world(mock_world_data: dict) -> World:
     """
     Create a mock World instance for testing.
 
-    Patches the World initialization to use mock data instead of loading
-    from world_data.json file.
+    Bypasses disk loading and injects mock zones, rooms, and items directly.
 
     Args:
         mock_world_data: Mock world data (from fixture)
@@ -178,20 +176,39 @@ def mock_world(mock_world_data: dict) -> World:
     Returns:
         World instance with mock data loaded
     """
-    # Create a mock JSON file content
-    mock_json = json.dumps({"rooms": {}, "items": {}})
+    with patch.object(World, "_load_world", lambda self: None):
+        world = World()
 
-    # Mock the file opening and JSON loading
-    with patch("builtins.open", mock_open(read_data=mock_json)):
-        with patch(
-            "json.load",
-            return_value={
-                "rooms": {room["id"]: room for room in mock_world_data["rooms"]},
-                "items": {item["id"]: item for item in mock_world_data["items"]},
-            },
-        ):
-            world = World()
-            return world
+    world.rooms = {
+        room["id"]: Room(
+            id=room["id"],
+            name=room["name"],
+            description=room["description"],
+            exits=room.get("exits", {}),
+            items=room.get("items", []),
+        )
+        for room in mock_world_data["rooms"]
+    }
+    world.items = {
+        item["id"]: Item(
+            id=item["id"],
+            name=item["name"],
+            description=item["description"],
+        )
+        for item in mock_world_data["items"]
+    }
+    world.zones = {
+        "test_zone": Zone(
+            id="test_zone",
+            name="Test Zone",
+            description="Mock zone for tests",
+            spawn_room="spawn",
+            rooms=list(world.rooms.keys()),
+        )
+    }
+    world.default_spawn = ("test_zone", "spawn")
+    world.world_name = "Test World"
+    return world
 
 
 @pytest.fixture(scope="function")
@@ -253,23 +270,12 @@ def test_client(test_db, mock_world_data) -> TestClient:
     # Create app
     app = FastAPI()
 
-    # Create mock JSON data
-    mock_json = json.dumps({"rooms": {}, "items": {}})
-
     # Create engine with mocked World loading
-    with patch("builtins.open", mock_open(read_data=mock_json)):
-        with patch(
-            "json.load",
-            return_value={
-                "rooms": {room["id"]: room for room in mock_world_data["rooms"]},
-                "items": {item["id"]: item for item in mock_world_data["items"]},
-            },
-        ):
-            with patch.object(database, "init_database"):
-                engine = GameEngine()
-                mock_world = World()
-                engine.world_registry = SimpleNamespace(get_world=lambda _world_id: mock_world)
-                engine._get_world = lambda _world_id: mock_world
+    with patch.object(database, "init_database"):
+        engine = GameEngine()
+        world = mock_world(mock_world_data)
+        engine.world_registry = SimpleNamespace(get_world=lambda _world_id: world)
+        engine._get_world = lambda _world_id: world
 
     # Register routes
     register_routes(app, engine)
