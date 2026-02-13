@@ -10,7 +10,7 @@ from mud_server.db import database
 def _seed_world(cursor, world_id: str, *, is_active: int = 1) -> None:
     cursor.execute(
         """
-        INSERT INTO worlds (id, name, description, is_active, config_json)
+        INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
         VALUES (?, ?, '', ?, '{}')
         """,
         (world_id, world_id, is_active),
