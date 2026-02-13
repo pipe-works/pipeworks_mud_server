@@ -31,6 +31,7 @@ from mud_server.admin_tui.screens.database_tabs import (
     TablesListTab,
     TombstonedTab,
     UsersTab,
+    WorldsTab,
 )
 
 
@@ -147,6 +148,9 @@ class DatabaseScreen(Screen):
                 with TabPane("Users", id="tab-players"):
                     yield DataTable(id="table-players")
 
+                with TabPane("Worlds", id="tab-worlds"):
+                    yield DataTable(id="table-worlds")
+
                 with TabPane("Character Locations", id="tab-player-locations"):
                     yield DataTable(id="table-player-locations")
 
@@ -180,6 +184,7 @@ class DatabaseScreen(Screen):
         self._tabs: dict[str, _DatabaseTab] = {
             "tables": TablesListTab(self),
             "users": UsersTab(self),
+            "worlds": WorldsTab(self),
             "character_locations": CharacterLocationsTab(self),
             "connections": ConnectionsTab(self),
             "sessions": SessionsTab(self),
@@ -191,6 +196,7 @@ class DatabaseScreen(Screen):
 
         self._tabs["tables"].setup()
         self._tabs["users"].setup()
+        self._tabs["worlds"].setup()
         self._tabs["character_locations"].setup()
         self._tabs["connections"].setup()
         self._tabs["sessions"].setup()
@@ -212,6 +218,7 @@ class DatabaseScreen(Screen):
         # Load initial data
         self._load_tables()
         self._load_players()
+        self._load_worlds()
         self._load_player_locations()
         self._load_connections()
         self._load_sessions()
@@ -337,6 +344,19 @@ class DatabaseScreen(Screen):
             self._refreshing_tabs.discard(tab_id)
 
     @work(thread=False)
+    async def _load_worlds(self) -> None:
+        """Fetch and display worlds from the database."""
+        tab_id = "tab-worlds"
+        if tab_id in self._refreshing_tabs:
+            return
+
+        try:
+            self._refreshing_tabs.add(tab_id)
+            await self._tabs["worlds"].load()
+        finally:
+            self._refreshing_tabs.discard(tab_id)
+
+    @work(thread=False)
     async def _load_tombstoned(self) -> None:
         """Fetch and display tombstoned users."""
         tab_id = "tab-tombstoned"
@@ -441,6 +461,7 @@ class DatabaseScreen(Screen):
     def action_refresh(self) -> None:
         """Refresh all tables (key: r)."""
         self._load_players()
+        self._load_worlds()
         self._load_player_locations()
         self._load_connections()
         self._load_sessions()
@@ -699,6 +720,7 @@ class DatabaseScreen(Screen):
         refresh_map = {
             "tab-tables": self._load_tables,
             "tab-players": self._load_players,
+            "tab-worlds": self._load_worlds,
             "tab-player-locations": self._load_player_locations,
             "tab-connections": self._load_connections,
             "tab-sessions": self._load_sessions,

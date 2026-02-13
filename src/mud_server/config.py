@@ -138,6 +138,15 @@ class FeatureSettings:
 
 
 @dataclass
+class WorldSettings:
+    """Multi-world configuration settings."""
+
+    worlds_root: str = "data/worlds"
+    default_world_id: str = "pipeworks_web"
+    allow_multi_world_characters: bool = False
+
+
+@dataclass
 class ServerConfig:
     """
     Complete server configuration.
@@ -154,6 +163,7 @@ class ServerConfig:
     rate_limit: RateLimitSettings = field(default_factory=RateLimitSettings)
     characters: CharacterSettings = field(default_factory=CharacterSettings)
     features: FeatureSettings = field(default_factory=FeatureSettings)
+    worlds: WorldSettings = field(default_factory=WorldSettings)
 
     @property
     def is_production(self) -> bool:
@@ -274,6 +284,17 @@ def _load_from_ini(parser: configparser.ConfigParser, cfg: ServerConfig) -> None
         if parser.has_option("features", "verbose_errors"):
             cfg.features.verbose_errors = _parse_bool(parser.get("features", "verbose_errors"))
 
+    # Worlds section
+    if parser.has_section("worlds"):
+        if parser.has_option("worlds", "worlds_root"):
+            cfg.worlds.worlds_root = parser.get("worlds", "worlds_root")
+        if parser.has_option("worlds", "default_world_id"):
+            cfg.worlds.default_world_id = parser.get("worlds", "default_world_id")
+        if parser.has_option("worlds", "allow_multi_world_characters"):
+            cfg.worlds.allow_multi_world_characters = _parse_bool(
+                parser.get("worlds", "allow_multi_world_characters")
+            )
+
 
 def _apply_env_overrides(cfg: ServerConfig) -> None:
     """Apply environment variable overrides to configuration."""
@@ -312,6 +333,14 @@ def _apply_env_overrides(cfg: ServerConfig) -> None:
         cfg.characters.default_slots = int(env_default_slots)
     if env_max_slots := os.getenv("MUD_CHAR_MAX_SLOTS"):
         cfg.characters.max_slots = int(env_max_slots)
+
+    # World settings
+    if env_worlds_root := os.getenv("MUD_WORLDS_ROOT"):
+        cfg.worlds.worlds_root = env_worlds_root
+    if env_default_world := os.getenv("MUD_DEFAULT_WORLD_ID"):
+        cfg.worlds.default_world_id = env_default_world
+    if env_allow_multi_world := os.getenv("MUD_ALLOW_MULTI_WORLD_CHARACTERS"):
+        cfg.worlds.allow_multi_world_characters = _parse_bool(env_allow_multi_world)
 
 
 def load_config() -> ServerConfig:

@@ -46,13 +46,6 @@ DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
 WORLD_JSON_PATH = DATA_DIR / "world.json"
 ZONES_DIR = DATA_DIR / "zones"
 
-# Legacy single-file structure (fallback)
-LEGACY_WORLD_DATA_PATH = DATA_DIR / "world_data.json"
-
-# For backward compatibility with tests that reference this
-WORLD_DATA_PATH = LEGACY_WORLD_DATA_PATH
-
-
 # ============================================================================
 # DATA STRUCTURES
 # ============================================================================
@@ -194,18 +187,29 @@ class World:
         - Zone-based loading allows modular world building
     """
 
-    def __init__(self):
+    def __init__(self, *, world_root: Path | None = None):
         """
         Initialize the World by loading data from JSON files.
 
-        Tries zone-based loading first (world.json + zones/), falls back
-        to legacy single-file loading (world_data.json) if zones not found.
+        Loads zone-based data (world.json + zones/).
+
+        Args:
+            world_root: Optional path to a world package directory. When provided,
+                world.json and zones are loaded relative to this directory.
 
         Raises:
             FileNotFoundError: If no world data files exist
             JSONDecodeError: If JSON files are malformed
             KeyError: If required fields are missing from JSON
         """
+        self._world_root = world_root
+        if world_root is not None:
+            self._world_json_path = world_root / "world.json"
+            self._zones_dir = world_root / "zones"
+        else:
+            self._world_json_path = WORLD_JSON_PATH
+            self._zones_dir = ZONES_DIR
+
         # Initialize empty dictionaries for world data
         self.rooms: dict[str, Room] = {}  # room_id -> Room object
         self.items: dict[str, Item] = {}  # item_id -> Item object
@@ -220,40 +224,23 @@ class World:
 
     def _load_world(self):
         """
-        Load world data, trying legacy structure first, then zone-based.
-
-        Loading Priority:
-        1. Try legacy world_data.json first (for backward compatibility + tests)
-        2. If legacy file not found, try zone-based structure
-        3. Else raise FileNotFoundError
-
-        This order ensures existing installations and test mocks continue to work,
-        while allowing new zone-based worlds to be loaded.
+        Load world data from zone-based structure.
 
         Side Effects:
             Populates self.rooms, self.items, self.zones dictionaries
             Sets self.world_name and self.default_spawn
         """
-        # Try legacy loading first (for backward compatibility and test mocks)
-        try:
-            self._load_legacy()
-            # If we got here and loaded rooms, we're done
-            if self.rooms:
-                return
-        except FileNotFoundError:
-            pass  # No legacy file, try zones
-
         # Try zone-based loading
         try:
             self._load_from_zones()
             if self.rooms:
                 return
         except FileNotFoundError:
-            pass  # No zone files either
+            pass  # No zone files
 
         # If we get here with no rooms, something is wrong
         if not self.rooms:
-            logger.warning("No world data loaded - check data/world_data.json or data/zones/")
+            logger.warning("No world data loaded - check data/worlds/<world_id>/world.json")
 
     def _load_from_zones(self):
         """
@@ -271,7 +258,7 @@ class World:
             Sets self.world_name and self.default_spawn
         """
         # Load world registry
-        with open(WORLD_JSON_PATH) as f:
+        with open(self._world_json_path) as f:
             world_data = json.load(f)
 
         self.world_name = world_data.get("name", "Unknown World")
@@ -297,7 +284,7 @@ class World:
         # Load each zone
         zone_ids = world_data.get("zones", [])
         for zone_id in zone_ids:
-            zone_path = ZONES_DIR / f"{zone_id}.json"
+            zone_path = self._zones_dir / f"{zone_id}.json"
             if zone_path.exists():
                 self._load_zone(zone_path)
             else:
@@ -325,18 +312,30 @@ class World:
 
         zone_id = zone_data["id"]
 
+        rooms_payload = zone_data.get("rooms", {})
+        if isinstance(rooms_payload, list):
+            rooms_map = {room["id"]: room for room in rooms_payload}
+        else:
+            rooms_map = rooms_payload
+
+        items_payload = zone_data.get("items", {})
+        if isinstance(items_payload, list):
+            items_map = {item["id"]: item for item in items_payload}
+        else:
+            items_map = items_payload
+
         # Create Zone object
         zone = Zone(
             id=zone_id,
             name=zone_data.get("name", zone_id),
             description=zone_data.get("description", ""),
             spawn_room=zone_data.get("spawn_room", "spawn"),
-            rooms=list(zone_data.get("rooms", {}).keys()),
+            rooms=list(rooms_map.keys()),
         )
         self.zones[zone_id] = zone
 
         # Load zone's rooms
-        for room_id, room_data in zone_data.get("rooms", {}).items():
+        for room_id, room_data in rooms_map.items():
             self.rooms[room_id] = Room(
                 id=room_data["id"],
                 name=room_data["name"],
@@ -346,7 +345,7 @@ class World:
             )
 
         # Load zone's items
-        for item_id, item_data in zone_data.get("items", {}).items():
+        for item_id, item_data in items_map.items():
             self.items[item_id] = Item(
                 id=item_data["id"],
                 name=item_data["name"],
@@ -354,61 +353,6 @@ class World:
             )
 
         logger.debug(f"Loaded zone '{zone_id}': {len(zone.rooms)} rooms")
-
-    def _load_legacy(self):
-        """
-        Load world data from legacy single-file structure.
-
-        This is the original loading method, kept for backward compatibility
-        with existing world_data.json files and test mocks.
-
-        JSON Structure Expected:
-            {
-                "rooms": {
-                    "room_id": {
-                        "id": "room_id",
-                        "name": "Room Name",
-                        "description": "Room description",
-                        "exits": {"north": "other_room_id"},
-                        "items": ["item_id"]
-                    }
-                },
-                "items": {
-                    "item_id": {
-                        "id": "item_id",
-                        "name": "Item Name",
-                        "description": "Item description"
-                    }
-                }
-            }
-
-        Side Effects:
-            Populates self.rooms and self.items dictionaries
-        """
-        # Read and parse JSON file
-        with open(WORLD_DATA_PATH) as f:
-            data = json.load(f)
-
-        # Load all rooms from JSON
-        for room_id, room_data in data.get("rooms", {}).items():
-            self.rooms[room_id] = Room(
-                id=room_data["id"],
-                name=room_data["name"],
-                description=room_data["description"],
-                exits=room_data.get("exits", {}),
-                items=room_data.get("items", []),
-            )
-
-        # Load all items from JSON
-        for item_id, item_data in data.get("items", {}).items():
-            self.items[item_id] = Item(
-                id=item_data["id"],
-                name=item_data["name"],
-                description=item_data["description"],
-            )
-
-        self.world_name = "Legacy World"
-        logger.info(f"Loaded legacy world: {len(self.rooms)} rooms, {len(self.items)} items")
 
     def _parse_room_ref(self, room_ref: str) -> tuple[str | None, str]:
         """
@@ -455,7 +399,7 @@ class World:
 
         # If zone is specified but not loaded, try to load it
         if zone_id and zone_id not in self.zones:
-            zone_path = ZONES_DIR / f"{zone_id}.json"
+            zone_path = self._zones_dir / f"{zone_id}.json"
             if zone_path.exists():
                 logger.info(f"Lazy-loading zone '{zone_id}' for cross-zone exit")
                 self._load_zone(zone_path)
@@ -500,7 +444,9 @@ class World:
         """
         return self.items.get(item_id)
 
-    def get_room_description(self, room_id: str, username: str) -> str:
+    def get_room_description(
+        self, room_id: str, username: str, *, world_id: str | None = None
+    ) -> str:
         """
         Generate a detailed, formatted description of a room.
 
@@ -572,7 +518,9 @@ class World:
 
         # Add players section (query database for active players in this room)
         # Exclude the requesting player from the list
-        other_players = [p for p in database.get_characters_in_room(room_id) if p != username]
+        other_players = [
+            p for p in database.get_characters_in_room(room_id, world_id=world_id) if p != username
+        ]
         if other_players:
             desc += "\n[Players here]:\n"
             for player in other_players:

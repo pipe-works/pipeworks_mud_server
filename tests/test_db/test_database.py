@@ -90,6 +90,16 @@ def test_init_database_creates_tables(temp_db_path):
         )
         assert cursor.fetchone() is not None
 
+        # Check worlds table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='worlds'")
+        assert cursor.fetchone() is not None
+
+        # Check world_permissions table exists
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='world_permissions'"
+        )
+        assert cursor.fetchone() is not None
+
         conn.close()
 
 
@@ -452,6 +462,42 @@ def test_get_room_messages(test_db, temp_db_path, db_with_users):
         assert len(messages) == 2
         assert messages[0]["message"] == "Message 1"
         assert messages[1]["message"] == "Message 2"
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_room_messages_world_isolation(test_db, temp_db_path, db_with_users):
+    """Room messages should be isolated by world_id."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("daily_undertaking", "daily_undertaking"),
+        )
+        conn.commit()
+        conn.close()
+
+        assert database.create_character_for_user(
+            user_id, "alt_player", world_id="daily_undertaking"
+        )
+
+        database.add_chat_message("testplayer", "Default world", "spawn", world_id="pipeworks_web")
+        database.add_chat_message("alt_player", "Alt world", "spawn", world_id="daily_undertaking")
+
+        default_messages = database.get_room_messages("spawn", world_id="pipeworks_web", limit=10)
+        assert len(default_messages) == 1
+        assert default_messages[0]["message"] == "Default world"
+
+        alt_messages = database.get_room_messages("spawn", world_id="daily_undertaking", limit=10)
+        assert len(alt_messages) == 1
+        assert alt_messages[0]["message"] == "Alt world"
 
 
 @pytest.mark.unit
@@ -1256,15 +1302,58 @@ def test_get_all_chat_messages(test_db, temp_db_path, db_with_users):
 @pytest.mark.unit
 @pytest.mark.db
 @pytest.mark.admin
+def test_get_all_chat_messages_world_filter(test_db, temp_db_path, db_with_users):
+    """Chat message queries should filter by world_id."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("daily_undertaking", "daily_undertaking"),
+        )
+        conn.commit()
+        conn.close()
+
+        assert database.create_character_for_user(
+            user_id, "alt_player", world_id="daily_undertaking"
+        )
+
+        database.add_chat_message("testplayer", "Default world", "spawn", world_id="pipeworks_web")
+        database.add_chat_message("alt_player", "Alt world", "spawn", world_id="daily_undertaking")
+
+        default_messages = database.get_all_chat_messages(limit=100, world_id="pipeworks_web")
+        assert len(default_messages) == 1
+        assert default_messages[0]["message"] == "Default world"
+
+        alt_messages = database.get_all_chat_messages(limit=100, world_id="daily_undertaking")
+        assert len(alt_messages) == 1
+        assert alt_messages[0]["message"] == "Alt world"
+
+
+@pytest.mark.unit
+@pytest.mark.db
+@pytest.mark.admin
 def test_list_tables(test_db, temp_db_path, db_with_users):
     """Test listing database tables with metadata."""
     with use_test_database(temp_db_path):
         tables = database.list_tables()
         table_names = {table["name"] for table in tables}
 
-        assert {"users", "characters", "character_locations", "sessions", "chat_messages"}.issubset(
-            table_names
-        )
+        assert {
+            "users",
+            "characters",
+            "character_locations",
+            "sessions",
+            "chat_messages",
+            "worlds",
+            "world_permissions",
+        }.issubset(table_names)
         assert all("columns" in table for table in tables)
         assert all("row_count" in table for table in tables)
 
@@ -1289,3 +1378,27 @@ def test_get_table_rows_invalid_table_raises(test_db, temp_db_path, db_with_user
     with use_test_database(temp_db_path):
         with pytest.raises(ValueError, match="does not exist"):
             database.get_table_rows("not_a_table")
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_list_worlds_for_user_fallback_by_character(test_db, temp_db_path, db_with_users):
+    """Fallback should allow worlds where user already has characters."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("pipeworks_web", "pipeworks_web"),
+        )
+        conn.commit()
+        conn.close()
+
+        worlds = database.list_worlds_for_user(user_id, role="player")
+        assert [world["id"] for world in worlds] == ["pipeworks_web"]

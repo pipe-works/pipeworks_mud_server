@@ -240,6 +240,17 @@ class AdminAPIClient:
     # Authentication Methods
     # -------------------------------------------------------------------------
 
+    @staticmethod
+    def _safe_error_detail(response: httpx.Response) -> str:
+        """Extract error detail from a response, falling back to raw text."""
+        try:
+            data = response.json()
+        except ValueError:
+            return response.text or "Unknown error"
+        if isinstance(data, dict):
+            return str(data.get("detail", "Unknown error"))
+        return "Unknown error"
+
     async def login(self, username: str, password: str) -> dict[str, Any]:
         """
         Authenticate with the MUD server.
@@ -672,11 +683,10 @@ class AdminAPIClient:
             )
 
         if response.status_code != 200:
-            error_data = response.json()
             raise APIError(
                 message="Failed to get player locations",
                 status_code=response.status_code,
-                detail=error_data.get("detail", "Unknown error"),
+                detail=self._safe_error_detail(response),
             )
 
         data = cast(dict[str, Any], response.json())

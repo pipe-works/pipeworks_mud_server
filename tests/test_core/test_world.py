@@ -384,15 +384,10 @@ def test_cross_zone_movement(tmp_path):
     # Patch paths
     original_world_path = world_module.WORLD_JSON_PATH
     original_zones_dir = world_module.ZONES_DIR
-    original_legacy_path = world_module.LEGACY_WORLD_DATA_PATH
-    original_world_data_path = world_module.WORLD_DATA_PATH
 
     try:
         world_module.WORLD_JSON_PATH = world_json_path
         world_module.ZONES_DIR = zones_dir
-        nonexistent = tmp_path / "nonexistent.json"
-        world_module.LEGACY_WORLD_DATA_PATH = nonexistent
-        world_module.WORLD_DATA_PATH = nonexistent
 
         # Load the world
         w = World()
@@ -425,8 +420,6 @@ def test_cross_zone_movement(tmp_path):
     finally:
         world_module.WORLD_JSON_PATH = original_world_path
         world_module.ZONES_DIR = original_zones_dir
-        world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
-        world_module.WORLD_DATA_PATH = original_world_data_path
 
 
 @pytest.mark.integration
@@ -485,16 +478,11 @@ def test_zone_based_loading_from_real_files(tmp_path):
     # Patch the paths to use temp directory
     original_world_path = world_module.WORLD_JSON_PATH
     original_zones_dir = world_module.ZONES_DIR
-    original_legacy_path = world_module.LEGACY_WORLD_DATA_PATH
-    original_world_data_path = world_module.WORLD_DATA_PATH
 
     try:
         world_module.WORLD_JSON_PATH = world_json_path
         world_module.ZONES_DIR = zones_dir
         # Point both legacy paths to nonexistent file so zone loading is used
-        nonexistent = tmp_path / "nonexistent.json"
-        world_module.LEGACY_WORLD_DATA_PATH = nonexistent
-        world_module.WORLD_DATA_PATH = nonexistent
 
         # Load the world
         w = World()
@@ -515,8 +503,58 @@ def test_zone_based_loading_from_real_files(tmp_path):
         # Restore original paths
         world_module.WORLD_JSON_PATH = original_world_path
         world_module.ZONES_DIR = original_zones_dir
-        world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
-        world_module.WORLD_DATA_PATH = original_world_data_path
+
+
+@pytest.mark.integration
+def test_zone_loading_accepts_room_lists(tmp_path):
+    """Zones should load when rooms are provided as lists instead of dicts."""
+    import json
+
+    from mud_server.core import world as world_module
+    from mud_server.core.world import World
+
+    zones_dir = tmp_path / "zones"
+    zones_dir.mkdir()
+
+    world_json = {
+        "name": "List Rooms World",
+        "default_spawn": {"zone": "list_zone", "room": "spawn"},
+        "zones": ["list_zone"],
+        "global_items": {},
+    }
+    world_json_path = tmp_path / "world.json"
+    world_json_path.write_text(json.dumps(world_json))
+
+    zone_payload = {
+        "id": "list_zone",
+        "name": "List Zone",
+        "spawn_room": "spawn",
+        "rooms": [
+            {
+                "id": "spawn",
+                "name": "Spawn",
+                "description": "Spawn room",
+                "exits": {},
+                "items": [],
+            }
+        ],
+        "items": [],
+    }
+    (zones_dir / "list_zone.json").write_text(json.dumps(zone_payload))
+
+    original_world_path = world_module.WORLD_JSON_PATH
+    original_zones_dir = world_module.ZONES_DIR
+
+    try:
+        world_module.WORLD_JSON_PATH = world_json_path
+        world_module.ZONES_DIR = zones_dir
+
+        w = World()
+        assert "list_zone" in w.zones
+        assert "spawn" in w.rooms
+    finally:
+        world_module.WORLD_JSON_PATH = original_world_path
+        world_module.ZONES_DIR = original_zones_dir
 
 
 @pytest.mark.integration
@@ -545,15 +583,10 @@ def test_zone_file_not_found_warning(tmp_path, caplog):
     # Patch paths
     original_world_path = world_module.WORLD_JSON_PATH
     original_zones_dir = world_module.ZONES_DIR
-    original_legacy_path = world_module.LEGACY_WORLD_DATA_PATH
-    original_world_data_path = world_module.WORLD_DATA_PATH
 
     try:
         world_module.WORLD_JSON_PATH = world_json_path
         world_module.ZONES_DIR = zones_dir
-        nonexistent = tmp_path / "nonexistent.json"
-        world_module.LEGACY_WORLD_DATA_PATH = nonexistent
-        world_module.WORLD_DATA_PATH = nonexistent
 
         # Load the world - should warn about missing zone
         with caplog.at_level(logging.WARNING):
@@ -568,8 +601,6 @@ def test_zone_file_not_found_warning(tmp_path, caplog):
     finally:
         world_module.WORLD_JSON_PATH = original_world_path
         world_module.ZONES_DIR = original_zones_dir
-        world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
-        world_module.WORLD_DATA_PATH = original_world_data_path
 
 
 @pytest.mark.integration
@@ -583,15 +614,10 @@ def test_no_world_data_warning(tmp_path, caplog):
     # Patch all paths to nonexistent files
     original_world_path = world_module.WORLD_JSON_PATH
     original_zones_dir = world_module.ZONES_DIR
-    original_legacy_path = world_module.LEGACY_WORLD_DATA_PATH
-    original_world_data_path = world_module.WORLD_DATA_PATH
 
     try:
-        nonexistent = tmp_path / "nonexistent.json"
-        world_module.WORLD_JSON_PATH = nonexistent
+        world_module.WORLD_JSON_PATH = tmp_path / "nonexistent.json"
         world_module.ZONES_DIR = tmp_path / "nonexistent_zones"
-        world_module.LEGACY_WORLD_DATA_PATH = nonexistent
-        world_module.WORLD_DATA_PATH = nonexistent
 
         # Load the world - should warn about no data
         with caplog.at_level(logging.WARNING):
@@ -605,8 +631,6 @@ def test_no_world_data_warning(tmp_path, caplog):
     finally:
         world_module.WORLD_JSON_PATH = original_world_path
         world_module.ZONES_DIR = original_zones_dir
-        world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
-        world_module.WORLD_DATA_PATH = original_world_data_path
 
 
 @pytest.mark.integration
@@ -671,15 +695,10 @@ def test_lazy_load_zone_on_cross_zone_exit(tmp_path, caplog):
     # Patch paths
     original_world_path = world_module.WORLD_JSON_PATH
     original_zones_dir = world_module.ZONES_DIR
-    original_legacy_path = world_module.LEGACY_WORLD_DATA_PATH
-    original_world_data_path = world_module.WORLD_DATA_PATH
 
     try:
         world_module.WORLD_JSON_PATH = world_json_path
         world_module.ZONES_DIR = zones_dir
-        nonexistent = tmp_path / "nonexistent.json"
-        world_module.LEGACY_WORLD_DATA_PATH = nonexistent
-        world_module.WORLD_DATA_PATH = nonexistent
 
         # Load the world
         w = World()
@@ -706,8 +725,6 @@ def test_lazy_load_zone_on_cross_zone_exit(tmp_path, caplog):
     finally:
         world_module.WORLD_JSON_PATH = original_world_path
         world_module.ZONES_DIR = original_zones_dir
-        world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
-        world_module.WORLD_DATA_PATH = original_world_data_path
 
 
 @pytest.mark.integration
@@ -754,15 +771,10 @@ def test_exit_to_unknown_room_warning(tmp_path, caplog):
     # Patch paths
     original_world_path = world_module.WORLD_JSON_PATH
     original_zones_dir = world_module.ZONES_DIR
-    original_legacy_path = world_module.LEGACY_WORLD_DATA_PATH
-    original_world_data_path = world_module.WORLD_DATA_PATH
 
     try:
         world_module.WORLD_JSON_PATH = world_json_path
         world_module.ZONES_DIR = zones_dir
-        nonexistent = tmp_path / "nonexistent.json"
-        world_module.LEGACY_WORLD_DATA_PATH = nonexistent
-        world_module.WORLD_DATA_PATH = nonexistent
 
         w = World()
 
@@ -779,8 +791,6 @@ def test_exit_to_unknown_room_warning(tmp_path, caplog):
     finally:
         world_module.WORLD_JSON_PATH = original_world_path
         world_module.ZONES_DIR = original_zones_dir
-        world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
-        world_module.WORLD_DATA_PATH = original_world_data_path
 
 
 @pytest.mark.unit
@@ -826,15 +836,10 @@ def test_default_spawn_non_dict_format(tmp_path):
     # Patch paths
     original_world_path = world_module.WORLD_JSON_PATH
     original_zones_dir = world_module.ZONES_DIR
-    original_legacy_path = world_module.LEGACY_WORLD_DATA_PATH
-    original_world_data_path = world_module.WORLD_DATA_PATH
 
     try:
         world_module.WORLD_JSON_PATH = world_json_path
         world_module.ZONES_DIR = zones_dir
-        nonexistent = tmp_path / "nonexistent.json"
-        world_module.LEGACY_WORLD_DATA_PATH = nonexistent
-        world_module.WORLD_DATA_PATH = nonexistent
 
         w = World()
 
@@ -844,5 +849,16 @@ def test_default_spawn_non_dict_format(tmp_path):
     finally:
         world_module.WORLD_JSON_PATH = original_world_path
         world_module.ZONES_DIR = original_zones_dir
-        world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
-        world_module.WORLD_DATA_PATH = original_world_data_path
+
+
+def test_get_room_description_passes_world_id(mock_world):
+    """Ensure get_room_description forwards world_id to database lookup."""
+    from unittest.mock import patch
+
+    with patch(
+        "mud_server.core.world.database.get_characters_in_room",
+        return_value=[],
+    ) as spy:
+        mock_world.get_room_description("spawn", "testplayer", world_id="pipeworks_web")
+
+    spy.assert_called_with("spawn", world_id="pipeworks_web")

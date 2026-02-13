@@ -142,9 +142,50 @@ def cmd_init_db(args: argparse.Namespace) -> int:
     Returns:
         0 on success, 1 on error
     """
+    from datetime import datetime
+    from shutil import copy2
+
+    from mud_server.config import config
     from mud_server.db.database import init_database
 
     try:
+        db_path = config.database.absolute_path
+        if db_path.exists():
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = db_path.with_suffix(f".bak.{timestamp}")
+            copy2(db_path, backup_path)
+            print(f"Existing database backed up to {backup_path}")
+
+        if getattr(args, "migrate", False):
+            import importlib.util
+            from pathlib import Path
+
+            script_path = (
+                Path(__file__).resolve().parents[2] / "scripts" / "migrate_to_multiworld.py"
+            )
+            if not script_path.exists():
+                print(f"Migration script not found: {script_path}", file=sys.stderr)
+                return 1
+
+            spec = importlib.util.spec_from_file_location("migrate_to_multiworld", script_path)
+            if not spec or not spec.loader:
+                print("Failed to load migration script.", file=sys.stderr)
+                return 1
+
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            migrate_main = getattr(module, "main", None)
+            if migrate_main is None:
+                print("Migration script missing main() entry point.", file=sys.stderr)
+                return 1
+
+            original_argv = sys.argv
+            try:
+                sys.argv = [str(script_path)]
+                return int(migrate_main())
+            finally:
+                sys.argv = original_argv
+
         init_database()
         print("Database initialized successfully.")
         return 0
@@ -498,6 +539,11 @@ def main() -> int:
             "Initialize the database with required tables. "
             "If MUD_ADMIN_USER and MUD_ADMIN_PASSWORD are set, creates a superuser."
         ),
+    )
+    init_parser.add_argument(
+        "--migrate",
+        action="store_true",
+        help="Run the multi-world migration script instead of a fresh init.",
     )
     init_parser.set_defaults(func=cmd_init_db)
 

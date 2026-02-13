@@ -74,6 +74,26 @@ async def test_refresh_active_tab_players() -> None:
 
 
 @pytest.mark.asyncio
+async def test_refresh_active_tab_worlds() -> None:
+    screen = DatabaseScreen()
+    app = _TestApp(screen)
+
+    async with app.run_test() as pilot:
+        active = pilot.app.screen
+        assert isinstance(active, DatabaseScreen)
+        active._auto_refresh_timer.stop()
+
+        calls: list[str] = []
+        active._load_worlds = lambda: calls.append("worlds")
+
+        tabs = active.query_one("#table-tabs", TabbedContent)
+        tabs.active = "tab-worlds"
+
+        active._refresh_active_tab()
+        assert calls == ["worlds"]
+
+
+@pytest.mark.asyncio
 async def test_refresh_table_data_uses_active_table() -> None:
     screen = DatabaseScreen()
     app = _TestApp(screen)

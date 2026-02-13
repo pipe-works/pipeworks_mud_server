@@ -246,6 +246,67 @@ class TombstonedTab:
         _restore_selection(table, selected_key, selected_index, row_index_by_id)
 
 
+class WorldsTab:
+    """Worlds catalog tab handler."""
+
+    def __init__(self, screen: Any) -> None:
+        self._screen = screen
+
+    def setup(self) -> None:
+        """Configure the worlds DataTable columns."""
+        table = self._screen.query_one("#table-worlds", DataTable)
+        table.cursor_type = "row"
+        table.zebra_stripes = True
+        table.add_columns(
+            "ID",
+            "Name",
+            "Active",
+            "Description",
+            "Created",
+            "Config",
+        )
+
+    async def load(self) -> None:
+        """Fetch and display worlds from the database."""
+        table = self._screen.query_one("#table-worlds", DataTable)
+        selected_key, selected_index = _capture_selection(table)
+        table.clear()
+
+        try:
+            payload = await self._screen.app.api_client.get_table_rows("worlds", limit=200)
+            columns = payload.get("columns", [])
+            rows = payload.get("rows", [])
+            column_index = {name: idx for idx, name in enumerate(columns)}
+
+            row_index_by_id: dict[str, int] = {}
+            for row in rows:
+                world_id = row[column_index.get("id", 0)] if row else ""
+                name = row[column_index.get("name", 1)] if row else ""
+                description = row[column_index.get("description", 2)] if row else ""
+                is_active = row[column_index.get("is_active", 3)] if row else ""
+                created_at = row[column_index.get("created_at", 5)] if row else ""
+                config_json = row[column_index.get("config_json", 4)] if row else ""
+
+                display_row = (
+                    str(world_id),
+                    str(name),
+                    "Yes" if str(is_active) in {"1", "True", "true"} else "No",
+                    truncate(str(description), 80),
+                    format_timestamp(str(created_at)),
+                    truncate(str(config_json), 80),
+                )
+                table.add_row(*display_row)
+                if display_row[0]:
+                    row_index_by_id[str(display_row[0])] = table.row_count - 1
+
+            _restore_selection(table, selected_key, selected_index, row_index_by_id)
+
+        except AuthenticationError as exc:
+            self._screen.notify(f"Permission denied: {exc.detail}", severity="error")
+        except Exception as exc:  # pragma: no cover - best-effort UI error
+            self._screen.notify(f"Failed to load worlds: {exc}", severity="error")
+
+
 class CharacterLocationsTab:
     """Character locations tab handler."""
 

@@ -12,6 +12,7 @@ Tests cover:
 All tests use mocked database and world for isolation.
 """
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -192,7 +193,7 @@ def test_move_valid_direction(mock_engine, test_db, temp_db_path, db_with_users)
         database.set_player_room("testplayer", "spawn")
 
         # Move north to forest
-        success, message = mock_engine.move("testplayer", "north")
+        success, message = mock_engine.move("testplayer", "north", world_id="pipeworks_web")
 
         assert success is True
         assert "move" in message.lower()
@@ -209,7 +210,7 @@ def test_move_invalid_direction(mock_engine, test_db, temp_db_path, db_with_user
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
-        success, message = mock_engine.move("testplayer", "west")
+        success, message = mock_engine.move("testplayer", "west", world_id="pipeworks_web")
 
         assert success is False
         assert "cannot move" in message.lower()
@@ -226,7 +227,7 @@ def test_move_from_invalid_room(mock_engine, test_db, temp_db_path, db_with_user
         # Set invalid room (non-existent room ID)
         database.set_player_room("testplayer", "invalid_room_xyz")
 
-        success, message = mock_engine.move("testplayer", "north")
+        success, message = mock_engine.move("testplayer", "north", world_id="pipeworks_web")
 
         assert success is False
         assert "not in a valid room" in message.lower()
@@ -263,7 +264,7 @@ def test_move_emits_player_moved_event(mock_engine, test_db, temp_db_path, db_wi
         initial_count = len(current_bus.get_event_log())
 
         # Move north to forest
-        success, message = mock_engine.move("testplayer", "north")
+        success, message = mock_engine.move("testplayer", "north", world_id="pipeworks_web")
 
         assert success is True
 
@@ -302,7 +303,7 @@ def test_move_emits_player_move_failed_on_invalid_direction(
         initial_count = len(current_bus.get_event_log())
 
         # Try to move west (no exit in spawn)
-        success, message = mock_engine.move("testplayer", "west")
+        success, message = mock_engine.move("testplayer", "west", world_id="pipeworks_web")
 
         assert success is False
 
@@ -340,7 +341,7 @@ def test_move_emits_player_move_failed_on_invalid_room(
         current_bus = MudBus()
         initial_count = len(current_bus.get_event_log())
 
-        success, message = mock_engine.move("testplayer", "north")
+        success, message = mock_engine.move("testplayer", "north", world_id="pipeworks_web")
 
         assert success is False
 
@@ -378,8 +379,8 @@ def test_move_events_have_sequential_sequence_numbers(
         current_bus = MudBus()
 
         # Make two successful moves
-        mock_engine.move("testplayer", "north")  # spawn -> forest
-        mock_engine.move("testplayer", "south")  # forest -> spawn
+        mock_engine.move("testplayer", "north", world_id="pipeworks_web")  # spawn -> forest
+        mock_engine.move("testplayer", "south", world_id="pipeworks_web")  # forest -> spawn
 
         events = current_bus.get_event_log()
         moved_events = [e for e in events if e.type == Events.PLAYER_MOVED]
@@ -406,7 +407,7 @@ def test_move_events_have_engine_source(mock_engine, test_db, temp_db_path, db_w
 
         current_bus = MudBus()
 
-        mock_engine.move("testplayer", "north")
+        mock_engine.move("testplayer", "north", world_id="pipeworks_web")
 
         events = current_bus.get_event_log()
         moved_events = [e for e in events if e.type == Events.PLAYER_MOVED]
@@ -428,7 +429,9 @@ def test_chat_success(mock_engine, test_db, temp_db_path, db_with_users):
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
-        success, message = mock_engine.chat("testplayer", "Hello everyone!")
+        success, message = mock_engine.chat(
+            "testplayer", "Hello everyone!", world_id="pipeworks_web"
+        )
 
         assert success is True
         assert "You say:" in message
@@ -447,7 +450,9 @@ def test_yell_sends_to_adjacent_rooms(mock_engine, test_db, temp_db_path, db_wit
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
-        success, message = mock_engine.yell("testplayer", "Can anyone hear me?")
+        success, message = mock_engine.yell(
+            "testplayer", "Can anyone hear me?", world_id="pipeworks_web"
+        )
 
         assert success is True
         assert "You yell:" in message
@@ -478,7 +483,9 @@ def test_whisper_success(mock_engine, test_db, temp_db_path, db_with_users):
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
 
-        success, message = mock_engine.whisper("testplayer", "testadmin", "Secret message")
+        success, message = mock_engine.whisper(
+            "testplayer", "testadmin", "Secret message", world_id="pipeworks_web"
+        )
 
         assert success is True
         assert "You whisper to testadmin:" in message
@@ -493,7 +500,9 @@ def test_whisper_target_not_online(mock_engine, test_db, temp_db_path, db_with_u
         database.set_player_room("testplayer", "spawn")
 
         # testadmin exists but is not online (no session)
-        success, message = mock_engine.whisper("testplayer", "testadmin", "Hello")
+        success, message = mock_engine.whisper(
+            "testplayer", "testadmin", "Hello", world_id="pipeworks_web"
+        )
 
         assert success is False
         assert "not online" in message.lower()
@@ -512,7 +521,9 @@ def test_whisper_target_different_room(mock_engine, test_db, temp_db_path, db_wi
         database.create_session("testplayer", "session-1")
         database.create_session("testadmin", "session-2")
 
-        success, message = mock_engine.whisper("testplayer", "testadmin", "Hello")
+        success, message = mock_engine.whisper(
+            "testplayer", "testadmin", "Hello", world_id="pipeworks_web"
+        )
 
         assert success is False
         assert "not in this room" in message.lower()
@@ -525,7 +536,9 @@ def test_whisper_nonexistent_target(mock_engine, test_db, temp_db_path, db_with_
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
-        success, message = mock_engine.whisper("testplayer", "nonexistent", "Hello")
+        success, message = mock_engine.whisper(
+            "testplayer", "nonexistent", "Hello", world_id="pipeworks_web"
+        )
 
         assert success is False
         assert "does not exist" in message.lower()
@@ -545,7 +558,7 @@ def test_chat_sanitizes_xss(mock_engine, test_db, temp_db_path, db_with_users):
         database.set_player_room("testplayer", "spawn")
 
         xss_payload = "<script>alert('xss')</script>"
-        success, message = mock_engine.chat("testplayer", xss_payload)
+        success, message = mock_engine.chat("testplayer", xss_payload, world_id="pipeworks_web")
 
         assert success is True
         # Verify the response contains escaped HTML
@@ -568,7 +581,7 @@ def test_yell_sanitizes_xss(mock_engine, test_db, temp_db_path, db_with_users):
         database.set_player_room("testplayer", "spawn")
 
         xss_payload = "<img src=x onerror=alert('xss')>"
-        success, message = mock_engine.yell("testplayer", xss_payload)
+        success, message = mock_engine.yell("testplayer", xss_payload, world_id="pipeworks_web")
 
         assert success is True
         # Verify the response contains escaped HTML
@@ -588,7 +601,9 @@ def test_whisper_sanitizes_xss(mock_engine, test_db, temp_db_path, db_with_users
         database.create_session("testadmin", "session-2")
 
         xss_payload = "<a href='javascript:alert(1)'>click</a>"
-        success, message = mock_engine.whisper("testplayer", "testadmin", xss_payload)
+        success, message = mock_engine.whisper(
+            "testplayer", "testadmin", xss_payload, world_id="pipeworks_web"
+        )
 
         assert success is True
         # Verify the response contains escaped HTML
@@ -608,7 +623,7 @@ def test_pickup_item_success(mock_engine, test_db, temp_db_path, db_with_users):
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
-        success, message = mock_engine.pickup_item("testplayer", "torch")
+        success, message = mock_engine.pickup_item("testplayer", "torch", world_id="pipeworks_web")
 
         assert success is True
         assert "picked up" in message.lower()
@@ -626,7 +641,7 @@ def test_pickup_item_not_in_room(mock_engine, test_db, temp_db_path, db_with_use
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "forest")  # No items in forest
 
-        success, message = mock_engine.pickup_item("testplayer", "torch")
+        success, message = mock_engine.pickup_item("testplayer", "torch", world_id="pipeworks_web")
 
         assert success is False
         assert "no" in message.lower()
@@ -640,7 +655,7 @@ def test_pickup_item_case_insensitive(mock_engine, test_db, temp_db_path, db_wit
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
-        success, message = mock_engine.pickup_item("testplayer", "TORCH")
+        success, message = mock_engine.pickup_item("testplayer", "TORCH", world_id="pipeworks_web")
 
         assert success is True
         assert "torch" in database.get_player_inventory("testplayer")
@@ -654,7 +669,7 @@ def test_drop_item_success(mock_engine, test_db, temp_db_path, db_with_users):
         # Add item to inventory
         database.set_player_inventory("testplayer", ["torch", "rope"])
 
-        success, message = mock_engine.drop_item("testplayer", "torch")
+        success, message = mock_engine.drop_item("testplayer", "torch", world_id="pipeworks_web")
 
         assert success is True
         assert "dropped" in message.lower()
@@ -671,7 +686,7 @@ def test_drop_item_success(mock_engine, test_db, temp_db_path, db_with_users):
 def test_drop_item_not_in_inventory(mock_engine, test_db, temp_db_path, db_with_users):
     """Test dropping item not in inventory."""
     with use_test_database(temp_db_path):
-        success, message = mock_engine.drop_item("testplayer", "sword")
+        success, message = mock_engine.drop_item("testplayer", "sword", world_id="pipeworks_web")
 
         assert success is False
         assert "don't have" in message.lower()
@@ -683,7 +698,7 @@ def test_drop_item_not_in_inventory(mock_engine, test_db, temp_db_path, db_with_
 def test_get_inventory_empty(mock_engine, test_db, temp_db_path, db_with_users):
     """Test getting empty inventory."""
     with use_test_database(temp_db_path):
-        inventory_text = mock_engine.get_inventory("testplayer")
+        inventory_text = mock_engine.get_inventory("testplayer", world_id="pipeworks_web")
 
         assert "empty" in inventory_text.lower()
 
@@ -695,7 +710,7 @@ def test_get_inventory_with_items(mock_engine, test_db, temp_db_path, db_with_us
     with use_test_database(temp_db_path):
         database.set_player_inventory("testplayer", ["torch", "rope"])
 
-        inventory_text = mock_engine.get_inventory("testplayer")
+        inventory_text = mock_engine.get_inventory("testplayer", world_id="pipeworks_web")
 
         assert "Your inventory:" in inventory_text
         assert "Torch" in inventory_text
@@ -715,7 +730,7 @@ def test_look_in_room(mock_engine, test_db, temp_db_path, db_with_users):
         with patch("mud_server.core.world.database.get_players_in_room", return_value=[]):
             database.set_player_room("testplayer", "spawn")
 
-            description = mock_engine.look("testplayer")
+            description = mock_engine.look("testplayer", world_id="pipeworks_web")
 
             assert "Test Spawn" in description
             assert "A test spawn room" in description
@@ -729,7 +744,7 @@ def test_look_invalid_room(mock_engine, test_db, temp_db_path, db_with_users):
         # Set invalid room (non-existent room ID)
         database.set_player_room("testplayer", "invalid_room_xyz")
 
-        description = mock_engine.look("testplayer")
+        description = mock_engine.look("testplayer", world_id="pipeworks_web")
 
         assert "not in a valid room" in description.lower()
 
@@ -780,7 +795,7 @@ def test_get_room_chat_with_messages(mock_engine, test_db, temp_db_path, db_with
         database.add_chat_message("testplayer", "Hello!", "spawn")
         database.add_chat_message("testadmin", "Hi there!", "spawn")
 
-        chat_text = mock_engine.get_room_chat("testplayer", limit=10)
+        chat_text = mock_engine.get_room_chat("testplayer", limit=10, world_id="pipeworks_web")
 
         assert "[Recent messages]:" in chat_text
         assert "testplayer_char: Hello!" in chat_text
@@ -794,7 +809,7 @@ def test_get_room_chat_empty(mock_engine, test_db, temp_db_path, db_with_users):
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
-        chat_text = mock_engine.get_room_chat("testplayer", limit=10)
+        chat_text = mock_engine.get_room_chat("testplayer", limit=10, world_id="pipeworks_web")
 
         assert "No messages in this room yet" in chat_text
 
@@ -808,7 +823,7 @@ def test_recall_to_zone_spawn(mock_engine, test_db, temp_db_path, db_with_users)
         database.set_player_room("testplayer", "forest")
 
         # Recall should return to spawn (mock world's default/only zone spawn)
-        success, message = mock_engine.recall("testplayer")
+        success, message = mock_engine.recall("testplayer", world_id="pipeworks_web")
 
         assert success is True
         assert "recall" in message.lower() or "spawn" in message.lower()
@@ -824,7 +839,7 @@ def test_recall_already_at_spawn(mock_engine, test_db, temp_db_path, db_with_use
         # Player already at spawn
         database.set_player_room("testplayer", "spawn")
 
-        success, message = mock_engine.recall("testplayer")
+        success, message = mock_engine.recall("testplayer", world_id="pipeworks_web")
 
         assert success is True
         assert "already" in message.lower()
@@ -870,6 +885,8 @@ def test_recall_with_zone_configured(test_db, temp_db_path, db_with_users):
                 ),
             }
             engine.world.default_spawn = ("pub_zone", "pub_spawn")
+            engine.world_registry = SimpleNamespace(get_world=lambda _world_id: engine.world)
+            engine._get_world = lambda _world_id: engine.world
             with (
                 patch.object(
                     engine.world,
@@ -880,7 +897,7 @@ def test_recall_with_zone_configured(test_db, temp_db_path, db_with_users):
                 patch.object(
                     engine.world,
                     "get_room_description",
-                    side_effect=lambda rid, user: f"You are in {rid}",
+                    side_effect=lambda rid, user, world_id=None: f"You are in {rid}",
                     create=True,
                 ),
             ):
@@ -888,7 +905,7 @@ def test_recall_with_zone_configured(test_db, temp_db_path, db_with_users):
                 database.set_player_room("testplayer", "back_room")
 
                 # Recall should return to zone spawn
-                success, message = engine.recall("testplayer")
+                success, message = engine.recall("testplayer", world_id="pipeworks_web")
 
             assert success is True
             assert "The Pub District" in message  # Zone name in message
@@ -925,6 +942,8 @@ def test_recall_database_failure(test_db, temp_db_path, db_with_users):
                     items=[],
                 ),
             }
+            engine.world_registry = SimpleNamespace(get_world=lambda _world_id: engine.world)
+            engine._get_world = lambda _world_id: engine.world
             with (
                 patch.object(
                     engine.world,
@@ -944,7 +963,7 @@ def test_recall_database_failure(test_db, temp_db_path, db_with_users):
 
                 # Mock database failure
                 with patch.object(database, "set_character_room", return_value=False):
-                    success, message = engine.recall("testplayer")
+                    success, message = engine.recall("testplayer", world_id="pipeworks_web")
 
             assert success is False
             assert "Failed to recall" in message
