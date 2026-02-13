@@ -342,6 +342,7 @@ class GameEngine:
             - Broadcasts departure/arrival messages (when implemented)
         """
         current_room = database.get_character_room(username, world_id=world_id)
+        world = self._get_world(world_id)
 
         # Find which zone the player is in
         current_zone = None

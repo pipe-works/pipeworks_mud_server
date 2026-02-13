@@ -15,6 +15,7 @@ All tests use mocked database and world for isolation.
 from unittest.mock import patch
 
 import pytest
+from types import SimpleNamespace
 
 from mud_server.config import use_test_database
 from mud_server.core.bus import MudBus
@@ -870,6 +871,8 @@ def test_recall_with_zone_configured(test_db, temp_db_path, db_with_users):
                 ),
             }
             engine.world.default_spawn = ("pub_zone", "pub_spawn")
+            engine.world_registry = SimpleNamespace(get_world=lambda _world_id: engine.world)
+            engine._get_world = lambda _world_id: engine.world
             with (
                 patch.object(
                     engine.world,
@@ -925,6 +928,8 @@ def test_recall_database_failure(test_db, temp_db_path, db_with_users):
                     items=[],
                 ),
             }
+            engine.world_registry = SimpleNamespace(get_world=lambda _world_id: engine.world)
+            engine._get_world = lambda _world_id: engine.world
             with (
                 patch.object(
                     engine.world,

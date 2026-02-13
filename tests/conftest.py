@@ -17,6 +17,7 @@ import shutil
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import mock_open, patch
 
 import pytest
@@ -209,7 +210,8 @@ def mock_engine(test_db, mock_world) -> GameEngine:
     """
     with patch.object(GameEngine, "__init__", lambda self: None):
         engine = GameEngine()
-        engine.world = mock_world
+        engine.world_registry = SimpleNamespace(get_world=lambda _world_id: mock_world)
+        engine._get_world = lambda _world_id: mock_world
         return engine
 
 
@@ -265,6 +267,9 @@ def test_client(test_db, mock_world_data) -> TestClient:
         ):
             with patch.object(database, "init_database"):
                 engine = GameEngine()
+                mock_world = World()
+                engine.world_registry = SimpleNamespace(get_world=lambda _world_id: mock_world)
+                engine._get_world = lambda _world_id: mock_world
 
     # Register routes
     register_routes(app, engine)
