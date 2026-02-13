@@ -479,3 +479,26 @@ def test_get_active_session_count_respects_activity_window(test_db, db_with_user
         assert get_active_session_count() == 0
     finally:
         config.session.active_window_minutes = original_window
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_validate_session_for_game_sets_world_id(test_db, db_with_users):
+    """validate_session_for_game should sync session world_id from character."""
+    session_id = "world-sync-session"
+    database.create_session("testplayer", session_id)
+
+    # Force session world_id to NULL to exercise sync path.
+    conn = database.get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE sessions SET world_id = NULL WHERE session_id = ?", (session_id,))
+    conn.commit()
+    conn.close()
+
+    _, _, _, character_id, _, world_id = validate_session_for_game(session_id)
+    assert character_id is not None
+    assert world_id is not None
+
+    session = database.get_session_by_id(session_id)
+    assert session is not None
+    assert session["world_id"] == world_id

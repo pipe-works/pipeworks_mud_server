@@ -846,3 +846,16 @@ def test_default_spawn_non_dict_format(tmp_path):
         world_module.ZONES_DIR = original_zones_dir
         world_module.LEGACY_WORLD_DATA_PATH = original_legacy_path
         world_module.WORLD_DATA_PATH = original_world_data_path
+
+
+def test_get_room_description_passes_world_id(mock_world):
+    """Ensure get_room_description forwards world_id to database lookup."""
+    from unittest.mock import patch
+
+    with patch(
+        "mud_server.core.world.database.get_characters_in_room",
+        return_value=[],
+    ) as spy:
+        mock_world.get_room_description("spawn", "testplayer", world_id="pipeworks_web")
+
+    spy.assert_called_with("spawn", world_id="pipeworks_web")

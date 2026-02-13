@@ -1051,3 +1051,96 @@ def test_ping_endpoint(test_client, test_db, temp_db_path, db_with_users):
 
         assert response.status_code == 200
         assert response.json()["ok"] is True
+
+
+@pytest.mark.api
+def test_login_direct_success(test_client, test_db, temp_db_path, db_with_users):
+    """Test login-direct binds session to world and character."""
+    with use_test_database(temp_db_path):
+        response = test_client.post(
+            "/login-direct",
+            json={
+                "username": "testplayer",
+                "password": TEST_PASSWORD,
+                "world_id": "pipeworks_web",
+                "character_name": "testplayer_char",
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["success"] is True
+        assert payload["world_id"] == "pipeworks_web"
+        assert payload["character_name"] == "testplayer_char"
+        assert payload["session_id"]
+
+
+@pytest.mark.api
+def test_login_direct_requires_character_name(test_client, test_db, temp_db_path, db_with_users):
+    """Test login-direct rejects missing character_name."""
+    with use_test_database(temp_db_path):
+        response = test_client.post(
+            "/login-direct",
+            json={
+                "username": "testplayer",
+                "password": TEST_PASSWORD,
+                "world_id": "pipeworks_web",
+            },
+        )
+
+        assert response.status_code == 400
+
+
+@pytest.mark.api
+def test_login_direct_blocks_multi_world_character_creation(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Test login-direct blocks new world when multi-world is disabled."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("daily_undertaking", "daily_undertaking"),
+        )
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO world_permissions (user_id, world_id, can_access)
+            VALUES (?, ?, 1)
+            """,
+            (user_id, "daily_undertaking"),
+        )
+        conn.commit()
+        conn.close()
+
+        response = test_client.post(
+            "/login-direct",
+            json={
+                "username": "testplayer",
+                "password": TEST_PASSWORD,
+                "world_id": "daily_undertaking",
+                "character_name": "altchar",
+                "create_character": True,
+            },
+        )
+
+        assert response.status_code == 409
+
+
+@pytest.mark.api
+def test_login_includes_available_worlds(test_client, test_db, temp_db_path, db_with_users):
+    """Login should return available_worlds for selection."""
+    with use_test_database(temp_db_path):
+        response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert "available_worlds" in payload
+        assert any(world["id"] == "pipeworks_web" for world in payload["available_worlds"])

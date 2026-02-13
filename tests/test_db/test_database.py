@@ -1305,3 +1305,27 @@ def test_get_table_rows_invalid_table_raises(test_db, temp_db_path, db_with_user
     with use_test_database(temp_db_path):
         with pytest.raises(ValueError, match="does not exist"):
             database.get_table_rows("not_a_table")
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_list_worlds_for_user_fallback_by_character(test_db, temp_db_path, db_with_users):
+    """Fallback should allow worlds where user already has characters."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("pipeworks_web", "pipeworks_web"),
+        )
+        conn.commit()
+        conn.close()
+
+        worlds = database.list_worlds_for_user(user_id, role="player")
+        assert [world["id"] for world in worlds] == ["pipeworks_web"]

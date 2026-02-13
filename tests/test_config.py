@@ -29,3 +29,16 @@ def test_character_env_overrides(monkeypatch):
 
     assert cfg.characters.default_slots == 3
     assert cfg.characters.max_slots == 9
+
+
+@pytest.mark.unit
+def test_world_env_overrides(monkeypatch):
+    monkeypatch.setenv("MUD_WORLDS_ROOT", "/tmp/worlds")
+    monkeypatch.setenv("MUD_DEFAULT_WORLD_ID", "pipeworks_web")
+    monkeypatch.setenv("MUD_ALLOW_MULTI_WORLD_CHARACTERS", "true")
+
+    cfg = load_config()
+
+    assert cfg.worlds.worlds_root == "/tmp/worlds"
+    assert cfg.worlds.default_world_id == "pipeworks_web"
+    assert cfg.worlds.allow_multi_world_characters is True
