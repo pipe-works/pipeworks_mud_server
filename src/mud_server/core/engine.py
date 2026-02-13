@@ -31,7 +31,7 @@ import html
 
 from mud_server.core.bus import MudBus
 from mud_server.core.events import Events
-from mud_server.core.world import World
+from mud_server.core.world_registry import WorldRegistry
 from mud_server.db import database
 
 
@@ -82,7 +82,7 @@ class GameEngine:
     Database (dynamic player state) to implement game mechanics.
 
     Attributes:
-        world: World instance containing rooms and items from JSON
+        world_registry: WorldRegistry instance for loading worlds on demand
 
     Responsibilities:
         - Player login/logout with authentication
@@ -111,11 +111,22 @@ class GameEngine:
             - Creates database tables if they don't exist
             - Creates default superuser if no players exist
         """
-        # Load world data (rooms and items) from JSON
-        self.world = World()
+        # Load world registry (worlds are lazy-loaded per request)
+        self.world_registry = WorldRegistry()
 
         # Initialize database schema (creates tables, default admin)
         database.init_database()
+
+    def _get_world(self, world_id: str | None):
+        """
+        Resolve a world_id to a loaded World instance.
+
+        Raises:
+            ValueError: If world_id is missing or invalid.
+        """
+        if not world_id:
+            raise ValueError("world_id is required for game operations")
+        return self.world_registry.get_world(world_id)
 
     def login(
         self, username: str, password: str, session_id: str, client_type: str = "unknown"
@@ -220,6 +231,7 @@ class GameEngine:
             (False, "You cannot move west from here.")
         """
         current_room = database.get_character_room(username, world_id=world_id)
+        world = self._get_world(world_id)
         if not current_room:
             # Emit failure event - player has no valid room
             _get_bus().emit(
@@ -233,8 +245,10 @@ class GameEngine:
             )
             return False, "You are not in a valid room."
 
+        world = self._get_world(world_id)
+
         # Check if current room exists in the world
-        if not self.world.get_room(current_room):
+        if not world.get_room(current_room):
             # Emit failure event - room doesn't exist in world data
             _get_bus().emit(
                 Events.PLAYER_MOVE_FAILED,
@@ -247,7 +261,7 @@ class GameEngine:
             )
             return False, "You are not in a valid room."
 
-        can_move, destination = self.world.can_move(current_room, direction)
+        can_move, destination = world.can_move(current_room, direction)
         if not can_move or destination is None:
             # Emit failure event - no exit in that direction
             _get_bus().emit(
@@ -291,7 +305,7 @@ class GameEngine:
         )
 
         # Get room description
-        room_desc = self.world.get_room_description(destination, username, world_id=world_id)
+        room_desc = world.get_room_description(destination, username, world_id=world_id)
         message = f"You move {direction}.\n{room_desc}"
 
         # Notify other players (legacy broadcast - will eventually be event-driven)
@@ -331,7 +345,7 @@ class GameEngine:
 
         # Find which zone the player is in
         current_zone = None
-        for _zone_id, zone in self.world.zones.items():
+        for _zone_id, zone in world.zones.items():
             if current_room in zone.rooms:
                 current_zone = zone
                 break
@@ -342,7 +356,7 @@ class GameEngine:
             zone_name = current_zone.name
         else:
             # Not in a known zone - use world default
-            _zone_id, destination = self.world.default_spawn
+            _zone_id, destination = world.default_spawn
             zone_name = "the world"
 
         # Check if already at spawn
@@ -365,7 +379,7 @@ class GameEngine:
         )
 
         # Generate response
-        room_desc = self.world.get_room_description(destination, username, world_id=world_id)
+        room_desc = world.get_room_description(destination, username, world_id=world_id)
         message = f"You recall to {zone_name}'s spawn point.\n{room_desc}"
 
         return True, message
@@ -456,8 +470,10 @@ class GameEngine:
         if not current_room_id:
             return False, "You are not in a valid room."
 
+        world = self._get_world(world_id)
+
         # Get current room to find adjoining rooms
-        current_room = self.world.get_room(current_room_id)
+        current_room = world.get_room(current_room_id)
         if not current_room:
             return False, "Invalid room."
 
@@ -653,9 +669,10 @@ class GameEngine:
         if not inventory:
             return "Your inventory is empty."
 
+        world = self._get_world(world_id)
         inv_text = "Your inventory:\n"
         for item_id in inventory:
-            item = self.world.get_item(item_id)
+            item = world.get_item(item_id)
             if item:
                 inv_text += f"  - {item.name}\n"
         return inv_text
@@ -698,14 +715,15 @@ class GameEngine:
         if not room_id:
             return False, "You are not in a valid room."
 
-        room = self.world.get_room(room_id)
+        world = self._get_world(world_id)
+        room = world.get_room(room_id)
         if not room:
             return False, "Invalid room."
 
         # Find matching item
         matching_item = None
         for item_id in room.items:
-            item = self.world.get_item(item_id)
+            item = world.get_item(item_id)
             if item and item.name.lower() == item_name.lower():
                 matching_item = item_id
                 break
@@ -719,7 +737,7 @@ class GameEngine:
             inventory.append(matching_item)
             database.set_character_inventory(username, inventory)
 
-        item = self.world.get_item(matching_item)
+        item = world.get_item(matching_item)
         item_name_display = item.name if item else matching_item
         return True, f"You picked up the {item_name_display}."
 
@@ -756,11 +774,12 @@ class GameEngine:
             (False, "You don't have a 'sword'.")
         """
         inventory = database.get_character_inventory(username)
+        world = self._get_world(world_id)
 
         # Find matching item in inventory
         matching_item = None
         for item_id in inventory:
-            item = self.world.get_item(item_id)
+            item = world.get_item(item_id)
             if item and item.name.lower() == item_name.lower():
                 matching_item = item_id
                 break
@@ -772,7 +791,7 @@ class GameEngine:
         inventory.remove(matching_item)
         database.set_character_inventory(username, inventory)
 
-        item = self.world.get_item(matching_item)
+        item = world.get_item(matching_item)
         item_name_display = item.name if item else matching_item
         return True, f"You dropped the {item_name_display}."
 
@@ -813,10 +832,11 @@ class GameEngine:
             return "You are not in a valid room."
 
         # Check if room exists in the world
-        if not self.world.get_room(room_id):
+        world = self._get_world(world_id)
+        if not world.get_room(room_id):
             return "You are not in a valid room."
 
-        return self.world.get_room_description(room_id, username, world_id=world_id)
+        return world.get_room_description(room_id, username, world_id=world_id)
 
     def get_active_players(self, *, world_id: str | None = None) -> list[str]:
         """

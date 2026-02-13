@@ -116,15 +116,19 @@ def register_routes(app: FastAPI, engine: GameEngine):
     # Structure: {session_id: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
     ollama_conversation_history: dict[str, list[dict[str, str]]] = {}
 
-    def _resolve_zone_id(room_id: str | None) -> str | None:
+    def _resolve_zone_id(room_id: str | None, world_id: str | None) -> str | None:
         """
         Resolve a room_id to its zone id using the loaded world data.
 
         Returns None if the room cannot be mapped to a zone.
         """
-        if not room_id:
+        if not room_id or not world_id:
             return None
-        for zone_id, zone in engine.world.zones.items():
+        try:
+            world = engine.world_registry.get_world(world_id)
+        except ValueError:
+            return None
+        for zone_id, zone in world.zones.items():
             if room_id in zone.rooms:
                 return zone_id
         return None
@@ -776,7 +780,7 @@ Note: Commands can be used with or without the / prefix
             # Zone ID is derived from the in-memory world data so we can
             # show high-level location context without storing it in the DB.
             room_id = location.get("room_id")
-            zone_id = _resolve_zone_id(room_id)
+            zone_id = _resolve_zone_id(room_id, world_id)
             locations.append(
                 {
                     **location,
