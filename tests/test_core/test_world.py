@@ -506,6 +506,58 @@ def test_zone_based_loading_from_real_files(tmp_path):
 
 
 @pytest.mark.integration
+def test_zone_loading_accepts_room_lists(tmp_path):
+    """Zones should load when rooms are provided as lists instead of dicts."""
+    import json
+
+    from mud_server.core import world as world_module
+    from mud_server.core.world import World
+
+    zones_dir = tmp_path / "zones"
+    zones_dir.mkdir()
+
+    world_json = {
+        "name": "List Rooms World",
+        "default_spawn": {"zone": "list_zone", "room": "spawn"},
+        "zones": ["list_zone"],
+        "global_items": {},
+    }
+    world_json_path = tmp_path / "world.json"
+    world_json_path.write_text(json.dumps(world_json))
+
+    zone_payload = {
+        "id": "list_zone",
+        "name": "List Zone",
+        "spawn_room": "spawn",
+        "rooms": [
+            {
+                "id": "spawn",
+                "name": "Spawn",
+                "description": "Spawn room",
+                "exits": {},
+                "items": [],
+            }
+        ],
+        "items": [],
+    }
+    (zones_dir / "list_zone.json").write_text(json.dumps(zone_payload))
+
+    original_world_path = world_module.WORLD_JSON_PATH
+    original_zones_dir = world_module.ZONES_DIR
+
+    try:
+        world_module.WORLD_JSON_PATH = world_json_path
+        world_module.ZONES_DIR = zones_dir
+
+        w = World()
+        assert "list_zone" in w.zones
+        assert "spawn" in w.rooms
+    finally:
+        world_module.WORLD_JSON_PATH = original_world_path
+        world_module.ZONES_DIR = original_zones_dir
+
+
+@pytest.mark.integration
 def test_zone_file_not_found_warning(tmp_path, caplog):
     """Test warning is logged when a zone file is listed but doesn't exist."""
     import json

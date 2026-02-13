@@ -312,18 +312,30 @@ class World:
 
         zone_id = zone_data["id"]
 
+        rooms_payload = zone_data.get("rooms", {})
+        if isinstance(rooms_payload, list):
+            rooms_map = {room["id"]: room for room in rooms_payload}
+        else:
+            rooms_map = rooms_payload
+
+        items_payload = zone_data.get("items", {})
+        if isinstance(items_payload, list):
+            items_map = {item["id"]: item for item in items_payload}
+        else:
+            items_map = items_payload
+
         # Create Zone object
         zone = Zone(
             id=zone_id,
             name=zone_data.get("name", zone_id),
             description=zone_data.get("description", ""),
             spawn_room=zone_data.get("spawn_room", "spawn"),
-            rooms=list(zone_data.get("rooms", {}).keys()),
+            rooms=list(rooms_map.keys()),
         )
         self.zones[zone_id] = zone
 
         # Load zone's rooms
-        for room_id, room_data in zone_data.get("rooms", {}).items():
+        for room_id, room_data in rooms_map.items():
             self.rooms[room_id] = Room(
                 id=room_data["id"],
                 name=room_data["name"],
@@ -333,7 +345,7 @@ class World:
             )
 
         # Load zone's items
-        for item_id, item_data in zone_data.get("items", {}).items():
+        for item_id, item_data in items_map.items():
             self.items[item_id] = Item(
                 id=item_data["id"],
                 name=item_data["name"],

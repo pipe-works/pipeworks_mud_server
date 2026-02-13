@@ -970,6 +970,27 @@ class TestAdminAPIClientAuthRequired:
         assert "Failed to get player locations" in exc_info.value.message
 
     @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_player_locations_server_error_no_json(self, client: AdminAPIClient):
+        """Test get_player_locations handles non-JSON error payloads."""
+        respx.post("http://test-server:8000/login").mock(
+            return_value=Response(
+                200,
+                json={"session_id": "test-session", "role": "admin"},
+            )
+        )
+        await client.login("admin", "password")
+
+        respx.get("http://test-server:8000/admin/database/player-locations").mock(
+            return_value=Response(500, text="")
+        )
+
+        with pytest.raises(APIError) as exc_info:
+            await client.get_player_locations()
+
+        assert exc_info.value.status_code == 500
+
+    @pytest.mark.asyncio
     async def test_get_connections_requires_auth(self, client: AdminAPIClient):
         """Test get_connections raises error when not authenticated."""
         with pytest.raises(AuthenticationError, match="Not authenticated"):
