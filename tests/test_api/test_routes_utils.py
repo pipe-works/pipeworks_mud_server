@@ -31,4 +31,4 @@ def test_resolve_zone_id_handles_unknown_world(mock_engine):
 def test_resolve_zone_id_returns_zone_for_room(mock_engine):
     """resolve_zone_id should map a room id to its containing zone."""
     zone_id = resolve_zone_id(mock_engine, "spawn", "pipeworks_web")
-    assert zone_id == "spawn_zone"
+    assert zone_id == "test_zone"
