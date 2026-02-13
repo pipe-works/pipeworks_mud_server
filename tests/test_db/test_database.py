@@ -491,15 +491,11 @@ def test_get_room_messages_world_isolation(test_db, temp_db_path, db_with_users)
         database.add_chat_message("testplayer", "Default world", "spawn", world_id="pipeworks_web")
         database.add_chat_message("alt_player", "Alt world", "spawn", world_id="daily_undertaking")
 
-        default_messages = database.get_room_messages(
-            "spawn", world_id="pipeworks_web", limit=10
-        )
+        default_messages = database.get_room_messages("spawn", world_id="pipeworks_web", limit=10)
         assert len(default_messages) == 1
         assert default_messages[0]["message"] == "Default world"
 
-        alt_messages = database.get_room_messages(
-            "spawn", world_id="daily_undertaking", limit=10
-        )
+        alt_messages = database.get_room_messages("spawn", world_id="daily_undertaking", limit=10)
         assert len(alt_messages) == 1
         assert alt_messages[0]["message"] == "Alt world"
 

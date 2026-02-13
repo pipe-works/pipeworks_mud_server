@@ -429,7 +429,9 @@ def test_chat_success(mock_engine, test_db, temp_db_path, db_with_users):
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
-        success, message = mock_engine.chat("testplayer", "Hello everyone!", world_id="pipeworks_web")
+        success, message = mock_engine.chat(
+            "testplayer", "Hello everyone!", world_id="pipeworks_web"
+        )
 
         assert success is True
         assert "You say:" in message
@@ -621,9 +623,7 @@ def test_pickup_item_success(mock_engine, test_db, temp_db_path, db_with_users):
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
-        success, message = mock_engine.pickup_item(
-            "testplayer", "torch", world_id="pipeworks_web"
-        )
+        success, message = mock_engine.pickup_item("testplayer", "torch", world_id="pipeworks_web")
 
         assert success is True
         assert "picked up" in message.lower()
@@ -641,9 +641,7 @@ def test_pickup_item_not_in_room(mock_engine, test_db, temp_db_path, db_with_use
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "forest")  # No items in forest
 
-        success, message = mock_engine.pickup_item(
-            "testplayer", "torch", world_id="pipeworks_web"
-        )
+        success, message = mock_engine.pickup_item("testplayer", "torch", world_id="pipeworks_web")
 
         assert success is False
         assert "no" in message.lower()
@@ -657,9 +655,7 @@ def test_pickup_item_case_insensitive(mock_engine, test_db, temp_db_path, db_wit
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
-        success, message = mock_engine.pickup_item(
-            "testplayer", "TORCH", world_id="pipeworks_web"
-        )
+        success, message = mock_engine.pickup_item("testplayer", "TORCH", world_id="pipeworks_web")
 
         assert success is True
         assert "torch" in database.get_player_inventory("testplayer")
@@ -673,9 +669,7 @@ def test_drop_item_success(mock_engine, test_db, temp_db_path, db_with_users):
         # Add item to inventory
         database.set_player_inventory("testplayer", ["torch", "rope"])
 
-        success, message = mock_engine.drop_item(
-            "testplayer", "torch", world_id="pipeworks_web"
-        )
+        success, message = mock_engine.drop_item("testplayer", "torch", world_id="pipeworks_web")
 
         assert success is True
         assert "dropped" in message.lower()
@@ -692,9 +686,7 @@ def test_drop_item_success(mock_engine, test_db, temp_db_path, db_with_users):
 def test_drop_item_not_in_inventory(mock_engine, test_db, temp_db_path, db_with_users):
     """Test dropping item not in inventory."""
     with use_test_database(temp_db_path):
-        success, message = mock_engine.drop_item(
-            "testplayer", "sword", world_id="pipeworks_web"
-        )
+        success, message = mock_engine.drop_item("testplayer", "sword", world_id="pipeworks_web")
 
         assert success is False
         assert "don't have" in message.lower()
@@ -803,9 +795,7 @@ def test_get_room_chat_with_messages(mock_engine, test_db, temp_db_path, db_with
         database.add_chat_message("testplayer", "Hello!", "spawn")
         database.add_chat_message("testadmin", "Hi there!", "spawn")
 
-        chat_text = mock_engine.get_room_chat(
-            "testplayer", limit=10, world_id="pipeworks_web"
-        )
+        chat_text = mock_engine.get_room_chat("testplayer", limit=10, world_id="pipeworks_web")
 
         assert "[Recent messages]:" in chat_text
         assert "testplayer_char: Hello!" in chat_text
@@ -819,9 +809,7 @@ def test_get_room_chat_empty(mock_engine, test_db, temp_db_path, db_with_users):
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "spawn")
 
-        chat_text = mock_engine.get_room_chat(
-            "testplayer", limit=10, world_id="pipeworks_web"
-        )
+        chat_text = mock_engine.get_room_chat("testplayer", limit=10, world_id="pipeworks_web")
 
         assert "No messages in this room yet" in chat_text
 
