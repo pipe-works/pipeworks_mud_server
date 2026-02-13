@@ -1298,9 +1298,7 @@ def test_admin_database_endpoints_with_character_selected(
         )
         assert locations.status_code == 200
 
-        sessions = test_client.get(
-            "/admin/database/sessions", params={"session_id": session_id}
-        )
+        sessions = test_client.get("/admin/database/sessions", params={"session_id": session_id})
         assert sessions.status_code == 200
 
         messages = test_client.get(
@@ -1381,9 +1379,7 @@ def test_login_filters_characters_by_world(test_client, test_db, temp_db_path, d
 
 
 @pytest.mark.api
-def test_login_direct_create_character_success(
-    test_client, test_db, temp_db_path, db_with_users
-):
+def test_login_direct_create_character_success(test_client, test_db, temp_db_path, db_with_users):
     """login-direct should create a character when requested."""
     with use_test_database(temp_db_path):
         user_id = database.get_user_id("testplayer")
@@ -1977,9 +1973,7 @@ def test_admin_ollama_connection_error(test_client, test_db, temp_db_path, db_wi
 
 
 @pytest.mark.api
-def test_admin_ollama_clear_context_no_history(
-    test_client, test_db, temp_db_path, db_with_users
-):
+def test_admin_ollama_clear_context_no_history(test_client, test_db, temp_db_path, db_with_users):
     """Clearing context with no history should succeed."""
     with use_test_database(temp_db_path):
         admin_login = test_client.post(
