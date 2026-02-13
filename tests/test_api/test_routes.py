@@ -1168,7 +1168,7 @@ def test_login_direct_world_access_denied(test_client, test_db, temp_db_path, db
                 "username": "testplayer",
                 "password": TEST_PASSWORD,
                 "world_id": "daily_undertaking",
-                "character_name": "testplayer_char",
+                "character_name": "daily_char",
             },
         )
 
@@ -1491,13 +1491,17 @@ def test_session_locked_to_world_in_game_command(test_client, test_db, temp_db_p
         conn.commit()
         conn.close()
 
+        assert database.create_character_for_user(
+            user_id, "daily_char", world_id="daily_undertaking"
+        )
+
         response = test_client.post(
             "/login-direct",
             json={
                 "username": "testplayer",
                 "password": TEST_PASSWORD,
                 "world_id": "daily_undertaking",
-                "character_name": "testplayer_char",
+                "character_name": "daily_char",
             },
         )
         assert response.status_code == 200
