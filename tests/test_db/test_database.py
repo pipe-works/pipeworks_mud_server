@@ -466,6 +466,46 @@ def test_get_room_messages(test_db, temp_db_path, db_with_users):
 
 @pytest.mark.unit
 @pytest.mark.db
+def test_get_room_messages_world_isolation(test_db, temp_db_path, db_with_users):
+    """Room messages should be isolated by world_id."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("daily_undertaking", "daily_undertaking"),
+        )
+        conn.commit()
+        conn.close()
+
+        assert database.create_character_for_user(
+            user_id, "alt_player", world_id="daily_undertaking"
+        )
+
+        database.add_chat_message("testplayer", "Default world", "spawn", world_id="pipeworks_web")
+        database.add_chat_message("alt_player", "Alt world", "spawn", world_id="daily_undertaking")
+
+        default_messages = database.get_room_messages(
+            "spawn", world_id="pipeworks_web", limit=10
+        )
+        assert len(default_messages) == 1
+        assert default_messages[0]["message"] == "Default world"
+
+        alt_messages = database.get_room_messages(
+            "spawn", world_id="daily_undertaking", limit=10
+        )
+        assert len(alt_messages) == 1
+        assert alt_messages[0]["message"] == "Alt world"
+
+
+@pytest.mark.unit
+@pytest.mark.db
 def test_get_room_messages_with_whisper_filtering(test_db, temp_db_path, db_with_users):
     """Test that whispers are filtered per user."""
     with use_test_database(temp_db_path):
@@ -1261,6 +1301,43 @@ def test_get_all_chat_messages(test_db, temp_db_path, db_with_users):
 
         messages = database.get_all_chat_messages(limit=100)
         assert len(messages) == 3
+
+
+@pytest.mark.unit
+@pytest.mark.db
+@pytest.mark.admin
+def test_get_all_chat_messages_world_filter(test_db, temp_db_path, db_with_users):
+    """Chat message queries should filter by world_id."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("daily_undertaking", "daily_undertaking"),
+        )
+        conn.commit()
+        conn.close()
+
+        assert database.create_character_for_user(
+            user_id, "alt_player", world_id="daily_undertaking"
+        )
+
+        database.add_chat_message("testplayer", "Default world", "spawn", world_id="pipeworks_web")
+        database.add_chat_message("alt_player", "Alt world", "spawn", world_id="daily_undertaking")
+
+        default_messages = database.get_all_chat_messages(limit=100, world_id="pipeworks_web")
+        assert len(default_messages) == 1
+        assert default_messages[0]["message"] == "Default world"
+
+        alt_messages = database.get_all_chat_messages(limit=100, world_id="daily_undertaking")
+        assert len(alt_messages) == 1
+        assert alt_messages[0]["message"] == "Alt world"
 
 
 @pytest.mark.unit
