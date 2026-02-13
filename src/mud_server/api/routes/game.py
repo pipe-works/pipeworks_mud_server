@@ -1,7 +1,5 @@
 """Game interaction endpoints (commands, chat, status)."""
 
-from __future__ import annotations
-
 from fastapi import APIRouter
 
 from mud_server.api.auth import validate_session, validate_session_for_game

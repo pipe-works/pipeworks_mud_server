@@ -1,7 +1,5 @@
 """Shared helpers for API route modules."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from mud_server.core.engine import GameEngine

@@ -1,7 +1,5 @@
 """Admin endpoints for database and user management."""
 
-from __future__ import annotations
-
 import os
 import signal
 

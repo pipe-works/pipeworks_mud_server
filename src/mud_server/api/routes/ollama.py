@@ -1,7 +1,5 @@
 """Ollama admin endpoints."""
 
-from __future__ import annotations
-
 from fastapi import APIRouter
 
 from mud_server.api.auth import validate_session_with_permission
