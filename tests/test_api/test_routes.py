@@ -1144,3 +1144,125 @@ def test_login_includes_available_worlds(test_client, test_db, temp_db_path, db_
         payload = response.json()
         assert "available_worlds" in payload
         assert any(world["id"] == "pipeworks_web" for world in payload["available_worlds"])
+
+
+@pytest.mark.api
+def test_login_direct_world_access_denied(test_client, test_db, temp_db_path, db_with_users):
+    """login-direct should deny worlds without access grants."""
+    with use_test_database(temp_db_path):
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("daily_undertaking", "daily_undertaking"),
+        )
+        conn.commit()
+        conn.close()
+
+        response = test_client.post(
+            "/login-direct",
+            json={
+                "username": "testplayer",
+                "password": TEST_PASSWORD,
+                "world_id": "daily_undertaking",
+                "character_name": "testplayer_char",
+            },
+        )
+
+        assert response.status_code == 403
+
+
+@pytest.mark.api
+def test_list_characters_world_access_denied(test_client, test_db, temp_db_path, db_with_users):
+    """Listing characters with an inaccessible world_id should be denied."""
+    with use_test_database(temp_db_path):
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("daily_undertaking", "daily_undertaking"),
+        )
+        conn.commit()
+        conn.close()
+
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(
+            "/characters", params={"session_id": session_id, "world_id": "daily_undertaking"}
+        )
+        assert response.status_code == 403
+
+
+@pytest.mark.api
+def test_select_character_world_mismatch(test_client, test_db, temp_db_path, db_with_users):
+    """Selecting a character with a mismatched world_id should fail."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("daily_undertaking", "daily_undertaking"),
+        )
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO world_permissions (user_id, world_id, can_access)
+            VALUES (?, ?, 1)
+            """,
+            (user_id, "daily_undertaking"),
+        )
+        conn.commit()
+        conn.close()
+
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+        character_id = database.get_user_characters(user_id)[0]["id"]
+
+        response = test_client.post(
+            "/characters/select",
+            json={
+                "session_id": session_id,
+                "character_id": character_id,
+                "world_id": "daily_undertaking",
+            },
+        )
+
+        assert response.status_code == 409
+
+
+@pytest.mark.api
+def test_admin_sessions_fallback_without_character(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Admin sessions endpoint should work when no character is selected."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        # Create a second character so validate_session_for_game does not auto-select.
+        admin_id = database.get_user_id("testadmin")
+        assert admin_id is not None
+        database.create_character_for_user(admin_id, "admin_alt")
+
+        response = test_client.get(
+            "/admin/database/sessions",
+            params={"session_id": session_id},
+        )
+        assert response.status_code == 200
