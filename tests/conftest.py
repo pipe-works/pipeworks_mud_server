@@ -17,6 +17,7 @@ import tempfile
 from collections.abc import Generator
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -226,8 +227,9 @@ def mock_engine(test_db, mock_world) -> GameEngine:
     """
     with patch.object(GameEngine, "__init__", lambda self: None):
         engine = GameEngine()
-        engine.world_registry = SimpleNamespace(get_world=lambda _world_id: mock_world)
-        engine._get_world = lambda _world_id: mock_world
+        engine_any = cast(Any, engine)
+        engine_any.world_registry = SimpleNamespace(get_world=lambda _world_id: mock_world)
+        engine_any._get_world = lambda _world_id: mock_world
         return engine
 
 
@@ -263,7 +265,7 @@ def test_client(test_db, mock_world_data) -> TestClient:
     """
     from fastapi import FastAPI
 
-    from mud_server.api.routes import register_routes
+    from mud_server.api.routes.register import register_routes
     from mud_server.core.engine import GameEngine
 
     # Create app
@@ -273,8 +275,9 @@ def test_client(test_db, mock_world_data) -> TestClient:
     with patch.object(database, "init_database"):
         engine = GameEngine()
         world = _build_mock_world(mock_world_data)
-        engine.world_registry = SimpleNamespace(get_world=lambda _world_id: world)
-        engine._get_world = lambda _world_id: world
+        engine_any = cast(Any, engine)
+        engine_any.world_registry = SimpleNamespace(get_world=lambda _world_id: world)
+        engine_any._get_world = lambda _world_id: world
 
     # Register routes
     register_routes(app, engine)
