@@ -9,6 +9,7 @@ Tests cover:
 """
 
 import argparse
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -77,6 +78,61 @@ def test_cmd_init_db_error():
         result = cli.cmd_init_db(args)
 
         assert result == 1
+
+
+@pytest.mark.unit
+def test_cmd_init_db_migrate_success(tmp_path, monkeypatch):
+    """Test init-db migrate runs the migration script entry point."""
+    db_path = tmp_path / "mud.db"
+    db_path.write_text("test")
+
+    monkeypatch.setattr(
+        cli,
+        "config",
+        SimpleNamespace(database=SimpleNamespace(absolute_path=db_path)),
+    )
+
+    class DummyLoader:
+        def exec_module(self, module):
+            module.main = lambda: 0
+
+    monkeypatch.setattr(
+        "importlib.util.spec_from_file_location",
+        lambda name, path: SimpleNamespace(loader=DummyLoader()),
+    )
+    monkeypatch.setattr("importlib.util.module_from_spec", lambda spec: SimpleNamespace())
+
+    args = argparse.Namespace(migrate=True)
+    result = cli.cmd_init_db(args)
+
+    assert result == 0
+
+
+@pytest.mark.unit
+def test_cmd_init_db_migrate_missing_script(tmp_path, monkeypatch):
+    """Test init-db migrate fails when script is missing."""
+    db_path = tmp_path / "mud.db"
+    db_path.write_text("test")
+
+    monkeypatch.setattr(
+        cli,
+        "config",
+        SimpleNamespace(database=SimpleNamespace(absolute_path=db_path)),
+    )
+
+    original_exists = cli.Path.exists
+
+    def fake_exists(path: cli.Path) -> bool:
+        if path.name == "migrate_to_multiworld.py":
+            return False
+        return original_exists(path)
+
+    monkeypatch.setattr(cli.Path, "exists", fake_exists)
+
+    args = argparse.Namespace(migrate=True)
+    result = cli.cmd_init_db(args)
+
+    assert result == 1
 
 
 # ============================================================================

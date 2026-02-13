@@ -1988,3 +1988,94 @@ def test_admin_ollama_clear_context_no_history(test_client, test_db, temp_db_pat
 
         assert response.status_code == 200
         assert response.json()["success"] is True
+
+
+# ============================================================================
+# ADMIN USER MANAGEMENT + STOP SERVER TESTS
+# ============================================================================
+
+
+@pytest.mark.api
+def test_admin_manage_user_invalid_action(test_client, test_db, temp_db_path, db_with_users):
+    """Manage user should reject invalid actions."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/user/manage",
+            json={
+                "session_id": session_id,
+                "target_username": "testplayer",
+                "action": "nonsense",
+            },
+        )
+
+        assert response.status_code == 400
+
+
+@pytest.mark.api
+def test_admin_manage_user_self_blocked(test_client, test_db, temp_db_path, db_with_users):
+    """Manage user should block self-management actions."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/user/manage",
+            json={
+                "session_id": session_id,
+                "target_username": "testadmin",
+                "action": "ban",
+            },
+        )
+
+        assert response.status_code == 400
+
+
+@pytest.mark.api
+def test_admin_manage_user_insufficient_hierarchy(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Admin should not be able to manage other admins."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/user/manage",
+            json={
+                "session_id": session_id,
+                "target_username": "testsuperuser",
+                "action": "ban",
+            },
+        )
+
+        assert response.status_code == 403
+
+
+@pytest.mark.api
+def test_admin_stop_server_returns_success(test_client, test_db, temp_db_path, db_with_users):
+    """Stop server should return a success response without killing tests."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        with patch("os.kill") as mock_kill, patch("asyncio.create_task") as create_task:
+            response = test_client.post(
+                "/admin/server/stop",
+                json={"session_id": session_id},
+            )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+        create_task.assert_called_once()
+        mock_kill.assert_not_called()
