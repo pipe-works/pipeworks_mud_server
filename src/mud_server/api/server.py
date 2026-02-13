@@ -29,7 +29,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from mud_server.api.routes import register_routes
+from mud_server.api.routes.register import register_routes
 from mud_server.config import config, print_config_summary
 from mud_server.core.engine import GameEngine
 from mud_server.db import database

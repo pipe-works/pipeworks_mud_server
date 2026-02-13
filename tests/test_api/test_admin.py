@@ -628,6 +628,83 @@ def test_superuser_can_change_any_password(test_client, test_db, temp_db_path, d
         assert response.status_code in [200, 404]
 
 
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_change_password_requires_new_password(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Admin change_password should require new_password."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/user/manage",
+            json={
+                "session_id": session_id,
+                "action": "change_password",
+                "target_username": "testplayer",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "new_password" in response.json()["detail"]
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_change_password_rejects_short_password(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Admin change_password should enforce minimum length."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/user/manage",
+            json={
+                "session_id": session_id,
+                "action": "change_password",
+                "target_username": "testplayer",
+                "new_password": "short",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "at least 8 characters" in response.json()["detail"]
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_change_password_handles_database_failure(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Admin change_password should return 500 when database update fails."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        with patch.object(database, "change_password_for_user", return_value=False):
+            response = test_client.post(
+                "/admin/user/manage",
+                json={
+                    "session_id": session_id,
+                    "action": "change_password",
+                    "target_username": "testplayer",
+                    "new_password": "LongEnough#9x",
+                },
+            )
+
+        assert response.status_code == 500
+
+
 # ============================================================================
 # SERVER CONTROL TESTS
 # ============================================================================

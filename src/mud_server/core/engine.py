@@ -31,6 +31,7 @@ import html
 
 from mud_server.core.bus import MudBus
 from mud_server.core.events import Events
+from mud_server.core.world import World
 from mud_server.core.world_registry import WorldRegistry
 from mud_server.db import database
 
@@ -117,7 +118,7 @@ class GameEngine:
         # Initialize database schema (creates tables, default admin)
         database.init_database()
 
-    def _get_world(self, world_id: str | None):
+    def _get_world(self, world_id: str | None) -> "World":
         """
         Resolve a world_id to a loaded World instance.
 
