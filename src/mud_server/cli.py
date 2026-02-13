@@ -142,9 +142,20 @@ def cmd_init_db(args: argparse.Namespace) -> int:
     Returns:
         0 on success, 1 on error
     """
+    from datetime import datetime
+    from shutil import copy2
+
+    from mud_server.config import config
     from mud_server.db.database import init_database
 
     try:
+        db_path = config.database.absolute_path
+        if db_path.exists():
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = db_path.with_suffix(f".bak.{timestamp}")
+            copy2(db_path, backup_path)
+            print(f"Existing database backed up to {backup_path}")
+
         init_database()
         print("Database initialized successfully.")
         return 0

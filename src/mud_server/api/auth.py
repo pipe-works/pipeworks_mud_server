@@ -156,12 +156,12 @@ def validate_session(session_id: str) -> tuple[int, str, str]:
     return user_id, username, role
 
 
-def validate_session_for_game(session_id: str) -> tuple[int, str, str, int, str]:
+def validate_session_for_game(session_id: str) -> tuple[int, str, str, int, str, str]:
     """
     Validate session and ensure a character is selected for gameplay.
 
     Returns:
-        (user_id, username, role, character_id, character_name)
+        (user_id, username, role, character_id, character_name, world_id)
 
     Raises:
         HTTPException(401): If session_id is invalid or expired
@@ -195,7 +195,15 @@ def validate_session_for_game(session_id: str) -> tuple[int, str, str, int, str]
     if not character_name:
         raise HTTPException(status_code=409, detail="Selected character not found")
 
-    return user_id, username, role, int(character_id), character_name
+    character = database.get_character_by_id(int(character_id))
+    if not character or not character.get("world_id"):
+        raise HTTPException(status_code=409, detail="Character world not found")
+
+    world_id = character["world_id"]
+    if session.get("world_id") != world_id:
+        database.set_session_character(session_id, int(character_id), world_id=world_id)
+
+    return user_id, username, role, int(character_id), character_name, world_id
 
 
 def validate_session_with_permission(

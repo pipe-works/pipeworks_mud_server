@@ -29,10 +29,12 @@ class LoginRequest(BaseModel):
     Attributes:
         username: Account username (case-sensitive for database lookup)
         password: Plain text password (will be verified against bcrypt hash)
+        world_id: Optional world id used to filter characters on login
     """
 
     username: str
     password: str
+    world_id: str | None = None
 
 
 class RegisterRequest(BaseModel):
@@ -72,10 +74,31 @@ class SelectCharacterRequest(BaseModel):
     Attributes:
         session_id: Active session ID for authentication
         character_id: Character id to bind to the session
+        world_id: World id to bind to the session (must match character's world)
     """
 
     session_id: str
     character_id: int
+    world_id: str | None = None
+
+
+class LoginDirectRequest(BaseModel):
+    """
+    Direct login request that binds a session to a world + character.
+
+    Attributes:
+        username: Account username (case-sensitive for database lookup)
+        password: Plain text password (will be verified against bcrypt hash)
+        world_id: Target world id (must be accessible by the user)
+        character_name: Existing character name (optional)
+        create_character: When true, create the character if missing
+    """
+
+    username: str
+    password: str
+    world_id: str
+    character_name: str | None = None
+    create_character: bool = False
 
 
 class ChangePasswordRequest(BaseModel):
@@ -228,6 +251,7 @@ class LoginResponse(BaseModel):
         role: (Optional) User's role on successful login
             ("player", "worldbuilder", "admin", or "superuser")
         characters: List of available characters for selection
+        available_worlds: List of available worlds for selection
     """
 
     success: bool
@@ -235,6 +259,28 @@ class LoginResponse(BaseModel):
     session_id: str | None = None
     role: str | None = None
     characters: list[dict[str, Any]] = []
+    available_worlds: list[dict[str, Any]] = []
+
+
+class LoginDirectResponse(BaseModel):
+    """
+    Response to direct login request.
+
+    Attributes:
+        success: True if login succeeded, False otherwise
+        message: Welcome message on success, error message on failure
+        session_id: Session identifier on successful login
+        role: User's role on successful login
+        character_name: Selected character name on success
+        world_id: World bound to the session
+    """
+
+    success: bool
+    message: str
+    session_id: str | None = None
+    role: str | None = None
+    character_name: str | None = None
+    world_id: str | None = None
 
 
 class SelectCharacterResponse(BaseModel):

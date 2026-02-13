@@ -176,7 +176,9 @@ class GameEngine:
             return False
         return database.remove_sessions_for_user(user_id)
 
-    def move(self, username: str, direction: str) -> tuple[bool, str]:
+    def move(
+        self, username: str, direction: str, *, world_id: str | None = None
+    ) -> tuple[bool, str]:
         """
         Handle player movement between rooms.
 
@@ -217,7 +219,7 @@ class GameEngine:
             >>> engine.move("player1", "west")
             (False, "You cannot move west from here.")
         """
-        current_room = database.get_character_room(username)
+        current_room = database.get_character_room(username, world_id=world_id)
         if not current_room:
             # Emit failure event - player has no valid room
             _get_bus().emit(
@@ -260,7 +262,7 @@ class GameEngine:
             return False, f"You cannot move {direction} from here."
 
         # Update player room in database
-        if not database.set_character_room(username, destination):
+        if not database.set_character_room(username, destination, world_id=world_id):
             # Emit failure event - database update failed
             _get_bus().emit(
                 Events.PLAYER_MOVE_FAILED,
@@ -289,7 +291,7 @@ class GameEngine:
         )
 
         # Get room description
-        room_desc = self.world.get_room_description(destination, username)
+        room_desc = self.world.get_room_description(destination, username, world_id=world_id)
         message = f"You move {direction}.\n{room_desc}"
 
         # Notify other players (legacy broadcast - will eventually be event-driven)
@@ -302,7 +304,7 @@ class GameEngine:
 
         return True, message
 
-    def recall(self, username: str) -> tuple[bool, str]:
+    def recall(self, username: str, *, world_id: str | None = None) -> tuple[bool, str]:
         """
         Recall player to their current zone's spawn point.
 
@@ -325,7 +327,7 @@ class GameEngine:
             - Updates player's current_room in database
             - Broadcasts departure/arrival messages (when implemented)
         """
-        current_room = database.get_character_room(username)
+        current_room = database.get_character_room(username, world_id=world_id)
 
         # Find which zone the player is in
         current_zone = None
@@ -348,7 +350,7 @@ class GameEngine:
             return True, "You are already at the spawn point."
 
         # Update player location
-        if not database.set_character_room(username, destination):
+        if not database.set_character_room(username, destination, world_id=world_id):
             return False, "Failed to recall."
 
         # Broadcast departure (when implemented)
@@ -363,12 +365,12 @@ class GameEngine:
         )
 
         # Generate response
-        room_desc = self.world.get_room_description(destination, username)
+        room_desc = self.world.get_room_description(destination, username, world_id=world_id)
         message = f"You recall to {zone_name}'s spawn point.\n{room_desc}"
 
         return True, message
 
-    def chat(self, username: str, message: str) -> tuple[bool, str]:
+    def chat(self, username: str, message: str, *, world_id: str | None = None) -> tuple[bool, str]:
         """
         Handle player chat messages within their current room.
 
@@ -399,19 +401,19 @@ class GameEngine:
         Security Note:
             Messages are sanitized to prevent XSS attacks before storage.
         """
-        room = database.get_character_room(username)
+        room = database.get_character_room(username, world_id=world_id)
         if not room:
             return False, "You are not in a valid room."
 
         # Sanitize message to prevent XSS attacks
         safe_message = sanitize_chat_message(message)
 
-        if not database.add_chat_message(username, safe_message, room):
+        if not database.add_chat_message(username, safe_message, room, world_id=world_id):
             return False, "Failed to send message."
 
         return True, f"You say: {safe_message}"
 
-    def yell(self, username: str, message: str) -> tuple[bool, str]:
+    def yell(self, username: str, message: str, *, world_id: str | None = None) -> tuple[bool, str]:
         """
         Yell a message to current room and all adjoining rooms.
 
@@ -450,7 +452,7 @@ class GameEngine:
         Security Note:
             Messages are sanitized to prevent XSS attacks before storage.
         """
-        current_room_id = database.get_character_room(username)
+        current_room_id = database.get_character_room(username, world_id=world_id)
         if not current_room_id:
             return False, "You are not in a valid room."
 
@@ -466,16 +468,20 @@ class GameEngine:
         yell_message = f"[YELL] {safe_message}"
 
         # Send to current room
-        if not database.add_chat_message(username, yell_message, current_room_id):
+        if not database.add_chat_message(
+            username, yell_message, current_room_id, world_id=world_id
+        ):
             return False, "Failed to send message."
 
         # Send to all adjoining rooms
         for _direction, room_id in current_room.exits.items():
-            database.add_chat_message(username, yell_message, room_id)
+            database.add_chat_message(username, yell_message, room_id, world_id=world_id)
 
         return True, f"You yell: {safe_message}"
 
-    def whisper(self, username: str, target: str, message: str) -> tuple[bool, str]:
+    def whisper(
+        self, username: str, target: str, message: str, *, world_id: str | None = None
+    ) -> tuple[bool, str]:
         """
         Send a private whisper to a specific player in the same room.
 
@@ -529,30 +535,30 @@ class GameEngine:
 
         logger = logging.getLogger(__name__)
 
-        resolved_sender = database.resolve_character_name(username)
+        resolved_sender = database.resolve_character_name(username, world_id=world_id)
         sender_name = resolved_sender or username
-        sender_room = database.get_character_room(sender_name)
+        sender_room = database.get_character_room(sender_name, world_id=world_id)
         logger.info(f"Whisper: {username} in room {sender_room} attempting to whisper to {target}")
 
         if not sender_room:
             logger.warning(f"Whisper failed: {username} not in valid room")
             return False, "You are not in a valid room."
 
-        resolved_target = database.resolve_character_name(target)
+        resolved_target = database.resolve_character_name(target, world_id=world_id)
         # Check if target player exists
         if not resolved_target or not database.character_exists(resolved_target):
             logger.warning(f"Whisper failed: target {target} does not exist")
             return False, f"Player '{target}' does not exist."
 
         # Check if target is online (has an active session)
-        active_players = database.get_active_characters()
+        active_players = database.get_active_characters(world_id=world_id)
         logger.info(f"Active players: {active_players}")
         if resolved_target not in active_players:
             logger.warning(f"Whisper failed: target {target} not online")
             return False, f"Player '{target}' is not online."
 
         # Check if target is in the same room
-        target_room = database.get_character_room(resolved_target)
+        target_room = database.get_character_room(resolved_target, world_id=world_id)
         logger.info(f"Target {target} is in room {target_room}")
         if target_room != sender_room:
             logger.warning(f"Whisper failed: {target} in {target_room}, sender in {sender_room}")
@@ -564,7 +570,11 @@ class GameEngine:
         # Add whisper message with recipient (include both sender and target for clarity)
         whisper_message = f"[WHISPER: {sender_name} → {target}] {safe_message}"
         result = database.add_chat_message(
-            sender_name, whisper_message, sender_room, recipient=resolved_target
+            sender_name,
+            whisper_message,
+            sender_room,
+            recipient=resolved_target,
+            world_id=world_id,
         )
         logger.info(f"Whisper message save result: {result}")
 
@@ -575,7 +585,7 @@ class GameEngine:
         logger.info(f"Whisper successful: {username} -> {target}: {safe_message}")
         return True, f"You whisper to {target}: {safe_message}"
 
-    def get_room_chat(self, username: str, limit: int = 20) -> str:
+    def get_room_chat(self, username: str, limit: int = 20, *, world_id: str | None = None) -> str:
         """
         Get recent chat messages from the player's current room.
 
@@ -603,11 +613,13 @@ class GameEngine:
             player3: [YELL] Can anyone help?
             '''
         """
-        room = database.get_character_room(username)
+        room = database.get_character_room(username, world_id=world_id)
         if not room:
             return "No messages."
 
-        messages = database.get_room_messages(room, limit=limit, username=username)
+        messages = database.get_room_messages(
+            room, limit=limit, username=username, world_id=world_id
+        )
         if not messages:
             return "[No messages in this room yet]"
 
@@ -616,7 +628,7 @@ class GameEngine:
             chat_text += f"{msg['username']}: {msg['message']}\n"
         return chat_text
 
-    def get_inventory(self, username: str) -> str:
+    def get_inventory(self, username: str, *, world_id: str | None = None) -> str:
         """
         Get formatted player inventory listing.
 
@@ -648,7 +660,9 @@ class GameEngine:
                 inv_text += f"  - {item.name}\n"
         return inv_text
 
-    def pickup_item(self, username: str, item_name: str) -> tuple[bool, str]:
+    def pickup_item(
+        self, username: str, item_name: str, *, world_id: str | None = None
+    ) -> tuple[bool, str]:
         """
         Pick up an item from the current room and add to inventory.
 
@@ -680,7 +694,7 @@ class GameEngine:
             >>> engine.pickup_item("player1", "sword")
             (False, "There is no 'sword' here.")
         """
-        room_id = database.get_character_room(username)
+        room_id = database.get_character_room(username, world_id=world_id)
         if not room_id:
             return False, "You are not in a valid room."
 
@@ -709,7 +723,9 @@ class GameEngine:
         item_name_display = item.name if item else matching_item
         return True, f"You picked up the {item_name_display}."
 
-    def drop_item(self, username: str, item_name: str) -> tuple[bool, str]:
+    def drop_item(
+        self, username: str, item_name: str, *, world_id: str | None = None
+    ) -> tuple[bool, str]:
         """
         Drop an item from player's inventory.
 
@@ -760,7 +776,7 @@ class GameEngine:
         item_name_display = item.name if item else matching_item
         return True, f"You dropped the {item_name_display}."
 
-    def look(self, username: str) -> str:
+    def look(self, username: str, *, world_id: str | None = None) -> str:
         """
         Look around the current room to get a full description.
 
@@ -792,7 +808,7 @@ class GameEngine:
               - south: Golden Desert
             '''
         """
-        room_id = database.get_character_room(username)
+        room_id = database.get_character_room(username, world_id=world_id)
         if not room_id:
             return "You are not in a valid room."
 
@@ -800,9 +816,9 @@ class GameEngine:
         if not self.world.get_room(room_id):
             return "You are not in a valid room."
 
-        return self.world.get_room_description(room_id, username)
+        return self.world.get_room_description(room_id, username, world_id=world_id)
 
-    def get_active_players(self) -> list[str]:
+    def get_active_players(self, *, world_id: str | None = None) -> list[str]:
         """
         Get list of all currently active (logged in) characters.
 
@@ -816,7 +832,7 @@ class GameEngine:
             >>> engine.get_active_players()
             ['player1', 'Admin', 'Mendit']
         """
-        return database.get_active_characters()
+        return database.get_active_characters(world_id=world_id)
 
     def _broadcast_to_room(self, room_id: str, message: str, exclude: str | None = None):
         """

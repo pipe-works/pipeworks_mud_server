@@ -40,6 +40,11 @@ from typing import Any, cast
 # CONFIGURATION
 # ==========================================================================
 
+DEFAULT_WORLD_ID = "pipeworks_web"
+# Default world identifier used for legacy code paths that do not yet provide
+# an explicit world_id. This keeps the server functional during migration and
+# will be replaced by config-driven defaults in a later phase.
+
 
 def _get_db_path() -> Path:
     """
@@ -105,6 +110,7 @@ def init_database(*, skip_superuser: bool = False) -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             name TEXT UNIQUE NOT NULL,
+            world_id TEXT NOT NULL,
             inventory TEXT NOT NULL DEFAULT '[]',
             is_guest_created INTEGER NOT NULL DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -116,6 +122,7 @@ def init_database(*, skip_superuser: bool = False) -> None:
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS character_locations (
             character_id INTEGER PRIMARY KEY,
+            world_id TEXT NOT NULL,
             room_id TEXT NOT NULL,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(character_id) REFERENCES characters(id) ON DELETE CASCADE
@@ -125,12 +132,17 @@ def init_database(*, skip_superuser: bool = False) -> None:
         "CREATE INDEX IF NOT EXISTS idx_character_locations_room_id "
         "ON character_locations(room_id)"
     )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_character_locations_world_room "
+        "ON character_locations(world_id, room_id)"
+    )
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             character_id INTEGER,
+            world_id TEXT,
             session_id TEXT UNIQUE NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -147,6 +159,7 @@ def init_database(*, skip_superuser: bool = False) -> None:
             character_id INTEGER,
             user_id INTEGER,
             message TEXT NOT NULL,
+            world_id TEXT NOT NULL,
             room TEXT NOT NULL,
             recipient_character_id INTEGER,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -155,6 +168,42 @@ def init_database(*, skip_superuser: bool = False) -> None:
             FOREIGN KEY(recipient_character_id) REFERENCES characters(id) ON DELETE SET NULL
         )
     """)
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chat_messages_world_room "
+        "ON chat_messages(world_id, room)"
+    )
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS worlds (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            config_json TEXT NOT NULL DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS world_permissions (
+            user_id INTEGER NOT NULL,
+            world_id TEXT NOT NULL,
+            can_access INTEGER NOT NULL DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, world_id),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(world_id) REFERENCES worlds(id) ON DELETE CASCADE
+        )
+    """)
+
+    # Ensure the default world exists in the catalog.
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO worlds (id, name, description, is_active, config_json)
+        VALUES (?, ?, '', 1, '{}')
+        """,
+        (DEFAULT_WORLD_ID, DEFAULT_WORLD_ID),
+    )
 
     _create_character_limit_triggers(conn, max_slots=config.characters.max_slots)
 
@@ -186,8 +235,10 @@ def init_database(*, skip_superuser: bool = False) -> None:
                 user_id = cursor.lastrowid
                 if user_id is None:
                     raise ValueError("Failed to create superuser.")
-                character_id = _create_default_character(cursor, int(user_id), admin_user)
-                _seed_character_location(cursor, character_id)
+                character_id = _create_default_character(
+                    cursor, int(user_id), admin_user, world_id=DEFAULT_WORLD_ID
+                )
+                _seed_character_location(cursor, character_id, world_id=DEFAULT_WORLD_ID)
                 conn.commit()
 
                 print("\n" + "=" * 60)
@@ -265,7 +316,9 @@ def _generate_default_character_name(cursor: Any, username: str) -> str:
         candidate = f"{base}_{counter}"
 
 
-def _create_default_character(cursor: Any, user_id: int, username: str) -> int:
+def _create_default_character(
+    cursor: Any, user_id: int, username: str, *, world_id: str = DEFAULT_WORLD_ID
+) -> int:
     """
     Create a default character for a user during bootstrap flows.
 
@@ -275,10 +328,10 @@ def _create_default_character(cursor: Any, user_id: int, username: str) -> int:
     character_name = _generate_default_character_name(cursor, username)
     cursor.execute(
         """
-        INSERT INTO characters (user_id, name, is_guest_created)
-        VALUES (?, ?, 0)
+        INSERT INTO characters (user_id, name, world_id, is_guest_created)
+        VALUES (?, ?, ?, 0)
     """,
-        (user_id, character_name),
+        (user_id, character_name, world_id),
     )
     character_id = cursor.lastrowid
     if character_id is None:
@@ -286,18 +339,20 @@ def _create_default_character(cursor: Any, user_id: int, username: str) -> int:
     return int(character_id)
 
 
-def _seed_character_location(cursor: Any, character_id: int) -> None:
-    """Seed a new character's location to the spawn room."""
+def _seed_character_location(
+    cursor: Any, character_id: int, *, world_id: str = DEFAULT_WORLD_ID
+) -> None:
+    """Seed a new character's location to the spawn room for the given world."""
     cursor.execute(
         """
-        INSERT INTO character_locations (character_id, room_id)
-        VALUES (?, ?)
+        INSERT INTO character_locations (character_id, world_id, room_id)
+        VALUES (?, ?, ?)
     """,
-        (character_id, "spawn"),
+        (character_id, world_id, "spawn"),
     )
 
 
-def _resolve_character_name(cursor: Any, name: str) -> str | None:
+def _resolve_character_name(cursor: Any, name: str, *, world_id: str | None = None) -> str | None:
     """
     Resolve a character name from either a character name or a username.
 
@@ -305,7 +360,13 @@ def _resolve_character_name(cursor: Any, name: str) -> str | None:
     into character-facing functions by mapping them to the user's first
     character (oldest by created_at).
     """
-    cursor.execute("SELECT name FROM characters WHERE name = ? LIMIT 1", (name,))
+    if world_id is None:
+        world_id = DEFAULT_WORLD_ID
+
+    cursor.execute(
+        "SELECT name FROM characters WHERE name = ? AND world_id = ? LIMIT 1",
+        (name, world_id),
+    )
     row = cursor.fetchone()
     if row:
         return cast(str, row[0])
@@ -317,14 +378,15 @@ def _resolve_character_name(cursor: Any, name: str) -> str | None:
 
     user_id = int(user_row[0])
     cursor.execute(
-        "SELECT name FROM characters WHERE user_id = ? ORDER BY created_at ASC LIMIT 1",
-        (user_id,),
+        "SELECT name FROM characters WHERE user_id = ? AND world_id = ? "
+        "ORDER BY created_at ASC LIMIT 1",
+        (user_id, world_id),
     )
     char_row = cursor.fetchone()
     return cast(str, char_row[0]) if char_row else None
 
 
-def resolve_character_name(name: str) -> str | None:
+def resolve_character_name(name: str, *, world_id: str | None = None) -> str | None:
     """
     Public wrapper for resolving character names from usernames or character names.
 
@@ -333,7 +395,7 @@ def resolve_character_name(name: str) -> str | None:
     """
     conn = get_connection()
     cursor = conn.cursor()
-    resolved = _resolve_character_name(cursor, name)
+    resolved = _resolve_character_name(cursor, name, world_id=world_id)
     conn.close()
     return resolved
 
@@ -368,6 +430,7 @@ def create_user_with_password(
     is_guest: bool = False,
     guest_expires_at: str | None = None,
     create_default_character: bool = True,
+    world_id: str = DEFAULT_WORLD_ID,
 ) -> bool:
     """
     Create a new user account and (optionally) a default character.
@@ -381,6 +444,7 @@ def create_user_with_password(
         is_guest: Whether this is a guest account.
         guest_expires_at: Expiration timestamp for guest accounts.
         create_default_character: If True, create a character with the same name.
+        world_id: World to bind the default character to.
 
     Returns:
         True if created successfully, False if username already exists.
@@ -420,8 +484,8 @@ def create_user_with_password(
         user_id = int(user_id)
 
         if create_default_character:
-            character_id = _create_default_character(cursor, user_id, username)
-            _seed_character_location(cursor, character_id)
+            character_id = _create_default_character(cursor, user_id, username, world_id=world_id)
+            _seed_character_location(cursor, character_id, world_id=world_id)
 
         conn.commit()
         conn.close()
@@ -436,6 +500,7 @@ def create_character_for_user(
     *,
     is_guest_created: bool = False,
     room_id: str = "spawn",
+    world_id: str = DEFAULT_WORLD_ID,
 ) -> bool:
     """
     Create a character for an existing user.
@@ -445,6 +510,7 @@ def create_character_for_user(
         name: Character name (globally unique for now).
         is_guest_created: Marks characters created from guest flow.
         room_id: Initial room id.
+        world_id: World the character belongs to.
 
     Returns:
         True if character created, False on constraint violation.
@@ -454,16 +520,25 @@ def create_character_for_user(
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO characters (user_id, name, is_guest_created)
-            VALUES (?, ?, ?)
+            INSERT INTO characters (user_id, name, world_id, is_guest_created)
+            VALUES (?, ?, ?, ?)
         """,
-            (user_id, name, int(is_guest_created)),
+            (user_id, name, world_id, int(is_guest_created)),
         )
         character_id = cursor.lastrowid
         if character_id is None:
             raise ValueError("Failed to create character.")
         character_id = int(character_id)
-        _seed_character_location(cursor, character_id)
+        _seed_character_location(cursor, character_id, world_id=world_id)
+        if room_id != "spawn":
+            cursor.execute(
+                """
+                UPDATE character_locations
+                SET room_id = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE character_id = ?
+            """,
+                (room_id, character_id),
+            )
         conn.commit()
         conn.close()
         return True
@@ -679,7 +754,7 @@ def get_character_by_name(name: str) -> dict[str, Any] | None:
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT id, user_id, name, inventory, is_guest_created, created_at, updated_at
+        SELECT id, user_id, name, world_id, inventory, is_guest_created, created_at, updated_at
         FROM characters
         WHERE name = ?
     """,
@@ -693,10 +768,11 @@ def get_character_by_name(name: str) -> dict[str, Any] | None:
         "id": int(row[0]),
         "user_id": row[1],
         "name": row[2],
-        "inventory": row[3],
-        "is_guest_created": bool(row[4]),
-        "created_at": row[5],
-        "updated_at": row[6],
+        "world_id": row[3],
+        "inventory": row[4],
+        "is_guest_created": bool(row[5]),
+        "created_at": row[6],
+        "updated_at": row[7],
     }
 
 
@@ -706,7 +782,7 @@ def get_character_by_id(character_id: int) -> dict[str, Any] | None:
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT id, user_id, name, inventory, is_guest_created, created_at, updated_at
+        SELECT id, user_id, name, world_id, inventory, is_guest_created, created_at, updated_at
         FROM characters
         WHERE id = ?
     """,
@@ -720,10 +796,11 @@ def get_character_by_id(character_id: int) -> dict[str, Any] | None:
         "id": int(row[0]),
         "user_id": row[1],
         "name": row[2],
-        "inventory": row[3],
-        "is_guest_created": bool(row[4]),
-        "created_at": row[5],
-        "updated_at": row[6],
+        "world_id": row[3],
+        "inventory": row[4],
+        "is_guest_created": bool(row[5]),
+        "created_at": row[6],
+        "updated_at": row[7],
     }
 
 
@@ -737,18 +814,25 @@ def get_character_name_by_id(character_id: int) -> str | None:
     return row[0] if row else None
 
 
-def get_user_characters(user_id: int) -> list[dict[str, Any]]:
-    """Return all characters owned by the given user."""
+def get_user_characters(user_id: int, *, world_id: str | None = None) -> list[dict[str, Any]]:
+    """
+    Return all characters owned by the given user for a world.
+
+    When world_id is omitted, the default world is used to keep legacy code
+    paths functional during the migration.
+    """
+    if world_id is None:
+        world_id = DEFAULT_WORLD_ID
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT id, name, is_guest_created, created_at, updated_at
+        SELECT id, name, world_id, is_guest_created, created_at, updated_at
         FROM characters
-        WHERE user_id = ?
+        WHERE user_id = ? AND world_id = ?
         ORDER BY created_at ASC
     """,
-        (user_id,),
+        (user_id, world_id),
     )
     rows = cursor.fetchall()
     conn.close()
@@ -756,12 +840,35 @@ def get_user_characters(user_id: int) -> list[dict[str, Any]]:
         {
             "id": int(row[0]),
             "name": row[1],
-            "is_guest_created": bool(row[2]),
-            "created_at": row[3],
-            "updated_at": row[4],
+            "world_id": row[2],
+            "is_guest_created": bool(row[3]),
+            "created_at": row[4],
+            "updated_at": row[5],
         }
         for row in rows
     ]
+
+
+def get_user_character_world_ids(user_id: int) -> set[str]:
+    """
+    Return the set of world ids in which the user has characters.
+
+    This is used to enforce allow_multi_world_characters when creating
+    new characters.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT DISTINCT world_id
+        FROM characters
+        WHERE user_id = ?
+        """,
+        (user_id,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return {row[0] for row in rows}
 
 
 def unlink_characters_for_user(user_id: int) -> None:
@@ -778,11 +885,13 @@ def unlink_characters_for_user(user_id: int) -> None:
 # ==========================================================================
 
 
-def get_character_room(name: str) -> str | None:
-    """Return the current room for a character by name."""
+def get_character_room(name: str, *, world_id: str | None = None) -> str | None:
+    """Return the current room for a character by name within a world."""
+    if world_id is None:
+        world_id = DEFAULT_WORLD_ID
     conn = get_connection()
     cursor = conn.cursor()
-    resolved_name = _resolve_character_name(cursor, name)
+    resolved_name = _resolve_character_name(cursor, name, world_id=world_id)
     if not resolved_name:
         conn.close()
         return None
@@ -795,19 +904,22 @@ def get_character_room(name: str) -> str | None:
 
     character_id = int(row[0])
     cursor.execute(
-        "SELECT room_id FROM character_locations WHERE character_id = ?", (character_id,)
+        "SELECT room_id FROM character_locations WHERE character_id = ? AND world_id = ?",
+        (character_id, world_id),
     )
     row = cursor.fetchone()
     conn.close()
     return row[0] if row else None
 
 
-def set_character_room(name: str, room: str) -> bool:
-    """Set the current room for a character by name."""
+def set_character_room(name: str, room: str, *, world_id: str | None = None) -> bool:
+    """Set the current room for a character by name within a world."""
+    if world_id is None:
+        world_id = DEFAULT_WORLD_ID
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        resolved_name = _resolve_character_name(cursor, name)
+        resolved_name = _resolve_character_name(cursor, name, world_id=world_id)
         if not resolved_name:
             conn.close()
             return False
@@ -821,13 +933,14 @@ def set_character_room(name: str, room: str) -> bool:
         character_id = int(row[0])
         cursor.execute(
             """
-            INSERT INTO character_locations (character_id, room_id, updated_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO character_locations (character_id, world_id, room_id, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(character_id) DO UPDATE
-                SET room_id = excluded.room_id,
+                SET world_id = excluded.world_id,
+                    room_id = excluded.room_id,
                     updated_at = CURRENT_TIMESTAMP
         """,
-            (character_id, room),
+            (character_id, world_id, room),
         )
         conn.commit()
         conn.close()
@@ -836,8 +949,10 @@ def set_character_room(name: str, room: str) -> bool:
         return False
 
 
-def get_characters_in_room(room: str) -> list[str]:
-    """Return character names in a room with active sessions."""
+def get_characters_in_room(room: str, *, world_id: str | None = None) -> list[str]:
+    """Return character names in a room with active sessions for a world."""
+    if world_id is None:
+        world_id = DEFAULT_WORLD_ID
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
@@ -846,10 +961,12 @@ def get_characters_in_room(room: str) -> list[str]:
         FROM characters c
         JOIN character_locations l ON c.id = l.character_id
         JOIN sessions s ON s.character_id = c.id
-        WHERE l.room_id = ?
+        WHERE l.world_id = ?
+          AND l.room_id = ?
+          AND (s.world_id IS NULL OR s.world_id = ?)
           AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
     """,
-        (room,),
+        (world_id, room, world_id),
     )
     rows = cursor.fetchall()
     conn.close()
@@ -911,18 +1028,30 @@ def add_chat_message(
     room: str,
     recipient_character_name: str | None = None,
     recipient: str | None = None,
+    *,
+    world_id: str | None = None,
 ) -> bool:
-    """Add a chat message for a character. Supports optional whisper recipient."""
+    """
+    Add a chat message for a character.
+
+    Supports optional whisper recipient and uses world scoping. If world_id
+    is omitted, the default world is used during migration.
+    """
+    if world_id is None:
+        world_id = DEFAULT_WORLD_ID
     try:
         conn = get_connection()
         cursor = conn.cursor()
 
-        resolved_sender = _resolve_character_name(cursor, character_name)
+        resolved_sender = _resolve_character_name(cursor, character_name, world_id=world_id)
         if not resolved_sender:
             conn.close()
             return False
 
-        cursor.execute("SELECT id, user_id FROM characters WHERE name = ?", (resolved_sender,))
+        cursor.execute(
+            "SELECT id, user_id FROM characters WHERE name = ? AND world_id = ?",
+            (resolved_sender, world_id),
+        )
         sender_row = cursor.fetchone()
         if not sender_row:
             conn.close()
@@ -936,11 +1065,16 @@ def add_chat_message(
             recipient_character_name = recipient
 
         if recipient_character_name:
-            resolved_recipient = _resolve_character_name(cursor, recipient_character_name)
+            resolved_recipient = _resolve_character_name(
+                cursor, recipient_character_name, world_id=world_id
+            )
             if resolved_recipient:
                 recipient_character_name = resolved_recipient
 
-            cursor.execute("SELECT id FROM characters WHERE name = ?", (recipient_character_name,))
+            cursor.execute(
+                "SELECT id FROM characters WHERE name = ? AND world_id = ?",
+                (recipient_character_name, world_id),
+            )
             recipient_row = cursor.fetchone()
             if recipient_row:
                 recipient_id = int(recipient_row[0])
@@ -951,12 +1085,13 @@ def add_chat_message(
                 character_id,
                 user_id,
                 message,
+                world_id,
                 room,
                 recipient_character_id
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
         """,
-            (sender_id, user_id, message, room, recipient_id),
+            (sender_id, user_id, message, world_id, room, recipient_id),
         )
         conn.commit()
         conn.close()
@@ -971,10 +1106,16 @@ def get_room_messages(
     limit: int = 50,
     character_name: str | None = None,
     username: str | None = None,
+    world_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Get recent messages from a room. Filters whispers based on character.
+
+    Messages are scoped to the provided world_id; default world is used when
+    omitted to preserve legacy code paths during migration.
     """
+    if world_id is None:
+        world_id = DEFAULT_WORLD_ID
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -982,14 +1123,17 @@ def get_room_messages(
         character_name = username
 
     if character_name:
-        resolved_name = _resolve_character_name(cursor, character_name)
+        resolved_name = _resolve_character_name(cursor, character_name, world_id=world_id)
         if resolved_name is None and username is not None:
-            resolved_name = _resolve_character_name(cursor, username)
+            resolved_name = _resolve_character_name(cursor, username, world_id=world_id)
         if not resolved_name:
             conn.close()
             return []
 
-        cursor.execute("SELECT id FROM characters WHERE name = ?", (resolved_name,))
+        cursor.execute(
+            "SELECT id FROM characters WHERE name = ? AND world_id = ?",
+            (resolved_name, world_id),
+        )
         row = cursor.fetchone()
         if not row:
             conn.close()
@@ -1001,7 +1145,7 @@ def get_room_messages(
             SELECT c.name, m.message, m.timestamp
             FROM chat_messages m
             JOIN characters c ON c.id = m.character_id
-            WHERE m.room = ? AND (
+            WHERE m.world_id = ? AND m.room = ? AND (
                 m.recipient_character_id IS NULL OR
                 m.recipient_character_id = ? OR
                 m.character_id = ?
@@ -1009,7 +1153,7 @@ def get_room_messages(
             ORDER BY m.timestamp DESC, m.id DESC
             LIMIT ?
         """,
-            (room, character_id, character_id, limit),
+            (world_id, room, character_id, character_id, limit),
         )
     else:
         cursor.execute(
@@ -1017,11 +1161,11 @@ def get_room_messages(
             SELECT c.name, m.message, m.timestamp
             FROM chat_messages m
             JOIN characters c ON c.id = m.character_id
-            WHERE m.room = ?
+            WHERE m.world_id = ? AND m.room = ?
             ORDER BY m.timestamp DESC, m.id DESC
             LIMIT ?
         """,
-            (room, limit),
+            (world_id, room, limit),
         )
 
     rows = cursor.fetchall()
@@ -1044,6 +1188,7 @@ def create_session(
     *,
     client_type: str = "unknown",
     character_id: int | None = None,
+    world_id: str | None = None,
 ) -> bool:
     """
     Create a new session record for a user.
@@ -1051,10 +1196,15 @@ def create_session(
     Behavior depends on configuration:
       - allow_multiple_sessions = False: remove existing sessions for the user
       - allow_multiple_sessions = True: keep existing sessions
+
+    If world_id is omitted, the default world is used. This is temporary
+    compatibility behavior until the API layer is updated to provide it.
     """
     from mud_server.config import config
 
     try:
+        if world_id is None:
+            world_id = DEFAULT_WORLD_ID
         if isinstance(user_id, str):
             resolved = get_user_id(user_id)
             if not resolved:
@@ -1064,10 +1214,17 @@ def create_session(
         if character_id is None:
             conn = get_connection()
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT id FROM characters WHERE user_id = ? ORDER BY created_at ASC",
-                (user_id,),
-            )
+            if world_id:
+                cursor.execute(
+                    "SELECT id FROM characters WHERE user_id = ? AND world_id = ? "
+                    "ORDER BY created_at ASC",
+                    (user_id, world_id),
+                )
+            else:
+                cursor.execute(
+                    "SELECT id FROM characters WHERE user_id = ? ORDER BY created_at ASC",
+                    (user_id,),
+                )
             rows = cursor.fetchall()
             conn.close()
             if len(rows) == 1:
@@ -1086,17 +1243,19 @@ def create_session(
                 INSERT INTO sessions (
                     user_id,
                     character_id,
+                    world_id,
                     session_id,
                     created_at,
                     last_activity,
                     expires_at,
                     client_type
                 )
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, datetime('now', ?), ?)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, datetime('now', ?), ?)
             """,
                 (
                     user_id,
                     character_id,
+                    world_id,
                     session_id,
                     f"+{config.session.ttl_minutes} minutes",
                     client_type,
@@ -1108,15 +1267,16 @@ def create_session(
                 INSERT INTO sessions (
                     user_id,
                     character_id,
+                    world_id,
                     session_id,
                     created_at,
                     last_activity,
                     expires_at,
                     client_type
                 )
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, ?)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, ?)
             """,
-                (user_id, character_id, session_id, client_type),
+                (user_id, character_id, world_id, session_id, client_type),
             )
 
         cursor.execute(
@@ -1131,14 +1291,18 @@ def create_session(
         return False
 
 
-def set_session_character(session_id: str, character_id: int) -> bool:
-    """Attach a character to an existing session."""
+def set_session_character(
+    session_id: str, character_id: int, *, world_id: str | None = None
+) -> bool:
+    """Attach a character (and optionally world) to an existing session."""
+    if world_id is None:
+        world_id = DEFAULT_WORLD_ID
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE sessions SET character_id = ? WHERE session_id = ?",
-            (character_id, session_id),
+            "UPDATE sessions SET character_id = ?, world_id = ? WHERE session_id = ?",
+            (character_id, world_id, session_id),
         )
         conn.commit()
         conn.close()
@@ -1214,7 +1378,8 @@ def get_session_by_id(session_id: str) -> dict[str, Any] | None:
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT user_id, character_id, session_id, created_at, last_activity, expires_at, client_type
+        SELECT user_id, character_id, world_id, session_id, created_at, last_activity, expires_at,
+               client_type
         FROM sessions WHERE session_id = ?
         """,
         (session_id,),
@@ -1226,11 +1391,12 @@ def get_session_by_id(session_id: str) -> dict[str, Any] | None:
     return {
         "user_id": int(row[0]),
         "character_id": row[1],
-        "session_id": row[2],
-        "created_at": row[3],
-        "last_activity": row[4],
-        "expires_at": row[5],
-        "client_type": row[6],
+        "world_id": row[2],
+        "session_id": row[3],
+        "created_at": row[4],
+        "last_activity": row[5],
+        "expires_at": row[6],
+        "client_type": row[7],
     }
 
 
@@ -1288,17 +1454,23 @@ def clear_all_sessions() -> int:
         return 0
 
 
-def get_active_characters() -> list[str]:
-    """Return character names with active sessions."""
+def get_active_characters(*, world_id: str | None = None) -> list[str]:
+    """Return character names with active sessions for a world."""
+    if world_id is None:
+        world_id = DEFAULT_WORLD_ID
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT DISTINCT c.name
         FROM sessions s
         JOIN characters c ON c.id = s.character_id
         WHERE s.character_id IS NOT NULL
+          AND (s.world_id IS NULL OR s.world_id = ?)
           AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
-    """)
+    """,
+        (world_id,),
+    )
     rows = cursor.fetchall()
     conn.close()
     return [row[0] for row in rows]
@@ -1361,6 +1533,162 @@ def cleanup_expired_guest_accounts() -> int:
 # ==========================================================================
 # ADMIN QUERIES
 # ==========================================================================
+
+
+def get_world_by_id(world_id: str) -> dict[str, Any] | None:
+    """
+    Return a world catalog entry by id.
+
+    Args:
+        world_id: World identifier (primary key).
+
+    Returns:
+        Dict with world fields or None if not found.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, name, description, is_active, config_json, created_at
+        FROM worlds
+        WHERE id = ?
+        """,
+        (world_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0],
+        "name": row[1],
+        "description": row[2],
+        "is_active": bool(row[3]),
+        "config_json": row[4],
+        "created_at": row[5],
+    }
+
+
+def list_worlds(*, include_inactive: bool = False) -> list[dict[str, Any]]:
+    """
+    Return all worlds in the catalog.
+
+    Args:
+        include_inactive: When False, only active worlds are returned.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    if include_inactive:
+        cursor.execute("""
+            SELECT id, name, description, is_active, config_json, created_at
+            FROM worlds
+            ORDER BY id
+            """)
+    else:
+        cursor.execute("""
+            SELECT id, name, description, is_active, config_json, created_at
+            FROM worlds
+            WHERE is_active = 1
+            ORDER BY id
+            """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "description": row[2],
+            "is_active": bool(row[3]),
+            "config_json": row[4],
+            "created_at": row[5],
+        }
+        for row in rows
+    ]
+
+
+def list_worlds_for_user(
+    user_id: int,
+    *,
+    role: str | None = None,
+    include_inactive: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    Return worlds accessible to the given user.
+
+    Admins and superusers have implicit access to all worlds. Other roles
+    must have a world_permissions row with can_access=1.
+    """
+    if role is None:
+        username = get_username_by_id(user_id)
+        if username:
+            role = get_user_role(username)
+
+    if role in {"admin", "superuser"}:
+        return list_worlds(include_inactive=include_inactive)
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    if include_inactive:
+        cursor.execute(
+            """
+            SELECT w.id, w.name, w.description, w.is_active, w.config_json, w.created_at
+            FROM worlds w
+            JOIN world_permissions p ON p.world_id = w.id
+            WHERE p.user_id = ? AND p.can_access = 1
+            ORDER BY w.id
+            """,
+            (user_id,),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT w.id, w.name, w.description, w.is_active, w.config_json, w.created_at
+            FROM worlds w
+            JOIN world_permissions p ON p.world_id = w.id
+            WHERE p.user_id = ? AND p.can_access = 1 AND w.is_active = 1
+            ORDER BY w.id
+            """,
+            (user_id,),
+        )
+    rows = cursor.fetchall()
+    if rows:
+        conn.close()
+        return [
+            {
+                "id": row[0],
+                "name": row[1],
+                "description": row[2],
+                "is_active": bool(row[3]),
+                "config_json": row[4],
+                "created_at": row[5],
+            }
+            for row in rows
+        ]
+
+    # Fallback: allow worlds where the user already has characters.
+    cursor.execute(
+        """
+        SELECT DISTINCT w.id, w.name, w.description, w.is_active, w.config_json, w.created_at
+        FROM worlds w
+        JOIN characters c ON c.world_id = w.id
+        WHERE c.user_id = ?
+        ORDER BY w.id
+        """,
+        (user_id,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "description": row[2],
+            "is_active": bool(row[3]),
+            "config_json": row[4],
+            "created_at": row[5],
+        }
+        for row in rows
+    ]
 
 
 def _quote_identifier(identifier: str) -> str:
@@ -1494,19 +1822,36 @@ def get_all_users() -> list[dict[str, Any]]:
     ]
 
 
-def get_character_locations() -> list[dict[str, Any]]:
+def get_character_locations(*, world_id: str | None = None) -> list[dict[str, Any]]:
     """Return character location rows with names for admin display."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT c.id,
-               c.name,
-               l.room_id,
-               l.updated_at
-        FROM character_locations l
-        JOIN characters c ON c.id = l.character_id
-        ORDER BY c.id
-    """)
+    if world_id is None:
+        cursor.execute("""
+            SELECT c.id,
+                   c.name,
+                   l.world_id,
+                   l.room_id,
+                   l.updated_at
+            FROM character_locations l
+            JOIN characters c ON c.id = l.character_id
+            ORDER BY c.id
+        """)
+    else:
+        cursor.execute(
+            """
+            SELECT c.id,
+                   c.name,
+                   l.world_id,
+                   l.room_id,
+                   l.updated_at
+            FROM character_locations l
+            JOIN characters c ON c.id = l.character_id
+            WHERE l.world_id = ?
+            ORDER BY c.id
+        """,
+            (world_id,),
+        )
     rows = cursor.fetchall()
     conn.close()
 
@@ -1516,32 +1861,56 @@ def get_character_locations() -> list[dict[str, Any]]:
             {
                 "character_id": row[0],
                 "character_name": row[1],
-                "room_id": row[2],
-                "updated_at": row[3],
+                "world_id": row[2],
+                "room_id": row[3],
+                "updated_at": row[4],
             }
         )
     return locations
 
 
-def get_all_sessions() -> list[dict[str, Any]]:
+def get_all_sessions(*, world_id: str | None = None) -> list[dict[str, Any]]:
     """Return all active (non-expired) sessions."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT s.id,
-               u.username,
-               c.name,
-               s.session_id,
-               s.created_at,
-               s.last_activity,
-               s.expires_at,
-               s.client_type
-        FROM sessions s
-        JOIN users u ON u.id = s.user_id
-        LEFT JOIN characters c ON c.id = s.character_id
-        WHERE s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now')
-        ORDER BY s.created_at DESC
-    """)
+    if world_id is None:
+        cursor.execute("""
+            SELECT s.id,
+                   u.username,
+                   c.name,
+                   s.world_id,
+                   s.session_id,
+                   s.created_at,
+                   s.last_activity,
+                   s.expires_at,
+                   s.client_type
+            FROM sessions s
+            JOIN users u ON u.id = s.user_id
+            LEFT JOIN characters c ON c.id = s.character_id
+            WHERE s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now')
+            ORDER BY s.created_at DESC
+        """)
+    else:
+        cursor.execute(
+            """
+            SELECT s.id,
+                   u.username,
+                   c.name,
+                   s.world_id,
+                   s.session_id,
+                   s.created_at,
+                   s.last_activity,
+                   s.expires_at,
+                   s.client_type
+            FROM sessions s
+            JOIN users u ON u.id = s.user_id
+            LEFT JOIN characters c ON c.id = s.character_id
+            WHERE (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
+              AND (s.world_id IS NULL OR s.world_id = ?)
+            ORDER BY s.created_at DESC
+        """,
+            (world_id,),
+        )
     rows = cursor.fetchall()
     conn.close()
 
@@ -1552,17 +1921,18 @@ def get_all_sessions() -> list[dict[str, Any]]:
                 "id": row[0],
                 "username": row[1],
                 "character_name": row[2],
-                "session_id": row[3],
-                "created_at": row[4],
-                "last_activity": row[5],
-                "expires_at": row[6],
-                "client_type": row[7],
+                "world_id": row[3],
+                "session_id": row[4],
+                "created_at": row[5],
+                "last_activity": row[6],
+                "expires_at": row[7],
+                "client_type": row[8],
             }
         )
     return sessions
 
 
-def get_active_connections() -> list[dict[str, Any]]:
+def get_active_connections(*, world_id: str | None = None) -> list[dict[str, Any]]:
     """Return active sessions with activity age in seconds."""
     from mud_server.config import config
 
@@ -1579,6 +1949,7 @@ def get_active_connections() -> list[dict[str, Any]]:
         SELECT s.id,
                u.username,
                c.name,
+               s.world_id,
                s.session_id,
                s.created_at,
                s.last_activity,
@@ -1588,10 +1959,13 @@ def get_active_connections() -> list[dict[str, Any]]:
         FROM sessions s
         JOIN users u ON u.id = s.user_id
         LEFT JOIN characters c ON c.id = s.character_id
-        WHERE {" AND ".join(where_clauses)}
+        WHERE {" AND ".join(where_clauses)} {"" if world_id is None else "AND (s.world_id IS NULL OR s.world_id = ?)"}
         ORDER BY s.last_activity DESC
     """  # nosec B608
-    cursor.execute(sql, params)
+    if world_id is None:
+        cursor.execute(sql, params)
+    else:
+        cursor.execute(sql, [*params, world_id])
     rows = cursor.fetchall()
     conn.close()
 
@@ -1602,35 +1976,55 @@ def get_active_connections() -> list[dict[str, Any]]:
                 "id": row[0],
                 "username": row[1],
                 "character_name": row[2],
-                "session_id": row[3],
-                "created_at": row[4],
-                "last_activity": row[5],
-                "expires_at": row[6],
-                "client_type": row[7],
-                "age_seconds": row[8],
+                "world_id": row[3],
+                "session_id": row[4],
+                "created_at": row[5],
+                "last_activity": row[6],
+                "expires_at": row[7],
+                "client_type": row[8],
+                "age_seconds": row[9],
             }
         )
     return sessions
 
 
-def get_all_chat_messages(limit: int = 100) -> list[dict[str, Any]]:
+def get_all_chat_messages(limit: int = 100, *, world_id: str | None = None) -> list[dict[str, Any]]:
     """Return recent chat messages across all rooms."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT m.id,
-               c.name,
-               m.message,
-               m.room,
-               m.timestamp
-        FROM chat_messages m
-        JOIN characters c ON c.id = m.character_id
-        ORDER BY m.timestamp DESC
-        LIMIT ?
-    """,
-        (limit,),
-    )
+    if world_id is None:
+        cursor.execute(
+            """
+            SELECT m.id,
+                   c.name,
+                   m.message,
+                   m.world_id,
+                   m.room,
+                   m.timestamp
+            FROM chat_messages m
+            JOIN characters c ON c.id = m.character_id
+            ORDER BY m.timestamp DESC
+            LIMIT ?
+        """,
+            (limit,),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT m.id,
+                   c.name,
+                   m.message,
+                   m.world_id,
+                   m.room,
+                   m.timestamp
+            FROM chat_messages m
+            JOIN characters c ON c.id = m.character_id
+            WHERE m.world_id = ?
+            ORDER BY m.timestamp DESC
+            LIMIT ?
+        """,
+            (world_id, limit),
+        )
     rows = cursor.fetchall()
     conn.close()
 
@@ -1641,8 +2035,9 @@ def get_all_chat_messages(limit: int = 100) -> list[dict[str, Any]]:
                 "id": row[0],
                 "username": row[1],
                 "message": row[2],
-                "room": row[3],
-                "timestamp": row[4],
+                "world_id": row[3],
+                "room": row[4],
+                "timestamp": row[5],
             }
         )
     return messages

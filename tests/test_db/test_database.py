@@ -90,6 +90,16 @@ def test_init_database_creates_tables(temp_db_path):
         )
         assert cursor.fetchone() is not None
 
+        # Check worlds table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='worlds'")
+        assert cursor.fetchone() is not None
+
+        # Check world_permissions table exists
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='world_permissions'"
+        )
+        assert cursor.fetchone() is not None
+
         conn.close()
 
 
@@ -1262,9 +1272,15 @@ def test_list_tables(test_db, temp_db_path, db_with_users):
         tables = database.list_tables()
         table_names = {table["name"] for table in tables}
 
-        assert {"users", "characters", "character_locations", "sessions", "chat_messages"}.issubset(
-            table_names
-        )
+        assert {
+            "users",
+            "characters",
+            "character_locations",
+            "sessions",
+            "chat_messages",
+            "worlds",
+            "world_permissions",
+        }.issubset(table_names)
         assert all("columns" in table for table in tables)
         assert all("row_count" in table for table in tables)
 

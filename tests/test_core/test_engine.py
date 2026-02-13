@@ -880,7 +880,7 @@ def test_recall_with_zone_configured(test_db, temp_db_path, db_with_users):
                 patch.object(
                     engine.world,
                     "get_room_description",
-                    side_effect=lambda rid, user: f"You are in {rid}",
+                    side_effect=lambda rid, user, world_id=None: f"You are in {rid}",
                     create=True,
                 ),
             ):

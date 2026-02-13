@@ -44,6 +44,7 @@ Design Notes:
 import os
 import signal
 import uuid
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
@@ -73,6 +74,8 @@ from mud_server.api.models import (
     DatabaseTablesResponse,
     KickSessionRequest,
     KickSessionResponse,
+    LoginDirectRequest,
+    LoginDirectResponse,
     LoginRequest,
     LoginResponse,
     LogoutRequest,
@@ -91,6 +94,7 @@ from mud_server.api.models import (
     UserManagementResponse,
 )
 from mud_server.api.permissions import Permission, can_manage_role
+from mud_server.config import config
 from mud_server.core.engine import GameEngine
 from mud_server.db import database
 
@@ -125,6 +129,15 @@ def register_routes(app: FastAPI, engine: GameEngine):
                 return zone_id
         return None
 
+    def _get_available_worlds(user_id: int, role: str) -> list[dict[str, Any]]:
+        """
+        Return available worlds filtered by permissions and account rules.
+
+        Admins and superusers are implicitly allowed all worlds. Other users
+        must have explicit grants in world_permissions.
+        """
+        return database.list_worlds_for_user(user_id, role=role)
+
     # ========================================================================
     # PUBLIC ENDPOINTS
     # ========================================================================
@@ -143,6 +156,7 @@ def register_routes(app: FastAPI, engine: GameEngine):
         """
         username = request.username.strip()
         password = request.password
+        requested_world_id = request.world_id.strip() if request.world_id else None
 
         if not username or len(username) < 2 or len(username) > 20:
             raise HTTPException(status_code=400, detail="Username must be 2-20 characters")
@@ -169,7 +183,17 @@ def register_routes(app: FastAPI, engine: GameEngine):
             raise HTTPException(status_code=500, detail="Failed to create session")
 
         role = database.get_user_role(username)
-        characters = database.get_user_characters(user_id)
+        if not role:
+            raise HTTPException(status_code=401, detail="Invalid user role")
+
+        available_worlds = _get_available_worlds(user_id, role)
+
+        # Filter characters by requested world when provided.
+        if requested_world_id:
+            characters = database.get_user_characters(user_id, world_id=requested_world_id)
+        else:
+            # Default to the configured world if no explicit world requested.
+            characters = database.get_user_characters(user_id)
         message = "Login successful. Select a character to enter the world."
 
         return LoginResponse(
@@ -178,6 +202,101 @@ def register_routes(app: FastAPI, engine: GameEngine):
             session_id=session_id,
             role=role,
             characters=characters,
+            available_worlds=available_worlds,
+        )
+
+    @app.post("/login-direct", response_model=LoginDirectResponse)
+    async def login_direct(request: LoginDirectRequest, http_request: Request):
+        """
+        Direct login that binds a session to a world + character.
+
+        This endpoint is intended for API clients that want to skip the
+        explicit world/character selection steps.
+        """
+        username = request.username.strip()
+        password = request.password
+        world_id = request.world_id.strip()
+        character_name = request.character_name.strip() if request.character_name else None
+
+        if not character_name:
+            raise HTTPException(status_code=400, detail="character_name is required")
+
+        if not username or len(username) < 2 or len(username) > 20:
+            raise HTTPException(status_code=400, detail="Username must be 2-20 characters")
+
+        if not database.user_exists(username):
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+
+        if not database.verify_password_for_user(username, password):
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+
+        if not database.is_user_active(username):
+            raise HTTPException(status_code=401, detail="Account is deactivated")
+
+        user_id = database.get_user_id(username)
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user record")
+
+        role = database.get_user_role(username)
+        if not role:
+            raise HTTPException(status_code=401, detail="Invalid user role")
+
+        available_worlds = _get_available_worlds(user_id, role)
+        if world_id not in {world["id"] for world in available_worlds}:
+            raise HTTPException(status_code=403, detail="World access denied")
+
+        character_id: int | None = None
+        if character_name:
+            character = database.get_character_by_name(character_name)
+            if character:
+                if character.get("user_id") != user_id or character.get("world_id") != world_id:
+                    raise HTTPException(status_code=403, detail="Character not available")
+                character_id = int(character["id"])
+            else:
+                if not request.create_character:
+                    raise HTTPException(status_code=404, detail="Character not found")
+                if not config.worlds.allow_multi_world_characters:
+                    existing_worlds = database.get_user_character_world_ids(user_id)
+                    if existing_worlds and world_id not in existing_worlds:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Multi-world characters are disabled",
+                        )
+                if not database.create_character_for_user(
+                    user_id, character_name, world_id=world_id
+                ):
+                    raise HTTPException(status_code=409, detail="Failed to create character")
+                character = database.get_character_by_name(character_name)
+                if not character:
+                    raise HTTPException(status_code=500, detail="Character creation failed")
+                character_id = int(character["id"])
+
+        session_id = str(uuid.uuid4())
+        client_type = http_request.headers.get("X-Client-Type", "unknown").strip().lower()
+        if not client_type:
+            client_type = "unknown"
+
+        if not database.create_session(
+            user_id,
+            session_id,
+            client_type=client_type,
+            character_id=character_id,
+            world_id=world_id,
+        ):
+            raise HTTPException(status_code=500, detail="Failed to create session")
+
+        if character_id is not None:
+            if not database.set_session_character(session_id, character_id, world_id=world_id):
+                raise HTTPException(status_code=500, detail="Failed to bind character")
+
+        message = "Login successful."
+        return LoginDirectResponse(
+            success=True,
+            message=message,
+            session_id=session_id,
+            role=role,
+            character_name=character_name,
+            world_id=world_id,
         )
 
     @app.post("/register", response_model=RegisterResponse)
@@ -357,21 +476,38 @@ def register_routes(app: FastAPI, engine: GameEngine):
         return {"success": True, "message": f"Goodbye, {username}!"}
 
     @app.get("/characters", response_model=CharactersResponse)
-    async def list_characters(session_id: str):
+    async def list_characters(session_id: str, world_id: str | None = None):
         """List available characters for the logged-in user."""
-        user_id, _, _ = validate_session(session_id)
-        characters = database.get_user_characters(user_id)
+        user_id, _, role = validate_session(session_id)
+        if world_id:
+            available_worlds = _get_available_worlds(user_id, role)
+            if world_id not in {world["id"] for world in available_worlds}:
+                raise HTTPException(status_code=403, detail="World access denied")
+        characters = database.get_user_characters(user_id, world_id=world_id)
         return CharactersResponse(characters=characters)
 
     @app.post("/characters/select", response_model=SelectCharacterResponse)
     async def select_character(request: SelectCharacterRequest):
         """Select a character for the current session."""
-        user_id, _, _ = validate_session(request.session_id)
+        user_id, _, role = validate_session(request.session_id)
         character = database.get_character_by_id(request.character_id)
         if not character or character.get("user_id") != user_id:
             raise HTTPException(status_code=404, detail="Character not found for this user")
 
-        if not database.set_session_character(request.session_id, request.character_id):
+        world_id = request.world_id or character.get("world_id")
+        if not world_id:
+            raise HTTPException(status_code=400, detail="World id required")
+
+        available_worlds = _get_available_worlds(user_id, role)
+        if world_id not in {world["id"] for world in available_worlds}:
+            raise HTTPException(status_code=403, detail="World access denied")
+
+        if character.get("world_id") != world_id:
+            raise HTTPException(status_code=409, detail="Character does not belong to world")
+
+        if not database.set_session_character(
+            request.session_id, request.character_id, world_id=world_id
+        ):
             raise HTTPException(status_code=500, detail="Failed to select character")
 
         return SelectCharacterResponse(
@@ -395,7 +531,7 @@ def register_routes(app: FastAPI, engine: GameEngine):
             - Chat: say, yell, whisper/w
             - Info: who, help/?
         """
-        _, _, _, _, character_name = validate_session_for_game(request.session_id)
+        _, _, _, _, character_name, world_id = validate_session_for_game(request.session_id)
 
         command = request.command.strip()
 
@@ -427,40 +563,40 @@ def register_routes(app: FastAPI, engine: GameEngine):
                 "d": "down",
             }
             direction = direction_map.get(cmd, cmd)
-            success, message = engine.move(character_name, direction)
+            success, message = engine.move(character_name, direction, world_id=world_id)
             return CommandResponse(success=success, message=message)
 
         elif cmd in ["look", "l"]:
-            message = engine.look(character_name)
+            message = engine.look(character_name, world_id=world_id)
             return CommandResponse(success=True, message=message)
 
         elif cmd in ["inventory", "inv", "i"]:
-            message = engine.get_inventory(character_name)
+            message = engine.get_inventory(character_name, world_id=world_id)
             return CommandResponse(success=True, message=message)
 
         elif cmd in ["get", "take"]:
             if not args:
                 return CommandResponse(success=False, message="Get what?")
-            success, message = engine.pickup_item(character_name, args)
+            success, message = engine.pickup_item(character_name, args, world_id=world_id)
             return CommandResponse(success=success, message=message)
 
         elif cmd == "drop":
             if not args:
                 return CommandResponse(success=False, message="Drop what?")
-            success, message = engine.drop_item(character_name, args)
+            success, message = engine.drop_item(character_name, args, world_id=world_id)
             return CommandResponse(success=success, message=message)
 
         elif cmd in ["say", "chat"]:
             if not args:
                 return CommandResponse(success=False, message="Say what?")
-            success, message = engine.chat(character_name, args)
+            success, message = engine.chat(character_name, args, world_id=world_id)
             return CommandResponse(success=success, message=message)
 
         elif cmd == "yell":
             if not args:
                 return CommandResponse(success=False, message="Yell what?")
             # Yell sends to current room and all adjoining rooms
-            success, message = engine.yell(character_name, args)
+            success, message = engine.yell(character_name, args, world_id=world_id)
             return CommandResponse(success=success, message=message)
 
         elif cmd in ["whisper", "w"]:
@@ -477,16 +613,16 @@ def register_routes(app: FastAPI, engine: GameEngine):
             target = whisper_parts[0]
             msg = whisper_parts[1]
             # Send private whisper
-            success, message = engine.whisper(character_name, target, msg)
+            success, message = engine.whisper(character_name, target, msg, world_id=world_id)
             return CommandResponse(success=success, message=message)
 
         elif cmd in ["recall", "flee", "scurry"]:
             # Recall to zone spawn point
-            success, message = engine.recall(character_name)
+            success, message = engine.recall(character_name, world_id=world_id)
             return CommandResponse(success=success, message=message)
 
         elif cmd == "who":
-            players = engine.get_active_players()
+            players = engine.get_active_players(world_id=world_id)
             if not players:
                 message = "No other players online."
             else:
@@ -529,8 +665,8 @@ Note: Commands can be used with or without the / prefix
     @app.get("/chat/{session_id}")
     async def get_chat(session_id: str):
         """Get recent chat messages from current room."""
-        _, _, _, _, character_name = validate_session_for_game(session_id)
-        chat = engine.get_room_chat(character_name)
+        _, _, _, _, character_name, world_id = validate_session_for_game(session_id)
+        chat = engine.get_room_chat(character_name, world_id=world_id)
         return {"chat": chat}
 
     @app.post("/ping/{session_id}")
@@ -542,11 +678,11 @@ Note: Commands can be used with or without the / prefix
     @app.get("/status/{session_id}")
     async def get_status(session_id: str):
         """Get player status."""
-        _, _, _, _, character_name = validate_session_for_game(session_id)
+        _, _, _, _, character_name, world_id = validate_session_for_game(session_id)
 
-        current_room = database.get_character_room(character_name)
-        inventory = engine.get_inventory(character_name)
-        active_players = engine.get_active_players()
+        current_room = database.get_character_room(character_name, world_id=world_id)
+        inventory = engine.get_inventory(character_name, world_id=world_id)
+        active_players = engine.get_active_players(world_id=world_id)
 
         return StatusResponse(
             active_players=active_players,
@@ -618,17 +754,25 @@ Note: Commands can be used with or without the / prefix
     async def get_database_connections(session_id: str):
         """Get active session connections with activity age (Admin only)."""
         _, _, _ = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+        try:
+            _, _, _, _, _, world_id = validate_session_for_game(session_id)
+        except HTTPException:
+            world_id = None
 
-        connections = database.get_active_connections()
+        connections = database.get_active_connections(world_id=world_id)
         return DatabaseConnectionsResponse(connections=connections)
 
     @app.get("/admin/database/player-locations", response_model=DatabasePlayerLocationsResponse)
     async def get_database_player_locations(session_id: str):
         """Get character locations with zone context (Admin only)."""
         _, _, _ = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+        try:
+            _, _, _, _, _, world_id = validate_session_for_game(session_id)
+        except HTTPException:
+            world_id = None
 
         locations = []
-        for location in database.get_character_locations():
+        for location in database.get_character_locations(world_id=world_id):
             # Zone ID is derived from the in-memory world data so we can
             # show high-level location context without storing it in the DB.
             room_id = location.get("room_id")
@@ -676,16 +820,24 @@ Note: Commands can be used with or without the / prefix
     async def get_database_sessions(session_id: str):
         """Get all active sessions from the database (Admin only)."""
         _, username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+        try:
+            _, _, _, _, _, world_id = validate_session_for_game(session_id)
+        except HTTPException:
+            world_id = None
 
-        sessions = database.get_all_sessions()
+        sessions = database.get_all_sessions(world_id=world_id)
         return DatabaseSessionsResponse(sessions=sessions)
 
     @app.get("/admin/database/chat-messages", response_model=DatabaseChatResponse)
     async def get_database_chat_messages(session_id: str, limit: int = 100):
         """Get recent chat messages from the database (Admin only)."""
         _, username, role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+        try:
+            _, _, _, _, _, world_id = validate_session_for_game(session_id)
+        except HTTPException:
+            world_id = None
 
-        messages = database.get_all_chat_messages(limit=limit)
+        messages = database.get_all_chat_messages(limit=limit, world_id=world_id)
         return DatabaseChatResponse(messages=messages)
 
     @app.post("/admin/user/manage", response_model=UserManagementResponse)

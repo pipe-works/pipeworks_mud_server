@@ -303,9 +303,14 @@ def test_validate_session_for_game_auto_selects_single_character(test_db, db_wit
     with patch.object(
         database, "set_session_character", wraps=database.set_session_character
     ) as spy:
-        user_id, username, role, character_id, character_name = validate_session_for_game(
-            session_id
-        )
+        (
+            user_id,
+            username,
+            role,
+            character_id,
+            character_name,
+            world_id,
+        ) = validate_session_for_game(session_id)
 
         assert spy.called is True
 
@@ -313,6 +318,7 @@ def test_validate_session_for_game_auto_selects_single_character(test_db, db_wit
     assert role == "player"
     assert character_id is not None
     assert character_name == "testplayer_char"
+    assert world_id is not None
     session = database.get_session_by_id(session_id)
     assert session is not None
     assert session["character_id"] == character_id
