@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import pytest
 
-from mud_server.config import use_test_database
+from mud_server.config import config, use_test_database
 from mud_server.db import database
 from tests.constants import TEST_PASSWORD
 
@@ -1266,3 +1266,731 @@ def test_admin_sessions_fallback_without_character(
             params={"session_id": session_id},
         )
         assert response.status_code == 200
+
+
+@pytest.mark.api
+def test_admin_database_endpoints_with_character_selected(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Admin endpoints should return data when a character is selected."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+        admin_id = database.get_user_id("testadmin")
+        assert admin_id is not None
+        character_id = database.get_user_characters(admin_id)[0]["id"]
+
+        select_resp = test_client.post(
+            "/characters/select",
+            json={"session_id": session_id, "character_id": character_id},
+        )
+        assert select_resp.status_code == 200
+
+        connections = test_client.get(
+            "/admin/database/connections", params={"session_id": session_id}
+        )
+        assert connections.status_code == 200
+
+        locations = test_client.get(
+            "/admin/database/player-locations", params={"session_id": session_id}
+        )
+        assert locations.status_code == 200
+
+        sessions = test_client.get(
+            "/admin/database/sessions", params={"session_id": session_id}
+        )
+        assert sessions.status_code == 200
+
+        messages = test_client.get(
+            "/admin/database/chat-messages", params={"session_id": session_id}
+        )
+        assert messages.status_code == 200
+
+
+@pytest.mark.api
+def test_admin_kick_session_not_found(test_client, test_db, temp_db_path, db_with_users):
+    """Kick session should return not found when session is missing."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/session/kick",
+            json={"session_id": session_id, "target_session_id": "missing-session"},
+        )
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+
+
+@pytest.mark.api
+def test_database_table_rows_not_found(test_client, test_db, temp_db_path, db_with_users):
+    """Unknown table should return 404."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        response = test_client.get(
+            "/admin/database/table/not_a_table", params={"session_id": session_id}
+        )
+        assert response.status_code == 404
+
+
+@pytest.mark.api
+def test_login_filters_characters_by_world(test_client, test_db, temp_db_path, db_with_users):
+    """Login should filter characters when world_id is provided."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("daily_undertaking", "daily_undertaking"),
+        )
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO world_permissions (user_id, world_id, can_access)
+            VALUES (?, ?, 1)
+            """,
+            (user_id, "daily_undertaking"),
+        )
+        conn.commit()
+        conn.close()
+
+        response = test_client.post(
+            "/login",
+            json={
+                "username": "testplayer",
+                "password": TEST_PASSWORD,
+                "world_id": "daily_undertaking",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["characters"] == []
+
+
+@pytest.mark.api
+def test_login_direct_create_character_success(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """login-direct should create a character when requested."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+
+        original = config.worlds.allow_multi_world_characters
+        config.worlds.allow_multi_world_characters = True
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("daily_undertaking", "daily_undertaking"),
+        )
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO world_permissions (user_id, world_id, can_access)
+            VALUES (?, ?, 1)
+            """,
+            (user_id, "daily_undertaking"),
+        )
+        conn.commit()
+        conn.close()
+
+        response = test_client.post(
+            "/login-direct",
+            json={
+                "username": "testplayer",
+                "password": TEST_PASSWORD,
+                "world_id": "daily_undertaking",
+                "character_name": "daily_char",
+                "create_character": True,
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["character_name"] == "daily_char"
+
+        config.worlds.allow_multi_world_characters = original
+
+
+@pytest.mark.api
+def test_login_direct_character_not_found_without_create(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """login-direct should 404 when character missing and create disabled."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("daily_undertaking", "daily_undertaking"),
+        )
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO world_permissions (user_id, world_id, can_access)
+            VALUES (?, ?, 1)
+            """,
+            (user_id, "daily_undertaking"),
+        )
+        conn.commit()
+        conn.close()
+
+        response = test_client.post(
+            "/login-direct",
+            json={
+                "username": "testplayer",
+                "password": TEST_PASSWORD,
+                "world_id": "daily_undertaking",
+                "character_name": "missing_char",
+            },
+        )
+
+        assert response.status_code == 404
+
+
+@pytest.mark.api
+def test_list_characters_world_access_allowed(test_client, test_db, temp_db_path, db_with_users):
+    """Listing characters for an allowed world should succeed."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("daily_undertaking", "daily_undertaking"),
+        )
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO world_permissions (user_id, world_id, can_access)
+            VALUES (?, ?, 1)
+            """,
+            (user_id, "daily_undertaking"),
+        )
+        conn.commit()
+        conn.close()
+
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(
+            "/characters", params={"session_id": session_id, "world_id": "daily_undertaking"}
+        )
+        assert response.status_code == 200
+        assert response.json()["characters"] == []
+
+
+# ============================================================================
+# PASSWORD CHANGE TESTS
+# ============================================================================
+
+
+@pytest.mark.api
+def test_change_password_success(test_client, test_db, temp_db_path, db_with_users):
+    """Test change-password updates the user's credentials."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+        new_password = "VeryStrongPass!9"
+
+        response = test_client.post(
+            "/change-password",
+            json={
+                "session_id": session_id,
+                "old_password": TEST_PASSWORD,
+                "new_password": new_password,
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+        assert database.verify_password_for_user("testplayer", new_password) is True
+
+
+@pytest.mark.api
+def test_change_password_wrong_old(test_client, test_db, temp_db_path, db_with_users):
+    """Test change-password rejects incorrect current password."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/change-password",
+            json={
+                "session_id": session_id,
+                "old_password": "wrongpassword",
+                "new_password": "NewPassword123!",
+            },
+        )
+
+        assert response.status_code == 401
+
+
+@pytest.mark.api
+def test_change_password_same_as_old(test_client, test_db, temp_db_path, db_with_users):
+    """Test change-password rejects same-as-old password."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/change-password",
+            json={
+                "session_id": session_id,
+                "old_password": TEST_PASSWORD,
+                "new_password": TEST_PASSWORD,
+            },
+        )
+
+        assert response.status_code == 400
+
+
+@pytest.mark.api
+def test_change_password_policy_failure(test_client, test_db, temp_db_path, db_with_users):
+    """Test change-password rejects weak new passwords."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/change-password",
+            json={
+                "session_id": session_id,
+                "old_password": TEST_PASSWORD,
+                "new_password": "short",
+            },
+        )
+
+        assert response.status_code == 400
+
+
+# ============================================================================
+# ADMIN USER CREATE TESTS
+# ============================================================================
+
+
+@pytest.mark.api
+def test_admin_create_user_success(test_client, test_db, temp_db_path, db_with_users):
+    """Admin can create player/worldbuilder accounts."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/user/create",
+            json={
+                "session_id": session_id,
+                "username": "createduser",
+                "role": "player",
+                "password": TEST_PASSWORD,
+                "password_confirm": TEST_PASSWORD,
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.api
+def test_admin_create_user_invalid_role(test_client, test_db, temp_db_path, db_with_users):
+    """Admin create user rejects invalid roles."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/user/create",
+            json={
+                "session_id": session_id,
+                "username": "createduser",
+                "role": "invalidrole",
+                "password": TEST_PASSWORD,
+                "password_confirm": TEST_PASSWORD,
+            },
+        )
+
+        assert response.status_code == 400
+
+
+@pytest.mark.api
+def test_admin_create_user_forbidden_role(test_client, test_db, temp_db_path, db_with_users):
+    """Admin cannot create other admins or superusers."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/user/create",
+            json={
+                "session_id": session_id,
+                "username": "createdadmin",
+                "role": "admin",
+                "password": TEST_PASSWORD,
+                "password_confirm": TEST_PASSWORD,
+            },
+        )
+
+        assert response.status_code == 403
+
+
+@pytest.mark.api
+def test_admin_create_user_password_mismatch(test_client, test_db, temp_db_path, db_with_users):
+    """Admin create user rejects mismatched passwords."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/user/create",
+            json={
+                "session_id": session_id,
+                "username": "createduser",
+                "role": "player",
+                "password": TEST_PASSWORD,
+                "password_confirm": "different123",
+            },
+        )
+
+        assert response.status_code == 400
+
+
+# ============================================================================
+# ADMIN TABLE ROUTES TESTS
+# ============================================================================
+
+
+@pytest.mark.api
+def test_admin_database_tables_and_rows(test_client, test_db, temp_db_path, db_with_users):
+    """Admin tables endpoints return schema and rows."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        tables_resp = test_client.get("/admin/database/tables", params={"session_id": session_id})
+        assert tables_resp.status_code == 200
+        tables = tables_resp.json()["tables"]
+        assert tables
+
+        table_name = tables[0]["name"]
+        rows_resp = test_client.get(
+            f"/admin/database/table/{table_name}", params={"session_id": session_id}
+        )
+        assert rows_resp.status_code == 200
+
+
+# ============================================================================
+# OLLAMA ADMIN TESTS
+# ============================================================================
+
+
+@pytest.mark.api
+def test_admin_ollama_list_models(test_client, test_db, temp_db_path, db_with_users):
+    """Ollama list command should return available models."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        class FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {
+                    "models": [
+                        {"name": "llama3", "size": 1234, "modified_at": "2024-01-01"},
+                    ]
+                }
+
+        with patch("requests.get", return_value=FakeResponse()):
+            response = test_client.post(
+                "/admin/ollama/command",
+                json={
+                    "session_id": session_id,
+                    "server_url": "http://localhost:11434",
+                    "command": "list",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.api
+def test_admin_ollama_missing_args(test_client, test_db, temp_db_path, db_with_users):
+    """Ollama command should reject missing server_url or command."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/ollama/command",
+            json={"session_id": session_id, "server_url": "", "command": ""},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+
+
+@pytest.mark.api
+def test_admin_ollama_unknown_command(test_client, test_db, temp_db_path, db_with_users):
+    """Ollama unknown commands should return error output."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/ollama/command",
+            json={
+                "session_id": session_id,
+                "server_url": "http://localhost:11434",
+                "command": "unknown",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+
+
+@pytest.mark.api
+def test_admin_ollama_ps(test_client, test_db, temp_db_path, db_with_users):
+    """Ollama ps command should return running models."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        class FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"models": [{"name": "llama3"}]}
+
+        with patch("requests.get", return_value=FakeResponse()):
+            response = test_client.post(
+                "/admin/ollama/command",
+                json={
+                    "session_id": session_id,
+                    "server_url": "http://localhost:11434",
+                    "command": "ps",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.api
+def test_admin_ollama_show(test_client, test_db, temp_db_path, db_with_users):
+    """Ollama show command should return model metadata."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        class FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"modelfile": "FROM llama3", "parameters": "temp=0.7"}
+
+        with patch("requests.post", return_value=FakeResponse()):
+            response = test_client.post(
+                "/admin/ollama/command",
+                json={
+                    "session_id": session_id,
+                    "server_url": "http://localhost:11434",
+                    "command": "show llama3",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.api
+def test_admin_ollama_pull(test_client, test_db, temp_db_path, db_with_users):
+    """Ollama pull command should stream status updates."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        class FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def iter_lines():
+                return [
+                    b'{"status": "downloading"}',
+                    b'{"status": "done"}',
+                ]
+
+        with patch("requests.post", return_value=FakeResponse()):
+            response = test_client.post(
+                "/admin/ollama/command",
+                json={
+                    "session_id": session_id,
+                    "server_url": "http://localhost:11434",
+                    "command": "pull llama3",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.api
+def test_admin_ollama_run_success(test_client, test_db, temp_db_path, db_with_users):
+    """Ollama run command should return generated output."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        class FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"message": {"content": "Hello from model"}}
+
+        with patch("requests.post", return_value=FakeResponse()):
+            response = test_client.post(
+                "/admin/ollama/command",
+                json={
+                    "session_id": session_id,
+                    "server_url": "http://localhost:11434",
+                    "command": "run llama3 Hello",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+@pytest.mark.api
+def test_admin_ollama_run_error(test_client, test_db, temp_db_path, db_with_users):
+    """Ollama run command should surface non-200 responses."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        class FakeResponse:
+            status_code = 500
+            text = "boom"
+
+        with patch("requests.post", return_value=FakeResponse()):
+            response = test_client.post(
+                "/admin/ollama/command",
+                json={
+                    "session_id": session_id,
+                    "server_url": "http://localhost:11434",
+                    "command": "run llama3 Hello",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+
+
+@pytest.mark.api
+def test_admin_ollama_connection_error(test_client, test_db, temp_db_path, db_with_users):
+    """Ollama command should handle connection errors."""
+    import requests
+
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        with patch("requests.get", side_effect=requests.exceptions.ConnectionError):
+            response = test_client.post(
+                "/admin/ollama/command",
+                json={
+                    "session_id": session_id,
+                    "server_url": "http://localhost:11434",
+                    "command": "list",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+
+
+@pytest.mark.api
+def test_admin_ollama_clear_context_no_history(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Clearing context with no history should succeed."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/ollama/clear-context",
+            json={"session_id": session_id},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
