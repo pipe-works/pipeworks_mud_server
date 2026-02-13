@@ -1,7 +1,5 @@
 """Authentication and account management endpoints."""
 
-from __future__ import annotations
-
 import uuid
 
 from fastapi import APIRouter, HTTPException, Request
