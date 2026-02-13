@@ -1466,6 +1466,72 @@ def test_login_direct_character_not_found_without_create(
 
 
 @pytest.mark.api
+def test_session_locked_to_world_in_game_command(test_client, test_db, temp_db_path, db_with_users):
+    """Command execution should respect the session's world_id binding."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("daily_undertaking", "daily_undertaking"),
+        )
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO world_permissions (user_id, world_id, can_access)
+            VALUES (?, ?, 1)
+            """,
+            (user_id, "daily_undertaking"),
+        )
+        conn.commit()
+        conn.close()
+
+        response = test_client.post(
+            "/login-direct",
+            json={
+                "username": "testplayer",
+                "password": TEST_PASSWORD,
+                "world_id": "daily_undertaking",
+                "character_name": "testplayer_char",
+            },
+        )
+        assert response.status_code == 200
+        session_id = response.json()["session_id"]
+
+        # Flip the session world_id to simulate a mismatched world binding.
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE sessions SET world_id = ? WHERE session_id = ?",
+            ("pipeworks_web", session_id),
+        )
+        conn.commit()
+        conn.close()
+
+        command_response = test_client.post(
+            "/command",
+            json={"session_id": session_id, "command": "look"},
+        )
+        assert command_response.status_code == 200
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT world_id FROM sessions WHERE session_id = ?",
+            (session_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        assert row is not None
+        assert row[0] == "daily_undertaking"
+
+
+@pytest.mark.api
 def test_list_characters_world_access_allowed(test_client, test_db, temp_db_path, db_with_users):
     """Listing characters for an allowed world should succeed."""
     with use_test_database(temp_db_path):
