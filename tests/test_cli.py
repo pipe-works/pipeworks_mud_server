@@ -87,8 +87,7 @@ def test_cmd_init_db_migrate_success(tmp_path, monkeypatch):
     db_path.write_text("test")
 
     monkeypatch.setattr(
-        cli,
-        "config",
+        "mud_server.config.config",
         SimpleNamespace(database=SimpleNamespace(absolute_path=db_path)),
     )
 
@@ -115,8 +114,7 @@ def test_cmd_init_db_migrate_missing_script(tmp_path, monkeypatch):
     db_path.write_text("test")
 
     monkeypatch.setattr(
-        cli,
-        "config",
+        "mud_server.config.config",
         SimpleNamespace(database=SimpleNamespace(absolute_path=db_path)),
     )
 
