@@ -14,6 +14,7 @@ All tests verify proper permission checking and conversation history management.
 from unittest.mock import Mock, patch
 
 import pytest
+import requests
 
 from mud_server.config import use_test_database
 from tests.constants import TEST_PASSWORD
@@ -384,3 +385,53 @@ def test_superuser_can_access_ollama(test_client, test_db, temp_db_path, db_with
             )
 
             assert response.status_code == 200
+
+
+@pytest.mark.api
+@pytest.mark.admin
+def test_admin_ollama_timeout_error(test_client, test_db, temp_db_path, db_with_users):
+    """Timeouts should return a friendly error."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        with patch("requests.get", side_effect=requests.exceptions.Timeout):
+            response = test_client.post(
+                "/admin/ollama/command",
+                json={
+                    "session_id": session_id,
+                    "server_url": "http://localhost:11434",
+                    "command": "list",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+        assert "timed out" in response.json()["output"].lower()
+
+
+@pytest.mark.api
+@pytest.mark.admin
+def test_admin_ollama_generic_error(test_client, test_db, temp_db_path, db_with_users):
+    """Unexpected errors should be surfaced in the response."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        with patch("requests.get", side_effect=Exception("boom")):
+            response = test_client.post(
+                "/admin/ollama/command",
+                json={
+                    "session_id": session_id,
+                    "server_url": "http://localhost:11434",
+                    "command": "list",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+        assert "boom" in response.json()["output"].lower()

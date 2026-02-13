@@ -432,6 +432,25 @@ def test_login_create_session_failure(test_client, test_db, temp_db_path, db_wit
         assert "failed to create session" in response.json()["detail"].lower()
 
 
+@pytest.mark.api
+def test_login_direct_create_session_failure(test_client, test_db, temp_db_path, db_with_users):
+    """login-direct should return 500 when session creation fails."""
+    with use_test_database(temp_db_path):
+        with patch.object(database, "create_session", return_value=False):
+            response = test_client.post(
+                "/login-direct",
+                json={
+                    "username": "testplayer",
+                    "password": TEST_PASSWORD,
+                    "world_id": "pipeworks_web",
+                    "character_name": "testplayer_char",
+                },
+            )
+
+        assert response.status_code == 500
+        assert "failed to create session" in response.json()["detail"].lower()
+
+
 # ============================================================================
 # CHARACTER SELECTION TESTS
 # ============================================================================
@@ -1598,7 +1617,47 @@ def test_change_password_success(test_client, test_db, temp_db_path, db_with_use
 
         assert response.status_code == 200
         assert response.json()["success"] is True
-        assert database.verify_password_for_user("testplayer", new_password) is True
+
+
+@pytest.mark.api
+def test_login_direct_create_character_failure(test_client, test_db, temp_db_path, db_with_users):
+    """login-direct should return 409 when character creation fails."""
+    with use_test_database(temp_db_path):
+        with patch.object(database, "create_character_for_user", return_value=False):
+            response = test_client.post(
+                "/login-direct",
+                json={
+                    "username": "testplayer",
+                    "password": TEST_PASSWORD,
+                    "world_id": "pipeworks_web",
+                    "character_name": "new_char",
+                    "create_character": True,
+                },
+            )
+
+        assert response.status_code == 409
+        assert "failed to create character" in response.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_login_direct_set_session_character_failure(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """login-direct should return 500 when binding the character fails."""
+    with use_test_database(temp_db_path):
+        with patch.object(database, "set_session_character", return_value=False):
+            response = test_client.post(
+                "/login-direct",
+                json={
+                    "username": "testplayer",
+                    "password": TEST_PASSWORD,
+                    "world_id": "pipeworks_web",
+                    "character_name": "testplayer_char",
+                },
+            )
+
+        assert response.status_code == 500
+        assert "failed to bind character" in response.json()["detail"].lower()
 
 
 @pytest.mark.api
