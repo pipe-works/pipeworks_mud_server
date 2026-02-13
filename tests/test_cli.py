@@ -118,14 +118,16 @@ def test_cmd_init_db_migrate_missing_script(tmp_path, monkeypatch):
         SimpleNamespace(database=SimpleNamespace(absolute_path=db_path)),
     )
 
-    original_exists = cli.Path.exists
+    from pathlib import Path
 
-    def fake_exists(path: cli.Path) -> bool:
+    original_exists = Path.exists
+
+    def fake_exists(path: Path) -> bool:
         if path.name == "migrate_to_multiworld.py":
             return False
         return original_exists(path)
 
-    monkeypatch.setattr(cli.Path, "exists", fake_exists)
+    monkeypatch.setattr(Path, "exists", fake_exists)
 
     args = argparse.Namespace(migrate=True)
     result = cli.cmd_init_db(args)
