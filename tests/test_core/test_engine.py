@@ -12,10 +12,10 @@ Tests cover:
 All tests use mocked database and world for isolation.
 """
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from types import SimpleNamespace
 
 from mud_server.config import use_test_database
 from mud_server.core.bus import MudBus
