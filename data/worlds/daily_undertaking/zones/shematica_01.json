@@ -1,0 +1,57 @@
+{
+  "id": "shematica_01",
+  "name": "Schematica Undergroud Transport",
+  "metadata": {
+    "schema_version": "0.1.0",
+    "exported_from": {
+      "map_id": "shematica_01",
+      "map_version": "2",
+      "map_revision": 24,
+      "exported_at": "2026-02-06T17:18:07.597824Z",
+      "exporter": "pipeworks_mud_mapper 0.1.9"
+    }
+  },
+  "description": "The Schematica Underground Transport Cooperative",
+  "spawn_room": "spawn",
+  "rooms": {
+    "spawn": {
+      "id": "spawn",
+      "name": "Schemtaica Underground Transportation CO-OP",
+      "description": "A greasy, oily smell hangs in the air, mingling with the metallic tang of rust and something vaguely like burnt sugar.  The station's entrance is a chaotic jumble of pipes, levers, and flickering lights, all humming in a symphony of mechanical groans.  You can hear a low drone from somewhere deeper within the station.",
+      "exits": {
+        "down": "sut_north_line"
+      },
+      "items": []
+    },
+    "sut_north_line": {
+      "id": "sut_north_line",
+      "name": "SUT North Platform",
+      "description": "The air hangs thick with coal dust and damp wool. A single flickering lamp casts long shadows on the worn wooden platform where a few goblins huddle around a ledger, their voices hushed in the gloom.  Their work is slow; their deals are small.",
+      "exits": {
+        "up": "spawn",
+        "west": "sut_northbound_platform",
+        "east": "sut_southbound_platform"
+      },
+      "items": []
+    },
+    "sut_northbound_platform": {
+      "id": "sut_northbound_platform",
+      "name": "SUT Northbound PLatform",
+      "description": "The air is thick with the smell of coal smoke and damp earth.  A low rumble echoes from the north as a metal grate groans open to reveal an almost-empty platform.  You feel a draft on your face, the wind biting at your cheeks.",
+      "exits": {
+        "east": "sut_north_line"
+      },
+      "items": []
+    },
+    "sut_southbound_platform": {
+      "id": "sut_southbound_platform",
+      "name": "SUT Southbound Platform",
+      "description": "The air smells of brine and fish as you stand on the SUT platform.  A rhythmic hum vibrates through the floorboards, punctuated by the distant clang of metal against metal. A faint warmth clings to the air, almost like a sigh.",
+      "exits": {
+        "west": "sut_north_line"
+      },
+      "items": []
+    }
+  },
+  "items": {}
+}

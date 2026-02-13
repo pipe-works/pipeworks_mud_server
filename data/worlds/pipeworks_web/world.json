@@ -1,0 +1,13 @@
+{
+  "name": "Pipeworks Web",
+  "description": "A minimal world that mirrors pipe-works.org content inside the MUD engine.",
+  "version": "0.1.0",
+  "default_spawn": {
+    "zone": "pipeworks_web",
+    "room": "spawn"
+  },
+  "zones": [
+    "pipeworks_web"
+  ],
+  "global_items": {}
+}

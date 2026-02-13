@@ -1,0 +1,87 @@
+{
+  "id": "ledgerfall_alley",
+  "name": "Ledgerfall Alley",
+  "description": "A grimy, dark alley.",
+  "spawn_room": "spawn",
+  "rooms": {
+    "spawn": {
+      "id": "spawn",
+      "name": "A Quiet Alley",
+      "description": "Cobblestones slick with rainwater, a faint scent of rust and fish hangs in the air, and the only light comes from flickering gas lamps that cast long shadows.  A low murmur of haggling drifts from the direction of a nearby stall.",
+      "exits": {
+        "east": "broken_door",
+        "west": "ledgerfall_market",
+        "north": "quiet_alley_n1",
+        "south": "quiet_alley_s1"
+      },
+      "items": []
+    },
+    "broken_door": {
+      "id": "broken_door",
+      "name": "Broken Door",
+      "description": "Dust motes dance in a sliver of moonlight, illuminating cobwebs strung like macabre chandeliers. The air hangs thick with the scent of mildew and stale ink.  A single rusted ledger lies open on the floor, its pages whispering tales of lost deals and unpaid debts.",
+      "exits": {
+        "west": "spawn"
+      },
+      "items": []
+    },
+    "ledgerfall_market": {
+      "id": "ledgerfall_market",
+      "name": "Ledgerfall Market",
+      "description": "The air hums with haggling, a cacophony of bartering and coin clinking as vendors hawk their wares.  Copper pipes hiss steam from overflowing kettles, the scent of fish stew hangs heavy in the humid air.   Rust stains the wooden stalls, each one crammed with trinkets and tools.",
+      "exits": {
+        "east": "spawn",
+        "north": "the_markect_arms_inn",
+        "west": "the_small_stores"
+      },
+      "items": []
+    },
+    "the_markect_arms_inn": {
+      "id": "the_markect_arms_inn",
+      "name": "The Merkect Arms Inn",
+      "description": "A worn sign hangs crookedly above the door, its paint flaking off in patches. The air smells of stale ale and damp wood, a faint aroma of roasted meat lingering nearby.  Outside, the sounds of haggling and shouting clash with the rhythmic clatter of rain against the roof.",
+      "exits": {
+        "south": "ledgerfall_market"
+      },
+      "items": []
+    },
+    "the_small_stores": {
+      "id": "the_small_stores",
+      "name": "The Small Stores",
+      "description": "The air hangs thick with the scent of damp wood and stale ink, a faint metallic tang clinging to the back of your throat.  A single flickering lamp casts dancing shadows on the chipped paint, revealing rusted gears exposed beneath a cracked wooden lid.",
+      "exits": {
+        "east": "ledgerfall_market"
+      },
+      "items": []
+    },
+    "quiet_alley_n1": {
+      "id": "quiet_alley_n1",
+      "name": "A Quiet Alley",
+      "description": "A narrow, cobbled alley smells of damp earth and stale ale.  Rust-tinged pipes snake along the walls, and a single flickering lamp casts long shadows.  The air is thick with the murmur of voices and the clatter of feet.",
+      "exits": {
+        "south": "spawn"
+      },
+      "items": []
+    },
+    "quiet_alley_s1": {
+      "id": "quiet_alley_s1",
+      "name": "A Quiet Alley",
+      "description": "A narrow, cobbled alleyway curves into a tight space, reeking of stale ale and damp earth.  The air is thick with the smell of rust and grease. You hear a distant clang from somewhere further down the alley.",
+      "exits": {
+        "north": "spawn",
+        "west": "lf_alley_small_pier"
+      },
+      "items": []
+    },
+    "lf_alley_small_pier": {
+      "id": "lf_alley_small_pier",
+      "name": "A Small Wooden Pier",
+      "description": "An old, small wooden pier juts out into a quiet harbor, the water a murky green sheen under the overcast sky.  A few gulls squawk overhead and a faint smell of brine hangs in the air.",
+      "exits": {
+        "east": "quiet_alley_s1"
+      },
+      "items": []
+    }
+  },
+  "items": {}
+}
