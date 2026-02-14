@@ -4,6 +4,9 @@ Security
 This document describes the security features and best practices implemented
 in the PipeWorks MUD Server.
 
+See also: :doc:`admin_web_ui_mtls` for a step-by-step guide to locking down
+the admin Web UI with mTLS and blocking `/admin` on the public API domain.
+
 .. contents:: Table of Contents
    :local:
    :depth: 2
