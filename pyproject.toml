@@ -72,6 +72,8 @@ exclude = ["tests*", "docs*", "documentation*", "*__pycache__*"]
   "static/js/ui/*.js",
   "static/play/css/*.css",
   "static/play/css/worlds/*.css",
+  "static/play/css/fonts.css",
+  "static/play/fonts/**/*",
   "static/play/js/*.js",
   "static/play/js/worlds/*.js",
 ]
