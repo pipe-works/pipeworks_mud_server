@@ -1,0 +1,21 @@
+:root {
+  --color-bg: #f4f5f7;
+  --color-surface: #ffffff;
+  --color-text: #15171a;
+  --color-muted: #5a6068;
+  --color-border: #d0d4da;
+  --color-accent: #2b6ef3;
+  --color-danger: #c0392b;
+  --color-success: #1d7a3a;
+}
+
+html[data-theme="dark"] {
+  --color-bg: #0f1115;
+  --color-surface: #1a1d24;
+  --color-text: #f4f5f7;
+  --color-muted: #a0a6b1;
+  --color-border: #2b2f38;
+  --color-accent: #6aa0ff;
+  --color-danger: #ff6b6b;
+  --color-success: #6ad98f;
+}
