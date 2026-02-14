@@ -1,0 +1,81 @@
+/*
+ * Base play shell styles.
+ *
+ * Keep this file minimal. World-specific styles should live in
+ * /web/static/play/css/worlds/<world_id>.css and override these defaults.
+ */
+
+:root {
+  color-scheme: light;
+  --play-bg: #f7f4ef;
+  --play-ink: #1f1a16;
+  --play-accent: #5d4636;
+  --play-panel: #fff;
+  --play-border: #d9cfc4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+  background: var(--play-bg);
+  color: var(--play-ink);
+}
+
+.play-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 32px clamp(16px, 4vw, 48px);
+}
+
+.play-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid var(--play-border);
+  padding-bottom: 16px;
+}
+
+.play-header h1 {
+  margin: 0 0 4px;
+  font-size: clamp(1.8rem, 2.5vw, 2.6rem);
+  letter-spacing: 0.08em;
+}
+
+.play-subtitle {
+  margin: 0;
+  color: var(--play-accent);
+}
+
+.play-nav {
+  display: flex;
+  align-items: center;
+}
+
+.play-link {
+  text-decoration: none;
+  color: var(--play-accent);
+  border: 1px solid var(--play-border);
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--play-panel);
+}
+
+.play-content {
+  flex: 1;
+  border: 1px solid var(--play-border);
+  border-radius: 16px;
+  background: var(--play-panel);
+  padding: 24px;
+}
+
+.play-footer {
+  font-size: 0.9rem;
+  color: var(--play-accent);
+}

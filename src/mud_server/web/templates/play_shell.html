@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>PipeWorks Play</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!--
+      Base styles for the play shell.
+      World-specific styles are optionally loaded below.
+    -->
+    <link rel="stylesheet" href="/web/static/play/css/base.css" />
+
+    {% if world_id %}
+    <!--
+      World-specific CSS: this keeps multi-world layouts isolated while
+      preserving a single HTML shell.
+    -->
+    <link rel="stylesheet" href="/web/static/play/css/worlds/{{ world_id }}.css" />
+    {% endif %}
+  </head>
+
+  <body data-world-id="{{ world_id }}">
+    <main class="play-shell" id="play-root">
+      <header class="play-header">
+        <div>
+          <h1>PipeWorks Play</h1>
+          <p class="play-subtitle">
+            {% if world_id %}
+              World: <span class="play-world">{{ world_id }}</span>
+            {% else %}
+              Select a world to begin.
+            {% endif %}
+          </p>
+        </div>
+        <nav class="play-nav">
+          <a class="play-link" href="https://pipe-works.org">Back to pipe-works.org</a>
+        </nav>
+      </header>
+
+      <section class="play-content" id="play-content">
+        <!--
+          The play UI renders here. Client-side code is responsible for
+          world selection, login flow, and gameplay UI.
+        -->
+      </section>
+
+      <footer class="play-footer">
+        <p>Live MUD session powered by PipeWorks.</p>
+      </footer>
+    </main>
+
+    <!--
+      Base play shell script. Responsible for bootstrapping the UI and
+      delegating to world-specific modules when present.
+    -->
+    <script type="module" src="/web/static/play/js/play.js"></script>
+
+    {% if world_id %}
+    <!--
+      World-specific JS: optional per-world behavior and UI bindings.
+    -->
+    <script type="module" src="/web/static/play/js/worlds/{{ world_id }}.js"></script>
+    {% endif %}
+  </body>
+</html>
