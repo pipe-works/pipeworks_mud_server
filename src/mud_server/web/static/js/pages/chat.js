@@ -5,6 +5,7 @@
  */
 
 import { renderTable } from '../ui/table.js';
+import { showToast } from '../ui/toasts.js';
 
 async function renderChat(root, { api, session }) {
   root.innerHTML = `
@@ -25,17 +26,24 @@ async function renderChat(root, { api, session }) {
     ]);
 
     root.innerHTML = `
-      <div class="panel wide">
-        <h1>Chat</h1>
-        <p class="muted">${rows.length} messages loaded.</p>
-        ${renderTable(headers, rows)}
+      <div class="page">
+        <div class="page-header">
+          <div>
+            <h2>Chat</h2>
+            <p class="muted">${rows.length} messages loaded.</p>
+          </div>
+        </div>
+        <div class="card table-card">
+          ${renderTable(headers, rows)}
+        </div>
       </div>
     `;
   } catch (err) {
+    showToast(err instanceof Error ? err.message : 'Failed to load chat.', 'error');
     root.innerHTML = `
       <div class="panel wide">
         <h1>Chat</h1>
-        <p class="error">${err instanceof Error ? err.message : 'Failed to load chat.'}</p>
+        <p class="error">Failed to load chat.</p>
       </div>
     `;
   }

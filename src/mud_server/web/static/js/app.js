@@ -54,8 +54,14 @@ function buildShell() {
       </aside>
       <main class="main">
         <header class="header">
-          <button class="theme-toggle" type="button" data-theme-toggle>Toggle Theme</button>
-          <button class="logout" type="button" data-logout>Logout</button>
+          <div class="header-title">
+            <h1 data-header-title>Admin Dashboard</h1>
+            <span data-header-subtitle>Overview</span>
+          </div>
+          <div class="actions">
+            <button class="theme-toggle" type="button" data-theme-toggle>Toggle Theme</button>
+            <button class="logout" type="button" data-logout>Logout</button>
+          </div>
         </header>
         <section class="content" data-content></section>
       </main>
@@ -97,6 +103,26 @@ function render() {
   const content = root.querySelector('[data-content]');
   const activePath = window.location.pathname;
   const view = ROUTES[activePath] || renderDashboard;
+  const titleMap = {
+    '/admin': 'Dashboard',
+    '/admin/': 'Dashboard',
+    '/admin/users': 'Users',
+    '/admin/sessions': 'Sessions',
+    '/admin/connections': 'Connections',
+    '/admin/locations': 'Locations',
+    '/admin/chat': 'Chat',
+    '/admin/tables': 'Tables',
+    '/admin/worlds': 'Worlds',
+    '/admin/superuser': 'Superuser',
+  };
+
+  const headerTitle = root.querySelector('[data-header-title]');
+  const headerSubtitle = root.querySelector('[data-header-subtitle]');
+  if (headerTitle && headerSubtitle) {
+    const title = titleMap[activePath] || 'Dashboard';
+    headerTitle.textContent = title;
+    headerSubtitle.textContent = `Admin • ${session.role}`;
+  }
 
   renderNav({ root, activePath, role: session.role });
 

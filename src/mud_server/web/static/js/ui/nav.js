@@ -4,20 +4,36 @@
  * Renders the navigation sidebar and header actions.
  */
 
-const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Dashboard', path: '/admin' },
-  { id: 'users', label: 'Users', path: '/admin/users' },
-  { id: 'sessions', label: 'Sessions', path: '/admin/sessions' },
-  { id: 'connections', label: 'Connections', path: '/admin/connections' },
-  { id: 'locations', label: 'Locations', path: '/admin/locations' },
-  { id: 'chat', label: 'Chat', path: '/admin/chat' },
-  { id: 'tables', label: 'Tables', path: '/admin/tables' },
-  { id: 'worlds', label: 'Worlds', path: '/admin/worlds' },
+const NAV_GROUPS = [
+  {
+    title: 'Overview',
+    items: [
+      { id: 'dashboard', label: 'Dashboard', path: '/admin' },
+    ],
+  },
+  {
+    title: 'Operations',
+    items: [
+      { id: 'users', label: 'Users', path: '/admin/users' },
+      { id: 'sessions', label: 'Sessions', path: '/admin/sessions' },
+      { id: 'connections', label: 'Connections', path: '/admin/connections' },
+      { id: 'locations', label: 'Locations', path: '/admin/locations' },
+      { id: 'chat', label: 'Chat', path: '/admin/chat' },
+    ],
+  },
+  {
+    title: 'Data',
+    items: [
+      { id: 'tables', label: 'Tables', path: '/admin/tables' },
+      { id: 'worlds', label: 'Worlds', path: '/admin/worlds' },
+    ],
+  },
 ];
 
-const SUPERUSER_ITEMS = [
-  { id: 'superuser', label: 'Superuser', path: '/admin/superuser' },
-];
+const SUPERUSER_GROUP = {
+  title: 'Superuser',
+  items: [{ id: 'superuser', label: 'Controls', path: '/admin/superuser' }],
+};
 
 function buildNavLinks(items, activePath) {
   return items
@@ -38,16 +54,21 @@ function renderNav({ root, activePath, role }) {
     return;
   }
 
-  const items = [...NAV_ITEMS];
+  const groups = [...NAV_GROUPS];
   if (role === 'superuser') {
-    items.push(...SUPERUSER_ITEMS);
+    groups.push(SUPERUSER_GROUP);
   }
 
-  nav.innerHTML = `
-    <div class="nav-section">
-      ${buildNavLinks(items, activePath)}
-    </div>
-  `;
+  nav.innerHTML = groups
+    .map(
+      (group) => `
+        <div class="nav-group">
+          <div class="nav-group-title">${group.title}</div>
+          ${buildNavLinks(group.items, activePath)}
+        </div>
+      `
+    )
+    .join('');
 }
 
 export { renderNav };

@@ -5,6 +5,7 @@
  */
 
 import { renderTable } from '../ui/table.js';
+import { showToast } from '../ui/toasts.js';
 
 function buildKickButton(sessionId) {
   return `
@@ -34,10 +35,16 @@ async function renderSessions(root, { api, session }) {
     ]);
 
     root.innerHTML = `
-      <div class="panel wide">
-        <h1>Sessions</h1>
-        <p class="muted">${rows.length} sessions found.</p>
-        ${renderTable(headers, rows)}
+      <div class="page">
+        <div class="page-header">
+          <div>
+            <h2>Sessions</h2>
+            <p class="muted">${rows.length} sessions found.</p>
+          </div>
+        </div>
+        <div class="card table-card">
+          ${renderTable(headers, rows)}
+        </div>
       </div>
     `;
 
@@ -53,9 +60,10 @@ async function renderSessions(root, { api, session }) {
         }
         try {
           await api.kickSession(sessionId, targetSession);
+          showToast('Session kicked.', 'success');
           await load();
         } catch (err) {
-          alert(err instanceof Error ? err.message : 'Failed to kick session.');
+          showToast(err instanceof Error ? err.message : 'Failed to kick session.', 'error');
         }
       });
     });

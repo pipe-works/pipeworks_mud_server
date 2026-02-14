@@ -5,6 +5,7 @@
  */
 
 import { renderTable } from '../ui/table.js';
+import { showToast } from '../ui/toasts.js';
 
 async function renderConnections(root, { api, session }) {
   root.innerHTML = `
@@ -25,17 +26,24 @@ async function renderConnections(root, { api, session }) {
     ]);
 
     root.innerHTML = `
-      <div class="panel wide">
-        <h1>Connections</h1>
-        <p class="muted">${rows.length} connections found.</p>
-        ${renderTable(headers, rows)}
+      <div class="page">
+        <div class="page-header">
+          <div>
+            <h2>Connections</h2>
+            <p class="muted">${rows.length} connections found.</p>
+          </div>
+        </div>
+        <div class="card table-card">
+          ${renderTable(headers, rows)}
+        </div>
       </div>
     `;
   } catch (err) {
+    showToast(err instanceof Error ? err.message : 'Failed to load connections.', 'error');
     root.innerHTML = `
       <div class="panel wide">
         <h1>Connections</h1>
-        <p class="error">${err instanceof Error ? err.message : 'Failed to load connections.'}</p>
+        <p class="error">Failed to load connections.</p>
       </div>
     `;
   }

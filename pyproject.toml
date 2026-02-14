@@ -58,11 +58,20 @@ docs = [
 ]
 
 [tool.setuptools]
-include-package-data = false
+include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
 exclude = ["tests*", "docs*", "documentation*", "*__pycache__*"]
+
+[tool.setuptools.package-data]
+"mud_server.web" = [
+  "templates/*.html",
+  "static/css/*.css",
+  "static/js/*.js",
+  "static/js/pages/*.js",
+  "static/js/ui/*.js",
+]
 
 [tool.black]
 line-length = 100

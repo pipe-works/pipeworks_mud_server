@@ -21,10 +21,12 @@ function renderTable(headers, rows) {
     .join('');
 
   return `
-    <table class="table">
-      <thead><tr>${headerHtml}</tr></thead>
-      <tbody>${rowHtml}</tbody>
-    </table>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr>${headerHtml}</tr></thead>
+        <tbody>${rowHtml}</tbody>
+      </table>
+    </div>
   `;
 }
 

@@ -5,6 +5,8 @@ include pyproject.toml
 
 # Include data files needed by the package
 recursive-include src *.py
+recursive-include src/mud_server/web/templates *.html
+recursive-include src/mud_server/web/static *.css *.js *.png *.svg *.ico
 recursive-include data *.json *.sql
 
 # Exclude unnecessary files

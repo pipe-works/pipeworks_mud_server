@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -31,15 +31,12 @@ templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 def build_web_router() -> APIRouter:
     """
-    Build the WebUI router and mount static assets.
+    Build the WebUI router for serving the HTML shell.
 
     Returns:
-        APIRouter configured to serve the admin dashboard shell and assets.
+        APIRouter configured to serve the admin dashboard shell.
     """
     router = APIRouter()
-
-    # Static files are mounted at /web/static so the UI can reference them.
-    router.mount("/web/static", StaticFiles(directory=str(_STATIC_DIR)), name="web-static")
 
     @router.get("/admin", response_class=HTMLResponse)
     async def admin_root(request: Request):
@@ -62,3 +59,14 @@ def build_web_router() -> APIRouter:
         return templates.TemplateResponse(request, "admin_shell.html", {})
 
     return router
+
+
+def register_web_routes(app: FastAPI) -> None:
+    """
+    Register WebUI routes and static assets on the FastAPI app.
+
+    Static files must be mounted on the FastAPI app (not an APIRouter),
+    otherwise Starlette will not serve the assets correctly.
+    """
+    app.mount("/web/static", StaticFiles(directory=str(_STATIC_DIR)), name="web-static")
+    app.include_router(build_web_router())
