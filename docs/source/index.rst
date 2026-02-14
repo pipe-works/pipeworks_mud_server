@@ -15,6 +15,7 @@ JSON-driven world data, and clean architecture.
    architecture
    database
    security
+   admin_web_ui_mtls
    extending
    examples
 
