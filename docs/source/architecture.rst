@@ -9,7 +9,7 @@ Overview
 PipeWorks MUD Server uses a modern three-tier architecture:
 
 * **FastAPI backend** - RESTful API server
-* **Gradio frontend** - Web-based client interface
+* **Admin WebUI** - Web-based administration dashboard
 * **SQLite database** - Persistent data storage
 
 All components are written in Python 3.12+ using modern best practices.
@@ -20,9 +20,9 @@ Three-Tier Design
 ::
 
     ┌─────────────────────────────────────────────────────────────┐
-    │                    Gradio Web Interface                      │
+    │                    Admin Web UI                               │
     │                     (Client Layer)                           │
-    │              http://localhost:7860                           │
+    │           http://localhost:8000/admin                         │
     └────────────────────────┬────────────────────────────────────┘
                              │ HTTP/HTTPS
                              ▼
@@ -43,40 +43,18 @@ Three-Tier Design
     │ - Actions        │           │ - Chat Messages  │
     └──────────────────┘           └──────────────────┘
 
-Modular Client Architecture
-----------------------------
+WebUI Architecture
+------------------
 
-The Gradio client uses a fully modular design::
+The admin WebUI is a lightweight static frontend served by FastAPI::
 
-    src/mud_server/client/
-    ├── app.py                    # Main entry point (~180 lines)
-    ├── api/                      # API client layer
-    │   ├── base.py              # BaseAPIClient - common HTTP patterns
-    │   ├── auth.py              # Authentication operations
-    │   ├── game.py              # Game operations
-    │   ├── settings.py          # Settings and server control
-    │   ├── admin.py             # Admin operations
-    │   └── ollama.py            # Ollama AI integration
-    ├── ui/                       # UI utilities
-    │   ├── validators.py        # Input validation (100% coverage)
-    │   └── state.py             # Gradio state builders
-    ├── tabs/                     # Tab modules
-    │   ├── login_tab.py         # Login interface
-    │   ├── register_tab.py      # Registration interface
-    │   ├── game_tab.py          # Main gameplay interface
-    │   ├── settings_tab.py      # Settings and server control
-    │   ├── database_tab.py      # Admin database viewer
-    │   ├── ollama_tab.py        # AI model management
-    │   └── help_tab.py          # Help documentation
-    ├── utils.py                  # Shared utilities
-    └── static/styles.css        # Centralized CSS
+    src/mud_server/web/
+    ├── routes.py                 # WebUI route registration
+    ├── templates/                # HTML shell
+    └── static/                   # CSS + JS assets
 
-**Benefits:**
-
-* Clear separation between API logic, validation, and UI
-* 100% test coverage on API and UI utility modules (191 tests)
-* API clients work outside Gradio (CLI tools, tests, scripts)
-* Easy to extend with new features or tabs
+The UI calls the FastAPI endpoints directly and enforces role checks
+client-side while the API enforces permissions server-side.
 
 System Components
 -----------------
@@ -153,7 +131,7 @@ Data Flow
 
 Request Flow:
 
-1. **Client** - User interacts with Gradio interface
+1. **Client** - User interacts with the Admin WebUI
 2. **API Call** - Client sends HTTP request to FastAPI
 3. **Session Validation** - Server validates session and permissions
 4. **Command Parsing** - Server parses command and arguments
@@ -176,7 +154,7 @@ Technology Stack
      - FastAPI 0.125+
      - REST API framework
    * - Frontend
-     - Gradio 6.2+
+     - Admin WebUI (HTML/CSS/JS)
      - Web interface
    * - Server
      - Uvicorn 0.38+
