@@ -1,24 +1,57 @@
 /*
  * dashboard.js
  *
- * Placeholder dashboard view shown after login. The real implementation
- * will pull data from admin endpoints.
+ * Dashboard view rendering simple admin metrics.
  */
 
-/**
- * Render the dashboard view.
- *
- * @param {HTMLElement} root
- * @param {object} session
- */
-function renderDashboard(root, session) {
+async function renderDashboard(root, { api, session }) {
   root.innerHTML = `
-    <div class="panel">
+    <div class="panel wide">
       <h1>Admin Dashboard</h1>
-      <p class="muted">Logged in as ${session.role || 'unknown'}.</p>
-      <p>Dashboard widgets will appear here.</p>
+      <p class="muted">Loading summary...</p>
     </div>
   `;
+
+  try {
+    const sessionId = session.session_id;
+    const [players, sessions, connections, worlds] = await Promise.all([
+      api.getPlayers(sessionId),
+      api.getSessions(sessionId),
+      api.getConnections(sessionId),
+      api.getTableRows(sessionId, 'worlds', 200),
+    ]);
+
+    root.innerHTML = `
+      <div class="panel wide">
+        <h1>Admin Dashboard</h1>
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-label">Users</div>
+            <div class="stat-value">${players.players.length}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Sessions</div>
+            <div class="stat-value">${sessions.sessions.length}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Connections</div>
+            <div class="stat-value">${connections.connections.length}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Worlds</div>
+            <div class="stat-value">${worlds.rows.length}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    root.innerHTML = `
+      <div class="panel wide">
+        <h1>Admin Dashboard</h1>
+        <p class="error">${err instanceof Error ? err.message : 'Failed to load data.'}</p>
+      </div>
+    `;
+  }
 }
 
 export { renderDashboard };

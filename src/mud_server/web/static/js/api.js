@@ -82,6 +82,35 @@ class ApiClient {
       body: JSON.stringify({ session_id: sessionId }),
     });
   }
+
+  /**
+   * Fetch all users (admin only).
+   */
+  async getPlayers(sessionId) {
+    return this.fetcher(`/admin/database/players?session_id=${sessionId}`);
+  }
+
+  /**
+   * Fetch active sessions.
+   */
+  async getSessions(sessionId) {
+    return this.fetcher(`/admin/database/sessions?session_id=${sessionId}`);
+  }
+
+  /**
+   * Fetch active connections.
+   */
+  async getConnections(sessionId) {
+    return this.fetcher(`/admin/database/connections?session_id=${sessionId}`);
+  }
+
+  /**
+   * Fetch table rows for admin views.
+   */
+  async getTableRows(sessionId, tableName, limit = 100) {
+    const params = new URLSearchParams({ session_id: sessionId, limit: `${limit}` });
+    return this.fetcher(`/admin/database/table/${tableName}?${params.toString()}`);
+  }
 }
 
 export { ApiClient, Session, DEFAULTS };
