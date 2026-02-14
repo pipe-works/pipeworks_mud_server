@@ -1,0 +1,9 @@
+/*
+ * pipeworks_web world styles.
+ *
+ * Use this file to override base play styles for the PipeWorks web world.
+ */
+
+.play-shell {
+  background-image: linear-gradient(180deg, #f6efe5 0%, #f3e8da 100%);
+}
