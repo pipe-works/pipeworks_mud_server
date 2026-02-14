@@ -1,0 +1,95 @@
+/*
+ * fonts.css
+ *
+ * Web font declarations for the play UI. These fonts are shared across
+ * worlds and sourced from the local font files under /web/static/play/fonts.
+ */
+
+/* === Crimson Text (Body) === */
+@font-face {
+  font-family: 'Crimson Text';
+  src: url('/web/static/play/fonts/Crimson_Text/CrimsonText-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Crimson Text';
+  src: url('/web/static/play/fonts/Crimson_Text/CrimsonText-Italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Crimson Text';
+  src: url('/web/static/play/fonts/Crimson_Text/CrimsonText-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* === Libre Baskerville (Headlines) === */
+@font-face {
+  font-family: 'Libre Baskerville';
+  src: url('/web/static/play/fonts/Libre_Baskerville/LibreBaskerville-VariableFont_wght.woff2')
+    format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Libre Baskerville';
+  src: url('/web/static/play/fonts/Libre_Baskerville/LibreBaskerville-Italic-VariableFont_wght.woff2')
+    format('woff2');
+  font-weight: 400 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* === IM Fell English SC (Masthead) === */
+@font-face {
+  font-family: 'IM Fell English SC';
+  src: url('/web/static/play/fonts/IM_Fell_English_SC/IMFellEnglishSC-Regular.woff2')
+    format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* === IM Fell English (Symbols / Editorial) === */
+@font-face {
+  font-family: 'IM Fell English';
+  src: url('/web/static/play/fonts/IM_Fell_English/IMFellEnglish-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* === Courier Prime (Records / Ledger) === */
+@font-face {
+  font-family: 'Courier Prime';
+  src: url('/web/static/play/fonts/Courier_Prime/CourierPrime-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Courier Prime';
+  src: url('/web/static/play/fonts/Courier_Prime/CourierPrime-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* === Special Elite (Accent) === */
+@font-face {
+  font-family: 'Special Elite';
+  src: url('/web/static/play/fonts/Special_Elite/SpecialElite-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}

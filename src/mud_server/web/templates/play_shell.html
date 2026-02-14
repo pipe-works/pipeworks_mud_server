@@ -6,60 +6,212 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
     <!--
-      Base styles for the play shell.
-      World-specific styles are optionally loaded below.
+      Shared font declarations and base tokens.
+      These are intentionally world-agnostic and reused across worlds.
     -->
-    <link rel="stylesheet" href="/web/static/play/css/base.css" />
+    <link rel="stylesheet" href="/web/static/play/css/fonts.css" />
+    <link rel="stylesheet" href="/web/static/play/css/shared-base.css" />
 
     {% if world_id %}
     <!--
-      World-specific CSS: this keeps multi-world layouts isolated while
-      preserving a single HTML shell.
+      World-specific CSS: keeps layouts isolated while preserving one shell.
     -->
     <link rel="stylesheet" href="/web/static/play/css/worlds/{{ world_id }}.css" />
     {% endif %}
   </head>
 
-  <body data-world-id="{{ world_id }}">
-    <main class="play-shell" id="play-root">
-      <header class="play-header">
-        <div>
-          <h1>PipeWorks Play</h1>
-          <p class="play-subtitle">
-            {% if world_id %}
-              World: <span class="play-world">{{ world_id }}</span>
-            {% else %}
-              Select a world to begin.
-            {% endif %}
-          </p>
-        </div>
-        <nav class="play-nav">
-          <a class="play-link" href="https://pipe-works.org">Back to pipe-works.org</a>
-        </nav>
-      </header>
+  <body data-world-id="{{ world_id }}" data-play-shell="true">
+    <!--
+      Play shell container. This mirrors the game.html structure so we can
+      reuse the same class names and layout CSS, while swapping the content.
+    -->
+    <div class="container" id="play-root">
+      <!-- Masthead -->
+      <div class="masthead">
+        <div class="title">PipeWorks Play</div>
+        <div class="subtitle">LIVE WORLD INTERFACE — WORKBENCH EDITION</div>
+      </div>
 
-      <section class="play-content" id="play-content">
-        <!--
-          The play UI renders here. Client-side code is responsible for
-          world selection, login flow, and gameplay UI.
-        -->
+      <!-- Sub-masthead Navigation (placeholder items) -->
+      <div class="sub-masthead">
+        <div class="menu-item active">Status</div>
+        <div class="menu-separator"></div>
+        <div class="menu-item">Inventory</div>
+        <div class="menu-separator"></div>
+        <div class="menu-item">Journal</div>
+        <div class="menu-separator"></div>
+        <div class="menu-item">Map</div>
+        <div class="menu-separator"></div>
+        <div class="menu-item">Settings</div>
+      </div>
+
+      <!-- Play state: Logged out -->
+      <section class="play-state play-state--logged-out" data-play-state="logged-out">
+        <div class="panel-title">Temporary Personhood Permit</div>
+        <div class="character-article">
+          Provide a character name and password to enter the world. If you do not
+          supply a name, the system will mint one.
+        </div>
+        <div class="stat-group">
+          <label class="stat-label" for="play-character-name">Character name</label>
+          <input id="play-character-name" type="text" placeholder="Generated if blank" />
+        </div>
+        <div class="stat-group">
+          <label class="stat-label" for="play-password">Temporary key</label>
+          <input id="play-password" type="text" placeholder="Generated if blank" />
+        </div>
+        <div class="stat-group">
+          <button class="menu-item" type="button" id="play-login-button">Issue Permit</button>
+          <button class="menu-item" type="button" id="play-logout-button" hidden>Log out</button>
+        </div>
+        <p class="location-notice" id="play-status">Ready to issue a visitor account.</p>
       </section>
 
-      <footer class="play-footer">
-        <p>Live MUD session powered by PipeWorks.</p>
-      </footer>
-    </main>
+      <!-- Play state: World/character selection -->
+      <section class="play-state play-state--select" data-play-state="select-world" hidden>
+        <div class="panel-title">Select a World</div>
+        <p class="character-article">
+          Choose a world to enter. This selection determines which UI and world data
+          the client loads.
+        </p>
+        <div class="stat-group">
+          <button class="menu-item" type="button" id="play-enter-world">
+            Enter <span id="play-default-world">pipeworks_web</span>
+          </button>
+        </div>
+      </section>
 
-    <!--
-      Base play shell script. Responsible for bootstrapping the UI and
-      delegating to world-specific modules when present.
-    -->
+      <!-- Main Layout (game UI) -->
+      <div class="main-layout" data-play-state="in-world" hidden>
+        <!-- Left: Character Panel -->
+        <div class="character-panel">
+          <div class="panel-title" id="play-character-name-display">Character Name</div>
+
+          <div class="character-portrait">
+            <div class="play-portrait-placeholder">Portrait</div>
+          </div>
+
+          <div class="character-article">
+            Placeholder biography. Replace with world-specific narrative or dynamic data.
+          </div>
+
+          <div class="stat-group">
+            <span class="stat-label">CURRENT RISK POSTURE:</span>
+            <div class="stat-bar">
+              <div class="stat-bar-fill health" style="width: 75%"></div>
+              <div class="stat-bar-text">75</div>
+            </div>
+          </div>
+
+          <div class="stat-group">
+            <span class="stat-label">NOTABILITY (PROVISIONAL):</span>
+            <div class="stat-bar">
+              <div class="stat-bar-fill mana" style="width: 60%"></div>
+              <div class="stat-bar-text">60</div>
+            </div>
+          </div>
+
+          <div class="location-notice" id="play-location">
+            Currently traversing an unnamed location.
+          </div>
+        </div>
+
+        <!-- Center: Game Output & Input -->
+        <div class="content-area">
+          <div class="game-output" id="gameOutput">
+            <div class="output-text">
+              <strong>▸ GAME OUTPUT</strong>
+            </div>
+            <div class="output-text">
+              Awaiting story updates from the server...
+            </div>
+            <div class="output-text">
+              <strong>▸ WHAT ACTION WILL YOU TAKE?</strong>
+            </div>
+          </div>
+
+          <div class="game-input-area">
+            <div class="input-label">★ COMMAND TERMINAL ★</div>
+            <textarea
+              class="command-input"
+              id="commandInput"
+              placeholder="Enter command... (e.g. 'look archway', 'go north')"
+            ></textarea>
+          </div>
+        </div>
+
+        <!-- Right: Inventory & Quests -->
+        <div class="right-panel">
+          <div class="collapsible-section">
+            <div class="section-header">Your Satchel</div>
+            <div class="section-content inventory-section collapsed">
+              <div class="inventory-grid">
+                <div class="inventory-slot"></div>
+                <div class="inventory-slot"></div>
+                <div class="inventory-slot"></div>
+                <div class="inventory-slot"></div>
+                <div class="inventory-slot"></div>
+                <div class="inventory-slot"></div>
+                <div class="inventory-slot"></div>
+                <div class="inventory-slot"></div>
+                <div class="inventory-slot"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="collapsible-section">
+            <div class="section-header">Useful Rubbish</div>
+            <div class="section-content collapsed">
+              <div class="equipment-item">
+                <div class="equipment-image"></div>
+                <div class="equipment-info">
+                  <div class="equipment-name">Placeholder Item</div>
+                  <div class="equipment-description">Inventory details will appear here.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="collapsible-section">
+            <div class="section-header">Matters Requiring Attention</div>
+            <div class="section-content quest-section">
+              <div class="quest-item">
+                <div class="quest-title">
+                  <span>&#9758;</span>
+                  <span>Placeholder Notice</span>
+                </div>
+                <div class="quest-description">Quest details will appear here.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="collapsible-section">
+            <div class="section-header collapsed">Observed Tendencies</div>
+            <div class="section-content collapsed">
+              <ul class="skill-list">
+                <li class="skill-item">
+                  <div class="skill-name">Placeholder Trait</div>
+                  <div class="skill-level">Details will appear here.</div>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="collapsible-section">
+            <div class="section-header collapsed">Notes</div>
+            <div class="section-content collapsed">
+              <textarea class="notes-area" placeholder="Record your observations..."></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Base play shell script: handles state and delegates per world. -->
     <script type="module" src="/web/static/play/js/play.js"></script>
 
     {% if world_id %}
-    <!--
-      World-specific JS: optional per-world behavior and UI bindings.
-    -->
+    <!-- World-specific JS for UI and gameplay hooks. -->
     <script type="module" src="/web/static/play/js/worlds/{{ world_id }}.js"></script>
     {% endif %}
   </body>

@@ -1,28 +1,18 @@
 /*
- * pipeworks_web world script.
+ * pipeworks_web.js
  *
- * This module is loaded only when the play shell is routed to
- * /play/pipeworks_web. Use it to attach UI behavior and API calls
- * specific to the PipeWorks web world.
+ * World-specific behaviors for the PipeWorks web world. This file is currently
+ * a placeholder and is meant to be extended with actual gameplay bindings.
  */
 
 (function initPipeworksWeb() {
-  const container = document.getElementById('play-content');
-  if (!container) {
+  const output = document.getElementById('gameOutput');
+  if (!output) {
     return;
   }
 
-  // Placeholder content. Replace with the real gameplay UI.
-  const existing = container.querySelector('[data-world-placeholder]');
-  if (existing) {
-    return;
-  }
-
-  const panel = document.createElement('div');
-  panel.setAttribute('data-world-placeholder', 'true');
-  panel.innerHTML = `
-    <h2>PipeWorks Web</h2>
-    <p>World-specific UI goes here.</p>
-  `;
-  container.appendChild(panel);
+  const entry = document.createElement('div');
+  entry.className = 'output-text';
+  entry.textContent = 'PipeWorks Web world loaded. Awaiting commands.';
+  output.appendChild(entry);
 })();
