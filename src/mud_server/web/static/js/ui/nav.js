@@ -25,6 +25,7 @@ const NAV_GROUPS = [
     title: 'Data',
     items: [
       { id: 'tables', label: 'Tables', path: '/admin/tables' },
+      { id: 'schema', label: 'Schema', path: '/admin/schema' },
       { id: 'worlds', label: 'Worlds', path: '/admin/worlds' },
     ],
   },

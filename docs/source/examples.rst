@@ -65,7 +65,7 @@ to your ``config/server.ini``:
 .. code-block:: ini
 
    [security]
-   cors_origins = http://localhost:7860, http://localhost:8000, http://localhost:8080
+   cors_origins = http://localhost:8000, http://localhost:8080
 
 **Step 3: Serve the demo**
 

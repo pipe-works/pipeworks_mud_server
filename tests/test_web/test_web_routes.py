@@ -30,3 +30,15 @@ def test_admin_shell_served_for_subpaths():
 
     assert response.status_code == 200
     assert "PipeWorks Admin Dashboard" in response.text
+
+
+def test_admin_shell_served_for_schema():
+    """/admin/schema should return the HTML shell."""
+    app = FastAPI()
+    register_web_routes(app)
+
+    client = TestClient(app)
+    response = client.get("/admin/schema")
+
+    assert response.status_code == 200
+    assert "PipeWorks Admin Dashboard" in response.text

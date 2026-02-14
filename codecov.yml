@@ -12,14 +12,14 @@ coverage:
         target: 70%  # New code should have 70% coverage
         threshold: 2%
 
-  # Ignore UI code that's difficult to test (Gradio-specific)
+  # Ignore UI entry points that are difficult to test directly
   ignore:
-    - "src/mud_server/client/app.py"
-    - "src/mud_server/client/tabs/**"
-    - "src/mud_server/client/utils.py"
-    - "src/mud_server/api/server.py"
+  - src/mud_server/client/app.py
+  - src/mud_server/client/tabs/**
+  - src/mud_server/client/utils.py
+  - src/mud_server/api/server.py
 
 comment:
-  layout: "reach, diff, flags, files"
+  layout: reach, diff, flags, files
   behavior: default
   require_changes: false

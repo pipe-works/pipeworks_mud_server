@@ -51,7 +51,7 @@ creating interactive fiction worlds with:
 
 - **Deterministic game mechanics** - Reproducible outcomes for testing and replay
 - **JSON-driven world data** - Define rooms, items, and connections without code changes
-- **Modern web interface** - Gradio-based UI with clean UX
+- **Modern web interface** - First-party admin WebUI with clean UX
 - **REST API backend** - FastAPI server for high performance
 - **Role-based access control** - Built-in auth and permission system
 - **Modular architecture** - Clean separation between client, server, and game logic
@@ -93,15 +93,14 @@ mud-server create-superuser  # Follow prompts to create admin account
 ### Running the Server
 
 ```bash
-# Start both API server and web client
+# Start API server and admin WebUI
 mud-server run
 
 # The server will start on:
-# - API: http://localhost:8000
-# - Web UI: http://localhost:7860
+# - API + Web UI: http://localhost:8000 (Admin UI at /admin)
 ```
 
-Press `Ctrl+C` to stop both services.
+Press `Ctrl+C` to stop the service.
 
 ### Creating a Superuser
 
@@ -125,7 +124,7 @@ MUD_ADMIN_USER=myadmin MUD_ADMIN_PASSWORD=securepass123 mud-server init-db
 ### Implemented
 
 - **FastAPI REST API** - High-performance backend (port 8000)
-- **Gradio Web Interface** - Modular, professional client (port 7860)
+- **Admin WebUI** - First-party dashboard served from the API (`/admin`)
 - **SQLite Database** - Player state, sessions, and chat persistence
 - **Authentication System** - Password-based auth with bcrypt hashing
 - **Role-Based Access Control (RBAC)** - 4 user types (Player, WorldBuilder, Admin, Superuser)
@@ -282,8 +281,7 @@ xdg-open build/html/index.html  # Linux
 # Run API server only
 python -m mud_server.api.server
 
-# Run Gradio client only (requires server running)
-python -m mud_server.admin_gradio.app
+# Admin WebUI is served by the API server at /admin
 
 # Check server health
 curl http://localhost:8000/health

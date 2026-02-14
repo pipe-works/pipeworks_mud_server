@@ -112,7 +112,7 @@
   padding: 2.5rem var(--layout-pad) 3.5rem;
   width: 100%;
   max-width: var(--layout-max);
-  margin: 0 auto;
+  margin: 0;
   display: grid;
   gap: 2rem;
 }

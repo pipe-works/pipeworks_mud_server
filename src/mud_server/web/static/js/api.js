@@ -127,6 +127,13 @@ class ApiClient {
   }
 
   /**
+   * Fetch database schema relationships.
+   */
+  async getSchema(sessionId) {
+    return this.fetcher(`/admin/database/schema?session_id=${sessionId}`);
+  }
+
+  /**
    * Fetch table rows for admin views.
    */
   async getTableRows(sessionId, tableName, limit = 100) {
@@ -150,6 +157,17 @@ class ApiClient {
    */
   async manageUser(payload) {
     return this.fetcher('/admin/user/manage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * Create a new user account (admin/superuser only).
+   */
+  async createUser(payload) {
+    return this.fetcher('/admin/user/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

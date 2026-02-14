@@ -18,10 +18,13 @@ async function renderTables(root, { api, session }) {
   try {
     const response = await api.getTables(session.session_id);
     const headers = ['Table', 'Columns'];
-    const rows = response.tables.map((table) => [
-      table.name,
-      (table.columns || []).map((col) => col.name).join(', '),
-    ]);
+    const rows = response.tables.map((table) => {
+      // Support both string and object column formats for safety.
+      const columns = (table.columns || []).map((col) =>
+        typeof col === 'string' ? col : col?.name || ''
+      );
+      return [table.name, columns.filter((col) => col).join(', ')];
+    });
 
     root.innerHTML = `
       <div class="page">

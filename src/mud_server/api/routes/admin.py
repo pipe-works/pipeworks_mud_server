@@ -13,6 +13,8 @@ from mud_server.api.models import (
     DatabaseConnectionsResponse,
     DatabasePlayerLocationsResponse,
     DatabasePlayersResponse,
+    DatabaseSchemaResponse,
+    DatabaseSchemaTable,
     DatabaseSessionsResponse,
     DatabaseTableInfo,
     DatabaseTableRowsResponse,
@@ -88,6 +90,14 @@ def router(engine: GameEngine) -> APIRouter:
 
         tables = [DatabaseTableInfo(**table) for table in database.list_tables()]
         return DatabaseTablesResponse(tables=tables)
+
+    @api.get("/admin/database/schema", response_model=DatabaseSchemaResponse)
+    async def get_database_schema(session_id: str):
+        """Get database schema relationships (Admin only)."""
+        _, _username, _role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+
+        tables = [DatabaseSchemaTable(**table) for table in database.get_schema_map()]
+        return DatabaseSchemaResponse(tables=tables)
 
     @api.get("/admin/database/table/{table_name}", response_model=DatabaseTableRowsResponse)
     async def get_database_table_rows(session_id: str, table_name: str, limit: int = 100):

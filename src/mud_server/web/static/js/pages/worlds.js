@@ -17,9 +17,12 @@ async function renderWorlds(root, { api, session }) {
   try {
     const response = await api.getTableRows(session.session_id, 'worlds', 200);
     const headers = response.columns.map((col) =>
-      typeof col === 'string' ? col : col.name
+      typeof col === 'string' ? col : col?.name || ''
     );
-    const rows = response.rows.map((row) => headers.map((col) => `${row[col] ?? ''}`));
+    // Rows are arrays, so map by column index for stable ordering.
+    const rows = response.rows.map((row) =>
+      headers.map((_, idx) => `${row[idx] ?? ''}`)
+    );
 
     root.innerHTML = `
       <div class="page">
