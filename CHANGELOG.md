@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.4](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.3...mud_server-v0.3.4) (2026-02-14)
+
+
+### Features
+
+* **web:** add admin data pages ([70a39dd](https://github.com/pipe-works/pipeworks_mud_server/commit/70a39dd414780d4150f7671411938a5de3cbdea6))
+* **web:** add admin data pages ([77648a1](https://github.com/pipe-works/pipeworks_mud_server/commit/77648a1df04cf27c88c989184154e4f028ea900f))
+* **web:** add admin webui scaffolding ([ed3070d](https://github.com/pipe-works/pipeworks_mud_server/commit/ed3070d410ab7bc6b610652df759c898c09c2a87))
+* **web:** add admin webui scaffolding ([2074348](https://github.com/pipe-works/pipeworks_mud_server/commit/2074348536d2d12daea1df46a380fcc58f0f6514))
+* **web:** add dashboard layout and routing ([b9e62b9](https://github.com/pipe-works/pipeworks_mud_server/commit/b9e62b954f4978cb9eb75ee89a432b15de8e66e4))
+* **web:** add dashboard layout and routing ([395ad38](https://github.com/pipe-works/pipeworks_mud_server/commit/395ad38731363f805796e400e7cc0525c7150ab6))
+* **web:** add login flow scaffolding ([8bced0e](https://github.com/pipe-works/pipeworks_mud_server/commit/8bced0edcce8bf8df487bf845bfe788c7e2a8c7f))
+* **web:** add login flow scaffolding ([cc3e545](https://github.com/pipe-works/pipeworks_mud_server/commit/cc3e5451c7f174fd0a3cf96bd5e1914c04249562))
+* **web:** add schema view and retire gradio ([#76](https://github.com/pipe-works/pipeworks_mud_server/issues/76)) ([7189cd3](https://github.com/pipe-works/pipeworks_mud_server/commit/7189cd31621f2e10aa553967e11bceb262366f4a))
+* **web:** refresh admin dashboard layout ([#75](https://github.com/pipe-works/pipeworks_mud_server/issues/75)) ([5e96fbc](https://github.com/pipe-works/pipeworks_mud_server/commit/5e96fbcf8cd87c7adc6693ca8cca957c6ff18c03))
+
+
+### Documentation
+
+* **security:** add admin mTLS guide ([48f9a6f](https://github.com/pipe-works/pipeworks_mud_server/commit/48f9a6f67df56656ad953cc19c8c3afef3c914ed))
+* **security:** add admin mTLS guide ([3a8c5b4](https://github.com/pipe-works/pipeworks_mud_server/commit/3a8c5b42974e3c458cd8934dfbf35e61802892a8))
+* **web:** replace gradio references ([72610cf](https://github.com/pipe-works/pipeworks_mud_server/commit/72610cf4a6287f2fbed6cc44b9cde4aa4edb2b03))
+* **web:** replace gradio references ([afc86a6](https://github.com/pipe-works/pipeworks_mud_server/commit/afc86a6411e652162476ff8f51491ed191bfb88c))
+
 ## [0.3.3](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.2...mud_server-v0.3.3) (2026-02-13)
 
 
