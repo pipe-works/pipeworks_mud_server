@@ -17,6 +17,10 @@ body {
   font-family: var(--font-body);
 }
 
+body[data-play-shell="true"] {
+  align-items: flex-start;
+}
+
 .container {
   width: 1250px;
   height: 590px;
@@ -104,11 +108,49 @@ body {
   padding: 16px 20px;
 }
 
+.play-state--logged-out,
+.play-state--select {
+  max-width: 420px;
+  margin: 30px auto;
+  border: 1px solid var(--rule);
+  background: var(--paper-muted);
+  display: grid;
+  gap: 12px;
+}
+
+.play-state--logged-out .stat-group,
+.play-state--select .stat-group {
+  align-items: center;
+}
+
+.play-button {
+  padding: 6px 12px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  font-family: var(--font-record);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.play-logout {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 16px;
+}
+
 .play-state--logged-out input {
   width: 100%;
   padding: 6px 8px;
   border: 1px solid var(--rule);
   background: var(--paper-muted);
+}
+
+.play-state--select select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
 }
 
 .main-layout {

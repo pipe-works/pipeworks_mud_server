@@ -47,37 +47,37 @@
 
       <!-- Play state: Logged out -->
       <section class="play-state play-state--logged-out" data-play-state="logged-out">
-        <div class="panel-title">Temporary Personhood Permit</div>
+        <div class="panel-title">Login</div>
         <div class="character-article">
-          Provide a character name and password to enter the world. If you do not
-          supply a name, the system will mint one.
+          Enter your account username and password to continue into the world.
         </div>
         <div class="stat-group">
-          <label class="stat-label" for="play-character-name">Character name</label>
-          <input id="play-character-name" type="text" placeholder="Generated if blank" />
+          <label class="stat-label" for="play-account-name">Account username</label>
+          <input id="play-account-name" type="text" placeholder="Username" />
         </div>
         <div class="stat-group">
-          <label class="stat-label" for="play-password">Temporary key</label>
-          <input id="play-password" type="text" placeholder="Generated if blank" />
+          <label class="stat-label" for="play-password">Password</label>
+          <input id="play-password" type="password" placeholder="Password" />
         </div>
         <div class="stat-group">
-          <button class="menu-item" type="button" id="play-login-button">Issue Permit</button>
-          <button class="menu-item" type="button" id="play-logout-button" hidden>Log out</button>
+          <button class="play-button" type="button" id="play-login-button">Log in</button>
         </div>
-        <p class="location-notice" id="play-status">Ready to issue a visitor account.</p>
+        <p class="location-notice" id="play-status">Awaiting credentials.</p>
       </section>
 
       <!-- Play state: World/character selection -->
       <section class="play-state play-state--select" data-play-state="select-world" hidden>
         <div class="panel-title">Select a World</div>
         <p class="character-article">
-          Choose a world to enter. This selection determines which UI and world data
-          the client loads.
+          Choose a world to enter. This selection controls both the world data and
+          the UI skin that loads for your session.
         </p>
         <div class="stat-group">
-          <button class="menu-item" type="button" id="play-enter-world">
-            Enter <span id="play-default-world">pipeworks_web</span>
-          </button>
+          <label class="stat-label" for="play-world-select">Available worlds</label>
+          <select id="play-world-select"></select>
+        </div>
+        <div class="stat-group">
+          <button class="play-button" type="button" id="play-enter-world">Enter world</button>
         </div>
       </section>
 
@@ -205,6 +205,12 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <div class="play-logout">
+      <button class="play-button" type="button" id="play-logout-button" hidden>
+        Log out
+      </button>
     </div>
 
     <!-- Base play shell script: handles state and delegates per world. -->

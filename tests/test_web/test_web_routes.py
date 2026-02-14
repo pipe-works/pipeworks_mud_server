@@ -54,6 +54,7 @@ def test_play_shell_served_at_root():
 
     assert response.status_code == 200
     assert "PipeWorks Play" in response.text
+    assert "Account username" in response.text
 
 
 def test_play_shell_served_for_world():
