@@ -9,7 +9,7 @@ code in this repository.
 with a web interface. It's a proof-of-concept for "The Undertaking" - a
 procedural, ledger-driven interactive fiction system.
 
-**Tech Stack**: Python 3.12+, FastAPI, Gradio, SQLite, bcrypt
+**Tech Stack**: Python 3.12+, FastAPI, WebUI, SQLite, bcrypt
 
 **Current Status**: Working proof-of-concept with auth, RBAC, room navigation,
 inventory, and chat. The design vision (character issuance, axis-based
@@ -31,7 +31,7 @@ mud-server create-superuser           # Create admin interactively
 ### Running
 
 ```bash
-mud-server run                            # Start server (:8000) + Gradio (:7860)
+mud-server run                            # Start server (:8000) + WebUI (/admin)
 ./run.sh                                  # Alternative: shell script
 pipeworks-admin-tui                       # Terminal UI (requires admin-tui deps)
 pipeworks-admin-tui -s http://remote:8000 # Connect to remote server
@@ -85,23 +85,10 @@ src/mud_server/
 │   └── world.py            # World, Room, Item dataclasses (loads from JSON)
 ├── db/
 │   └── database.py         # SQLite: players, sessions, chat_messages tables
-├── admin_gradio/           # Gradio web interface (port 7860)
-│   ├── app.py              # Main entry, tab assembly
-│   ├── api/                # API client layer (works outside Gradio)
-│   │   ├── base.py         # BaseAPIClient with common HTTP patterns
-│   │   ├── auth.py         # Login, register, logout
-│   │   ├── game.py         # Commands, status, chat
-│   │   ├── admin.py        # User management
-│   │   ├── settings.py     # Server control
-│   │   └── ollama.py       # AI model integration
-│   ├── ui/                 # UI utilities
-│   │   ├── state.py        # Gradio state builders
-│   │   └── validators.py   # Input validation (100% coverage)
-│   ├── tabs/               # Individual tab modules
-│   │   ├── login_tab.py, register_tab.py, game_tab.py
-│   │   ├── settings_tab.py, database_tab.py
-│   │   ├── ollama_tab.py, help_tab.py
-│   └── static/styles.css   # Centralized CSS
+├── web/                    # Admin WebUI (served by FastAPI)
+│   ├── routes.py           # HTML shell + static asset routing
+│   ├── templates/          # Admin shell template
+│   └── static/             # CSS + JS modules
 └── admin_tui/              # Textual terminal UI (SSH/tmux friendly)
     ├── app.py              # Main Textual app, entry point
     ├── config.py           # CLI args, env vars, defaults
@@ -127,8 +114,7 @@ sliding expiration. Sessions survive restarts until expiry or revocation.
 | Add new game command | `api/routes.py` (parsing), `core/engine.py` (logic) |
 | Add new room/item | `data/world_data.json` (no code changes needed) |
 | Add database table | `db/database.py` |
-| Add Gradio tab | `admin_gradio/tabs/`, then register in `admin_gradio/app.py` |
-| Add API client method (Gradio) | `admin_gradio/api/` (pick appropriate module) |
+| Add WebUI view | `web/static/js/pages/`, then register in `web/static/js/app.js` |
 | Add TUI screen | `admin_tui/screens/`, then register in `admin_tui/app.py` |
 | Add TUI API method | `admin_tui/api/client.py` |
 

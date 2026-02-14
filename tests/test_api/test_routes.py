@@ -1847,6 +1847,22 @@ def test_admin_database_tables_and_rows(test_client, test_db, temp_db_path, db_w
         assert rows_resp.status_code == 200
 
 
+@pytest.mark.api
+def test_admin_database_schema(test_client, test_db, temp_db_path, db_with_users):
+    """Admin schema endpoint returns foreign key metadata."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        schema_resp = test_client.get("/admin/database/schema", params={"session_id": session_id})
+        assert schema_resp.status_code == 200
+        payload = schema_resp.json()
+        assert payload["tables"]
+        assert "name" in payload["tables"][0]
+
+
 # ============================================================================
 # OLLAMA ADMIN TESTS
 # ============================================================================

@@ -3,7 +3,7 @@ FastAPI backend server for the MUD.
 
 This module initializes and configures the FastAPI application that serves as
 the backend API for the Multi-User Dungeon (MUD) game. It sets up:
-- CORS middleware for cross-origin requests from the Gradio frontend
+- CORS middleware for cross-origin requests from the admin WebUI
 - The game engine instance that handles all game logic
 - All API route endpoints for player actions and admin functions
 

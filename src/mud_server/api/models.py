@@ -2,7 +2,7 @@
 Pydantic models for API requests and responses.
 
 This module defines all the data models used for API communication between
-the FastAPI backend and the Gradio frontend. Pydantic models provide:
+the FastAPI backend and clients (admin WebUI, API consumers). Pydantic models provide:
 - Automatic request/response validation
 - Type checking and conversion
 - Clear API documentation via FastAPI's automatic OpenAPI schema generation
@@ -447,6 +447,53 @@ class DatabaseTablesResponse(BaseModel):
     """
 
     tables: list[DatabaseTableInfo]
+
+
+class DatabaseSchemaForeignKey(BaseModel):
+    """
+    Foreign key metadata for a database table relationship.
+
+    Attributes:
+        from_column: Column on the source table.
+        ref_table: Referenced table name.
+        ref_column: Referenced column name.
+        on_update: SQLite ON UPDATE action.
+        on_delete: SQLite ON DELETE action.
+    """
+
+    from_column: str
+    ref_table: str
+    ref_column: str
+    on_update: str
+    on_delete: str
+
+
+class DatabaseSchemaTable(BaseModel):
+    """
+    Schema metadata for a database table.
+
+    Attributes:
+        name: Table name.
+        columns: Column names in order.
+        foreign_keys: Foreign key relationships.
+    """
+
+    name: str
+    columns: list[str]
+    foreign_keys: list[DatabaseSchemaForeignKey]
+
+
+class DatabaseSchemaResponse(BaseModel):
+    """
+    Admin response containing database schema relationships.
+
+    Requires VIEW_LOGS permission. Used for schema map displays.
+
+    Attributes:
+        tables: Schema metadata for all tables.
+    """
+
+    tables: list[DatabaseSchemaTable]
 
 
 class DatabaseTableRowsResponse(BaseModel):

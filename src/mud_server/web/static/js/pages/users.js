@@ -4,7 +4,6 @@
  * Admin users view. Lists users and supports basic management actions.
  */
 
-import { renderTable } from '../ui/table.js';
 import { showToast } from '../ui/toasts.js';
 
 function formatRole(role) {
@@ -62,6 +61,234 @@ async function handleAction({ api, sessionId, action, username, refresh }) {
   }
 }
 
+function buildSortLabel(label, isActive, direction) {
+  if (!isActive) {
+    return `${label} <span class="sort-indicator">↕</span>`;
+  }
+  return `${label} <span class="sort-indicator">${direction === 'asc' ? '▲' : '▼'}</span>`;
+}
+
+/**
+ * Build the users table HTML, including sortable headers and action buttons.
+ */
+function buildUsersTable(users, sortState, selectedUserId) {
+  const headers = [
+    { label: 'Username', key: 'username' },
+    { label: 'Role', key: 'role' },
+    { label: 'Active', key: 'active' },
+    { label: 'Actions', key: null },
+  ];
+
+  const headerHtml = headers
+    .map((header) => {
+      if (!header.key) {
+        return '<th>Actions</th>';
+      }
+      const isActive = sortState.key === header.key;
+      const label = buildSortLabel(header.label, isActive, sortState.direction);
+      return `<th class="sortable" data-sort-key="${header.key}">${label}</th>`;
+    })
+    .join('');
+
+  const rowsHtml = users
+    .map((user) => {
+      const isSelected = selectedUserId === user.id;
+      const rowClass = isSelected ? 'is-selected is-selectable' : 'is-selectable';
+      const cells = [
+        user.username,
+        formatRole(user.role),
+        user.is_active ? 'Yes' : 'No',
+        buildActionButtons(user.username),
+      ]
+        .map((cell) => `<td>${cell}</td>`)
+        .join('');
+      return `<tr class="${rowClass}" data-user-id="${user.id}">${cells}</tr>`;
+    })
+    .join('');
+
+  return `
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr>${headerHtml}</tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+/**
+ * Sort users based on the active sort state.
+ */
+function sortUsers(users, sortState) {
+  const sorted = [...users];
+  const key = sortState.key;
+  const direction = sortState.direction === 'asc' ? 1 : -1;
+
+  sorted.sort((a, b) => {
+    let aVal = '';
+    let bVal = '';
+    if (key === 'username') {
+      aVal = a.username.toLowerCase();
+      bVal = b.username.toLowerCase();
+    } else if (key === 'role') {
+      aVal = (a.role || '').toLowerCase();
+      bVal = (b.role || '').toLowerCase();
+    } else if (key === 'active') {
+      aVal = a.is_active ? 1 : 0;
+      bVal = b.is_active ? 1 : 0;
+    }
+
+    if (aVal < bVal) {
+      return -1 * direction;
+    }
+    if (aVal > bVal) {
+      return 1 * direction;
+    }
+    return 0;
+  });
+
+  return sorted;
+}
+
+/**
+ * Format optional timestamps for display.
+ */
+function formatDate(value) {
+  if (!value) {
+    return '—';
+  }
+  return `${value}`;
+}
+
+/**
+ * Build the detail panel for the selected user.
+ */
+function buildUserDetails({
+  user,
+  characters,
+  worldsById,
+  permissionsByUser,
+  locationsByCharacter,
+}) {
+  if (!user) {
+    return `
+      <div class="detail-card">
+        <h3>User Details</h3>
+        <p class="muted">Select a user to see account details.</p>
+      </div>
+    `;
+  }
+
+  const userCharacters = characters.filter((character) => character.user_id === user.id);
+  const worldAccess = permissionsByUser.get(user.id) || [];
+
+  const charactersHtml = userCharacters.length
+    ? userCharacters
+        .map((character) => {
+          const worldName = worldsById.get(character.world_id) || character.world_id;
+          const location = locationsByCharacter.get(character.id);
+          const room = location?.room_id ? `Room: ${location.room_id}` : 'Room: —';
+          return `
+            <div class="detail-row">
+              <div>
+                <div class="detail-title">${character.name}</div>
+                <div class="detail-sub">${worldName}</div>
+              </div>
+              <div class="detail-meta">${room}</div>
+            </div>
+          `;
+        })
+        .join('')
+    : '<p class="muted">No characters found.</p>';
+
+  const worldsHtml = worldAccess.length
+    ? worldAccess
+        .map((worldId) => {
+          const worldName = worldsById.get(worldId) || worldId;
+          return `<span class="tag">${worldName}</span>`;
+        })
+        .join('')
+    : '<p class="muted">No world permissions recorded.</p>';
+
+  return `
+    <div class="detail-card">
+      <h3>Account</h3>
+      <dl class="detail-list">
+        <div><dt>ID</dt><dd>${user.id}</dd></div>
+        <div><dt>Username</dt><dd>${user.username}</dd></div>
+        <div><dt>Role</dt><dd>${formatRole(user.role)}</dd></div>
+        <div><dt>Active</dt><dd>${user.is_active ? 'Yes' : 'No'}</dd></div>
+        <div><dt>Guest</dt><dd>${user.is_guest ? 'Yes' : 'No'}</dd></div>
+        <div><dt>Origin</dt><dd>${user.account_origin || '—'}</dd></div>
+        <div><dt>Created</dt><dd>${formatDate(user.created_at)}</dd></div>
+        <div><dt>Last Login</dt><dd>${formatDate(user.last_login)}</dd></div>
+        <div><dt>Guest Expires</dt><dd>${formatDate(user.guest_expires_at)}</dd></div>
+        <div><dt>Tombstoned</dt><dd>${formatDate(user.tombstoned_at)}</dd></div>
+        <div><dt>Characters</dt><dd>${user.character_count ?? 0}</dd></div>
+      </dl>
+    </div>
+    <div class="detail-card">
+      <h3>Characters</h3>
+      ${charactersHtml}
+    </div>
+    <div class="detail-card">
+      <h3>World Access</h3>
+      <div class="tag-list">${worldsHtml}</div>
+    </div>
+  `;
+}
+
+/**
+ * Build the create-account form with role-based options.
+ */
+function buildCreateUserCard(role) {
+  const roleOptions =
+    role === 'superuser'
+      ? ['player', 'worldbuilder', 'admin', 'superuser']
+      : ['player', 'worldbuilder'];
+
+  return `
+    <div class="detail-card">
+      <h3>Create Account</h3>
+      <form class="detail-form" data-create-user>
+        <label>
+          Username
+          <input type="text" name="username" required />
+        </label>
+        <label>
+          Role
+          <select name="role">
+            ${roleOptions.map((opt) => `<option value="${opt}">${opt}</option>`).join('')}
+          </select>
+        </label>
+        <label>
+          Password
+          <input type="password" name="password" required />
+        </label>
+        <label>
+          Confirm Password
+          <input type="password" name="password_confirm" required />
+        </label>
+        <button type="submit">Create account</button>
+      </form>
+      <p class="muted detail-help">Admins can create players/worldbuilders. Superusers can create all roles.</p>
+    </div>
+  `;
+}
+
+/**
+ * Convert tabular rows (column list + row arrays) into objects.
+ */
+function rowsToObjects(columns, rows) {
+  return rows.map((row) => {
+    const record = {};
+    columns.forEach((col, idx) => {
+      record[col] = row[idx];
+    });
+    return record;
+  });
+}
+
 async function renderUsers(root, { api, session }) {
   root.innerHTML = `
     <div class="panel wide">
@@ -74,42 +301,144 @@ async function renderUsers(root, { api, session }) {
 
   async function load() {
     const response = await api.getPlayers(sessionId);
-    const headers = ['Username', 'Role', 'Active', 'Actions'];
-    const rows = response.players.map((user) => [
-      user.username,
-      formatRole(user.role),
-      user.is_active ? 'Yes' : 'No',
-      buildActionButtons(user.username),
-    ]);
+    const users = response.players;
+    const sortState = { key: 'username', direction: 'asc' };
+    let selectedUserId = users[0]?.id ?? null;
 
-    root.innerHTML = `
-      <div class="page">
-        <div class="page-header">
-          <div>
-            <h2>Users</h2>
-            <p class="muted">${rows.length} users found.</p>
+    let characters = [];
+    let worldsById = new Map();
+    let permissionsByUser = new Map();
+    let locationsByCharacter = new Map();
+
+    try {
+      const [charactersResp, worldsResp, permissionsResp, locationsResp] =
+        await Promise.all([
+          api.getTableRows(sessionId, 'characters', 1000),
+          api.getTableRows(sessionId, 'worlds', 200),
+          api.getTableRows(sessionId, 'world_permissions', 1000),
+          api.getTableRows(sessionId, 'character_locations', 1000),
+        ]);
+
+      const worldRows = rowsToObjects(worldsResp.columns, worldsResp.rows);
+      worldsById = new Map(worldRows.map((world) => [world.id, world.name]));
+
+      characters = rowsToObjects(charactersResp.columns, charactersResp.rows);
+      const permissions = rowsToObjects(permissionsResp.columns, permissionsResp.rows);
+      const locations = rowsToObjects(locationsResp.columns, locationsResp.rows);
+
+      permissionsByUser = new Map();
+      permissions
+        .filter((entry) => entry.can_access)
+        .forEach((entry) => {
+          const existing = permissionsByUser.get(entry.user_id) || [];
+          existing.push(entry.world_id);
+          permissionsByUser.set(entry.user_id, existing);
+        });
+
+      locationsByCharacter = new Map(
+        locations.map((location) => [location.character_id, location])
+      );
+    } catch (err) {
+      showToast('Unable to load character/world metadata.', 'error');
+    }
+
+    const renderPage = () => {
+      const sortedUsers = sortUsers(users, sortState);
+      if (!selectedUserId && sortedUsers.length) {
+        selectedUserId = sortedUsers[0].id;
+      }
+      const selectedUser =
+        sortedUsers.find((user) => user.id === selectedUserId) || sortedUsers[0];
+      root.innerHTML = `
+        <div class="page">
+          <div class="page-header">
+            <div>
+              <h2>Users</h2>
+              <p class="muted">${users.length} users found.</p>
+            </div>
+          </div>
+          <div class="split-layout">
+            <div class="card table-card">
+              ${buildUsersTable(sortedUsers, sortState, selectedUser?.id)}
+            </div>
+            <aside class="detail-panel">
+              ${buildCreateUserCard(session.role)}
+              ${buildUserDetails({
+                user: selectedUser,
+                characters,
+                worldsById,
+                permissionsByUser,
+                locationsByCharacter,
+              })}
+            </aside>
           </div>
         </div>
-        <div class="card table-card">
-          ${renderTable(headers, rows)}
-        </div>
-      </div>
-    `;
+      `;
 
-    root.querySelectorAll('[data-user-actions]').forEach((container) => {
-      const username = container.getAttribute('data-user-actions');
-      container.querySelectorAll('button').forEach((button) => {
-        button.addEventListener('click', () => {
-          handleAction({
-            api,
-            sessionId,
-            action: button.dataset.action,
-            username,
-            refresh: load,
+      const createForm = root.querySelector('[data-create-user]');
+      if (createForm) {
+        createForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const formData = new FormData(createForm);
+          const payload = {
+            session_id: sessionId,
+            username: (formData.get('username') || '').toString().trim(),
+            role: (formData.get('role') || '').toString(),
+            password: (formData.get('password') || '').toString(),
+            password_confirm: (formData.get('password_confirm') || '').toString(),
+          };
+
+          try {
+            await api.createUser(payload);
+            showToast(`Created user '${payload.username}'.`, 'success');
+            await load();
+          } catch (err) {
+            showToast(err instanceof Error ? err.message : 'Failed to create user.', 'error');
+          }
+        });
+      }
+
+      root.querySelectorAll('[data-user-actions]').forEach((container) => {
+        const username = container.getAttribute('data-user-actions');
+        container.querySelectorAll('button').forEach((button) => {
+          button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            handleAction({
+              api,
+              sessionId,
+              action: button.dataset.action,
+              username,
+              refresh: load,
+            });
           });
         });
       });
-    });
+
+      root.querySelectorAll('th.sortable').forEach((header) => {
+        header.addEventListener('click', () => {
+          const key = header.dataset.sortKey;
+          if (!key) {
+            return;
+          }
+          if (sortState.key === key) {
+            sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+          } else {
+            sortState.key = key;
+            sortState.direction = 'asc';
+          }
+          renderPage();
+        });
+      });
+
+      root.querySelectorAll('tr[data-user-id]').forEach((row) => {
+        row.addEventListener('click', () => {
+          selectedUserId = Number(row.dataset.userId);
+          renderPage();
+        });
+      });
+    };
+
+    renderPage();
   }
 
   try {

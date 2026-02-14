@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-- `src/` contains the Python package (`mud_server`), including API, Gradio admin UI, and core game logic.
+- `src/` contains the Python package (`mud_server`), including API, WebUI, and core game logic.
 - `tests/` holds pytest suites; files follow `test_*.py`.
 - `data/` stores runtime assets (e.g., `data/world_data.json`) and the SQLite DB (`data/mud.db`).
 - `docs/` is Sphinx documentation.
@@ -12,9 +12,8 @@
 
 - `python3 -m venv venv && source venv/bin/activate` to create/activate a venv.
 - `pip install -e ".[dev]"` to install dev dependencies.
-- `mud-server run` to start API + Gradio UI together.
+- `mud-server run` to start API + WebUI together.
 - `python -m mud_server.api.server` for API only.
-- `python -m mud_server.admin_gradio.app` for Gradio UI only.
 - `pytest` to run the full test suite (coverage enabled).
 - `ruff check src/ tests/` to lint, `black src/ tests/` to format.
 - `mypy src/ --ignore-missing-imports` for type checking.

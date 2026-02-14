@@ -15,6 +15,7 @@ import { renderChat } from './pages/chat.js';
 import { renderTables } from './pages/tables.js';
 import { renderWorlds } from './pages/worlds.js';
 import { renderSuperuser } from './pages/superuser.js';
+import { renderSchema } from './pages/schema.js';
 import { renderNav } from './ui/nav.js';
 import { initThemeToggle } from './ui/theme.js';
 
@@ -29,6 +30,7 @@ const ROUTES = {
   '/admin/locations': renderLocations,
   '/admin/chat': renderChat,
   '/admin/tables': renderTables,
+  '/admin/schema': renderSchema,
   '/admin/worlds': renderWorlds,
   '/admin/superuser': renderSuperuser,
 };
@@ -112,6 +114,7 @@ function render() {
     '/admin/locations': 'Locations',
     '/admin/chat': 'Chat',
     '/admin/tables': 'Tables',
+    '/admin/schema': 'Schema',
     '/admin/worlds': 'Worlds',
     '/admin/superuser': 'Superuser',
   };

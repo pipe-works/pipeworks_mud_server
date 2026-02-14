@@ -5,7 +5,7 @@
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   font-size: 16px;
-  --layout-max: 1440px;
+  --layout-max: 1600px;
   --layout-pad: 32px;
 }
 

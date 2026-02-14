@@ -11,7 +11,6 @@ requires-python = ">=3.12"
 license = {text = "GPL-3.0-or-later"}
 
 dependencies = [
-    "gradio==6.2.0",
     "fastapi==0.125.0",
     "uvicorn==0.38.0",
     "python-socketio==5.15.1",
@@ -133,7 +132,6 @@ strict_equality = true
 
 [[tool.mypy.overrides]]
 module = [
-    "gradio.*",
     "passlib.*",
     "textual.*",
 ]
@@ -179,9 +177,6 @@ omit = [
     "*/__pycache__/*",
     "*/venv/*",
     # UI entry points (difficult to test, framework-specific)
-    "*/admin_gradio/app.py",
-    "*/admin_gradio/tabs/*",
-    "*/admin_gradio/utils.py",
     "*/admin_tui/app.py",
     "*/admin_tui/screens/*",
     "*/api/server.py",

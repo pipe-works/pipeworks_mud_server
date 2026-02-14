@@ -9,15 +9,13 @@ Provides CLI commands for server management:
 Usage:
     mud-server init-db
     mud-server create-superuser
-    mud-server run [--port PORT] [--ui-port PORT] [--host HOST]
+    mud-server run [--port PORT] [--host HOST]
 
 Environment Variables:
     MUD_ADMIN_USER: Username for superuser (used by init-db if set)
     MUD_ADMIN_PASSWORD: Password for superuser (used by init-db if set)
     MUD_HOST: Host to bind API server (default: 0.0.0.0)
     MUD_PORT: Port for API server (default: 8000, auto-discovers if in use)
-    MUD_UI_HOST: Host to bind UI server (default: 0.0.0.0)
-    MUD_UI_PORT: Port for UI server (default: 7860, auto-discovers if in use)
 """
 
 import argparse
@@ -326,61 +324,28 @@ def _run_api_server_on_port(host: str, port: int) -> None:
     start_server(host=host, port=port, auto_discover=False)
 
 
-def _run_ui_client(host: str | None, port: int | None) -> None:
-    """
-    Run the Gradio UI client in a subprocess.
-
-    This function is called by multiprocessing.Process and must be defined at
-    module level to be picklable. It imports and launches the Gradio interface
-    with the provided host and port configuration.
-
-    Args:
-        host: Host interface to bind to (e.g., "0.0.0.0" for all interfaces,
-              "127.0.0.1" for localhost only). If None, uses MUD_UI_HOST env var
-              or defaults to "0.0.0.0".
-        port: Port number for the UI client. If None, uses MUD_UI_PORT env var
-              or defaults to 7860. If the port is in use, auto-discovers an
-              available port in the 7860-7899 range.
-
-    Note:
-        The import is done inside the function to avoid import cycles and to
-        ensure the client module is loaded fresh in the subprocess.
-    """
-    from mud_server.admin_gradio.app import launch_client
-
-    launch_client(host=host, port=port)
-
-
 def cmd_run(args: argparse.Namespace) -> int:
     """
-    Run the MUD server (both API and client).
+    Run the MUD server (API + WebUI).
 
     This is the main entry point for starting the MUD server. It initializes
-    the database if needed, then starts the API server and optionally the
-    Gradio UI client in parallel processes.
+    the database if needed, then starts the API server. The WebUI is served
+    directly by FastAPI.
 
     Port Auto-Discovery:
         If the configured port is already in use, the server will automatically
         find an available port in a predefined range:
         - API server: 8000-8099
-        - UI client: 7860-7899
-
-        IMPORTANT: When both servers are started together, the API port is
-        discovered first and communicated to the UI client via the MUD_SERVER_URL
-        environment variable. This ensures the UI always knows where to find
-        the API server, even when using auto-discovered ports.
 
     Configuration Priority:
-        1. CLI arguments (--port, --ui-port, --host)
-        2. Environment variables (MUD_PORT, MUD_UI_PORT, MUD_HOST, MUD_UI_HOST)
-        3. Default values (8000 for API, 7860 for UI, 0.0.0.0 for host)
+        1. CLI arguments (--port, --host)
+        2. Environment variables (MUD_PORT, MUD_HOST)
+        3. Default values (8000 for API, 0.0.0.0 for host)
 
     Args:
         args: Parsed command-line arguments from argparse. Expected attributes:
             - port (int | None): API server port override
-            - ui_port (int | None): UI server port override
-            - host (str | None): Host interface to bind both servers
-            - api_only (bool): If True, only start API server (no Gradio UI)
+            - host (str | None): Host interface to bind the server
 
     Returns:
         0 on successful execution or clean shutdown (Ctrl+C)
@@ -390,19 +355,12 @@ def cmd_run(args: argparse.Namespace) -> int:
         # Start with default ports
         mud-server run
 
-        # Specify custom ports
-        mud-server run --port 9000 --ui-port 8080
-
-        # Start API server only
-        mud-server run --api-only
+        # Specify custom port
+        mud-server run --port 9000
 
     Note:
-        Both servers run as separate processes using multiprocessing.Process.
-        This allows them to run truly in parallel and handle their own signals.
-        The main process waits for both to complete (join).
+        The API server runs in the main process.
     """
-    import multiprocessing
-
     from mud_server.api.server import find_available_port as find_api_port
     from mud_server.config import config
     from mud_server.db.database import init_database
@@ -424,9 +382,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     # getattr with default None handles cases where args might not have
     # these attributes (e.g., when called programmatically).
     api_port = getattr(args, "port", None)
-    ui_port = getattr(args, "ui_port", None)
     host = getattr(args, "host", None) or os.environ.get("MUD_HOST", "0.0.0.0")  # nosec B104
-    api_only = getattr(args, "api_only", False)
 
     # ========================================================================
     # API PORT DISCOVERY (BEFORE STARTING PROCESSES)
@@ -453,55 +409,13 @@ def cmd_run(args: argparse.Namespace) -> int:
     if actual_api_port != api_port:
         print(f"API port {api_port} is in use. Using port {actual_api_port} instead.")
 
-    # ========================================================================
-    # SET MUD_SERVER_URL FOR UI CLIENT
-    # ========================================================================
-    # Set the environment variable so the UI client knows where to connect.
-    # This is critical for proper communication between the UI and API server.
-    # Use localhost for the client connection (it's running on the same machine).
-    api_url = f"http://localhost:{actual_api_port}"
-    os.environ["MUD_SERVER_URL"] = api_url
-
     try:
-        if api_only:
-            # ================================================================
-            # API-ONLY MODE
-            # ================================================================
-            # Run the API server directly in the main process without spawning
-            # a subprocess. This is useful for development, debugging, or when
-            # the Gradio UI is not needed (e.g., headless server deployment).
-            # Pass auto_discover=False since we already found the port.
-            _run_api_server_on_port(host, actual_api_port)
-        else:
-            # ================================================================
-            # FULL SERVER MODE (API + UI)
-            # ================================================================
-            # Start both servers as separate processes. Using multiprocessing
-            # ensures true parallelism and independent signal handling.
-            #
-            # Note: We pass the actual discovered port to the API server with
-            # auto_discover=False to avoid double discovery. The UI client
-            # reads MUD_SERVER_URL from the environment (set above).
-            api_process = multiprocessing.Process(
-                target=_run_api_server_on_port,
-                args=(host, actual_api_port),
-                name="mud-api-server",
-            )
-            ui_process = multiprocessing.Process(
-                target=_run_ui_client,
-                args=(host, ui_port),
-                name="mud-ui-client",
-            )
-
-            # Start both processes
-            api_process.start()
-            ui_process.start()
-
-            # Wait for both processes to complete. In normal operation, these
-            # run indefinitely until interrupted (Ctrl+C) or terminated.
-            api_process.join()
-            ui_process.join()
-
+        # ================================================================
+        # API + WEBUI MODE
+        # ================================================================
+        # Run the API server directly; the WebUI is served by FastAPI.
+        # Pass auto_discover=False since we already found the port.
+        _run_api_server_on_port(host, actual_api_port)
         return 0
 
     except KeyboardInterrupt:
@@ -563,7 +477,7 @@ def main() -> int:
         "run",
         help="Run the MUD server",
         description=(
-            "Start both the API server and Gradio client. "
+            "Start the API server and serve the admin WebUI. "
             "If a port is in use, automatically finds an available port in the range."
         ),
     )
@@ -574,19 +488,9 @@ def main() -> int:
         help="API server port (default: 8000, or MUD_PORT env var). Auto-discovers if in use.",
     )
     run_parser.add_argument(
-        "--ui-port",
-        type=int,
-        help="UI server port (default: 7860, or MUD_UI_PORT env var). Auto-discovers if in use.",
-    )
-    run_parser.add_argument(
         "--host",
         type=str,
         help="Host to bind servers to (default: 0.0.0.0, or MUD_HOST env var)",
-    )
-    run_parser.add_argument(
-        "--api-only",
-        action="store_true",
-        help="Run only the API server (no Gradio UI)",
     )
     run_parser.set_defaults(func=cmd_run)
 

@@ -1732,6 +1732,41 @@ def list_tables() -> list[dict[str, Any]]:
     return tables
 
 
+def get_schema_map() -> list[dict[str, Any]]:
+    """Return table schemas with foreign key relationships for admin tooling."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    schema: list[dict[str, Any]] = []
+    for table_name in get_table_names():
+        quoted_table = _quote_identifier(table_name)
+        cursor.execute(f"PRAGMA table_info({quoted_table})")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        cursor.execute(f"PRAGMA foreign_key_list({quoted_table})")
+        foreign_keys = [
+            {
+                "from_column": row[3],
+                "ref_table": row[2],
+                "ref_column": row[4],
+                "on_update": row[5],
+                "on_delete": row[6],
+            }
+            for row in cursor.fetchall()
+        ]
+
+        schema.append(
+            {
+                "name": table_name,
+                "columns": columns,
+                "foreign_keys": foreign_keys,
+            }
+        )
+
+    conn.close()
+    return schema
+
+
 def get_table_rows(table_name: str, limit: int = 100) -> tuple[list[str], list[list[Any]]]:
     """Return column names and rows for a given table."""
     table_names = set(get_table_names())
