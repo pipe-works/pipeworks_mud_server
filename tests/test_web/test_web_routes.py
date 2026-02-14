@@ -55,6 +55,7 @@ def test_play_shell_served_at_root():
     assert response.status_code == 200
     assert "PipeWorks Play" in response.text
     assert "Account username" in response.text
+    assert "play/css/shell.css" in response.text
 
 
 def test_play_shell_served_for_world():
@@ -69,6 +70,7 @@ def test_play_shell_served_for_world():
     assert 'data-world-id="pipeworks_web"' in response.text
     assert "play/css/fonts.css" in response.text
     assert "play/css/shared-base.css" in response.text
+    assert "play/css/shell.css" in response.text
 
 
 def test_play_shell_served_for_world_subpaths():
@@ -82,3 +84,4 @@ def test_play_shell_served_for_world_subpaths():
     assert response.status_code == 200
     assert 'data-world-id="pipeworks_web"' in response.text
     assert "play/css/fonts.css" in response.text
+    assert "play/css/shell.css" in response.text

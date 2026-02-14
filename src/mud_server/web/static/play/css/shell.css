@@ -1,0 +1,193 @@
+/*
+ * shell.css
+ *
+ * Shared layout styling for the play shell when no world-specific CSS is loaded.
+ * World styles should override these defaults as needed.
+ */
+
+[hidden] {
+  display: none !important;
+}
+
+body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 20px;
+  overflow-x: hidden;
+  background: var(--paper);
+  color: var(--ink-newsprint-black);
+  font-family: var(--font-body);
+}
+
+body[data-play-shell="true"] {
+  align-items: flex-start;
+}
+
+.container {
+  width: min(1250px, 100%);
+  min-height: 590px;
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+}
+
+.masthead {
+  padding: 15px 20px 10px;
+  position: relative;
+  overflow: hidden;
+  font-family: var(--font-masthead);
+}
+
+.masthead::after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 300px;
+  height: 3px;
+  background: var(--rule);
+}
+
+.title {
+  margin-bottom: 3px;
+  position: relative;
+  z-index: 2;
+  font-size: 28px;
+  letter-spacing: 0.1em;
+}
+
+.subtitle {
+  display: inline-block;
+  padding: 3px 0;
+  position: relative;
+  z-index: 2;
+  font-family: var(--font-headline);
+  font-size: 12px;
+  letter-spacing: 0.2em;
+}
+
+.sub-masthead {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 20px;
+  gap: 0;
+  font-family: var(--font-record);
+  font-size: 12px;
+}
+
+.menu-item {
+  padding: 5px 10px;
+  cursor: pointer;
+  position: relative;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.menu-item.active {
+  font-weight: 700;
+}
+
+.menu-separator {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--rule);
+}
+
+.play-state {
+  padding: 16px 20px;
+}
+
+.play-state--logged-out,
+.play-state--select {
+  max-width: 420px;
+  margin: 30px auto;
+  border: 1px solid var(--rule);
+  background: var(--paper-muted);
+  display: grid;
+  gap: 12px;
+}
+
+.character-article {
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.stat-group {
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stat-label {
+  display: inline-block;
+  white-space: nowrap;
+  width: 170px;
+  flex-shrink: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.play-button {
+  padding: 6px 12px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  font-family: var(--font-record);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.play-logout {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 16px;
+}
+
+.play-state--logged-out input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  background: var(--paper-muted);
+}
+
+.play-state--select select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  background: var(--paper-muted);
+}
+
+.location-notice {
+  margin-top: 8px;
+  padding: 6px;
+  text-align: center;
+  border: 1px solid var(--rule);
+  background: var(--paper-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  body {
+    padding: 12px;
+  }
+
+  .container {
+    min-height: auto;
+  }
+
+  .sub-masthead {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .play-state--logged-out,
+  .play-state--select {
+    width: 100%;
+  }
+}
