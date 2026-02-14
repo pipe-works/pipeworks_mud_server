@@ -88,14 +88,14 @@ Start the Server
 This starts:
 
 * **API Server**: http://localhost:8000
-* **Web UI**: http://localhost:7860
+* **Admin Web UI**: http://localhost:8000/admin
 
 Press ``Ctrl+C`` to stop the server.
 
 First Login
 -----------
 
-1. Open the web UI at http://localhost:7860
+1. Open the admin web UI at http://localhost:8000/admin
 2. Login with the superuser credentials you created
 3. Explore the interface and start building your world
 
@@ -171,15 +171,6 @@ API Server Only
 .. code-block:: bash
 
     python -m mud_server.api.server
-
-Gradio Client Only
-~~~~~~~~~~~~~~~~~~
-
-.. code-block:: bash
-
-    python -m mud_server.admin_gradio.app
-
-Requires API server to be running.
 
 Admin TUI (Terminal Interface)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

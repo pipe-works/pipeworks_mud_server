@@ -3,7 +3,7 @@ PipeWorks MUD Server
 
 **A deterministic, procedural multiplayer text game engine for building accountable interactive fiction worlds.**
 
-A modern, extensible MUD (Multi-User Dungeon) server framework built with Python, FastAPI, and Gradio.
+A modern, extensible MUD (Multi-User Dungeon) server framework built with Python, FastAPI, and a custom WebUI.
 Provides a solid foundation for creating text-based multiplayer games with deterministic mechanics,
 JSON-driven world data, and clean architecture.
 
@@ -36,7 +36,7 @@ Key Features
 
 * **Deterministic**: Same seed always produces same game state
 * **Data-driven**: JSON world definitions, no code changes needed
-* **Modern stack**: FastAPI + Gradio + SQLite
+* **Modern stack**: FastAPI + WebUI + SQLite
 * **Secure**: CLI-based superuser management, bcrypt passwords
 * **Extensible**: Modular architecture, clean API
 * **Well-tested**: Comprehensive test suite with coverage
@@ -74,7 +74,7 @@ Running the Server:
 
    # The server will start on:
    # - API: http://localhost:8000
-   # - Web UI: http://localhost:7860
+   # - Admin Web UI: http://localhost:8000/admin
 
 Superuser Setup
 ~~~~~~~~~~~~~~~
