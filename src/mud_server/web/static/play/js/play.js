@@ -125,11 +125,19 @@ function updateCharacterName(name) {
   }
 }
 
-function updateDefaultWorld(worldId) {
-  const element = document.getElementById('play-default-world');
-  if (element) {
-    element.textContent = worldId;
+function populateWorldSelect(worlds) {
+  const select = document.getElementById('play-world-select');
+  if (!select) {
+    return;
   }
+
+  select.innerHTML = '';
+  worlds.forEach((world) => {
+    const option = document.createElement('option');
+    option.value = world.id;
+    option.textContent = world.name || world.id;
+    select.appendChild(option);
+  });
 }
 
 function updateLocation(message) {
@@ -140,25 +148,13 @@ function updateLocation(message) {
 }
 
 async function handleLogin() {
-  const nameInput = document.getElementById('play-character-name');
+  const accountInput = document.getElementById('play-account-name');
   const passwordInput = document.getElementById('play-password');
-  const characterName = nameInput?.value?.trim() || '';
-  const password = passwordInput?.value?.trim() || randomPassword();
+  const accountUsername = accountInput?.value?.trim() || '';
+  const password = passwordInput?.value?.trim() || '';
 
-  if (passwordInput) {
-    passwordInput.value = password;
-  }
-
-  updateStatus('Issuing visitor account...');
-
-  const guestResponse = await registerGuest({
-    password,
-    characterName: characterName || 'Wanderer',
-  });
-
-  const accountUsername = guestResponse?.username || '';
-  if (!accountUsername) {
-    throw new Error('No username returned from register-guest.');
+  if (!accountUsername || !password) {
+    throw new Error('Username and password are required.');
   }
 
   updateStatus('Logging in...');
@@ -174,14 +170,23 @@ async function handleLogin() {
 
   writeSession({
     session_id: loginResponse.session_id,
-    username: characterName || accountUsername,
+    username: accountUsername,
     account_username: accountUsername,
     role: loginResponse.role || null,
+    available_worlds: loginResponse.available_worlds || [],
   });
 
-  updateStatus(`Logged in as ${characterName || accountUsername}.`);
-  updateCharacterName(characterName || accountUsername);
-  updateLocation('Awaiting world selection...');
+  const logoutButton = document.getElementById('play-logout-button');
+  if (logoutButton) {
+    logoutButton.hidden = false;
+  }
+
+  updateStatus(`Logged in as ${accountUsername}.`);
+  updateCharacterName(accountUsername);
+  updateLocation('Select a world to continue.');
+
+  const worlds = loginResponse.available_worlds || [];
+  populateWorldSelect(worlds.length ? worlds : [{ id: getDefaultWorldId() }]);
   setState('select-world');
 }
 
@@ -198,12 +203,19 @@ async function handleLogout() {
   clearSession();
   setState('logged-out');
   updateStatus('Ready to issue a visitor account.');
+  updateLocation('Logged out.');
+  updateCharacterName('Character Name');
+  const logoutButton = document.getElementById('play-logout-button');
+  if (logoutButton) {
+    logoutButton.hidden = true;
+  }
 }
 
 function bindEvents() {
   const loginButton = document.getElementById('play-login-button');
   const logoutButton = document.getElementById('play-logout-button');
   const enterWorldButton = document.getElementById('play-enter-world');
+  const worldSelect = document.getElementById('play-world-select');
 
   if (loginButton) {
     loginButton.addEventListener('click', async () => {
@@ -233,8 +245,8 @@ function bindEvents() {
 
   if (enterWorldButton) {
     enterWorldButton.addEventListener('click', () => {
-      const worldId = getDefaultWorldId();
-      window.location.assign(`/play/${worldId}`);
+      const selectedWorld = worldSelect?.value || getDefaultWorldId();
+      window.location.assign(`/play/${selectedWorld}`);
     });
   }
 }
@@ -254,22 +266,27 @@ async function hydrateSession() {
     }
     updateCharacterName(session.username || 'Unknown');
     updateLocation('Session active.');
+    const worlds = session.available_worlds || [];
+    populateWorldSelect(worlds.length ? worlds : [{ id: getDefaultWorldId() }]);
     setState('select-world');
   } catch (err) {
     clearSession();
     setState('logged-out');
-    updateStatus('Session expired. Ready to issue a visitor account.');
+    updateStatus('Session expired. Awaiting credentials.');
   }
 }
 
 function initPlayShell() {
   const worldId = getWorldId();
-  updateDefaultWorld(getDefaultWorldId());
   bindEvents();
 
   if (worldId) {
     setState('in-world');
     updateLocation(`Entering ${worldId}...`);
+    const logoutButton = document.getElementById('play-logout-button');
+    if (logoutButton) {
+      logoutButton.hidden = false;
+    }
     return;
   }
 
