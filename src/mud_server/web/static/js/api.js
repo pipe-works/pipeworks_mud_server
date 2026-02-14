@@ -105,11 +105,66 @@ class ApiClient {
   }
 
   /**
+   * Fetch character locations.
+   */
+  async getLocations(sessionId) {
+    return this.fetcher(`/admin/database/player-locations?session_id=${sessionId}`);
+  }
+
+  /**
+   * Fetch recent chat messages.
+   */
+  async getChatMessages(sessionId, limit = 100) {
+    const params = new URLSearchParams({ session_id: sessionId, limit: `${limit}` });
+    return this.fetcher(`/admin/database/chat-messages?${params.toString()}`);
+  }
+
+  /**
+   * Fetch table metadata.
+   */
+  async getTables(sessionId) {
+    return this.fetcher(`/admin/database/tables?session_id=${sessionId}`);
+  }
+
+  /**
    * Fetch table rows for admin views.
    */
   async getTableRows(sessionId, tableName, limit = 100) {
     const params = new URLSearchParams({ session_id: sessionId, limit: `${limit}` });
     return this.fetcher(`/admin/database/table/${tableName}?${params.toString()}`);
+  }
+
+  /**
+   * Kick an active session.
+   */
+  async kickSession(sessionId, targetSessionId) {
+    return this.fetcher('/admin/session/kick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, target_session_id: targetSessionId }),
+    });
+  }
+
+  /**
+   * Manage user accounts (role, ban, delete, password).
+   */
+  async manageUser(payload) {
+    return this.fetcher('/admin/user/manage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * Request server stop (superuser only).
+   */
+  async stopServer(sessionId) {
+    return this.fetcher('/admin/server/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, confirm: true }),
+    });
   }
 }
 
