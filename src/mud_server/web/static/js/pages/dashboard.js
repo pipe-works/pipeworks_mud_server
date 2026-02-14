@@ -22,24 +22,38 @@ async function renderDashboard(root, { api, session }) {
     ]);
 
     root.innerHTML = `
-      <div class="panel wide">
-        <h1>Admin Dashboard</h1>
-        <div class="stats">
-          <div class="stat">
+      <div class="page">
+        <div class="page-header">
+          <div>
+            <h2>Admin Overview</h2>
+            <p class="muted">Snapshot of active users, sessions, and worlds.</p>
+          </div>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi-card">
             <div class="stat-label">Users</div>
             <div class="stat-value">${players.players.length}</div>
           </div>
-          <div class="stat">
+          <div class="kpi-card">
             <div class="stat-label">Sessions</div>
             <div class="stat-value">${sessions.sessions.length}</div>
           </div>
-          <div class="stat">
+          <div class="kpi-card">
             <div class="stat-label">Connections</div>
             <div class="stat-value">${connections.connections.length}</div>
           </div>
-          <div class="stat">
+          <div class="kpi-card">
             <div class="stat-label">Worlds</div>
             <div class="stat-value">${worlds.rows.length}</div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Quick Actions</h3>
+          <p class="muted">Jump straight to high-impact views.</p>
+          <div class="actions">
+            <a href="/admin/users">Manage users</a>
+            <a href="/admin/sessions">Active sessions</a>
+            <a href="/admin/tables">Database tables</a>
           </div>
         </div>
       </div>

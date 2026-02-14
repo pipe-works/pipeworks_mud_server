@@ -4,14 +4,22 @@
  * Superuser-only panel. Includes server stop and export shortcuts.
  */
 
+import { showToast } from '../ui/toasts.js';
+
 function renderSuperuser(root, { api, session }) {
   root.innerHTML = `
-    <div class="panel wide">
-      <h1>Superuser</h1>
-      <p class="muted">Danger zone actions for superusers.</p>
-      <div class="actions">
-        <button data-action="stop">Stop server</button>
-        <button data-action="export">Export worlds table (JSON)</button>
+    <div class="page">
+      <div class="page-header">
+        <div>
+          <h2>Superuser</h2>
+          <p class="muted">Danger zone actions for superusers.</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="actions">
+          <button data-action="stop">Stop server</button>
+          <button data-action="export">Export worlds table (JSON)</button>
+        </div>
       </div>
     </div>
   `;
@@ -24,9 +32,9 @@ function renderSuperuser(root, { api, session }) {
     }
     try {
       await api.stopServer(session.session_id);
-      alert('Server stop requested.');
+      showToast('Server stop requested.', 'success');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to stop server.');
+      showToast(err instanceof Error ? err.message : 'Failed to stop server.', 'error');
     }
   });
 
@@ -43,8 +51,9 @@ function renderSuperuser(root, { api, session }) {
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
+      showToast('Export created.', 'success');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to export worlds.');
+      showToast(err instanceof Error ? err.message : 'Failed to export worlds.', 'error');
     }
   });
 }

@@ -1,32 +1,71 @@
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 
-.actions button {
+.actions button,
+.actions a {
   border: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-text);
-  padding: 0.4rem 0.7rem;
-  border-radius: 6px;
+  padding: 0.55rem 0.95rem;
+  border-radius: 10px;
   cursor: pointer;
+  font-size: 0.85rem;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.actions a:hover,
+.actions button:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 .table {
   width: 100%;
-  border-collapse: collapse;
-  margin-top: 1rem;
-  font-size: 0.95rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin-top: 1.5rem;
+  font-size: 0.92rem;
 }
 
 .table th,
 .table td {
   text-align: left;
-  padding: 0.6rem 0.8rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--color-border);
 }
 
-.table thead {
-  background: rgba(0, 0, 0, 0.04);
+.table thead th {
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.table tbody tr:nth-child(even) {
+  background: rgba(15, 23, 42, 0.03);
+}
+
+html[data-theme='dark'] .table tbody tr:nth-child(even) {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.table tbody tr:hover {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
 }

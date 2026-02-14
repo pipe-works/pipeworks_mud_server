@@ -5,6 +5,7 @@
  */
 
 import { renderTable } from '../ui/table.js';
+import { showToast } from '../ui/toasts.js';
 
 async function renderLocations(root, { api, session }) {
   root.innerHTML = `
@@ -25,17 +26,24 @@ async function renderLocations(root, { api, session }) {
     ]);
 
     root.innerHTML = `
-      <div class="panel wide">
-        <h1>Locations</h1>
-        <p class="muted">${rows.length} entries found.</p>
-        ${renderTable(headers, rows)}
+      <div class="page">
+        <div class="page-header">
+          <div>
+            <h2>Locations</h2>
+            <p class="muted">${rows.length} entries found.</p>
+          </div>
+        </div>
+        <div class="card table-card">
+          ${renderTable(headers, rows)}
+        </div>
       </div>
     `;
   } catch (err) {
+    showToast(err instanceof Error ? err.message : 'Failed to load locations.', 'error');
     root.innerHTML = `
       <div class="panel wide">
         <h1>Locations</h1>
-        <p class="error">${err instanceof Error ? err.message : 'Failed to load locations.'}</p>
+        <p class="error">Failed to load locations.</p>
       </div>
     `;
   }

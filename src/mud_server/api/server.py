@@ -33,7 +33,7 @@ from mud_server.api.routes.register import register_routes
 from mud_server.config import config, print_config_summary
 from mud_server.core.engine import GameEngine
 from mud_server.db import database
-from mud_server.web.routes import build_web_router
+from mud_server.web.routes import register_web_routes
 
 # ============================================================================
 # LIFESPAN EVENTS
@@ -140,7 +140,7 @@ engine = GameEngine()
 # - Player management (change password)
 # - Admin functions (user management, view logs, stop server)
 register_routes(app, engine)
-app.include_router(build_web_router())
+register_web_routes(app)
 
 # ============================================================================
 # PORT DISCOVERY

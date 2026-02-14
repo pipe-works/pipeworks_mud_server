@@ -5,6 +5,7 @@
  */
 
 import { renderTable } from '../ui/table.js';
+import { showToast } from '../ui/toasts.js';
 
 function formatRole(role) {
   return role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Unknown';
@@ -54,9 +55,10 @@ async function handleAction({ api, sessionId, action, username, refresh }) {
 
   try {
     await api.manageUser(payload);
+    showToast(`Action '${action}' completed.`, 'success');
     await refresh();
   } catch (err) {
-    alert(err instanceof Error ? err.message : 'Action failed.');
+    showToast(err instanceof Error ? err.message : 'Action failed.', 'error');
   }
 }
 
@@ -81,10 +83,16 @@ async function renderUsers(root, { api, session }) {
     ]);
 
     root.innerHTML = `
-      <div class="panel wide">
-        <h1>Users</h1>
-        <p class="muted">${rows.length} users found.</p>
-        ${renderTable(headers, rows)}
+      <div class="page">
+        <div class="page-header">
+          <div>
+            <h2>Users</h2>
+            <p class="muted">${rows.length} users found.</p>
+          </div>
+        </div>
+        <div class="card table-card">
+          ${renderTable(headers, rows)}
+        </div>
       </div>
     `;
 
