@@ -27,7 +27,9 @@
       reuse the same class names and layout CSS, while swapping the content.
     -->
     <div class="container" id="play-root">
-      <!-- Masthead -->
+      <!-- ============================= -->
+      <!-- MASTHEAD / NAVIGATION -->
+      <!-- ============================= -->
       <div class="masthead">
         <div class="title">PipeWorks Play</div>
         <div class="subtitle">LIVE WORLD INTERFACE — WORKBENCH EDITION</div>
@@ -46,7 +48,9 @@
         <div class="menu-item">Settings</div>
       </div>
 
-      <!-- Play state: Logged out -->
+      <!-- ============================= -->
+      <!-- LOGIN STATE (LOGGED OUT) -->
+      <!-- ============================= -->
       <section class="play-state play-state--logged-out" data-play-state="logged-out">
         <div class="panel-title">Login</div>
         <div class="character-article">
@@ -66,7 +70,9 @@
         <p class="location-notice" id="play-status">Awaiting credentials.</p>
       </section>
 
-      <!-- Play state: World/character selection -->
+      <!-- ============================= -->
+      <!-- WORLD SELECT STATE (USER PORTAL) -->
+      <!-- ============================= -->
       <section class="play-state play-state--select" data-play-state="select-world" hidden>
         <div class="panel-title">Select a World</div>
         <p class="character-article">
@@ -82,7 +88,9 @@
         </div>
       </section>
 
-      <!-- Main Layout (game UI) -->
+      <!-- ============================= -->
+      <!-- GAME UI (IN WORLD) -->
+      <!-- ============================= -->
       <div class="main-layout" data-play-state="in-world" hidden>
         <!-- Left: Character Panel -->
         <div class="character-panel">
