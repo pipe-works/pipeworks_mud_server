@@ -10,7 +10,7 @@ router = APIRouter()
 @router.get("/")
 async def root():
     """Root endpoint showing API info."""
-    return {"message": "MUD Server API", "version": "0.3.2"}
+    return {"message": "MUD Server API", "version": "0.3.4"}
 
 
 @router.get("/health")

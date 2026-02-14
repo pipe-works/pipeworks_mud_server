@@ -102,6 +102,16 @@ mud-server run
 
 Press `Ctrl+C` to stop the service.
 
+### Admin UI Security (Production)
+
+The admin Web UI is served by the same API process at `/admin`. In production:
+
+- Run behind Nginx and bind the API to `127.0.0.1`.
+- Expose the admin UI on a separate admin domain.
+- Protect the admin domain with mTLS or an IP allowlist.
+
+See `docs/source/admin_web_ui_mtls.rst` for a full mTLS deployment guide.
+
 ### Creating a Superuser
 
 **Interactive** (recommended):
@@ -287,6 +297,19 @@ python -m mud_server.api.server
 curl http://localhost:8000/health
 ```
 
+### Admin TUI (Optional)
+
+The text-based admin client is available as `pipeworks-admin-tui`:
+
+```bash
+# Install the TUI extras
+pip install -e ".[admin-tui]"
+
+# Point at a remote server if needed
+export MUD_SERVER_URL="http://localhost:8000"
+pipeworks-admin-tui
+```
+
 ### Database Management
 
 ```bash
@@ -307,7 +330,7 @@ sqlite3 data/mud.db "SELECT username, role, current_room FROM players;"
 # Server configuration
 export MUD_HOST="0.0.0.0"          # Bind address
 export MUD_PORT=8000                # API port
-export MUD_SERVER_URL="http://localhost:8000"  # Client API endpoint
+export MUD_SERVER_URL="http://localhost:8000"  # Admin TUI endpoint
 
 # Superuser creation (for CI/Docker)
 export MUD_ADMIN_USER="admin"
