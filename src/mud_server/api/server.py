@@ -95,7 +95,7 @@ redoc_url = "/redoc" if config.docs_should_be_enabled else None
 # This creates the main app instance that will handle all HTTP requests
 app = FastAPI(
     title="MUD Server",
-    version="0.3.2",
+    version="0.3.4",
     lifespan=lifespan,
     docs_url=docs_url,
     redoc_url=redoc_url,
