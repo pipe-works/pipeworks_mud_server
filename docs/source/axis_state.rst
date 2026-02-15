@@ -75,6 +75,19 @@ On startup, the engine mirrors world policy files into the axis registry
 tables (``axis`` and ``axis_value``). This makes the database a queryable
 reflection of the policy while keeping policy files as the source of truth.
 
+Event Application
+-----------------
+
+Axis mutations are recorded via a single transaction:
+
+1. Insert ``event`` row
+2. Insert ``event_entity_axis_delta`` rows
+3. Update ``character_axis_score``
+4. Refresh ``current_state_json``
+
+If any step fails (for example, an unknown axis), the transaction is rolled
+back and no changes are written.
+
 Database Tables (Authoritative)
 -------------------------------
 
