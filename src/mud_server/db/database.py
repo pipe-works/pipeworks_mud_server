@@ -36,6 +36,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from secrets import randbelow
 from typing import Any, cast
 
 # ==========================================================================
@@ -47,6 +48,21 @@ DEFAULT_AXIS_SCORE = 0.5
 # Default world identifier used for legacy code paths that do not yet provide
 # an explicit world_id. This keeps the server functional during migration and
 # will be replaced by config-driven defaults in a later phase.
+
+
+def _generate_state_seed() -> int:
+    """
+    Generate a non-zero seed for character state snapshots.
+
+    We use ``secrets.randbelow`` instead of the global ``random`` module so
+    snapshot seeding has zero interaction with any deterministic RNG usage in
+    gameplay systems. This keeps "seed randomization" isolated and prevents
+    accidental RNG state pollution.
+
+    Returns:
+        Positive integer in the inclusive range [1, 2_147_483_647].
+    """
+    return randbelow(2_147_483_647) + 1
 
 
 def _get_db_path() -> Path:
@@ -848,20 +864,32 @@ def _seed_character_state_snapshot(
     *,
     character_id: int,
     world_id: str,
-    seed: int = 0,
+    seed: int | None = None,
 ) -> None:
     """
     Seed base/current state snapshots for a character.
 
     Base snapshots are immutable; current snapshots are updated whenever
     axis scores change. For now, this is only called at creation time.
+
+    Notes:
+        - When ``seed`` is omitted, a non-zero random seed is generated.
+        - Existing non-zero ``state_seed`` values are preserved.
+        - Snapshot JSON and persisted ``state_seed`` are kept aligned.
     """
+    # Resolve the effective seed before building JSON so the serialized
+    # snapshot seed always matches the stored state_seed column.
+    cursor.execute("SELECT state_seed FROM characters WHERE id = ?", (character_id,))
+    row = cursor.fetchone()
+    existing_seed = int(row[0]) if row and row[0] is not None else 0
+    effective_seed = existing_seed if existing_seed > 0 else (seed or _generate_state_seed())
+
     policy_hash = _get_axis_policy_hash(world_id)
     snapshot = _build_character_state_snapshot(
         cursor,
         character_id=character_id,
         world_id=world_id,
-        seed=seed,
+        seed=effective_seed,
         policy_hash=policy_hash,
     )
     snapshot_json = json.dumps(snapshot, sort_keys=True)
@@ -872,7 +900,10 @@ def _seed_character_state_snapshot(
         UPDATE characters
         SET base_state_json = COALESCE(base_state_json, ?),
             current_state_json = ?,
-            state_seed = COALESCE(state_seed, ?),
+            state_seed = CASE
+                WHEN state_seed IS NULL OR state_seed = 0 THEN ?
+                ELSE state_seed
+            END,
             state_version = ?,
             state_updated_at = ?
         WHERE id = ?
@@ -880,7 +911,7 @@ def _seed_character_state_snapshot(
         (
             snapshot_json,
             snapshot_json,
-            seed,
+            effective_seed,
             policy_hash,
             state_updated_at,
             character_id,

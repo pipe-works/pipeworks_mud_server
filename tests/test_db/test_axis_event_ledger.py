@@ -66,6 +66,17 @@ def test_apply_axis_event_updates_scores_and_snapshot(temp_db_path, monkeypatch)
         character = database.get_character_by_name("event_char")
         assert character is not None
 
+        # Snapshot seeds now start from a random non-zero value, so we assert
+        # monotonic increment instead of a fixed literal.
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT state_seed FROM characters WHERE id = ?",
+            (int(character["id"]),),
+        )
+        initial_seed = int(cursor.fetchone()[0])
+        conn.close()
+
         event_id = database.apply_axis_event(
             world_id=world_id,
             character_id=int(character["id"]),
@@ -118,7 +129,7 @@ def test_apply_axis_event_updates_scores_and_snapshot(temp_db_path, monkeypatch)
         current_state_json, state_seed, state_version = cursor.fetchone()
         conn.close()
 
-        assert state_seed == 1
+        assert state_seed == initial_seed + 1
         assert state_version == "policyhash"
 
         snapshot = json.loads(current_state_json)

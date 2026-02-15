@@ -50,3 +50,38 @@ axes:
       weathered: {min: 0.60, max: 0.74}
       soft-featured: {min: 0.75, max: 0.89}
       sharp-featured: {min: 0.90, max: 1.0}
+  legitimacy:
+    scale: ordinal
+    values:
+      sanctioned: {min: 0.0, max: 0.24}
+      tolerated: {min: 0.25, max: 0.49}
+      questioned: {min: 0.50, max: 0.74}
+      illicit: {min: 0.75, max: 1.0}
+  visibility:
+    scale: ordinal
+    values:
+      hidden: {min: 0.0, max: 0.24}
+      discrete: {min: 0.25, max: 0.49}
+      routine: {min: 0.50, max: 0.74}
+      conspicuous: {min: 0.75, max: 1.0}
+  moral_load:
+    scale: ordinal
+    values:
+      neutral: {min: 0.0, max: 0.24}
+      burdened: {min: 0.25, max: 0.49}
+      conflicted: {min: 0.50, max: 0.74}
+      corrosive: {min: 0.75, max: 1.0}
+  dependency:
+    scale: ordinal
+    values:
+      optional: {min: 0.0, max: 0.24}
+      useful: {min: 0.25, max: 0.49}
+      necessary: {min: 0.50, max: 0.74}
+      unavoidable: {min: 0.75, max: 1.0}
+  risk_exposure:
+    scale: ordinal
+    values:
+      benign: {min: 0.0, max: 0.24}
+      straining: {min: 0.25, max: 0.49}
+      hazardous: {min: 0.50, max: 0.74}
+      eroding: {min: 0.75, max: 1.0}
