@@ -186,6 +186,113 @@ function formatDate(value) {
   return `${value}`;
 }
 
+function formatAxisScore(score) {
+  if (typeof score !== 'number') {
+    return '—';
+  }
+  return score.toFixed(2);
+}
+
+function escapeHtml(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildAxisStatePanel({
+  characters,
+  axisCharacterId,
+  axisState,
+  isLoading,
+  error,
+}) {
+  if (!characters.length) {
+    return '<p class="muted">No characters available for axis state.</p>';
+  }
+
+  const optionsHtml = characters
+    .map(
+      (character) =>
+        `<option value="${character.id}" ${
+          Number(character.id) === axisCharacterId ? 'selected' : ''
+        }>${escapeHtml(character.name)}</option>`
+    )
+    .join('');
+
+  if (error) {
+    return `
+      <div class="axis-state">
+        <label class="detail-form axis-state-select">
+          Character
+          <select data-axis-character>${optionsHtml}</select>
+        </label>
+        <p class="error">${escapeHtml(error)}</p>
+      </div>
+    `;
+  }
+
+  if (isLoading || !axisState) {
+    return `
+      <div class="axis-state">
+        <label class="detail-form axis-state-select">
+          Character
+          <select data-axis-character>${optionsHtml}</select>
+        </label>
+        <p class="muted">Loading axis state...</p>
+      </div>
+    `;
+  }
+
+  const axisRows = axisState.axes?.length
+    ? axisState.axes
+        .map(
+          (axis) => `
+            <div>
+              <dt>${escapeHtml(axis.axis_name)}</dt>
+              <dd>${escapeHtml(axis.axis_label || '—')} (${formatAxisScore(
+                axis.axis_score
+              )})</dd>
+            </div>
+          `
+        )
+        .join('')
+    : '<p class="muted">No axis scores recorded.</p>';
+
+  const snapshot =
+    axisState.current_state && Object.keys(axisState.current_state).length
+      ? JSON.stringify(axisState.current_state, null, 2)
+      : null;
+
+  return `
+    <div class="axis-state">
+      <label class="detail-form axis-state-select">
+        Character
+        <select data-axis-character>${optionsHtml}</select>
+      </label>
+      <dl class="detail-list axis-state-summary">
+        <div><dt>World</dt><dd>${escapeHtml(axisState.world_id)}</dd></div>
+        <div><dt>Seed</dt><dd>${axisState.state_seed ?? '—'}</dd></div>
+        <div><dt>Policy</dt><dd>${escapeHtml(axisState.state_version || '—')}</dd></div>
+        <div><dt>Updated</dt><dd>${escapeHtml(axisState.state_updated_at || '—')}</dd></div>
+      </dl>
+      <h5>Axis Scores</h5>
+      <dl class="detail-list axis-score-list">${axisRows}</dl>
+      <h5>Current Snapshot</h5>
+      ${
+        snapshot
+          ? `<pre class="detail-code">${escapeHtml(snapshot)}</pre>`
+          : '<p class="muted">No snapshot data available.</p>'
+      }
+    </div>
+  `;
+}
+
 /**
  * Build the detail panel for the selected user.
  */
@@ -196,6 +303,10 @@ function buildUserDetails({
   permissionsByUser,
   locationsByCharacter,
   activeTab,
+  axisState,
+  axisCharacterId,
+  axisStateLoading,
+  axisStateError,
 }) {
   if (!user) {
     return `
@@ -253,6 +364,9 @@ function buildUserDetails({
           <button class="tab-button ${tab === 'worlds' ? 'is-active' : ''}" data-tab="worlds">
             World Access
           </button>
+          <button class="tab-button ${tab === 'axis' ? 'is-active' : ''}" data-tab="axis">
+            Axis State
+          </button>
         </div>
       </div>
 
@@ -280,6 +394,17 @@ function buildUserDetails({
       <div class="tab-panel" data-tab-panel="worlds" ${tab !== 'worlds' ? 'hidden' : ''}>
         <h4>World Access</h4>
         <div class="tag-list">${worldsHtml}</div>
+      </div>
+
+      <div class="tab-panel" data-tab-panel="axis" ${tab !== 'axis' ? 'hidden' : ''}>
+        <h4>Axis State</h4>
+        ${buildAxisStatePanel({
+          characters: userCharacters,
+          axisCharacterId,
+          axisState,
+          isLoading: axisStateLoading,
+          error: axisStateError,
+        })}
       </div>
     </div>
   `;
@@ -354,11 +479,15 @@ async function renderUsers(root, { api, session }) {
     let searchTerm = '';
     let activeOnly = false;
     let activeDetailTab = 'account';
+    let activeAxisCharacterId = null;
+    let axisStateError = null;
 
     let characters = [];
     let worldsById = new Map();
     let permissionsByUser = new Map();
     let locationsByCharacter = new Map();
+    const axisStateCache = new Map();
+    const axisStateLoading = new Set();
 
     try {
       const [charactersResp, worldsResp, permissionsResp, locationsResp] =
@@ -392,6 +521,25 @@ async function renderUsers(root, { api, session }) {
       showToast('Unable to load character/world metadata.', 'error');
     }
 
+    const ensureAxisState = async (characterId) => {
+      if (!characterId || axisStateCache.has(characterId) || axisStateLoading.has(characterId)) {
+        return;
+      }
+
+      axisStateLoading.add(characterId);
+      axisStateError = null;
+
+      try {
+        const response = await api.getCharacterAxisState(sessionId, characterId);
+        axisStateCache.set(characterId, response);
+      } catch (err) {
+        axisStateError = err instanceof Error ? err.message : 'Unable to load axis state.';
+      } finally {
+        axisStateLoading.delete(characterId);
+        renderPage();
+      }
+    };
+
     const renderPage = () => {
       const activeElement = document.activeElement;
       const searchWasFocused =
@@ -409,6 +557,19 @@ async function renderUsers(root, { api, session }) {
       }
       const selectedUser =
         sortedUsers.find((user) => user.id === selectedUserId) || sortedUsers[0] || null;
+      const selectedCharacters = characters.filter(
+        (character) => character.user_id === selectedUser?.id
+      );
+      const axisCharacterIds = selectedCharacters.map((character) => Number(character.id));
+      if (!axisCharacterIds.includes(activeAxisCharacterId)) {
+        activeAxisCharacterId = axisCharacterIds[0] ?? null;
+        axisStateError = null;
+      }
+      const axisState =
+        activeAxisCharacterId !== null ? axisStateCache.get(activeAxisCharacterId) : null;
+      const axisStateLoadingActive =
+        activeAxisCharacterId !== null && axisStateLoading.has(activeAxisCharacterId);
+
       root.innerHTML = `
         <div class="page">
           <div class="page-header">
@@ -455,6 +616,10 @@ async function renderUsers(root, { api, session }) {
                 permissionsByUser,
                 locationsByCharacter,
                 activeTab: activeDetailTab,
+                axisState,
+                axisCharacterId: activeAxisCharacterId,
+                axisStateLoading: axisStateLoadingActive,
+                axisStateError,
               })}
             </aside>
           </div>
@@ -530,6 +695,15 @@ async function renderUsers(root, { api, session }) {
         });
       });
 
+      const axisSelect = root.querySelector('[data-axis-character]');
+      if (axisSelect) {
+        axisSelect.addEventListener('change', (event) => {
+          activeAxisCharacterId = Number(event.target.value);
+          axisStateError = null;
+          renderPage();
+        });
+      }
+
       const searchInput = root.querySelector('#user-search');
       if (searchInput) {
         searchInput.addEventListener('input', (event) => {
@@ -558,6 +732,10 @@ async function renderUsers(root, { api, session }) {
         if (tableWrap) {
           tableWrap.scrollTop = previousScrollTop;
         }
+      }
+
+      if (activeDetailTab === 'axis' && activeAxisCharacterId) {
+        ensureAxisState(activeAxisCharacterId);
       }
     };
 

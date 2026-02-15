@@ -621,6 +621,48 @@ class DatabaseChatResponse(BaseModel):
     messages: list[dict[str, Any]]
 
 
+class CharacterAxisScore(BaseModel):
+    """
+    Axis score entry for a character.
+
+    Attributes:
+        axis_id: Axis registry id.
+        axis_name: Axis name from policy.
+        axis_score: Numeric score for the axis.
+        axis_label: Resolved label from thresholds (if available).
+    """
+
+    axis_id: int
+    axis_name: str
+    axis_score: float
+    axis_label: str | None
+
+
+class DatabaseCharacterAxisStateResponse(BaseModel):
+    """
+    Admin response containing character axis state and snapshot payloads.
+
+    Attributes:
+        character_id: Character id.
+        world_id: World identifier.
+        state_seed: Snapshot seed counter.
+        state_version: Policy hash associated with the snapshot.
+        state_updated_at: Timestamp of the snapshot refresh.
+        base_state: Parsed base snapshot JSON.
+        current_state: Parsed current snapshot JSON.
+        axes: Axis score entries.
+    """
+
+    character_id: int
+    world_id: str
+    state_seed: int | None
+    state_version: str | None
+    state_updated_at: str | None
+    base_state: dict[str, Any] | None
+    current_state: dict[str, Any] | None
+    axes: list[CharacterAxisScore]
+
+
 class UserManagementResponse(BaseModel):
     """
     Response to user management action (role change, ban, unban).

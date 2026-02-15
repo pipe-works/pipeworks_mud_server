@@ -142,6 +142,13 @@ class ApiClient {
   }
 
   /**
+   * Fetch axis state for a character (admin only).
+   */
+  async getCharacterAxisState(sessionId, characterId) {
+    return this.fetcher(`/admin/characters/${characterId}/axis-state?session_id=${sessionId}`);
+  }
+
+  /**
    * Kick an active session.
    */
   async kickSession(sessionId, targetSessionId) {

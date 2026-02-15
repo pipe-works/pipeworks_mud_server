@@ -1327,6 +1327,55 @@ def test_admin_database_endpoints_with_character_selected(
 
 
 @pytest.mark.api
+def test_admin_character_axis_state_endpoint(test_client, test_db, temp_db_path, db_with_users):
+    """Admin axis-state endpoint should return axis data for a character."""
+    with use_test_database(temp_db_path):
+        axes_payload = {
+            "axes": {
+                "wealth": {
+                    "description": "Economic status",
+                    "ordering": {"type": "ordinal", "values": ["poor", "wealthy"]},
+                }
+            }
+        }
+        thresholds_payload = {
+            "axes": {
+                "wealth": {
+                    "values": {
+                        "poor": {"min": 0.0, "max": 0.49},
+                        "wealthy": {"min": 0.5, "max": 1.0},
+                    }
+                }
+            }
+        }
+        database.seed_axis_registry(
+            world_id=database.DEFAULT_WORLD_ID,
+            axes_payload=axes_payload,
+            thresholds_payload=thresholds_payload,
+        )
+
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+        admin_id = database.get_user_id("testadmin")
+        assert admin_id is not None
+
+        assert database.create_character_for_user(admin_id, "axis_admin_char")
+        character = database.get_character_by_name("axis_admin_char")
+        assert character is not None
+
+        response = test_client.get(
+            f"/admin/characters/{character['id']}/axis-state",
+            params={"session_id": session_id},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["character_id"] == character["id"]
+        assert any(axis["axis_name"] == "wealth" for axis in payload["axes"])
+
+
+@pytest.mark.api
 def test_admin_kick_session_not_found(test_client, test_db, temp_db_path, db_with_users):
     """Kick session should return not found when session is missing."""
     with use_test_database(temp_db_path):

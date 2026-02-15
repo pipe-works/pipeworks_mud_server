@@ -9,6 +9,7 @@ from mud_server.api.auth import validate_session_for_game, validate_session_with
 from mud_server.api.models import (
     CreateUserRequest,
     CreateUserResponse,
+    DatabaseCharacterAxisStateResponse,
     DatabaseChatResponse,
     DatabaseConnectionsResponse,
     DatabasePlayerLocationsResponse,
@@ -72,6 +73,20 @@ def router(engine: GameEngine) -> APIRouter:
             locations.append({**location, "zone_id": zone_id})
 
         return DatabasePlayerLocationsResponse(locations=locations)
+
+    @api.get(
+        "/admin/characters/{character_id}/axis-state",
+        response_model=DatabaseCharacterAxisStateResponse,
+    )
+    async def get_character_axis_state(session_id: str, character_id: int):
+        """Get axis scores and snapshots for a character (Admin only)."""
+        _, _username, _role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+
+        axis_state = database.get_character_axis_state(character_id)
+        if not axis_state:
+            raise HTTPException(status_code=404, detail="Character not found")
+
+        return DatabaseCharacterAxisStateResponse(**axis_state)
 
     @api.post("/admin/session/kick", response_model=KickSessionResponse)
     async def kick_session(request: KickSessionRequest):
