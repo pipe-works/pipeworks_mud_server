@@ -330,11 +330,21 @@ class RegisterGuestResponse(BaseModel):
         success: True if account created, False otherwise
         message: Success confirmation or error details
         username: Generated guest username for login
+        character_id: Created character id for the guest account
+        character_name: Created character name
+        world_id: Character world id
+        entity_state: Optional entity-state payload from the entity service
+        entity_state_error: Optional entity-state integration error message
     """
 
     success: bool
     message: str
     username: str | None = None
+    character_id: int | None = None
+    character_name: str | None = None
+    world_id: str | None = None
+    entity_state: dict[str, Any] | None = None
+    entity_state_error: str | None = None
 
 
 class CreateUserResponse(BaseModel):

@@ -84,8 +84,32 @@ Register Guest Examples
     {
       "success": true,
       "message": "Temporary guest account created successfully! You can now login as guest_00421.",
-      "username": "guest_00421"
+      "username": "guest_00421",
+      "character_id": 42,
+      "character_name": "Guest Wanderer",
+      "world_id": "pipeworks_web",
+      "entity_state": {
+        "seed": 0,
+        "world_id": "pipeworks_web",
+        "policy_hash": "420079743c68fba68936162bb3f46f7cbddecd9d3ff704a52c702cd6c0b6aec4",
+        "axes": {
+          "age": {"label": "old", "score": 0.5},
+          "demeanor": {"label": "resentful", "score": 0.5},
+          "health": {"label": "weary", "score": 0.5}
+        }
+      },
+      "entity_state_error": null
     }
+
+Notes:
+
+* ``entity_state`` is sourced from the freshly seeded in-database character
+  snapshot when available.
+* If the local snapshot is unavailable, the server may attempt external
+  integration fallback (when configured).
+* If state generation is unavailable from all sources, registration still
+  succeeds and ``entity_state`` is ``null`` with ``entity_state_error``
+  populated.
 
 Game Actions
 ~~~~~~~~~~~~

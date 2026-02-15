@@ -1,8 +1,10 @@
 """Tests for mud_server.config environment overrides."""
 
+import configparser
+
 import pytest
 
-from mud_server.config import load_config
+from mud_server.config import ServerConfig, _load_from_ini, load_config, print_config_summary
 
 
 @pytest.mark.unit
@@ -42,3 +44,50 @@ def test_world_env_overrides(monkeypatch):
     assert cfg.worlds.worlds_root == "/tmp/worlds"
     assert cfg.worlds.default_world_id == "pipeworks_web"
     assert cfg.worlds.allow_multi_world_characters is True
+
+
+@pytest.mark.unit
+def test_entity_integration_env_overrides(monkeypatch):
+    monkeypatch.setenv("MUD_ENTITY_STATE_ENABLED", "false")
+    monkeypatch.setenv("MUD_ENTITY_STATE_BASE_URL", "https://entity.example.org")
+    monkeypatch.setenv("MUD_ENTITY_STATE_TIMEOUT_SECONDS", "7.5")
+    monkeypatch.setenv("MUD_ENTITY_STATE_INCLUDE_PROMPTS", "true")
+
+    cfg = load_config()
+
+    assert cfg.integrations.entity_state_enabled is False
+    assert cfg.integrations.entity_state_base_url == "https://entity.example.org"
+    assert cfg.integrations.entity_state_timeout_seconds == 7.5
+    assert cfg.integrations.entity_state_include_prompts is True
+
+
+@pytest.mark.unit
+def test_entity_integration_ini_overrides():
+    """Integration settings should load from the INI [integrations] section."""
+    parser = configparser.ConfigParser()
+    parser.read_dict(
+        {
+            "integrations": {
+                "entity_state_enabled": "true",
+                "entity_state_base_url": "https://entity.pipe-works.org",
+                "entity_state_timeout_seconds": "4.25",
+                "entity_state_include_prompts": "false",
+            }
+        }
+    )
+
+    cfg = ServerConfig()
+    _load_from_ini(parser, cfg)
+
+    assert cfg.integrations.entity_state_enabled is True
+    assert cfg.integrations.entity_state_base_url == "https://entity.pipe-works.org"
+    assert cfg.integrations.entity_state_timeout_seconds == 4.25
+    assert cfg.integrations.entity_state_include_prompts is False
+
+
+@pytest.mark.unit
+def test_print_config_summary_includes_entity_api_line(capsys):
+    """Config summary should include the entity integration diagnostics line."""
+    print_config_summary()
+    output = capsys.readouterr().out
+    assert "Entity API:" in output

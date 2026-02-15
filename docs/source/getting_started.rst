@@ -248,8 +248,27 @@ Example: ``POST /register-guest`` (server-generated username)
     {
       "success": true,
       "message": "Temporary guest account created successfully! You can now login as guest_00421.",
-      "username": "guest_00421"
+      "username": "guest_00421",
+      "character_id": 42,
+      "character_name": "Guest Wanderer",
+      "world_id": "pipeworks_web",
+      "entity_state": {
+        "seed": 0,
+        "world_id": "pipeworks_web",
+        "policy_hash": "420079743c68fba68936162bb3f46f7cbddecd9d3ff704a52c702cd6c0b6aec4",
+        "axes": {
+          "age": {"label": "old", "score": 0.5},
+          "demeanor": {"label": "resentful", "score": 0.5},
+          "health": {"label": "weary", "score": 0.5}
+        }
+      },
+      "entity_state_error": null
     }
+
+``entity_state`` is sourced from the in-database axis snapshot by default.
+If local snapshot state is unavailable and the external entity integration is
+configured, the server can attempt integration fallback. Registration remains
+fail-open either way and still succeeds when ``entity_state`` is ``null``.
 
 Environment Variables
 ---------------------
@@ -281,6 +300,24 @@ Optional configuration:
    * - ``MUD_REQUEST_TIMEOUT``
      - ``30``
      - HTTP request timeout (seconds) for TUI
+   * - ``MUD_CHAR_DEFAULT_SLOTS``
+     - ``2``
+     - Default character slots per account
+   * - ``MUD_CHAR_MAX_SLOTS``
+     - ``10``
+     - Maximum character slots per account
+   * - ``MUD_ENTITY_STATE_ENABLED``
+     - ``true``
+     - Enable entity-state generation during ``/register-guest``
+   * - ``MUD_ENTITY_STATE_BASE_URL``
+     - ``https://entity.pipe-works.org``
+     - Entity-state API base URL used by guest onboarding
+   * - ``MUD_ENTITY_STATE_TIMEOUT_SECONDS``
+     - ``3.0``
+     - Timeout for entity-state API calls
+   * - ``MUD_ENTITY_STATE_INCLUDE_PROMPTS``
+     - ``false``
+     - Include prompt strings in the returned ``entity_state`` payload
 
 CLI Reference
 -------------
@@ -315,9 +352,3 @@ Next Steps
 * Read the :doc:`architecture` to understand the system design
 * Learn how to :doc:`extending` the server with new features
 * Explore the :doc:`api_reference` for API documentation
-   * - ``MUD_CHAR_DEFAULT_SLOTS``
-     - ``2``
-     - Default character slots per account
-   * - ``MUD_CHAR_MAX_SLOTS``
-     - ``10``
-     - Maximum character slots per account

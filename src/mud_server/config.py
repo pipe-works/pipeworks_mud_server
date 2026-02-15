@@ -32,6 +32,10 @@ Environment Variable Mapping:
     MUD_SESSION_ACTIVE_WINDOW_MINUTES -> session.active_window_minutes
     MUD_CHAR_DEFAULT_SLOTS          -> characters.default_slots
     MUD_CHAR_MAX_SLOTS              -> characters.max_slots
+    MUD_ENTITY_STATE_ENABLED        -> integrations.entity_state_enabled
+    MUD_ENTITY_STATE_BASE_URL       -> integrations.entity_state_base_url
+    MUD_ENTITY_STATE_TIMEOUT_SECONDS -> integrations.entity_state_timeout_seconds
+    MUD_ENTITY_STATE_INCLUDE_PROMPTS -> integrations.entity_state_include_prompts
 """
 
 import configparser
@@ -147,6 +151,16 @@ class WorldSettings:
 
 
 @dataclass
+class IntegrationSettings:
+    """External integration settings."""
+
+    entity_state_enabled: bool = True
+    entity_state_base_url: str = "https://entity.pipe-works.org"
+    entity_state_timeout_seconds: float = 3.0
+    entity_state_include_prompts: bool = False
+
+
+@dataclass
 class ServerConfig:
     """
     Complete server configuration.
@@ -164,6 +178,7 @@ class ServerConfig:
     characters: CharacterSettings = field(default_factory=CharacterSettings)
     features: FeatureSettings = field(default_factory=FeatureSettings)
     worlds: WorldSettings = field(default_factory=WorldSettings)
+    integrations: IntegrationSettings = field(default_factory=IntegrationSettings)
 
     @property
     def is_production(self) -> bool:
@@ -295,6 +310,25 @@ def _load_from_ini(parser: configparser.ConfigParser, cfg: ServerConfig) -> None
                 parser.get("worlds", "allow_multi_world_characters")
             )
 
+    # Integrations section
+    if parser.has_section("integrations"):
+        if parser.has_option("integrations", "entity_state_enabled"):
+            cfg.integrations.entity_state_enabled = _parse_bool(
+                parser.get("integrations", "entity_state_enabled")
+            )
+        if parser.has_option("integrations", "entity_state_base_url"):
+            cfg.integrations.entity_state_base_url = parser.get(
+                "integrations", "entity_state_base_url"
+            )
+        if parser.has_option("integrations", "entity_state_timeout_seconds"):
+            cfg.integrations.entity_state_timeout_seconds = parser.getfloat(
+                "integrations", "entity_state_timeout_seconds"
+            )
+        if parser.has_option("integrations", "entity_state_include_prompts"):
+            cfg.integrations.entity_state_include_prompts = _parse_bool(
+                parser.get("integrations", "entity_state_include_prompts")
+            )
+
 
 def _apply_env_overrides(cfg: ServerConfig) -> None:
     """Apply environment variable overrides to configuration."""
@@ -341,6 +375,16 @@ def _apply_env_overrides(cfg: ServerConfig) -> None:
         cfg.worlds.default_world_id = env_default_world
     if env_allow_multi_world := os.getenv("MUD_ALLOW_MULTI_WORLD_CHARACTERS"):
         cfg.worlds.allow_multi_world_characters = _parse_bool(env_allow_multi_world)
+
+    # Integration settings
+    if env_entity_enabled := os.getenv("MUD_ENTITY_STATE_ENABLED"):
+        cfg.integrations.entity_state_enabled = _parse_bool(env_entity_enabled)
+    if env_entity_base_url := os.getenv("MUD_ENTITY_STATE_BASE_URL"):
+        cfg.integrations.entity_state_base_url = env_entity_base_url
+    if env_entity_timeout := os.getenv("MUD_ENTITY_STATE_TIMEOUT_SECONDS"):
+        cfg.integrations.entity_state_timeout_seconds = float(env_entity_timeout)
+    if env_entity_prompts := os.getenv("MUD_ENTITY_STATE_INCLUDE_PROMPTS"):
+        cfg.integrations.entity_state_include_prompts = _parse_bool(env_entity_prompts)
 
 
 def load_config() -> ServerConfig:
@@ -444,6 +488,11 @@ def print_config_summary() -> None:
     print(f"Multi-Session: {config.session.allow_multiple_sessions}")
     print(f"Active Window: {config.session.active_window_minutes} minutes")
     print(f"Log level:   {config.logging.level}")
+    print(
+        f"Entity API:  enabled={config.integrations.entity_state_enabled} "
+        f"url={config.integrations.entity_state_base_url} "
+        f"timeout={config.integrations.entity_state_timeout_seconds}s"
+    )
     print("=" * 60 + "\n")
 
 
