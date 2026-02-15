@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.6](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.5...mud_server-v0.3.6) (2026-02-15)
+
+
+### Features
+
+* **admin:** add users table filters ([e3d0b6c](https://github.com/pipe-works/pipeworks_mud_server/commit/e3d0b6c55425281f2cd89b2c06453991f460656d))
+* **admin:** add users table filters ([1dddfb9](https://github.com/pipe-works/pipeworks_mud_server/commit/1dddfb997ea29c8bc2f5576c4013898f2ce98013))
+* **admin:** expand axis inspector docs ([4040d53](https://github.com/pipe-works/pipeworks_mud_server/commit/4040d53347d56487eb87df2567e4807f57e9870d))
+* **admin:** expand axis inspector docs ([ff2b817](https://github.com/pipe-works/pipeworks_mud_server/commit/ff2b8172e6f14aab46c341fd5200e87d2feefb0e))
+* **admin:** expose axis state in user details ([#91](https://github.com/pipe-works/pipeworks_mud_server/issues/91)) ([636463c](https://github.com/pipe-works/pipeworks_mud_server/commit/636463cb20bd9c810f687e48bedd14bc9e93f228))
+* **admin:** refine users layout ([03a7f9a](https://github.com/pipe-works/pipeworks_mud_server/commit/03a7f9a832bf0b6085c7d2e7d777200e07fd7373))
+* **admin:** refine users layout ([d9f3ca5](https://github.com/pipe-works/pipeworks_mud_server/commit/d9f3ca5e39be744bab04ba4ceb5cd44e875e839f))
+* **admin:** show online status and axis events ([d085703](https://github.com/pipe-works/pipeworks_mud_server/commit/d085703572418a6ed0450d5b89d0c8341d0d81f7))
+* **admin:** show online status and axis events ([3266e9d](https://github.com/pipe-works/pipeworks_mud_server/commit/3266e9d3da7ab7cac25d9f41d69df9b13a1272c4))
+* **core:** add axis policy foundations ([01f1d76](https://github.com/pipe-works/pipeworks_mud_server/commit/01f1d7656c6c988230634bcdcada7d2763176b43))
+* **core:** add axis policy foundations ([f9750e5](https://github.com/pipe-works/pipeworks_mud_server/commit/f9750e58e7eebe126486617c6fb335bc4ca52ac2))
+* **core:** apply axis events atomically ([#90](https://github.com/pipe-works/pipeworks_mud_server/issues/90)) ([7eccb21](https://github.com/pipe-works/pipeworks_mud_server/commit/7eccb21c02576dea15433ef9e91925f6d98dd8b2))
+* **core:** seed axis registry at startup ([#88](https://github.com/pipe-works/pipeworks_mud_server/issues/88)) ([7c9f9aa](https://github.com/pipe-works/pipeworks_mud_server/commit/7c9f9aa3cff99195465134bb640d0522c5da35a5))
+* **core:** seed character state snapshots ([#89](https://github.com/pipe-works/pipeworks_mud_server/issues/89)) ([fec82a5](https://github.com/pipe-works/pipeworks_mud_server/commit/fec82a5b1e5258cef7cb4293bd78708e29de733e))
+
 ## [0.3.5](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.4...mud_server-v0.3.5) (2026-02-14)
 
 
