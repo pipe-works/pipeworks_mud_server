@@ -173,6 +173,45 @@ class CreateUserRequest(BaseModel):
     role: str
 
 
+class CreateCharacterRequest(BaseModel):
+    """
+    Admin request to provision a new character for an existing account.
+
+    This endpoint is intended for operational tooling in the Web Admin UI:
+    it mints a name through the name-generation integration, creates the
+    character row, then applies an entity-state seed event.
+
+    Attributes:
+        session_id: Active admin/superuser session id.
+        target_username: Username that will own the new character.
+        world_id: Target world id for the new character.
+    """
+
+    session_id: str
+    target_username: str
+    world_id: str
+
+
+class ManageCharacterRequest(BaseModel):
+    """
+    Superuser request to remove a character from an account.
+
+    This operation is intentionally restricted to superusers because it can
+    either soft-remove a character (tombstone) or permanently delete it.
+
+    Attributes:
+        session_id: Active superuser session id.
+        character_id: Character id to mutate.
+        action: Removal mode:
+            - "tombstone": Keep historical rows, detach ownership, rename.
+            - "delete": Hard-delete the character row and dependent records.
+    """
+
+    session_id: str
+    character_id: int
+    action: str
+
+
 class ServerStopRequest(BaseModel):
     """
     Admin request to stop the server gracefully.
@@ -358,6 +397,48 @@ class CreateUserResponse(BaseModel):
 
     success: bool
     message: str
+
+
+class CreateCharacterResponse(BaseModel):
+    """
+    Response to admin character provisioning.
+
+    Attributes:
+        success: True when character creation succeeded.
+        message: Human-readable status message.
+        character_id: Newly created character id.
+        character_name: Generated character name.
+        world_id: World id assigned to the character.
+        seed: Deterministic seed used for name/entity generation.
+        entity_state: Optional entity payload returned by the entity API.
+        entity_state_error: Optional integration error when entity seeding fails.
+    """
+
+    success: bool
+    message: str
+    character_id: int | None = None
+    character_name: str | None = None
+    world_id: str | None = None
+    seed: int | None = None
+    entity_state: dict[str, Any] | None = None
+    entity_state_error: str | None = None
+
+
+class ManageCharacterResponse(BaseModel):
+    """
+    Response to a superuser character management operation.
+
+    Attributes:
+        success: True when the requested operation completed.
+        message: Human-readable operation result.
+        character_id: Character id that was targeted.
+        action: Normalized action string that was executed.
+    """
+
+    success: bool
+    message: str
+    character_id: int
+    action: str
 
 
 class CommandResponse(BaseModel):

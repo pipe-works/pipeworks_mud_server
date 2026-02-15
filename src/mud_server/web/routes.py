@@ -25,6 +25,9 @@ from fastapi.templating import Jinja2Templates
 _WEB_ROOT = Path(__file__).resolve().parent
 _TEMPLATES_DIR = _WEB_ROOT / "templates"
 _STATIC_DIR = _WEB_ROOT / "static"
+# Static asset version token for admin shell cache busting.
+# Bump this when frontend assets change and deployments should force refresh.
+ADMIN_ASSET_VERSION = "20260215a"
 
 
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -39,6 +42,16 @@ def build_admin_router() -> APIRouter:
     """
     router = APIRouter()
 
+    def _render_admin_shell(request: Request) -> HTMLResponse:
+        """Render the admin shell with static asset version metadata."""
+        return templates.TemplateResponse(
+            request,
+            "admin_shell.html",
+            {
+                "asset_version": ADMIN_ASSET_VERSION,
+            },
+        )
+
     @router.get("/admin", response_class=HTMLResponse)
     async def admin_root(request: Request):
         """
@@ -46,7 +59,7 @@ def build_admin_router() -> APIRouter:
 
         Client-side routing handles the actual view selection.
         """
-        return templates.TemplateResponse(request, "admin_shell.html", {})
+        return _render_admin_shell(request)
 
     @router.get("/admin/{path:path}", response_class=HTMLResponse)
     async def admin_shell(request: Request, path: str):
@@ -57,7 +70,7 @@ def build_admin_router() -> APIRouter:
         specific subpaths.
         """
         _ = path  # Path is unused but retained for routing.
-        return templates.TemplateResponse(request, "admin_shell.html", {})
+        return _render_admin_shell(request)
 
     return router
 

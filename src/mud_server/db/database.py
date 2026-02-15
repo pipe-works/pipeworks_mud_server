@@ -764,6 +764,166 @@ def _resolve_axis_label_for_score(cursor: sqlite3.Cursor, axis_id: int, score: f
     return row[0] if row else None
 
 
+def _resolve_axis_score_for_label(
+    cursor: sqlite3.Cursor, *, world_id: str, axis_name: str, axis_label: str
+) -> float | None:
+    """
+    Resolve a policy label into a numeric score for a world axis.
+
+    This performs the inverse of ``_resolve_axis_label_for_score`` by reading
+    the threshold bounds stored in ``axis_value`` and producing a representative
+    score. Midpoint values are used when both bounds are present.
+
+    Args:
+        cursor: Active cursor inside a transaction/connection.
+        world_id: World identifier.
+        axis_name: Axis name (for example ``wealth``).
+        axis_label: Axis label (for example ``well-kept``).
+
+    Returns:
+        Numeric score for the label, or ``None`` when no mapping exists.
+    """
+    cursor.execute(
+        """
+        SELECT av.min_score, av.max_score
+        FROM axis_value av
+        JOIN axis a ON a.id = av.axis_id
+        WHERE a.world_id = ? AND a.name = ? AND av.value = ?
+        LIMIT 1
+        """,
+        (world_id, axis_name, axis_label),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return None
+
+    min_score = float(row[0]) if row[0] is not None else None
+    max_score = float(row[1]) if row[1] is not None else None
+    if min_score is not None and max_score is not None:
+        return (min_score + max_score) / 2.0
+    if min_score is not None:
+        return min_score
+    if max_score is not None:
+        return max_score
+    return DEFAULT_AXIS_SCORE
+
+
+def _flatten_entity_axis_labels(entity_state: dict[str, Any]) -> dict[str, str]:
+    """
+    Flatten entity payload axis labels into ``axis_name -> label`` mappings.
+
+    Supported shapes:
+    - ``{"character": {...}, "occupation": {...}}`` from the entity API.
+    - ``{"axes": {"wealth": {"label": "well-kept"}}}`` snapshot-like payloads.
+
+    Args:
+        entity_state: Raw entity-state payload.
+
+    Returns:
+        Flat mapping of axis names to label strings.
+    """
+    labels: dict[str, str] = {}
+
+    for group in ("character", "occupation"):
+        group_payload = entity_state.get(group)
+        if isinstance(group_payload, dict):
+            for axis_name, axis_value in group_payload.items():
+                if isinstance(axis_value, str) and axis_value.strip():
+                    labels[str(axis_name)] = axis_value.strip()
+
+    axes_payload = entity_state.get("axes")
+    if isinstance(axes_payload, dict):
+        for axis_name, axis_value in axes_payload.items():
+            if isinstance(axis_value, dict):
+                label = axis_value.get("label")
+                if isinstance(label, str) and label.strip():
+                    labels[str(axis_name)] = label.strip()
+            elif isinstance(axis_value, str) and axis_value.strip():
+                labels[str(axis_name)] = axis_value.strip()
+
+    return labels
+
+
+def apply_entity_state_to_character(
+    *,
+    character_id: int,
+    world_id: str,
+    entity_state: dict[str, Any],
+    seed: int | None = None,
+    event_type_name: str = "entity_profile_seeded",
+) -> int | None:
+    """
+    Apply entity-state labels to a character through the axis event ledger.
+
+    The entity payload is converted into target score labels, then transformed
+    into numeric deltas against the character's current axis scores. The final
+    mutation is persisted through ``apply_axis_event`` so snapshots and ledger
+    records stay in sync.
+
+    Args:
+        character_id: Character receiving seeded axis values.
+        world_id: Character world id.
+        entity_state: Entity payload containing character/occupation axis labels.
+        seed: Optional generation seed recorded in event metadata.
+        event_type_name: Ledger event type name.
+
+    Returns:
+        Event id when deltas were applied, otherwise ``None`` when no axis
+        mappings were resolvable from the payload.
+    """
+    axis_labels = _flatten_entity_axis_labels(entity_state)
+    if not axis_labels:
+        return None
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        current_scores = {
+            row["axis_name"]: float(row["axis_score"])
+            for row in _fetch_character_axis_scores(cursor, character_id, world_id)
+        }
+
+        deltas: dict[str, float] = {}
+        for axis_name, axis_label in axis_labels.items():
+            target_score = _resolve_axis_score_for_label(
+                cursor,
+                world_id=world_id,
+                axis_name=axis_name,
+                axis_label=axis_label,
+            )
+            if target_score is None:
+                continue
+
+            old_score = current_scores.get(axis_name, DEFAULT_AXIS_SCORE)
+            delta = target_score - old_score
+            if abs(delta) < 1e-9:
+                continue
+            deltas[axis_name] = delta
+    finally:
+        conn.close()
+
+    if not deltas:
+        return None
+
+    metadata: dict[str, str] = {
+        "source": "entity_state_api",
+        "axis_count": str(len(deltas)),
+    }
+    if seed is not None:
+        metadata["seed"] = str(seed)
+
+    return apply_axis_event(
+        world_id=world_id,
+        character_id=character_id,
+        event_type_name=event_type_name,
+        event_type_description=(
+            "Initial axis profile generated from external entity-state integration."
+        ),
+        deltas=deltas,
+        metadata=metadata,
+    )
+
+
 def _fetch_character_axis_scores(
     cursor: sqlite3.Cursor, character_id: int, world_id: str
 ) -> list[dict[str, Any]]:
@@ -839,6 +999,21 @@ def _build_character_state_snapshot(
 ) -> dict[str, Any]:
     """
     Build a character snapshot from axis scores + policy thresholds.
+
+    Snapshot contract (current canonical shape):
+        {
+            "world_id": <str>,
+            "seed": <int>,
+            "policy_hash": <str|None>,
+            "axes": {
+                "<axis_name>": {"score": <float>, "label": <str|None>}
+            }
+        }
+
+    Forward-compatibility note:
+        We intentionally keep ``axes`` flat so existing API/UI consumers do not
+        break. Group projections such as ``axis_groups`` or ``axes_by_group``
+        should be introduced as additive fields in a future non-breaking change.
 
     Returns:
         Snapshot payload suitable for JSON serialization.
@@ -1056,6 +1231,7 @@ def create_character_for_user(
     is_guest_created: bool = False,
     room_id: str = "spawn",
     world_id: str = DEFAULT_WORLD_ID,
+    state_seed: int | None = None,
 ) -> bool:
     """
     Create a character for an existing user.
@@ -1066,6 +1242,7 @@ def create_character_for_user(
         is_guest_created: Marks characters created from guest flow.
         room_id: Initial room id.
         world_id: World the character belongs to.
+        state_seed: Optional explicit seed for initial snapshot state.
 
     Returns:
         True if character created, False on constraint violation.
@@ -1086,7 +1263,12 @@ def create_character_for_user(
         character_id = int(character_id)
         _seed_character_location(cursor, character_id, world_id=world_id)
         _seed_character_axis_scores(cursor, character_id=character_id, world_id=world_id)
-        _seed_character_state_snapshot(cursor, character_id=character_id, world_id=world_id)
+        _seed_character_state_snapshot(
+            cursor,
+            character_id=character_id,
+            world_id=world_id,
+            seed=state_seed,
+        )
         if room_id != "spawn":
             cursor.execute(
                 """
@@ -1606,6 +1788,69 @@ def get_user_character_world_ids(user_id: int) -> set[str]:
     return {row[0] for row in rows}
 
 
+def tombstone_character(character_id: int) -> bool:
+    """
+    Tombstone a character without deleting historical rows.
+
+    Tombstoning performs a soft removal by:
+    - unlinking ownership (``user_id = NULL``)
+    - renaming to a unique tombstone marker so the original name can be reused
+    - updating ``updated_at`` to preserve auditability
+
+    Args:
+        character_id: Character id to tombstone.
+
+    Returns:
+        True when tombstoned, False when character does not exist.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM characters WHERE id = ?", (character_id,))
+    row = cursor.fetchone()
+    if row is None:
+        conn.close()
+        return False
+
+    original_name = str(row[0] or "character")
+    tombstone_name = f"tombstone_{character_id}_{original_name}"
+    cursor.execute(
+        """
+        UPDATE characters
+        SET user_id = NULL,
+            name = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (tombstone_name, character_id),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
+def delete_character(character_id: int) -> bool:
+    """
+    Permanently delete a character and cascade dependent rows.
+
+    This removes the character row itself; configured foreign-key actions handle
+    related tables (for example, locations and axis scores cascade, session/chat
+    references are set to NULL where applicable).
+
+    Args:
+        character_id: Character id to remove.
+
+    Returns:
+        True when a row was deleted, otherwise False.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM characters WHERE id = ?", (character_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
 def unlink_characters_for_user(user_id: int) -> None:
     """Detach characters from a user (used when tombstoning guest accounts)."""
     conn = get_connection()
@@ -2066,6 +2311,31 @@ def remove_sessions_for_user(user_id: int) -> bool:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        removed = int(cursor.rowcount or 0)
+        conn.commit()
+        conn.close()
+        return removed > 0
+    except Exception:
+        return False
+
+
+def remove_sessions_for_character(character_id: int) -> bool:
+    """
+    Remove all sessions currently bound to a specific character.
+
+    This is used before destructive character-management actions so no active
+    session remains attached to a character that is being tombstoned/deleted.
+
+    Args:
+        character_id: Character id whose sessions should be removed.
+
+    Returns:
+        True when at least one session was removed; otherwise False.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM sessions WHERE character_id = ?", (character_id,))
         removed = int(cursor.rowcount or 0)
         conn.commit()
         conn.close()

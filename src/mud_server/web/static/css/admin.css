@@ -122,30 +122,66 @@ html[data-theme='dark'] .table tbody tr:nth-child(even) {
   flex-direction: column;
   height: 730px;
   min-height: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .users-table-card .table-wrap {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  max-width: 100%;
 }
 
 .users-table-card .table {
   margin-top: 0.85rem;
+  min-width: 100%;
+  width: max-content;
 }
 
 .users-table-card .table th:nth-child(3),
 .users-table-card .table td:nth-child(3) {
-  min-width: 170px;
+  min-width: 150px;
+}
+
+.users-table-card .table th:nth-child(5),
+.users-table-card .table td:nth-child(5) {
+  min-width: 180px;
 }
 
 .users-split {
-  grid-template-columns: minmax(0, 2.4fr) minmax(340px, 1.25fr);
+  /*
+   * Wider two-column composition for high-resolution admin screens:
+   * - users table column: +20% from prior tuned width (2.64 -> 3.168)
+   * - details column: keep the current tuned width (1.885) and protect
+   *   against collapse with a minimum width so it does not become narrower.
+   * The global .split-layout gap remains unchanged, preserving spacing.
+   */
+  grid-template-columns: minmax(0, 3.168fr) minmax(520px, 1.885fr);
+}
+
+.users-split > * {
+  min-width: 0;
+}
+
+.users-split .detail-panel {
+  min-width: 0;
+  justify-self: stretch;
 }
 
 .users-left {
   display: grid;
   gap: 1.5rem;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+/*
+ * Admin runs comfortably on wider desktop layouts. Remove the generic content
+ * max-width cap so the users split can consume available horizontal space.
+ */
+.content {
+  max-width: none;
 }
 
 .users-bottom-row {
@@ -269,6 +305,80 @@ html[data-theme='dark'] .table tbody tr:nth-child(even) {
 
 .users-detail-card {
   height: 730px;
+  width: 100%;
+  min-width: 0;
+}
+
+.users-detail-card .tab-panel {
+  overflow-x: hidden;
+}
+
+.users-detail-card .detail-list dd,
+.users-detail-card .axis-state-summary dd,
+.users-detail-card .axis-event-values,
+.users-detail-card .axis-event-change {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.users-detail-card .detail-code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.create-character-panel {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.create-character-panel .detail-form {
+  margin-top: 0.2rem;
+}
+
+.create-character-panel input[readonly] {
+  opacity: 0.85;
+  cursor: not-allowed;
+}
+
+.detail-row-character {
+  align-items: center;
+}
+
+.detail-row-character .detail-meta {
+  margin-top: 0.4rem;
+}
+
+.character-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.character-actions button {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+
+.character-actions button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.character-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.table-refresh-note {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+  letter-spacing: 0.02em;
 }
 
 @media (max-width: 1100px) {
@@ -288,7 +398,12 @@ html[data-theme='dark'] .table tbody tr:nth-child(even) {
     grid-template-columns: 1fr;
   }
 
+  .users-split .detail-panel {
+    min-width: 0;
+  }
+
   .users-detail-card {
     height: auto;
+    min-width: 0;
   }
 }

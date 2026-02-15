@@ -86,8 +86,45 @@ def test_entity_integration_ini_overrides():
 
 
 @pytest.mark.unit
+def test_namegen_integration_env_overrides(monkeypatch):
+    """Name generation integration settings should load from env vars."""
+    monkeypatch.setenv("MUD_NAMEGEN_ENABLED", "false")
+    monkeypatch.setenv("MUD_NAMEGEN_BASE_URL", "https://name.example.org")
+    monkeypatch.setenv("MUD_NAMEGEN_TIMEOUT_SECONDS", "8.5")
+
+    cfg = load_config()
+
+    assert cfg.integrations.namegen_enabled is False
+    assert cfg.integrations.namegen_base_url == "https://name.example.org"
+    assert cfg.integrations.namegen_timeout_seconds == 8.5
+
+
+@pytest.mark.unit
+def test_namegen_integration_ini_overrides():
+    """Name generation settings should load from the INI [integrations] section."""
+    parser = configparser.ConfigParser()
+    parser.read_dict(
+        {
+            "integrations": {
+                "namegen_enabled": "true",
+                "namegen_base_url": "https://name.pipe-works.org",
+                "namegen_timeout_seconds": "5.75",
+            }
+        }
+    )
+
+    cfg = ServerConfig()
+    _load_from_ini(parser, cfg)
+
+    assert cfg.integrations.namegen_enabled is True
+    assert cfg.integrations.namegen_base_url == "https://name.pipe-works.org"
+    assert cfg.integrations.namegen_timeout_seconds == 5.75
+
+
+@pytest.mark.unit
 def test_print_config_summary_includes_entity_api_line(capsys):
     """Config summary should include the entity integration diagnostics line."""
     print_config_summary()
     output = capsys.readouterr().out
     assert "Entity API:" in output
+    assert "Name API:" in output

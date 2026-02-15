@@ -582,6 +582,32 @@ def test_create_session_normalizes_client_type(test_db, temp_db_path, db_with_us
 
 @pytest.mark.unit
 @pytest.mark.db
+def test_remove_sessions_for_character(test_db, temp_db_path, db_with_users):
+    """Character-scoped session cleanup should remove matching sessions only."""
+    with use_test_database(temp_db_path):
+        assert database.create_session("testplayer", "session-char")
+        session = database.get_session_by_id("session-char")
+        assert session is not None
+        assert session["character_id"] is not None
+
+        removed = database.remove_sessions_for_character(int(session["character_id"]))
+
+        assert removed is True
+        assert database.get_session_by_id("session-char") is None
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_remove_sessions_for_character_returns_false_when_none_removed(
+    test_db, temp_db_path, db_with_users
+):
+    """Character cleanup should return False when no matching sessions exist."""
+    with use_test_database(temp_db_path):
+        assert database.remove_sessions_for_character(999999) is False
+
+
+@pytest.mark.unit
+@pytest.mark.db
 def test_delete_player_removes_related_data(test_db, temp_db_path, db_with_users):
     """Test delete_player tombstones user and unlinks characters."""
     with use_test_database(temp_db_path):

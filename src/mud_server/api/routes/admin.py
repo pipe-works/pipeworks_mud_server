@@ -1,13 +1,19 @@
 """Admin endpoints for database and user management."""
 
+import logging
 import os
 import signal
+from secrets import randbelow
+from typing import Any
 
+import requests
 from fastapi import APIRouter, HTTPException
 
 from mud_server.api.auth import validate_session_for_game, validate_session_with_permission
 from mud_server.api.models import (
     CharacterAxisEvent,
+    CreateCharacterRequest,
+    CreateCharacterResponse,
     CreateUserRequest,
     CreateUserResponse,
     DatabaseCharacterAxisEventsResponse,
@@ -24,6 +30,8 @@ from mud_server.api.models import (
     DatabaseTablesResponse,
     KickSessionRequest,
     KickSessionResponse,
+    ManageCharacterRequest,
+    ManageCharacterResponse,
     ServerStopRequest,
     ServerStopResponse,
     UserManagementRequest,
@@ -31,8 +39,151 @@ from mud_server.api.models import (
 )
 from mud_server.api.permissions import Permission, can_manage_role
 from mud_server.api.routes.utils import resolve_zone_id
+from mud_server.config import config
 from mud_server.core.engine import GameEngine
 from mud_server.db import database
+
+logger = logging.getLogger(__name__)
+
+
+def _generate_provisioning_seed() -> int:
+    """
+    Generate a replayable, non-zero seed for provisioning flows.
+
+    We intentionally use ``secrets.randbelow`` rather than the global
+    ``random`` module to keep provisioning entropy isolated from any
+    deterministic RNG state that gameplay systems may rely on.
+    """
+    return randbelow(2_147_483_647) + 1
+
+
+def _fetch_generated_name(
+    seed: int, *, class_key: str = "first_name"
+) -> tuple[str | None, str | None]:
+    """
+    Request one character name from the external name-generation API.
+
+    Args:
+        seed: Deterministic seed sent to the upstream service.
+        class_key: Name-generation class key (for example "first_name").
+
+    Returns:
+        Tuple ``(name, error_message)``. On success, error is ``None``.
+    """
+    if not config.integrations.namegen_enabled:
+        return None, "Name generation integration is disabled."
+
+    base_url = config.integrations.namegen_base_url.strip().rstrip("/")
+    if not base_url:
+        return None, "Name generation integration is enabled but no base URL is configured."
+
+    endpoint = f"{base_url}/api/generate"
+    payload = {
+        "class_key": class_key,
+        "package_id": 1,
+        "syllable_key": "all",
+        "generation_count": 1,
+        "unique_only": True,
+        "output_format": "json",
+        "render_style": "title",
+        "seed": seed,
+    }
+
+    try:
+        response = requests.post(
+            endpoint,
+            json=payload,
+            timeout=config.integrations.namegen_timeout_seconds,
+        )
+        if response.status_code != 200:
+            return None, f"Name generation API returned HTTP {response.status_code}."
+        body = response.json()
+        if not isinstance(body, dict):
+            return None, "Name generation API returned a non-object payload."
+        names = body.get("names")
+        if not isinstance(names, list) or not names or not isinstance(names[0], str):
+            return None, "Name generation API did not return a valid name."
+        name = names[0].strip()
+        if not name:
+            return None, "Name generation API returned an empty name."
+        return name, None
+    except requests.exceptions.RequestException as exc:
+        logger.warning("Name generation API request failed: %s", exc)
+        return None, "Name generation API unavailable."
+    except ValueError:
+        logger.warning("Name generation API returned invalid JSON.")
+        return None, "Name generation API returned invalid JSON."
+
+
+def _fetch_generated_full_name(seed: int) -> tuple[str | None, str | None]:
+    """
+    Generate a deterministic ``first last`` character name for provisioning.
+
+    The same base seed is used for both lookups with an offset for the surname.
+    This keeps retries deterministic while avoiding global RNG mutation.
+
+    Args:
+        seed: Base deterministic seed for the provisioning attempt.
+
+    Returns:
+        Tuple ``(full_name, error_message)``.
+    """
+    first_name, first_error = _fetch_generated_name(seed, class_key="first_name")
+    if first_name is None:
+        return None, first_error or "Unable to generate first name."
+
+    # Use a stable offset so the "surname stream" remains deterministic per attempt.
+    last_name, last_error = _fetch_generated_name(seed + 1, class_key="last_name")
+    if last_name is None:
+        return None, last_error or "Unable to generate last name."
+
+    full_name = f"{first_name.strip()} {last_name.strip()}".strip()
+    if " " not in full_name:
+        return None, "Name generation API returned an invalid full name."
+    return full_name, None
+
+
+def _fetch_entity_state_for_seed(seed: int) -> tuple[dict[str, Any] | None, str | None]:
+    """
+    Fetch an entity-state payload for a provisioning seed.
+
+    Args:
+        seed: Deterministic seed sent to the entity API.
+
+    Returns:
+        Tuple ``(payload, error_message)``. On success, error is ``None``.
+    """
+    if not config.integrations.entity_state_enabled:
+        return None, None
+
+    base_url = config.integrations.entity_state_base_url.strip().rstrip("/")
+    if not base_url:
+        return None, "Entity state integration is enabled but no base URL is configured."
+
+    endpoint = f"{base_url}/api/entity"
+    payload = {
+        "seed": seed,
+        "include_prompts": config.integrations.entity_state_include_prompts,
+    }
+
+    try:
+        response = requests.post(
+            endpoint,
+            json=payload,
+            timeout=config.integrations.entity_state_timeout_seconds,
+        )
+        if response.status_code != 200:
+            return None, f"Entity state API returned HTTP {response.status_code}."
+        body = response.json()
+        if not isinstance(body, dict):
+            return None, "Entity state API returned a non-object payload."
+        return body, None
+    except requests.exceptions.RequestException as exc:
+        logger.warning("Entity state API request failed during admin provisioning: %s", exc)
+        return None, "Entity state API unavailable."
+    except ValueError:
+        logger.warning("Entity state API returned invalid JSON during admin provisioning.")
+        return None, "Entity state API returned invalid JSON."
 
 
 def router(engine: GameEngine) -> APIRouter:
@@ -362,6 +513,175 @@ def router(engine: GameEngine) -> APIRouter:
             )
 
         raise HTTPException(status_code=500, detail="Failed to create account. Please try again.")
+
+    @api.post("/admin/user/create-character", response_model=CreateCharacterResponse)
+    async def create_character(request: CreateCharacterRequest):
+        """
+        Provision a new character for an existing account.
+
+        Flow:
+        1. Validate caller permission + target account/world.
+        2. Generate a non-zero provisioning seed.
+        3. Mint a full ``first last`` character name from namegen (retry on collisions).
+        4. Create character in DB and seed baseline axis snapshot.
+        5. Fetch entity profile and apply axis deltas through the event ledger.
+        """
+        _, actor_username, actor_role = validate_session_with_permission(
+            request.session_id,
+            Permission.CREATE_USERS,
+        )
+
+        target_username = request.target_username.strip()
+        world_id = request.world_id.strip()
+        if not target_username:
+            raise HTTPException(status_code=400, detail="target_username is required")
+        if not world_id:
+            raise HTTPException(status_code=400, detail="world_id is required")
+
+        if not database.user_exists(target_username):
+            raise HTTPException(status_code=404, detail=f"User '{target_username}' not found")
+
+        target_role = database.get_user_role(target_username)
+        if not target_role:
+            raise HTTPException(status_code=404, detail=f"Role not found for '{target_username}'")
+
+        # Follow the same role hierarchy guardrails as other admin-management
+        # operations, but permit self-service character creation.
+        if actor_username != target_username and not can_manage_role(actor_role, target_role):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Insufficient permissions to manage user with role '{target_role}'",
+            )
+
+        target_user_id = database.get_user_id(target_username)
+        if target_user_id is None:
+            raise HTTPException(status_code=404, detail=f"User '{target_username}' not found")
+
+        world = database.get_world_by_id(world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail=f"World '{world_id}' not found")
+        if not world.get("is_active", False):
+            raise HTTPException(status_code=409, detail=f"World '{world_id}' is inactive")
+
+        max_attempts = 8
+        base_seed = _generate_provisioning_seed()
+        chosen_name: str | None = None
+        chosen_seed: int | None = None
+
+        for attempt in range(max_attempts):
+            candidate_seed = base_seed + attempt
+            generated_name, name_error = _fetch_generated_full_name(candidate_seed)
+            if generated_name is None:
+                raise HTTPException(
+                    status_code=502,
+                    detail=name_error or "Unable to generate character name.",
+                )
+            if database.create_character_for_user(
+                target_user_id,
+                generated_name,
+                world_id=world_id,
+                state_seed=candidate_seed,
+            ):
+                chosen_name = generated_name
+                chosen_seed = candidate_seed
+                break
+
+        if chosen_name is None or chosen_seed is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Unable to allocate a unique character name. Try again.",
+            )
+
+        character = database.get_character_by_name(chosen_name)
+        if character is None:
+            raise HTTPException(status_code=500, detail="Character creation did not persist")
+        character_id = int(character["id"])
+
+        entity_state, entity_state_error = _fetch_entity_state_for_seed(chosen_seed)
+        if entity_state is not None:
+            try:
+                database.apply_entity_state_to_character(
+                    character_id=character_id,
+                    world_id=world_id,
+                    entity_state=entity_state,
+                    seed=chosen_seed,
+                )
+            except Exception:  # nosec B110 - surfaced as controlled API error
+                logger.exception(
+                    "Failed to apply entity-state payload for character %s", character_id
+                )
+                entity_state_error = "Entity state axis seeding failed."
+
+        return CreateCharacterResponse(
+            success=True,
+            message=f"Character '{chosen_name}' created for '{target_username}'.",
+            character_id=character_id,
+            character_name=chosen_name,
+            world_id=world_id,
+            seed=chosen_seed,
+            entity_state=entity_state,
+            entity_state_error=entity_state_error,
+        )
+
+    @api.post("/admin/character/manage", response_model=ManageCharacterResponse)
+    async def manage_character(request: ManageCharacterRequest):
+        """
+        Tombstone or permanently delete a character (superuser only).
+
+        Security model:
+        - We gate access behind ``MANAGE_USERS`` (superuser permission).
+        - We also assert the resolved role is ``superuser`` for explicitness.
+
+        Operational behavior:
+        - Any sessions currently bound to the character are removed first.
+        - ``tombstone`` preserves historical audit rows while detaching ownership.
+        - ``delete`` permanently removes the character and cascades dependent rows.
+        """
+        _, _actor_username, actor_role = validate_session_with_permission(
+            request.session_id,
+            Permission.MANAGE_USERS,
+        )
+        if actor_role != "superuser":
+            raise HTTPException(
+                status_code=403,
+                detail="Only superusers may remove characters.",
+            )
+
+        action = request.action.strip().lower()
+        if action not in {"tombstone", "delete"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid action. Valid actions: tombstone, delete",
+            )
+
+        character = database.get_character_by_id(request.character_id)
+        if character is None:
+            raise HTTPException(status_code=404, detail="Character not found")
+
+        # Ensure no in-world session remains attached to a soon-to-be removed
+        # character identity. This avoids stale gameplay sessions.
+        database.remove_sessions_for_character(request.character_id)
+
+        if action == "tombstone":
+            if character.get("user_id") is None:
+                raise HTTPException(status_code=409, detail="Character is already tombstoned")
+            if not database.tombstone_character(request.character_id):
+                raise HTTPException(status_code=404, detail="Character not found")
+            return ManageCharacterResponse(
+                success=True,
+                message=f"Character '{character['name']}' tombstoned.",
+                character_id=request.character_id,
+                action="tombstone",
+            )
+
+        if not database.delete_character(request.character_id):
+            raise HTTPException(status_code=404, detail="Character not found")
+        return ManageCharacterResponse(
+            success=True,
+            message=f"Character '{character['name']}' permanently deleted.",
+            character_id=request.character_id,
+            action="delete",
+        )
 
     @api.post("/admin/server/stop", response_model=ServerStopResponse)
     async def stop_server(request: ServerStopRequest):
