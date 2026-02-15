@@ -190,6 +190,28 @@ class ApiClient {
   }
 
   /**
+   * Create a new character for an existing user (admin/superuser only).
+   */
+  async createCharacter(payload) {
+    return this.fetcher('/admin/user/create-character', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * Tombstone or permanently delete a character (superuser only).
+   */
+  async manageCharacter(payload) {
+    return this.fetcher('/admin/character/manage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /**
    * Request server stop (superuser only).
    */
   async stopServer(sessionId) {

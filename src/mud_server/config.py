@@ -36,6 +36,9 @@ Environment Variable Mapping:
     MUD_ENTITY_STATE_BASE_URL       -> integrations.entity_state_base_url
     MUD_ENTITY_STATE_TIMEOUT_SECONDS -> integrations.entity_state_timeout_seconds
     MUD_ENTITY_STATE_INCLUDE_PROMPTS -> integrations.entity_state_include_prompts
+    MUD_NAMEGEN_ENABLED             -> integrations.namegen_enabled
+    MUD_NAMEGEN_BASE_URL            -> integrations.namegen_base_url
+    MUD_NAMEGEN_TIMEOUT_SECONDS     -> integrations.namegen_timeout_seconds
 """
 
 import configparser
@@ -158,6 +161,9 @@ class IntegrationSettings:
     entity_state_base_url: str = "https://entity.pipe-works.org"
     entity_state_timeout_seconds: float = 3.0
     entity_state_include_prompts: bool = False
+    namegen_enabled: bool = True
+    namegen_base_url: str = "https://name.api.pipe-works.org"
+    namegen_timeout_seconds: float = 3.0
 
 
 @dataclass
@@ -328,6 +334,16 @@ def _load_from_ini(parser: configparser.ConfigParser, cfg: ServerConfig) -> None
             cfg.integrations.entity_state_include_prompts = _parse_bool(
                 parser.get("integrations", "entity_state_include_prompts")
             )
+        if parser.has_option("integrations", "namegen_enabled"):
+            cfg.integrations.namegen_enabled = _parse_bool(
+                parser.get("integrations", "namegen_enabled")
+            )
+        if parser.has_option("integrations", "namegen_base_url"):
+            cfg.integrations.namegen_base_url = parser.get("integrations", "namegen_base_url")
+        if parser.has_option("integrations", "namegen_timeout_seconds"):
+            cfg.integrations.namegen_timeout_seconds = parser.getfloat(
+                "integrations", "namegen_timeout_seconds"
+            )
 
 
 def _apply_env_overrides(cfg: ServerConfig) -> None:
@@ -385,6 +401,12 @@ def _apply_env_overrides(cfg: ServerConfig) -> None:
         cfg.integrations.entity_state_timeout_seconds = float(env_entity_timeout)
     if env_entity_prompts := os.getenv("MUD_ENTITY_STATE_INCLUDE_PROMPTS"):
         cfg.integrations.entity_state_include_prompts = _parse_bool(env_entity_prompts)
+    if env_namegen_enabled := os.getenv("MUD_NAMEGEN_ENABLED"):
+        cfg.integrations.namegen_enabled = _parse_bool(env_namegen_enabled)
+    if env_namegen_base_url := os.getenv("MUD_NAMEGEN_BASE_URL"):
+        cfg.integrations.namegen_base_url = env_namegen_base_url
+    if env_namegen_timeout := os.getenv("MUD_NAMEGEN_TIMEOUT_SECONDS"):
+        cfg.integrations.namegen_timeout_seconds = float(env_namegen_timeout)
 
 
 def load_config() -> ServerConfig:
@@ -492,6 +514,11 @@ def print_config_summary() -> None:
         f"Entity API:  enabled={config.integrations.entity_state_enabled} "
         f"url={config.integrations.entity_state_base_url} "
         f"timeout={config.integrations.entity_state_timeout_seconds}s"
+    )
+    print(
+        f"Name API:    enabled={config.integrations.namegen_enabled} "
+        f"url={config.integrations.namegen_base_url} "
+        f"timeout={config.integrations.namegen_timeout_seconds}s"
     )
     print("=" * 60 + "\n")
 

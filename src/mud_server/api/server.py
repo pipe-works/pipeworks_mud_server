@@ -33,7 +33,7 @@ from mud_server.api.routes.register import register_routes
 from mud_server.config import config, print_config_summary
 from mud_server.core.engine import GameEngine
 from mud_server.db import database
-from mud_server.web.routes import register_web_routes
+from mud_server.web.routes import ADMIN_ASSET_VERSION, register_web_routes
 
 # ============================================================================
 # LIFESPAN EVENTS
@@ -61,6 +61,7 @@ async def lifespan(app: FastAPI):
     removed_visitors = database.cleanup_expired_guest_accounts()
     if removed_visitors > 0:
         print(f"Deleted {removed_visitors} expired guest account(s) on startup")
+    print(f"Admin WebUI asset version: {ADMIN_ASSET_VERSION}")
 
     async def temporary_account_sweeper() -> None:
         """Periodic cleanup for expired guest accounts."""

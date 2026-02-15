@@ -86,6 +86,11 @@ def _fetch_local_axis_snapshot_for_character(
     is canonical to gameplay mechanics and available even when external
     integrations are unavailable.
 
+    Compatibility note:
+        Callers should treat snapshot keys as forward-compatible. New
+        top-level metadata (for example, axis grouping fields) may be added
+        without removing existing keys such as ``axes``.
+
     Args:
         character_id: Newly created character identifier.
 
