@@ -118,3 +118,196 @@ def test_seed_axis_registry_skips_missing_thresholds(temp_db_path) -> None:
         cursor.execute("SELECT COUNT(*) FROM axis_value")
         assert int(cursor.fetchone()[0]) == 0
         conn.close()
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_seed_axis_registry_handles_invalid_ordering(temp_db_path) -> None:
+    """Invalid ordering definitions should yield None ordinals without crashing."""
+    with use_test_database(temp_db_path):
+        database.init_database(skip_superuser=True)
+
+        axes_payload: dict[str, Any] = {
+            "axes": {
+                "demeanor": {
+                    "description": "Disposition",
+                    "ordering": "ordinal",
+                }
+            }
+        }
+        thresholds_payload: dict[str, Any] = {
+            "axes": {
+                "demeanor": {
+                    "values": {
+                        "calm": {"min": 0.0, "max": 0.5},
+                        "angry": {"min": 0.5, "max": 1.0},
+                    }
+                }
+            }
+        }
+
+        stats = database.seed_axis_registry(
+            world_id="test_world",
+            axes_payload=axes_payload,
+            thresholds_payload=thresholds_payload,
+        )
+
+        assert stats.axis_values_inserted == 2
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT ordinal
+            FROM axis_value
+            ORDER BY value
+            """,
+        )
+        ordinals = [row[0] for row in cursor.fetchall()]
+        conn.close()
+
+        assert ordinals == [None, None]
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_seed_axis_registry_handles_non_list_ordering_values(temp_db_path) -> None:
+    """Ordering values that are not lists should default to None ordinals."""
+    with use_test_database(temp_db_path):
+        database.init_database(skip_superuser=True)
+
+        axes_payload: dict[str, Any] = {
+            "axes": {
+                "temper": {
+                    "description": "Temper level",
+                    "ordering": {"type": "ordinal", "values": "volatile"},
+                }
+            }
+        }
+        thresholds_payload: dict[str, Any] = {
+            "axes": {
+                "temper": {
+                    "values": {
+                        "calm": {"min": 0.0, "max": 0.5},
+                        "volatile": {"min": 0.5, "max": 1.0},
+                    }
+                }
+            }
+        }
+
+        stats = database.seed_axis_registry(
+            world_id="test_world",
+            axes_payload=axes_payload,
+            thresholds_payload=thresholds_payload,
+        )
+
+        assert stats.axis_values_inserted == 2
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT ordinal
+            FROM axis_value
+            ORDER BY value
+            """,
+        )
+        ordinals = [row[0] for row in cursor.fetchall()]
+        conn.close()
+
+        assert ordinals == [None, None]
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_seed_axis_registry_skips_invalid_threshold_values(temp_db_path) -> None:
+    """Non-dict threshold values should skip axis_value inserts."""
+    with use_test_database(temp_db_path):
+        database.init_database(skip_superuser=True)
+
+        axes_payload: dict[str, Any] = {
+            "axes": {
+                "wealth": {
+                    "description": "Economic status",
+                    "ordering": {"type": "ordinal", "values": ["poor", "wealthy"]},
+                }
+            }
+        }
+        thresholds_payload: dict[str, Any] = {
+            "axes": {
+                "wealth": {
+                    "values": ["poor", "wealthy"],
+                }
+            }
+        }
+
+        stats = database.seed_axis_registry(
+            world_id="test_world",
+            axes_payload=axes_payload,
+            thresholds_payload=thresholds_payload,
+        )
+
+        assert stats.axis_values_inserted == 0
+        assert stats.axis_values_skipped == 1
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM axis_value")
+        assert int(cursor.fetchone()[0]) == 0
+        conn.close()
+
+
+@pytest.mark.unit
+def test_seed_axis_registry_skips_missing_axis_row(monkeypatch) -> None:
+    """Missing axis rows should increment skipped counts and continue safely."""
+
+    class _FakeCursor:
+        def execute(self, _sql, _params=None) -> None:
+            return None
+
+        def fetchone(self):
+            return None
+
+    class _FakeConnection:
+        def __init__(self) -> None:
+            self._cursor = _FakeCursor()
+
+        def cursor(self):
+            return self._cursor
+
+        def commit(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(database, "get_connection", lambda: _FakeConnection())
+
+    axes_payload: dict[str, Any] = {
+        "axes": {
+            "wealth": {
+                "description": "Economic status",
+                "ordering": {"type": "ordinal", "values": ["poor", "wealthy"]},
+            }
+        }
+    }
+    thresholds_payload: dict[str, Any] = {
+        "axes": {
+            "wealth": {
+                "values": {
+                    "poor": {"min": 0.0, "max": 0.5},
+                    "wealthy": {"min": 0.5, "max": 1.0},
+                }
+            }
+        }
+    }
+
+    stats = database.seed_axis_registry(
+        world_id="test_world",
+        axes_payload=axes_payload,
+        thresholds_payload=thresholds_payload,
+    )
+
+    assert stats.axes_upserted == 1
+    assert stats.axis_values_inserted == 0
+    assert stats.axis_values_skipped == 1
