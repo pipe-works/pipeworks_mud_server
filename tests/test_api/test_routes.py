@@ -241,6 +241,94 @@ def test_register_guest_returns_error_when_local_and_external_state_unavailable(
 
 
 @pytest.mark.api
+def test_register_guest_falls_back_to_external_state_when_local_missing(
+    test_client, test_db, temp_db_path
+):
+    """Local snapshot miss should fall back to external entity API payload."""
+    with use_test_database(temp_db_path):
+
+        class FakeEntityResponse:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {
+                    "seed": 999,
+                    "character": {"demeanor": "wary"},
+                    "occupation": {"visibility": "routine"},
+                }
+
+        with patch.object(database, "get_character_axis_state", return_value=None):
+            with patch("requests.post", return_value=FakeEntityResponse()):
+                response = test_client.post(
+                    "/register-guest",
+                    json={
+                        "password": TEST_PASSWORD,
+                        "password_confirm": TEST_PASSWORD,
+                        "character_name": "Guest Fallback",
+                    },
+                )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["entity_state"] is not None
+    assert payload["entity_state"]["seed"] == 999
+    assert payload["entity_state"]["character"]["demeanor"] == "wary"
+    assert payload["entity_state_error"] is None
+
+
+@pytest.mark.api
+def test_register_guest_returns_external_error_when_local_error_is_empty(
+    test_client, test_db, temp_db_path
+):
+    """External fallback error should be used when local helper gives no message."""
+    with use_test_database(temp_db_path):
+        with patch(
+            "mud_server.api.routes.auth._fetch_local_axis_snapshot_for_character",
+            return_value=(None, None),
+        ):
+            with patch(
+                "mud_server.api.routes.auth._fetch_entity_state_for_character",
+                return_value=(None, "Entity fallback unavailable."),
+            ):
+                response = test_client.post(
+                    "/register-guest",
+                    json={
+                        "password": TEST_PASSWORD,
+                        "password_confirm": TEST_PASSWORD,
+                        "character_name": "Guest Fallback Error",
+                    },
+                )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["entity_state"] is None
+    assert payload["entity_state_error"] == "Entity fallback unavailable."
+
+
+@pytest.mark.api
+def test_register_guest_fails_when_created_character_cannot_be_resolved(
+    test_client, test_db, temp_db_path
+):
+    """If character lookup fails post-create, endpoint should rollback with 500."""
+    with use_test_database(temp_db_path):
+        with patch.object(database, "get_character_by_name", return_value=None):
+            response = test_client.post(
+                "/register-guest",
+                json={
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                    "character_name": "Guest Missing Character",
+                },
+            )
+
+    assert response.status_code == 500
+    assert "failed to resolve created character" in response.json()["detail"].lower()
+
+
+@pytest.mark.api
 def test_register_guest_character_name_taken(test_client, test_db, temp_db_path, db_with_users):
     """Test guest registration fails when character name already exists."""
     with use_test_database(temp_db_path):
