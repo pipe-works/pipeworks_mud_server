@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.6](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.5...mud_server-v0.3.6) (2026-02-15)
+
+
+### Features
+
+* **admin:** add users table filters ([e3d0b6c](https://github.com/pipe-works/pipeworks_mud_server/commit/e3d0b6c55425281f2cd89b2c06453991f460656d))
+* **admin:** add users table filters ([1dddfb9](https://github.com/pipe-works/pipeworks_mud_server/commit/1dddfb997ea29c8bc2f5576c4013898f2ce98013))
+* **admin:** refine users layout ([03a7f9a](https://github.com/pipe-works/pipeworks_mud_server/commit/03a7f9a832bf0b6085c7d2e7d777200e07fd7373))
+* **admin:** refine users layout ([d9f3ca5](https://github.com/pipe-works/pipeworks_mud_server/commit/d9f3ca5e39be744bab04ba4ceb5cd44e875e839f))
+
 ## [0.3.5](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.4...mud_server-v0.3.5) (2026-02-14)
 
 
