@@ -68,6 +68,13 @@ The policy loader produces a validation report containing:
 
 This is emitted at startup to confirm world readiness.
 
+Registry Seeding
+----------------
+
+On startup, the engine mirrors world policy files into the axis registry
+tables (``axis`` and ``axis_value``). This makes the database a queryable
+reflection of the policy while keeping policy files as the source of truth.
+
 Database Tables (Authoritative)
 -------------------------------
 
