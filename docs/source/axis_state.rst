@@ -138,6 +138,23 @@ The ``characters`` table stores cached JSON snapshots:
 **Rule**: never read ``current_state_json`` to resolve mechanics; rebuild it
 from axis scores + policy.
 
+Snapshot Payload (Example)
+--------------------------
+
+Snapshots store world + axis values in a compact JSON payload:
+
+.. code-block:: json
+
+   {
+     "world_id": "pipeworks_web",
+     "seed": 0,
+     "policy_hash": "abc123...",
+     "axes": {
+       "wealth": { "score": 0.5, "label": "wealthy" },
+       "health": { "score": 0.5, "label": "hale" }
+     }
+   }
+
 Multi-World Isolation
 ---------------------
 

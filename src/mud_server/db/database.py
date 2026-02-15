@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -116,9 +117,17 @@ def init_database(*, skip_superuser: bool = False) -> None:
             is_guest_created INTEGER NOT NULL DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            base_state_json TEXT,
+            current_state_json TEXT,
+            state_seed INTEGER DEFAULT 0,
+            state_version TEXT,
+            state_updated_at TIMESTAMP,
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
         )
     """)
+
+    # Ensure newly added state snapshot columns exist for legacy databases.
+    _ensure_character_state_columns(cursor)
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS axis (
@@ -334,6 +343,33 @@ def init_database(*, skip_superuser: bool = False) -> None:
     conn.close()
 
 
+def _ensure_character_state_columns(cursor: sqlite3.Cursor) -> None:
+    """
+    Ensure state snapshot columns exist on the characters table.
+
+    SQLite does not support adding columns via CREATE TABLE for existing
+    databases, so we use ALTER TABLE when new columns are introduced.
+    """
+    cursor.execute("PRAGMA table_info(characters)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    columns_to_add = {
+        "base_state_json": "TEXT",
+        "current_state_json": "TEXT",
+        "state_seed": "INTEGER DEFAULT 0",
+        "state_version": "TEXT",
+        "state_updated_at": "TIMESTAMP",
+    }
+
+    for column_name, column_def in columns_to_add.items():
+        if column_name in existing_columns:
+            continue
+        cursor.execute(f"ALTER TABLE characters ADD COLUMN {column_name} {column_def}")
+
+    if "state_seed" in existing_columns or "state_seed" in columns_to_add:
+        cursor.execute("UPDATE characters SET state_seed = 0 WHERE state_seed IS NULL")
+
+
 def _create_character_limit_triggers(conn: sqlite3.Connection, *, max_slots: int) -> None:
     """
     Create triggers that enforce the per-user character slot limit.
@@ -411,7 +447,13 @@ def _create_default_character(
     character_id = cursor.lastrowid
     if character_id is None:
         raise ValueError("Failed to create default character.")
-    return int(character_id)
+    character_id = int(character_id)
+
+    # Seed axis scores + snapshots so new characters have baseline state.
+    _seed_character_axis_scores(cursor, character_id=character_id, world_id=world_id)
+    _seed_character_state_snapshot(cursor, character_id=character_id, world_id=world_id)
+
+    return character_id
 
 
 def _seed_character_location(
@@ -658,6 +700,194 @@ def seed_axis_registry(
 
 
 # ==========================================================================
+# CHARACTER STATE SNAPSHOTS
+# ==========================================================================
+
+
+def _get_axis_policy_hash(world_id: str) -> str | None:
+    """
+    Return the policy hash for a world, if the policy loader is available.
+
+    The hash is derived from the on-disk policy files, keeping state snapshots
+    tied to a specific policy version.
+    """
+    from pathlib import Path
+
+    from mud_server.config import config
+    from mud_server.policies import AxisPolicyLoader
+
+    loader = AxisPolicyLoader(worlds_root=Path(config.worlds.worlds_root))
+    _payload, report = loader.load(world_id)
+    return report.policy_hash
+
+
+def _resolve_axis_label_for_score(cursor: sqlite3.Cursor, axis_id: int, score: float) -> str | None:
+    """
+    Resolve an axis score to its label via the axis_value table.
+
+    The axis_value table is treated as a derived cache of policy thresholds.
+    If no range matches, the label resolves to None.
+    """
+    cursor.execute(
+        """
+        SELECT value
+        FROM axis_value
+        WHERE axis_id = ?
+          AND (? >= min_score OR min_score IS NULL)
+          AND (? <= max_score OR max_score IS NULL)
+        ORDER BY
+          CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END,
+          ordinal,
+          min_score
+        LIMIT 1
+        """,
+        (axis_id, score, score),
+    )
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
+def _fetch_character_axis_scores(
+    cursor: sqlite3.Cursor, character_id: int, world_id: str
+) -> list[dict[str, Any]]:
+    """
+    Return axis scores for a character joined with axis metadata.
+
+    Returns:
+        List of dicts with keys: axis_id, axis_name, axis_score.
+    """
+    cursor.execute(
+        """
+        SELECT a.id, a.name, s.axis_score
+        FROM character_axis_score s
+        JOIN axis a ON a.id = s.axis_id
+        WHERE s.character_id = ? AND s.world_id = ?
+        ORDER BY a.name
+        """,
+        (character_id, world_id),
+    )
+    return [
+        {
+            "axis_id": int(row[0]),
+            "axis_name": row[1],
+            "axis_score": float(row[2]),
+        }
+        for row in cursor.fetchall()
+    ]
+
+
+def _seed_character_axis_scores(
+    cursor: sqlite3.Cursor,
+    *,
+    character_id: int,
+    world_id: str,
+    default_score: float = 0.5,
+) -> None:
+    """
+    Seed axis score rows for a new character.
+
+    Args:
+        cursor: Active SQLite cursor within an open transaction.
+        character_id: Character id to seed.
+        world_id: World identifier for the character.
+        default_score: Default numeric score for each axis.
+    """
+    cursor.execute(
+        """
+        SELECT id, name
+        FROM axis
+        WHERE world_id = ?
+        ORDER BY name
+        """,
+        (world_id,),
+    )
+    for axis_id, _axis_name in cursor.fetchall():
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO character_axis_score
+                (character_id, world_id, axis_id, axis_score)
+            VALUES (?, ?, ?, ?)
+            """,
+            (character_id, world_id, int(axis_id), float(default_score)),
+        )
+
+
+def _build_character_state_snapshot(
+    cursor: sqlite3.Cursor,
+    *,
+    character_id: int,
+    world_id: str,
+    seed: int,
+    policy_hash: str | None,
+) -> dict[str, Any]:
+    """
+    Build a character snapshot from axis scores + policy thresholds.
+
+    Returns:
+        Snapshot payload suitable for JSON serialization.
+    """
+    axes_payload: dict[str, Any] = {}
+    for axis_row in _fetch_character_axis_scores(cursor, character_id, world_id):
+        label = _resolve_axis_label_for_score(cursor, axis_row["axis_id"], axis_row["axis_score"])
+        axes_payload[axis_row["axis_name"]] = {
+            "score": axis_row["axis_score"],
+            "label": label,
+        }
+
+    return {
+        "world_id": world_id,
+        "seed": seed,
+        "policy_hash": policy_hash,
+        "axes": axes_payload,
+    }
+
+
+def _seed_character_state_snapshot(
+    cursor: sqlite3.Cursor,
+    *,
+    character_id: int,
+    world_id: str,
+    seed: int = 0,
+) -> None:
+    """
+    Seed base/current state snapshots for a character.
+
+    Base snapshots are immutable; current snapshots are updated whenever
+    axis scores change. For now, this is only called at creation time.
+    """
+    policy_hash = _get_axis_policy_hash(world_id)
+    snapshot = _build_character_state_snapshot(
+        cursor,
+        character_id=character_id,
+        world_id=world_id,
+        seed=seed,
+        policy_hash=policy_hash,
+    )
+    snapshot_json = json.dumps(snapshot, sort_keys=True)
+    state_updated_at = datetime.now(UTC).isoformat()
+
+    cursor.execute(
+        """
+        UPDATE characters
+        SET base_state_json = COALESCE(base_state_json, ?),
+            current_state_json = ?,
+            state_seed = COALESCE(state_seed, ?),
+            state_version = ?,
+            state_updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            snapshot_json,
+            snapshot_json,
+            seed,
+            policy_hash,
+            state_updated_at,
+            character_id,
+        ),
+    )
+
+
+# ==========================================================================
 # USER ACCOUNT MANAGEMENT
 # ==========================================================================
 
@@ -772,6 +1002,8 @@ def create_character_for_user(
             raise ValueError("Failed to create character.")
         character_id = int(character_id)
         _seed_character_location(cursor, character_id, world_id=world_id)
+        _seed_character_axis_scores(cursor, character_id=character_id, world_id=world_id)
+        _seed_character_state_snapshot(cursor, character_id=character_id, world_id=world_id)
         if room_id != "spawn":
             cursor.execute(
                 """

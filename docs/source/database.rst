@@ -37,6 +37,11 @@ The ASCII diagram below reflects the current SQLite schema in ``data/mud.db``.
     | NN  is_guest_created   INTEGER   | DEFAULT 0
     |     created_at         TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
     |     updated_at         TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
+    |     base_state_json    TEXT      |
+    |     current_state_json TEXT      |
+    |     state_seed         INTEGER   | DEFAULT 0
+    |     state_version      TEXT      |
+    |     state_updated_at   TIMESTAMP |
     +----------------------------------+
 
 
