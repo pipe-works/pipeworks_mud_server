@@ -98,12 +98,16 @@ Admin
 ~~~~~
 
 * ``GET /admin/database/players`` - List users (Admin+)
+  - Includes ``is_online_account`` and ``is_online_in_world`` to distinguish
+    dashboard logins from active in-world sessions.
 * ``GET /admin/database/connections`` - Active connections (Admin+)
 * ``GET /admin/database/player-locations`` - Character locations (Admin+)
 * ``GET /admin/database/tables`` - Database table metadata (Admin+)
 * ``GET /admin/database/table/{table_name}`` - Table rows (Admin+)
 * ``GET /admin/database/sessions`` - Sessions (Admin+)
 * ``GET /admin/database/chat-messages`` - Chat logs (Admin+)
+* ``GET /admin/characters/{character_id}/axis-state`` - Axis scores + snapshots (Admin+)
+* ``GET /admin/characters/{character_id}/axis-events`` - Axis event history (Admin+)
 * ``POST /admin/user/create`` - Create user account (Admin/Superuser)
 * ``POST /admin/user/manage`` - Manage user (change role, ban, delete, password)
 * ``POST /admin/session/kick`` - Kick session (Admin+)

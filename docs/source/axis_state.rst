@@ -88,6 +88,42 @@ Axis mutations are recorded via a single transaction:
 If any step fails (for example, an unknown axis), the transaction is rolled
 back and no changes are written.
 
+Admin Inspection
+----------------
+
+The admin Web UI exposes both the current axis state and recent event history
+for a selected character. The same data is available via API:
+
+* ``GET /admin/characters/{character_id}/axis-state``
+* ``GET /admin/characters/{character_id}/axis-events?limit=50``
+
+Axis state returns normalized scores plus cached snapshots. Axis events return
+the immutable ledger entries with per-axis deltas and any metadata tags. This
+is intended for debugging, tuning, and auditing progression.
+
+See also: :doc:`admin_axis_inspector` for a full walkthrough of the Admin Axis
+Inspector UI and how to interpret event deltas.
+
+Example ``axis-events`` response (trimmed):
+
+.. code-block:: json
+
+   {
+     "character_id": 42,
+     "events": [
+       {
+         "event_id": 1201,
+         "world_id": "pipeworks_web",
+         "event_type": "loot_found",
+         "timestamp": "2026-02-15 10:12:44",
+         "metadata": {"source": "treasure_chest"},
+         "deltas": [
+           {"axis_name": "wealth", "old_score": 0.3, "new_score": 0.5, "delta": 0.2}
+         ]
+       }
+     ]
+   }
+
 Database Tables (Authoritative)
 -------------------------------
 
