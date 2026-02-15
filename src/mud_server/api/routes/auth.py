@@ -1,7 +1,10 @@
 """Authentication and account management endpoints."""
 
+import logging
 import uuid
+from typing import Any
 
+import requests
 from fastapi import APIRouter, HTTPException, Request
 
 from mud_server.api.auth import remove_session, validate_session
@@ -24,6 +27,80 @@ from mud_server.api.routes.utils import get_available_worlds
 from mud_server.config import config
 from mud_server.core.engine import GameEngine
 from mud_server.db import database
+
+logger = logging.getLogger(__name__)
+
+
+def _fetch_entity_state_for_character(seed: int) -> tuple[dict[str, Any] | None, str | None]:
+    """
+    Fetch entity-state payload for a newly created character.
+
+    The entity API is an optional integration. Registration stays available even
+    if the upstream service is unreachable, malformed, or disabled by config.
+
+    Args:
+        seed: Deterministic seed used for entity-state generation.
+
+    Returns:
+        Tuple of (entity_state_payload, error_message). When successful,
+        error_message is None. When unavailable, payload is None.
+    """
+    if not config.integrations.entity_state_enabled:
+        return None, None
+
+    base_url = config.integrations.entity_state_base_url.strip().rstrip("/")
+    if not base_url:
+        return None, "Entity state integration is enabled but no base URL is configured."
+
+    endpoint = f"{base_url}/api/entity"
+    payload = {
+        "seed": seed,
+        "include_prompts": config.integrations.entity_state_include_prompts,
+    }
+    timeout = config.integrations.entity_state_timeout_seconds
+
+    try:
+        response = requests.post(endpoint, json=payload, timeout=timeout)
+        if response.status_code != 200:
+            return None, f"Entity state API returned HTTP {response.status_code}."
+        body = response.json()
+        if not isinstance(body, dict):
+            return None, "Entity state API returned a non-object payload."
+        return body, None
+    except requests.exceptions.RequestException as exc:
+        logger.warning("Entity state API request failed: %s", exc)
+        return None, "Entity state API unavailable."
+    except ValueError:
+        logger.warning("Entity state API returned invalid JSON.")
+        return None, "Entity state API returned invalid JSON."
+
+
+def _fetch_local_axis_snapshot_for_character(
+    character_id: int,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """
+    Fetch locally seeded axis snapshot state for a character.
+
+    Character creation seeds axis scores and a snapshot in the MUD database.
+    This local snapshot is the preferred source for onboarding UI because it
+    is canonical to gameplay mechanics and available even when external
+    integrations are unavailable.
+
+    Args:
+        character_id: Newly created character identifier.
+
+    Returns:
+        Tuple of (current_state_snapshot, error_message).
+    """
+    axis_state = database.get_character_axis_state(character_id)
+    if axis_state is None:
+        return None, "Character axis state unavailable."
+
+    current_state = axis_state.get("current_state")
+    if isinstance(current_state, dict):
+        return current_state, None
+
+    return None, "Character axis snapshot missing."
 
 
 def router(engine: GameEngine) -> APIRouter:
@@ -182,6 +259,25 @@ def router(engine: GameEngine) -> APIRouter:
             world_id=world_id,
         )
 
+    # =========================================================================
+    # SIGNUP ARCHITECTURE NOTE (FOR FUTURE PERMANENT ACCOUNTS)
+    # -------------------------------------------------------------------------
+    # Current guest onboarding in /register-guest already implements the core
+    # provisioning sequence we want for permanent signup:
+    #   1) create account
+    #   2) create initial character
+    #   3) seed axis state/snapshot
+    #   4) return onboarding payload (character_id/world_id/entity_state)
+    #
+    # When permanent signup is added, avoid duplicating this flow in a second
+    # code path. Instead, extract shared provisioning into one internal helper
+    # and vary only account policy fields:
+    #   - guest: generated username, is_guest=true, guest_expires_at set
+    #   - permanent: user-chosen identity, is_guest=false, no guest expiry
+    #
+    # Keeping one provisioning path prevents drift between guest and permanent
+    # registration behavior and keeps UI onboarding payloads consistent.
+    # =========================================================================
     @api.post("/register", response_model=RegisterResponse)
     async def register(request: RegisterRequest):
         """
@@ -300,12 +396,43 @@ def router(engine: GameEngine) -> APIRouter:
             database.delete_user(username)
             raise HTTPException(status_code=400, detail="Character name already taken")
 
+        # Resolve the freshly-created character id so onboarding consumers can
+        # bind deterministic external entity-state generation to this character.
+        character = database.get_character_by_name(character_name)
+        if character is None:
+            database.delete_user(username)
+            raise HTTPException(status_code=500, detail="Failed to resolve created character")
+        character_id = int(character["id"])
+        world_id = str(character.get("world_id") or config.worlds.default_world_id)
+
+        # Prefer local snapshot state from the MUD DB so onboarding reflects
+        # the same canonical state used by gameplay mechanics.
+        entity_state, entity_state_error = _fetch_local_axis_snapshot_for_character(character_id)
+
+        # Optional fallback: if local snapshot data is unavailable, attempt to
+        # fetch from the external entity integration when enabled.
+        if entity_state is None:
+            external_state, external_error = _fetch_entity_state_for_character(seed=character_id)
+            if external_state is not None:
+                entity_state = external_state
+                entity_state_error = None
+            elif external_error:
+                if entity_state_error:
+                    entity_state_error = f"{entity_state_error} {external_error}"
+                else:
+                    entity_state_error = external_error
+
         return RegisterGuestResponse(
             success=True,
             message=(
                 "Temporary guest account created successfully! " f"You can now login as {username}."
             ),
             username=username,
+            character_id=character_id,
+            character_name=character_name,
+            world_id=world_id,
+            entity_state=entity_state,
+            entity_state_error=entity_state_error,
         )
 
     @api.post("/logout")

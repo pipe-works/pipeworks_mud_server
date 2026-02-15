@@ -174,10 +174,70 @@ def test_register_guest_success(test_client, test_db, temp_db_path):
         assert data["username"].startswith("guest_")
         assert len(data["username"]) <= 20
         assert database.get_user_account_origin(data["username"]) == "visitor"
+        assert data["character_name"] == "Guest Traveler"
+        assert data["world_id"] == database.DEFAULT_WORLD_ID
+        assert isinstance(data["character_id"], int)
+        assert data["entity_state"] is not None
+        assert "axes" in data["entity_state"]
+        assert "wealth" in data["entity_state"]["axes"]
+        assert data["entity_state_error"] is None
 
         character = database.get_character_by_name("Guest Traveler")
         assert character is not None
         assert character["is_guest_created"] is True
+
+
+@pytest.mark.api
+def test_register_guest_entity_service_failure_does_not_block_signup(
+    test_client, test_db, temp_db_path
+):
+    """Local snapshot should keep guest registration resilient to entity API outages."""
+    import requests
+
+    with use_test_database(temp_db_path):
+        with patch("requests.post", side_effect=requests.exceptions.ConnectionError):
+            response = test_client.post(
+                "/register-guest",
+                json={
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                    "character_name": "Guest Cartographer",
+                },
+            )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["entity_state"] is not None
+    assert "axes" in payload["entity_state"]
+    assert payload["entity_state_error"] is None
+
+
+@pytest.mark.api
+def test_register_guest_returns_error_when_local_and_external_state_unavailable(
+    test_client, test_db, temp_db_path
+):
+    """When both snapshot and integration fail, registration should still succeed."""
+    import requests
+
+    with use_test_database(temp_db_path):
+        with patch.object(database, "get_character_axis_state", return_value=None):
+            with patch("requests.post", side_effect=requests.exceptions.ConnectionError):
+                response = test_client.post(
+                    "/register-guest",
+                    json={
+                        "password": TEST_PASSWORD,
+                        "password_confirm": TEST_PASSWORD,
+                        "character_name": "Guest Cartographer 2",
+                    },
+                )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["entity_state"] is None
+    assert payload["entity_state_error"] is not None
+    assert "unavailable" in payload["entity_state_error"].lower()
 
 
 @pytest.mark.api

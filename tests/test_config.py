@@ -42,3 +42,18 @@ def test_world_env_overrides(monkeypatch):
     assert cfg.worlds.worlds_root == "/tmp/worlds"
     assert cfg.worlds.default_world_id == "pipeworks_web"
     assert cfg.worlds.allow_multi_world_characters is True
+
+
+@pytest.mark.unit
+def test_entity_integration_env_overrides(monkeypatch):
+    monkeypatch.setenv("MUD_ENTITY_STATE_ENABLED", "false")
+    monkeypatch.setenv("MUD_ENTITY_STATE_BASE_URL", "https://entity.example.org")
+    monkeypatch.setenv("MUD_ENTITY_STATE_TIMEOUT_SECONDS", "7.5")
+    monkeypatch.setenv("MUD_ENTITY_STATE_INCLUDE_PROMPTS", "true")
+
+    cfg = load_config()
+
+    assert cfg.integrations.entity_state_enabled is False
+    assert cfg.integrations.entity_state_base_url == "https://entity.example.org"
+    assert cfg.integrations.entity_state_timeout_seconds == 7.5
+    assert cfg.integrations.entity_state_include_prompts is True
