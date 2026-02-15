@@ -43,6 +43,7 @@ from typing import Any, cast
 # ==========================================================================
 
 DEFAULT_WORLD_ID = "pipeworks_web"
+DEFAULT_AXIS_SCORE = 0.5
 # Default world identifier used for legacy code paths that do not yet provide
 # an explicit world_id. This keeps the server functional during migration and
 # will be replaced by config-driven defaults in a later phase.
@@ -781,7 +782,7 @@ def _seed_character_axis_scores(
     *,
     character_id: int,
     world_id: str,
-    default_score: float = 0.5,
+    default_score: float = DEFAULT_AXIS_SCORE,
 ) -> None:
     """
     Seed axis score rows for a new character.
@@ -880,6 +881,57 @@ def _seed_character_state_snapshot(
             snapshot_json,
             snapshot_json,
             seed,
+            policy_hash,
+            state_updated_at,
+            character_id,
+        ),
+    )
+
+
+def _refresh_character_current_snapshot(
+    cursor: sqlite3.Cursor,
+    *,
+    character_id: int,
+    world_id: str,
+    seed_increment: int = 1,
+) -> None:
+    """
+    Refresh the current snapshot for a character after axis score updates.
+
+    Args:
+        cursor: Active SQLite cursor within an open transaction.
+        character_id: Target character id.
+        world_id: World identifier for the character.
+        seed_increment: Amount to increment the stored state_seed.
+    """
+    cursor.execute("SELECT state_seed FROM characters WHERE id = ?", (character_id,))
+    row = cursor.fetchone()
+    current_seed = int(row[0]) if row and row[0] is not None else 0
+    new_seed = current_seed + seed_increment
+
+    policy_hash = _get_axis_policy_hash(world_id)
+    snapshot = _build_character_state_snapshot(
+        cursor,
+        character_id=character_id,
+        world_id=world_id,
+        seed=new_seed,
+        policy_hash=policy_hash,
+    )
+    snapshot_json = json.dumps(snapshot, sort_keys=True)
+    state_updated_at = datetime.now(UTC).isoformat()
+
+    cursor.execute(
+        """
+        UPDATE characters
+        SET current_state_json = ?,
+            state_seed = ?,
+            state_version = ?,
+            state_updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            snapshot_json,
+            new_seed,
             policy_hash,
             state_updated_at,
             character_id,
@@ -1205,6 +1257,184 @@ def delete_user(username: str) -> bool:
         return True
     except Exception:
         return False
+
+
+# ==========================================================================
+# EVENT LEDGER MUTATIONS
+# ==========================================================================
+
+
+def _get_or_create_event_type_id(
+    cursor: sqlite3.Cursor,
+    *,
+    world_id: str,
+    event_type_name: str,
+    description: str | None = None,
+) -> int:
+    """
+    Return event_type id for a world, creating it if missing.
+    """
+    cursor.execute(
+        "SELECT id FROM event_type WHERE world_id = ? AND name = ? LIMIT 1",
+        (world_id, event_type_name),
+    )
+    row = cursor.fetchone()
+    if row:
+        return int(row[0])
+
+    cursor.execute(
+        """
+        INSERT INTO event_type (world_id, name, description)
+        VALUES (?, ?, ?)
+        """,
+        (world_id, event_type_name, description),
+    )
+    event_type_id = cursor.lastrowid
+    if event_type_id is None:
+        raise ValueError("Failed to create event_type.")
+    return int(event_type_id)
+
+
+def _resolve_axis_id(cursor: sqlite3.Cursor, *, world_id: str, axis_name: str) -> int | None:
+    """
+    Resolve an axis id from name + world.
+    """
+    cursor.execute(
+        "SELECT id FROM axis WHERE world_id = ? AND name = ? LIMIT 1",
+        (world_id, axis_name),
+    )
+    row = cursor.fetchone()
+    return int(row[0]) if row else None
+
+
+def apply_axis_event(
+    *,
+    world_id: str,
+    character_id: int,
+    event_type_name: str,
+    deltas: dict[str, float],
+    metadata: dict[str, str] | None = None,
+    event_type_description: str | None = None,
+) -> int:
+    """
+    Apply an axis event to a character and record it in the ledger.
+
+    This is the authoritative mutation path for axis scores. It:
+    - inserts an event row
+    - records per-axis deltas
+    - updates character_axis_score
+    - refreshes the current snapshot
+
+    The entire operation is atomic. If any axis is invalid, no changes are written.
+
+    Args:
+        world_id: World identifier for the event.
+        character_id: Character receiving the deltas.
+        event_type_name: Registry name for the event type.
+        deltas: Mapping of axis_name -> delta.
+        metadata: Optional event metadata to store as key/value pairs.
+        event_type_description: Optional description if event_type must be created.
+
+    Returns:
+        Newly created event id.
+    """
+    if not deltas:
+        raise ValueError("Event deltas must not be empty.")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("BEGIN")
+        event_type_id = _get_or_create_event_type_id(
+            cursor,
+            world_id=world_id,
+            event_type_name=event_type_name,
+            description=event_type_description,
+        )
+
+        cursor.execute(
+            """
+            INSERT INTO event (world_id, event_type_id)
+            VALUES (?, ?)
+            """,
+            (world_id, event_type_id),
+        )
+        event_id = cursor.lastrowid
+        if event_id is None:
+            raise ValueError("Failed to create event.")
+        event_id = int(event_id)
+
+        for axis_name, delta in deltas.items():
+            axis_id = _resolve_axis_id(cursor, world_id=world_id, axis_name=axis_name)
+            if axis_id is None:
+                raise ValueError(f"Unknown axis '{axis_name}' for world '{world_id}'.")
+
+            cursor.execute(
+                """
+                SELECT axis_score
+                FROM character_axis_score
+                WHERE character_id = ? AND axis_id = ?
+                """,
+                (character_id, axis_id),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                old_score = DEFAULT_AXIS_SCORE
+                cursor.execute(
+                    """
+                    INSERT INTO character_axis_score
+                        (character_id, world_id, axis_id, axis_score)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (character_id, world_id, axis_id, old_score),
+                )
+            else:
+                old_score = float(row[0])
+
+            new_score = old_score + float(delta)
+
+            cursor.execute(
+                """
+                UPDATE character_axis_score
+                SET axis_score = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE character_id = ? AND axis_id = ?
+                """,
+                (new_score, character_id, axis_id),
+            )
+
+            cursor.execute(
+                """
+                INSERT INTO event_entity_axis_delta
+                    (event_id, character_id, axis_id, old_score, new_score, delta)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (event_id, character_id, axis_id, old_score, new_score, float(delta)),
+            )
+
+        if metadata:
+            for key, value in metadata.items():
+                cursor.execute(
+                    """
+                    INSERT INTO event_metadata (event_id, key, value)
+                    VALUES (?, ?, ?)
+                    """,
+                    (event_id, key, value),
+                )
+
+        _refresh_character_current_snapshot(
+            cursor,
+            character_id=character_id,
+            world_id=world_id,
+        )
+
+        conn.commit()
+        return event_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 # ==========================================================================
