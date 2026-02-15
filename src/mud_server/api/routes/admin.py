@@ -7,8 +7,10 @@ from fastapi import APIRouter, HTTPException
 
 from mud_server.api.auth import validate_session_for_game, validate_session_with_permission
 from mud_server.api.models import (
+    CharacterAxisEvent,
     CreateUserRequest,
     CreateUserResponse,
+    DatabaseCharacterAxisEventsResponse,
     DatabaseCharacterAxisStateResponse,
     DatabaseChatResponse,
     DatabaseConnectionsResponse,
@@ -87,6 +89,20 @@ def router(engine: GameEngine) -> APIRouter:
             raise HTTPException(status_code=404, detail="Character not found")
 
         return DatabaseCharacterAxisStateResponse(**axis_state)
+
+    @api.get(
+        "/admin/characters/{character_id}/axis-events",
+        response_model=DatabaseCharacterAxisEventsResponse,
+    )
+    async def get_character_axis_events(session_id: str, character_id: int, limit: int = 50):
+        """Get recent axis events for a character (Admin only)."""
+        _, _username, _role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+
+        events = [
+            CharacterAxisEvent(**event)
+            for event in database.get_character_axis_events(character_id, limit=limit)
+        ]
+        return DatabaseCharacterAxisEventsResponse(character_id=character_id, events=events)
 
     @api.post("/admin/session/kick", response_model=KickSessionResponse)
     async def kick_session(request: KickSessionRequest):

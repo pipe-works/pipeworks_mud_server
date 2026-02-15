@@ -10,6 +10,17 @@ function formatRole(role) {
   return role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Unknown';
 }
 
+function buildOnlineStatus(user) {
+  const accountClass = user.is_online_account ? 'is-online' : 'is-offline';
+  const worldClass = user.is_online_in_world ? 'is-online' : 'is-offline';
+  return `
+    <div class="status-stack">
+      <span class="status-pill ${accountClass}">Account</span>
+      <span class="status-pill ${worldClass}">In-world</span>
+    </div>
+  `;
+}
+
 function buildActionButtons(username) {
   return `
     <div class="actions" data-user-actions="${username}">
@@ -75,6 +86,7 @@ function buildUsersTable(users, sortState, selectedUserId) {
   const headers = [
     { label: 'Username', key: 'username' },
     { label: 'Role', key: 'role' },
+    { label: 'Online', key: 'online' },
     { label: 'Active', key: 'active' },
     { label: 'Actions', key: null },
   ];
@@ -98,6 +110,7 @@ function buildUsersTable(users, sortState, selectedUserId) {
           const cells = [
             user.username,
             formatRole(user.role),
+            buildOnlineStatus(user),
             user.is_active ? 'Yes' : 'No',
             buildActionButtons(user.username),
           ]
@@ -142,6 +155,9 @@ function sortUsers(users, sortState) {
     } else if (key === 'active') {
       aVal = a.is_active ? 1 : 0;
       bVal = b.is_active ? 1 : 0;
+    } else if (key === 'online') {
+      aVal = (a.is_online_account ? 1 : 0) + (a.is_online_in_world ? 1 : 0);
+      bVal = (b.is_online_account ? 1 : 0) + (b.is_online_in_world ? 1 : 0);
     }
 
     if (aVal < bVal) {
@@ -209,8 +225,11 @@ function buildAxisStatePanel({
   characters,
   axisCharacterId,
   axisState,
+  axisEvents,
   isLoading,
+  eventsLoading,
   error,
+  eventsError,
 }) {
   if (!characters.length) {
     return '<p class="muted">No characters available for axis state.</p>';
@@ -269,6 +288,66 @@ function buildAxisStatePanel({
       ? JSON.stringify(axisState.current_state, null, 2)
       : null;
 
+  const eventsBody = () => {
+    if (eventsError) {
+      return `<p class="error">${escapeHtml(eventsError)}</p>`;
+    }
+    if (eventsLoading) {
+      return '<p class="muted">Loading events...</p>';
+    }
+    if (!axisEvents || axisEvents.length === 0) {
+      return '<p class="muted">No axis events recorded.</p>';
+    }
+
+    return axisEvents
+      .map((event) => {
+        const metadata = event.metadata || {};
+        const metadataHtml = Object.keys(metadata).length
+          ? `
+            <div class="tag-list axis-event-tags">
+              ${Object.entries(metadata)
+                .map(
+                  ([key, value]) =>
+                    `<span class="tag">${escapeHtml(key)}: ${escapeHtml(value)}</span>`
+                )
+                .join('')}
+            </div>
+          `
+          : '<p class="muted">No metadata.</p>';
+
+        const deltaHtml = event.deltas
+          .map(
+            (delta) => `
+              <div class="axis-event-delta">
+                <span class="axis-event-axis">${escapeHtml(delta.axis_name)}</span>
+                <span class="axis-event-values">
+                  ${formatAxisScore(delta.old_score)} → ${formatAxisScore(delta.new_score)}
+                </span>
+                <span class="axis-event-change">${formatAxisScore(delta.delta)}</span>
+              </div>
+            `
+          )
+          .join('');
+
+        return `
+          <div class="axis-event">
+            <div class="axis-event-header">
+              <div>
+                <div class="axis-event-title">${escapeHtml(event.event_type)}</div>
+                <div class="axis-event-sub">${escapeHtml(event.timestamp || '—')}</div>
+              </div>
+              <div class="axis-event-world">${escapeHtml(event.world_id)}</div>
+            </div>
+            <div class="axis-event-deltas">${deltaHtml}</div>
+            <div class="axis-event-meta">
+              ${metadataHtml}
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+  };
+
   return `
     <div class="axis-state">
       <label class="detail-form axis-state-select">
@@ -289,6 +368,10 @@ function buildAxisStatePanel({
           ? `<pre class="detail-code">${escapeHtml(snapshot)}</pre>`
           : '<p class="muted">No snapshot data available.</p>'
       }
+      <h5>Recent Axis Events</h5>
+      <div class="axis-event-list">
+        ${eventsBody()}
+      </div>
     </div>
   `;
 }
@@ -307,6 +390,9 @@ function buildUserDetails({
   axisCharacterId,
   axisStateLoading,
   axisStateError,
+  axisEvents,
+  axisEventsLoading,
+  axisEventsError,
 }) {
   if (!user) {
     return `
@@ -375,6 +461,8 @@ function buildUserDetails({
           <div><dt>ID</dt><dd>${user.id}</dd></div>
           <div><dt>Username</dt><dd>${user.username}</dd></div>
           <div><dt>Role</dt><dd>${formatRole(user.role)}</dd></div>
+          <div><dt>Account Online</dt><dd>${user.is_online_account ? 'Yes' : 'No'}</dd></div>
+          <div><dt>In-world</dt><dd>${user.is_online_in_world ? 'Yes' : 'No'}</dd></div>
           <div><dt>Active</dt><dd>${user.is_active ? 'Yes' : 'No'}</dd></div>
           <div><dt>Guest</dt><dd>${user.is_guest ? 'Yes' : 'No'}</dd></div>
           <div><dt>Origin</dt><dd>${user.account_origin || '—'}</dd></div>
@@ -402,8 +490,11 @@ function buildUserDetails({
           characters: userCharacters,
           axisCharacterId,
           axisState,
+          axisEvents,
           isLoading: axisStateLoading,
+          eventsLoading: axisEventsLoading,
           error: axisStateError,
+          eventsError: axisEventsError,
         })}
       </div>
     </div>
@@ -481,6 +572,7 @@ async function renderUsers(root, { api, session }) {
     let activeDetailTab = 'account';
     let activeAxisCharacterId = null;
     let axisStateError = null;
+    let axisEventsError = null;
 
     let characters = [];
     let worldsById = new Map();
@@ -488,6 +580,8 @@ async function renderUsers(root, { api, session }) {
     let locationsByCharacter = new Map();
     const axisStateCache = new Map();
     const axisStateLoading = new Set();
+    const axisEventsCache = new Map();
+    const axisEventsLoading = new Set();
 
     try {
       const [charactersResp, worldsResp, permissionsResp, locationsResp] =
@@ -540,6 +634,25 @@ async function renderUsers(root, { api, session }) {
       }
     };
 
+    const ensureAxisEvents = async (characterId) => {
+      if (!characterId || axisEventsCache.has(characterId) || axisEventsLoading.has(characterId)) {
+        return;
+      }
+
+      axisEventsLoading.add(characterId);
+      axisEventsError = null;
+
+      try {
+        const response = await api.getCharacterAxisEvents(sessionId, characterId, 25);
+        axisEventsCache.set(characterId, response.events || []);
+      } catch (err) {
+        axisEventsError = err instanceof Error ? err.message : 'Unable to load axis events.';
+      } finally {
+        axisEventsLoading.delete(characterId);
+        renderPage();
+      }
+    };
+
     const renderPage = () => {
       const activeElement = document.activeElement;
       const searchWasFocused =
@@ -564,11 +677,16 @@ async function renderUsers(root, { api, session }) {
       if (!axisCharacterIds.includes(activeAxisCharacterId)) {
         activeAxisCharacterId = axisCharacterIds[0] ?? null;
         axisStateError = null;
+        axisEventsError = null;
       }
       const axisState =
         activeAxisCharacterId !== null ? axisStateCache.get(activeAxisCharacterId) : null;
       const axisStateLoadingActive =
         activeAxisCharacterId !== null && axisStateLoading.has(activeAxisCharacterId);
+      const axisEvents =
+        activeAxisCharacterId !== null ? axisEventsCache.get(activeAxisCharacterId) : null;
+      const axisEventsLoadingActive =
+        activeAxisCharacterId !== null && axisEventsLoading.has(activeAxisCharacterId);
 
       root.innerHTML = `
         <div class="page">
@@ -620,6 +738,9 @@ async function renderUsers(root, { api, session }) {
                 axisCharacterId: activeAxisCharacterId,
                 axisStateLoading: axisStateLoadingActive,
                 axisStateError,
+                axisEvents,
+                axisEventsLoading: axisEventsLoadingActive,
+                axisEventsError,
               })}
             </aside>
           </div>
@@ -700,6 +821,7 @@ async function renderUsers(root, { api, session }) {
         axisSelect.addEventListener('change', (event) => {
           activeAxisCharacterId = Number(event.target.value);
           axisStateError = null;
+          axisEventsError = null;
           renderPage();
         });
       }
@@ -736,6 +858,7 @@ async function renderUsers(root, { api, session }) {
 
       if (activeDetailTab === 'axis' && activeAxisCharacterId) {
         ensureAxisState(activeAxisCharacterId);
+        ensureAxisEvents(activeAxisCharacterId);
       }
     };
 

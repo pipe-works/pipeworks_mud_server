@@ -2311,6 +2311,111 @@ def get_character_axis_state(character_id: int) -> dict[str, Any] | None:
     }
 
 
+def get_character_axis_events(character_id: int, *, limit: int = 50) -> list[dict[str, Any]]:
+    """
+    Return recent axis events for a character.
+
+    Args:
+        character_id: Character identifier.
+        limit: Maximum number of events to return.
+
+    Returns:
+        List of events with deltas and metadata.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT DISTINCT e.id
+        FROM event_entity_axis_delta d
+        JOIN event e ON e.id = d.event_id
+        WHERE d.character_id = ?
+        ORDER BY e.id DESC
+        LIMIT ?
+        """,
+        (character_id, limit),
+    )
+    event_ids = [row[0] for row in cursor.fetchall()]
+    if not event_ids:
+        conn.close()
+        return []
+
+    placeholders = ",".join(["?"] * len(event_ids))
+    events_query = f"""
+        SELECT e.id,
+               e.world_id,
+               e.timestamp,
+               et.name,
+               et.description,
+               a.name,
+               d.old_score,
+               d.new_score,
+               d.delta
+        FROM event_entity_axis_delta d
+        JOIN event e ON e.id = d.event_id
+        JOIN event_type et ON et.id = e.event_type_id
+        JOIN axis a ON a.id = d.axis_id
+        WHERE d.character_id = ?
+          AND e.id IN ({placeholders})
+        ORDER BY e.id DESC, a.name ASC
+        """  # nosec B608
+    cursor.execute(events_query, [character_id, *event_ids])
+    rows = cursor.fetchall()
+
+    metadata_query = f"""
+        SELECT event_id, key, value
+        FROM event_metadata
+        WHERE event_id IN ({placeholders})
+        """  # nosec B608
+    cursor.execute(metadata_query, event_ids)
+    metadata_rows = cursor.fetchall()
+
+    conn.close()
+
+    metadata_map: dict[int, dict[str, str]] = {}
+    for event_id, key, value in metadata_rows:
+        event_id_int = int(event_id)
+        metadata_map.setdefault(event_id_int, {})[key] = value
+
+    events: dict[int, dict[str, Any]] = {}
+    for (
+        event_id,
+        world_id,
+        timestamp,
+        event_type_name,
+        event_type_description,
+        axis_name,
+        old_score,
+        new_score,
+        delta,
+    ) in rows:
+        event_id_int = int(event_id)
+        event = events.get(event_id_int)
+        if event is None:
+            event = {
+                "event_id": event_id_int,
+                "world_id": world_id,
+                "event_type": event_type_name,
+                "event_type_description": event_type_description,
+                "timestamp": timestamp,
+                "metadata": metadata_map.get(event_id_int, {}),
+                "deltas": [],
+            }
+            events[event_id_int] = event
+        event["deltas"].append(
+            {
+                "axis_name": axis_name,
+                "old_score": float(old_score),
+                "new_score": float(new_score),
+                "delta": float(delta),
+            }
+        )
+
+    ordered_events = [events[int(event_id)] for event_id in event_ids if int(event_id) in events]
+    return ordered_events
+
+
 # ==========================================================================
 # ADMIN QUERIES
 # ==========================================================================
@@ -2584,7 +2689,20 @@ def get_all_users_detailed() -> list[dict[str, Any]]:
                u.last_login,
                u.is_active,
                u.tombstoned_at,
-               COUNT(c.id) AS character_count
+               COUNT(c.id) AS character_count,
+               EXISTS(
+                   SELECT 1
+                   FROM sessions s
+                   WHERE s.user_id = u.id
+                     AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
+               ) AS is_online_account,
+               EXISTS(
+                   SELECT 1
+                   FROM sessions s
+                   WHERE s.user_id = u.id
+                     AND s.character_id IS NOT NULL
+                     AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
+               ) AS is_online_in_world
         FROM users u
         LEFT JOIN characters c ON c.user_id = u.id
         GROUP BY u.id
@@ -2609,6 +2727,8 @@ def get_all_users_detailed() -> list[dict[str, Any]]:
                 "is_active": bool(row[9]),
                 "tombstoned_at": row[10],
                 "character_count": row[11],
+                "is_online_account": bool(row[12]),
+                "is_online_in_world": bool(row[13]),
             }
         )
     return users
