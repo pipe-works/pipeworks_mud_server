@@ -2235,6 +2235,83 @@ def cleanup_expired_guest_accounts() -> int:
 
 
 # ==========================================================================
+# AXIS STATE QUERIES
+# ==========================================================================
+
+
+def get_character_axis_state(character_id: int) -> dict[str, Any] | None:
+    """
+    Return axis scores and snapshot data for a character.
+
+    Args:
+        character_id: Character identifier.
+
+    Returns:
+        Dict containing character state info or None if character is missing.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id,
+               world_id,
+               base_state_json,
+               current_state_json,
+               state_seed,
+               state_version,
+               state_updated_at
+        FROM characters
+        WHERE id = ?
+        """,
+        (character_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return None
+
+    world_id = row[1]
+    base_state_json = row[2]
+    current_state_json = row[3]
+    state_seed = row[4]
+    state_version = row[5]
+    state_updated_at = row[6]
+
+    def _safe_load(payload: str | None) -> dict[str, Any] | None:
+        if not payload:
+            return None
+        try:
+            return cast(dict[str, Any], json.loads(payload))
+        except json.JSONDecodeError:
+            return None
+
+    axes = []
+    for axis_row in _fetch_character_axis_scores(cursor, character_id, world_id):
+        label = _resolve_axis_label_for_score(cursor, axis_row["axis_id"], axis_row["axis_score"])
+        axes.append(
+            {
+                "axis_id": axis_row["axis_id"],
+                "axis_name": axis_row["axis_name"],
+                "axis_score": axis_row["axis_score"],
+                "axis_label": label,
+            }
+        )
+
+    conn.close()
+
+    return {
+        "character_id": int(row[0]),
+        "world_id": world_id,
+        "state_seed": state_seed,
+        "state_version": state_version,
+        "state_updated_at": state_updated_at,
+        "base_state": _safe_load(base_state_json),
+        "current_state": _safe_load(current_state_json),
+        "axes": axes,
+    }
+
+
+# ==========================================================================
 # ADMIN QUERIES
 # ==========================================================================
 

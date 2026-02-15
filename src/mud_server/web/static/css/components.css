@@ -128,6 +128,17 @@
   font-size: 0.82rem;
 }
 
+.detail-code {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-alt);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .detail-list {
   display: grid;
   gap: 0.75rem;
@@ -188,6 +199,14 @@
   border: 1px solid var(--color-border);
   background: var(--color-bg-alt);
   font-size: 0.8rem;
+}
+
+.axis-state-select select {
+  width: 100%;
+}
+
+.axis-score-list {
+  margin-bottom: 0.75rem;
 }
 
 .schema-layout {
