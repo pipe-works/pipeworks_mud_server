@@ -90,21 +90,27 @@ function buildUsersTable(users, sortState, selectedUserId) {
     })
     .join('');
 
-  const rowsHtml = users
-    .map((user) => {
-      const isSelected = selectedUserId === user.id;
-      const rowClass = isSelected ? 'is-selected is-selectable' : 'is-selectable';
-      const cells = [
-        user.username,
-        formatRole(user.role),
-        user.is_active ? 'Yes' : 'No',
-        buildActionButtons(user.username),
-      ]
-        .map((cell) => `<td>${cell}</td>`)
-        .join('');
-      return `<tr class="${rowClass}" data-user-id="${user.id}">${cells}</tr>`;
-    })
-    .join('');
+  const rowsHtml = users.length
+    ? users
+        .map((user) => {
+          const isSelected = selectedUserId === user.id;
+          const rowClass = isSelected ? 'is-selected is-selectable' : 'is-selectable';
+          const cells = [
+            user.username,
+            formatRole(user.role),
+            user.is_active ? 'Yes' : 'No',
+            buildActionButtons(user.username),
+          ]
+            .map((cell) => `<td>${cell}</td>`)
+            .join('');
+          return `<tr class="${rowClass}" data-user-id="${user.id}">${cells}</tr>`;
+        })
+        .join('')
+    : `
+      <tr>
+        <td class="table-empty" colspan="${headers.length}">No users match this filter.</td>
+      </tr>
+    `;
 
   return `
     <div class="table-wrap">
@@ -148,6 +154,26 @@ function sortUsers(users, sortState) {
   });
 
   return sorted;
+}
+
+function filterUsers(users, searchTerm, activeOnly) {
+  let filtered = [...users];
+  if (activeOnly) {
+    filtered = filtered.filter((user) => user.is_active);
+  }
+
+  const term = searchTerm.trim().toLowerCase();
+  if (!term) {
+    return filtered;
+  }
+
+  return filtered.filter((user) => {
+    const haystack = [user.username, user.role, user.account_origin]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(term);
+  });
 }
 
 /**
@@ -304,6 +330,8 @@ async function renderUsers(root, { api, session }) {
     const users = response.players;
     const sortState = { key: 'username', direction: 'asc' };
     let selectedUserId = users[0]?.id ?? null;
+    let searchTerm = '';
+    let activeOnly = false;
 
     let characters = [];
     let worldsById = new Map();
@@ -343,22 +371,49 @@ async function renderUsers(root, { api, session }) {
     }
 
     const renderPage = () => {
-      const sortedUsers = sortUsers(users, sortState);
-      if (!selectedUserId && sortedUsers.length) {
+      const activeElement = document.activeElement;
+      const searchWasFocused =
+        activeElement instanceof HTMLInputElement && activeElement.id === 'user-search';
+      const selectionStart = searchWasFocused ? activeElement.selectionStart : null;
+      const selectionEnd = searchWasFocused ? activeElement.selectionEnd : null;
+      const previousScrollTop = root.querySelector('.table-wrap')?.scrollTop ?? null;
+
+      const filteredUsers = filterUsers(users, searchTerm, activeOnly);
+      const sortedUsers = sortUsers(filteredUsers, sortState);
+      if (sortedUsers.length === 0) {
+        selectedUserId = null;
+      } else if (!selectedUserId || !sortedUsers.some((user) => user.id === selectedUserId)) {
         selectedUserId = sortedUsers[0].id;
       }
       const selectedUser =
-        sortedUsers.find((user) => user.id === selectedUserId) || sortedUsers[0];
+        sortedUsers.find((user) => user.id === selectedUserId) || sortedUsers[0] || null;
       root.innerHTML = `
         <div class="page">
           <div class="page-header">
             <div>
               <h2>Users</h2>
-              <p class="muted">${users.length} users found.</p>
+              <p class="muted">${sortedUsers.length} of ${users.length} users shown.</p>
             </div>
           </div>
           <div class="split-layout">
-            <div class="card table-card">
+            <div class="card table-card users-table-card">
+              <div class="table-toolbar">
+                <label class="table-search">
+                  <span>Search</span>
+                  <input
+                    type="search"
+                    id="user-search"
+                    placeholder="Username, role, origin"
+                    value="${searchTerm.replace(/"/g, '&quot;')}"
+                  />
+                </label>
+                <label class="table-toggle">
+                  <input type="checkbox" id="user-active-only" ${
+                    activeOnly ? 'checked' : ''
+                  } />
+                  <span>Active only</span>
+                </label>
+              </div>
               ${buildUsersTable(sortedUsers, sortState, selectedUser?.id)}
             </div>
             <aside class="detail-panel">
@@ -436,6 +491,36 @@ async function renderUsers(root, { api, session }) {
           renderPage();
         });
       });
+
+      const searchInput = root.querySelector('#user-search');
+      if (searchInput) {
+        searchInput.addEventListener('input', (event) => {
+          searchTerm = event.target.value;
+          renderPage();
+        });
+      }
+
+      const activeToggle = root.querySelector('#user-active-only');
+      if (activeToggle) {
+        activeToggle.addEventListener('change', (event) => {
+          activeOnly = event.target.checked;
+          renderPage();
+        });
+      }
+
+      if (searchInput && searchWasFocused) {
+        searchInput.focus();
+        if (selectionStart !== null && selectionEnd !== null) {
+          searchInput.setSelectionRange(selectionStart, selectionEnd);
+        }
+      }
+
+      if (previousScrollTop !== null) {
+        const tableWrap = root.querySelector('.table-wrap');
+        if (tableWrap) {
+          tableWrap.scrollTop = previousScrollTop;
+        }
+      }
     };
 
     renderPage();
