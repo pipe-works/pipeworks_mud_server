@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -487,6 +488,173 @@ def get_connection() -> sqlite3.Connection:
         sqlite3.Connection object
     """
     return sqlite3.connect(str(_get_db_path()))
+
+
+# ==========================================================================
+# AXIS REGISTRY SEEDING
+# ==========================================================================
+
+
+@dataclass(slots=True)
+class AxisRegistrySeedStats:
+    """
+    Summary of axis registry seeding work performed.
+
+    Attributes:
+        axes_upserted: Number of axis rows inserted or updated.
+        axis_values_inserted: Number of axis_value rows inserted.
+        axes_missing_thresholds: Number of axes that had no thresholds entry.
+        axis_values_skipped: Number of axis_value rows skipped due to missing data.
+    """
+
+    axes_upserted: int
+    axis_values_inserted: int
+    axes_missing_thresholds: int
+    axis_values_skipped: int
+
+
+def _extract_axis_ordering_values(axis_data: dict[str, Any]) -> list[str]:
+    """
+    Extract ordering values for an axis from the policy payload.
+
+    Args:
+        axis_data: Axis definition from axes.yaml.
+
+    Returns:
+        List of ordered axis values if present, otherwise an empty list.
+    """
+    ordering = (axis_data or {}).get("ordering")
+    if not isinstance(ordering, dict):
+        return []
+
+    values = ordering.get("values")
+    if not isinstance(values, list):
+        return []
+
+    return [str(value) for value in values]
+
+
+def seed_axis_registry(
+    *,
+    world_id: str,
+    axes_payload: dict[str, Any],
+    thresholds_payload: dict[str, Any],
+) -> AxisRegistrySeedStats:
+    """
+    Insert or update axis registry rows based on policy payloads.
+
+    This function mirrors world policy files into normalized DB tables:
+    - ``axis`` rows (ordering_json + description)
+    - ``axis_value`` rows (thresholds + ordinal mapping)
+
+    The registry is treated as derived data. If thresholds are missing for
+    an axis, axis_value rows are skipped to avoid overwriting prior data.
+
+    Args:
+        world_id: World identifier the policy applies to.
+        axes_payload: Parsed ``axes.yaml`` payload (dict).
+        thresholds_payload: Parsed ``thresholds.yaml`` payload (dict).
+
+    Returns:
+        AxisRegistrySeedStats with counts of inserts and skips.
+    """
+    axes_definitions = axes_payload.get("axes") or {}
+    thresholds_definitions = thresholds_payload.get("axes") or {}
+
+    axes_upserted = 0
+    axis_values_inserted = 0
+    axes_missing_thresholds = 0
+    axis_values_skipped = 0
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    for axis_name, axis_data in axes_definitions.items():
+        axis_data = axis_data or {}
+
+        # Store ordering as JSON so the DB preserves world policy intent.
+        ordering = axis_data.get("ordering")
+        ordering_json = json.dumps(ordering, sort_keys=True) if ordering else None
+
+        # Persist axis registry row (description/order updates are idempotent).
+        cursor.execute(
+            """
+            INSERT INTO axis (world_id, name, description, ordering_json)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(world_id, name) DO UPDATE SET
+                description = excluded.description,
+                ordering_json = excluded.ordering_json
+            """,
+            (
+                world_id,
+                axis_name,
+                axis_data.get("description"),
+                ordering_json,
+            ),
+        )
+        axes_upserted += 1
+
+        cursor.execute(
+            "SELECT id FROM axis WHERE world_id = ? AND name = ? LIMIT 1",
+            (world_id, axis_name),
+        )
+        axis_row = cursor.fetchone()
+        if not axis_row:
+            # Defensive: if row resolution fails, skip axis values rather than crashing.
+            axis_values_skipped += 1
+            continue
+        axis_id = int(axis_row[0])
+
+        thresholds = thresholds_definitions.get(axis_name)
+        if not isinstance(thresholds, dict):
+            axes_missing_thresholds += 1
+            continue
+
+        values = thresholds.get("values") or {}
+        if not isinstance(values, dict):
+            axis_values_skipped += 1
+            continue
+
+        # Use ordering values for ordinals when available.
+        ordering_values = _extract_axis_ordering_values(axis_data)
+        ordinal_map = {value: index for index, value in enumerate(ordering_values)}
+
+        # Remove existing axis values so registry always reflects policy.
+        cursor.execute("DELETE FROM axis_value WHERE axis_id = ?", (axis_id,))
+
+        for value_name, value_bounds in values.items():
+            value_bounds = value_bounds or {}
+            min_score = value_bounds.get("min")
+            max_score = value_bounds.get("max")
+
+            # Normalize numeric bounds where possible (None preserves unknowns).
+            min_score = float(min_score) if min_score is not None else None
+            max_score = float(max_score) if max_score is not None else None
+
+            cursor.execute(
+                """
+                INSERT INTO axis_value (axis_id, value, min_score, max_score, ordinal)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    axis_id,
+                    str(value_name),
+                    min_score,
+                    max_score,
+                    ordinal_map.get(str(value_name)),
+                ),
+            )
+            axis_values_inserted += 1
+
+    conn.commit()
+    conn.close()
+
+    return AxisRegistrySeedStats(
+        axes_upserted=axes_upserted,
+        axis_values_inserted=axis_values_inserted,
+        axes_missing_thresholds=axes_missing_thresholds,
+        axis_values_skipped=axis_values_skipped,
+    )
 
 
 # ==========================================================================

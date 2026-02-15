@@ -118,6 +118,84 @@ class GameEngine:
         # Initialize database schema (creates tables, default admin)
         database.init_database()
 
+        # Load and validate axis policies, then seed registry tables.
+        # This ensures policy readiness is surfaced at startup, and the
+        # database mirrors the world-defined axis vocabulary.
+        self._bootstrap_axis_policies()
+
+    def _bootstrap_axis_policies(self) -> None:
+        """
+        Load world axis policies, emit validation reports, and seed registry tables.
+
+        This is a startup-only routine. It keeps policy files and the axis
+        registry in sync, and surfaces configuration gaps early via logs.
+        """
+        import logging
+        from pathlib import Path
+
+        from mud_server.config import config
+        from mud_server.policies import AxisPolicyLoader
+
+        logger = logging.getLogger(__name__)
+
+        # Gather all worlds (including inactive) so policy issues are visible.
+        worlds = self.world_registry.list_worlds(include_inactive=True)
+        if not worlds:
+            logger.warning("Axis policy bootstrap skipped: no worlds registered.")
+            return
+
+        loader = AxisPolicyLoader(worlds_root=Path(config.worlds.worlds_root))
+
+        for world in worlds:
+            world_id = world.get("id")
+            if not world_id:
+                # Defensive guard: malformed world rows should not block startup.
+                logger.warning("Axis policy bootstrap skipped malformed world row: %s", world)
+                continue
+
+            payload, report = loader.load(world_id)
+            self._log_axis_policy_report(logger, report)
+
+            if not report.axes:
+                logger.warning("Axis registry seeding skipped for %s: no axes defined.", world_id)
+                continue
+
+            stats = database.seed_axis_registry(
+                world_id=world_id,
+                axes_payload=payload.get("axes") or {},
+                thresholds_payload=payload.get("thresholds") or {},
+            )
+            logger.info("Axis registry seeded for %s: %s", world_id, stats)
+
+    @staticmethod
+    def _log_axis_policy_report(logger, report) -> None:
+        """
+        Log the axis policy validation report for a world.
+
+        Args:
+            logger: Logger instance for emission.
+            report: AxisPolicyValidationReport instance.
+        """
+        version = report.version or "unversioned"
+        logger.info(
+            "Axis policy report for %s (version=%s hash=%s)",
+            report.world_id,
+            version,
+            report.policy_hash,
+        )
+        logger.info(
+            "Axis policy axes=%s ordering=%s thresholds=%s",
+            report.axes,
+            report.ordering_present,
+            report.thresholds_present,
+        )
+        if report.missing_components:
+            logger.warning(
+                "Axis policy missing components for %s: %s",
+                report.world_id,
+                "; ".join(report.missing_components),
+            )
+
     def _get_world(self, world_id: str | None) -> "World":
         """
         Resolve a world_id to a loaded World instance.
