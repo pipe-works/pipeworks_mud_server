@@ -179,7 +179,10 @@ def test_register_guest_success(test_client, test_db, temp_db_path):
         assert isinstance(data["character_id"], int)
         assert data["entity_state"] is not None
         assert "axes" in data["entity_state"]
+        assert isinstance(data["entity_state"]["seed"], int)
+        assert data["entity_state"]["seed"] > 0
         assert "wealth" in data["entity_state"]["axes"]
+        assert "legitimacy" in data["entity_state"]["axes"]
         assert data["entity_state_error"] is None
 
         character = database.get_character_by_name("Guest Traveler")

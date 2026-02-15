@@ -56,6 +56,8 @@ def test_character_state_snapshot_seeded_on_creation(temp_db_path, monkeypatch) 
         database.init_database(skip_superuser=True)
 
         monkeypatch.setattr(database, "_get_axis_policy_hash", lambda _world_id: "policyhash")
+        # Use a fixed seed in this unit test so assertions remain deterministic.
+        monkeypatch.setattr(database, "_generate_state_seed", lambda: 424242)
 
         axes_payload = {
             "axes": {
@@ -106,11 +108,12 @@ def test_character_state_snapshot_seeded_on_creation(temp_db_path, monkeypatch) 
 
         assert base_state_json is not None
         assert current_state_json is not None
-        assert state_seed == 0
+        assert state_seed == 424242
         assert state_version == "policyhash"
 
         snapshot = json.loads(base_state_json)
         assert snapshot["world_id"] == "test_world"
+        assert snapshot["seed"] == 424242
         assert snapshot["axes"]["wealth"]["label"] == "wealthy"
         assert snapshot["axes"]["wealth"]["score"] == 0.5
 
@@ -120,6 +123,14 @@ def test_get_axis_policy_hash_returns_value() -> None:
     """Policy hash helper should return a deterministic hash."""
     policy_hash = database._get_axis_policy_hash(database.DEFAULT_WORLD_ID)
     assert policy_hash is not None
+
+
+@pytest.mark.unit
+def test_generate_state_seed_returns_non_zero_positive_int() -> None:
+    """Generated snapshot seeds should always be positive/non-zero."""
+    seed = database._generate_state_seed()
+    assert isinstance(seed, int)
+    assert seed > 0
 
 
 @pytest.mark.unit
