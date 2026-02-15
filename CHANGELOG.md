@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.5](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.4...mud_server-v0.3.5) (2026-02-14)
+
+
+### Features
+
+* **web:** add play shell scaffolding ([ee65ef7](https://github.com/pipe-works/pipeworks_mud_server/commit/ee65ef7abccd3f804e328618fd4e992e3d86c0c1))
+* **web:** add play UI layout scaffold ([088b484](https://github.com/pipe-works/pipeworks_mud_server/commit/088b4845ca5b19b8e92ecd5a64abd406395538ba))
+* **web:** add play UI shell ([6868746](https://github.com/pipe-works/pipeworks_mud_server/commit/6868746676da31a82bc6fecb67752bbd5f1c1414))
+* **web:** scaffold play UI layout ([ba71d75](https://github.com/pipe-works/pipeworks_mud_server/commit/ba71d75ec4fad53da5fab3a614c05feb1b9472ac))
+* **web:** simplify play login flow ([21dd729](https://github.com/pipe-works/pipeworks_mud_server/commit/21dd7295a1bdc7a4692c564d6691dd34f71c5baf))
+* **web:** simplify play login flow ([883ff32](https://github.com/pipe-works/pipeworks_mud_server/commit/883ff32b1cc581d8b91fe892f896c14135ce28cc))
+
+
+### Bug Fixes
+
+* **web:** add play shell base styles ([a74dcb6](https://github.com/pipe-works/pipeworks_mud_server/commit/a74dcb69a14eeda4be15155326bc86fe065ff92f))
+* **web:** style play shell states ([0e5eebb](https://github.com/pipe-works/pipeworks_mud_server/commit/0e5eebb3cce880b2566464602744ac39b1354606))
+
+
+### Documentation
+
+* **web:** add play web UI guide ([22a07d7](https://github.com/pipe-works/pipeworks_mud_server/commit/22a07d76f4a74ca11b06ab6ed8827d1d2ee870e8))
+* **web:** add play web UI guide ([5c5b0cc](https://github.com/pipe-works/pipeworks_mud_server/commit/5c5b0ccb2fa8913009c4021b5342db7cc89b841e))
+
 ## [0.3.4](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.3...mud_server-v0.3.4) (2026-02-14)
 
 
