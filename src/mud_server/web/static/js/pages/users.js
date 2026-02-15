@@ -172,10 +172,13 @@ function sortUsers(users, sortState) {
   return sorted;
 }
 
-function filterUsers(users, searchTerm, activeOnly) {
+function filterUsers(users, searchTerm, activeOnly, onlineOnly) {
   let filtered = [...users];
   if (activeOnly) {
     filtered = filtered.filter((user) => user.is_active);
+  }
+  if (onlineOnly) {
+    filtered = filtered.filter((user) => user.is_online_account || user.is_online_in_world);
   }
 
   const term = searchTerm.trim().toLowerCase();
@@ -569,6 +572,7 @@ async function renderUsers(root, { api, session }) {
     let selectedUserId = users[0]?.id ?? null;
     let searchTerm = '';
     let activeOnly = false;
+    let onlineOnly = false;
     let activeDetailTab = 'account';
     let activeAxisCharacterId = null;
     let axisStateError = null;
@@ -661,7 +665,7 @@ async function renderUsers(root, { api, session }) {
       const selectionEnd = searchWasFocused ? activeElement.selectionEnd : null;
       const previousScrollTop = root.querySelector('.table-wrap')?.scrollTop ?? null;
 
-      const filteredUsers = filterUsers(users, searchTerm, activeOnly);
+      const filteredUsers = filterUsers(users, searchTerm, activeOnly, onlineOnly);
       const sortedUsers = sortUsers(filteredUsers, sortState);
       if (sortedUsers.length === 0) {
         selectedUserId = null;
@@ -714,6 +718,12 @@ async function renderUsers(root, { api, session }) {
                       activeOnly ? 'checked' : ''
                     } />
                     <span>Active only</span>
+                  </label>
+                  <label class="table-toggle">
+                    <input type="checkbox" id="user-online-only" ${
+                      onlineOnly ? 'checked' : ''
+                    } />
+                    <span>Online only</span>
                   </label>
                 </div>
                 ${buildUsersTable(sortedUsers, sortState, selectedUser?.id)}
@@ -838,6 +848,14 @@ async function renderUsers(root, { api, session }) {
       if (activeToggle) {
         activeToggle.addEventListener('change', (event) => {
           activeOnly = event.target.checked;
+          renderPage();
+        });
+      }
+
+      const onlineToggle = root.querySelector('#user-online-only');
+      if (onlineToggle) {
+        onlineToggle.addEventListener('change', (event) => {
+          onlineOnly = event.target.checked;
           renderPage();
         });
       }
