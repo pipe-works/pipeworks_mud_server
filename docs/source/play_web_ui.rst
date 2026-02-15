@@ -181,3 +181,16 @@ Build the documentation locally:
 
    cd docs
    make html
+
+Local dev + CORS sanity checklist
+---------------------------------
+
+* **Same-origin local dev (no CORS needed)**:
+  Run the MUD server locally and load the UI from the same host/port.
+  Example: ``mud-server run --host 127.0.0.1 --port 7860`` then visit
+  ``http://localhost:7860/play``.
+
+* **Different-origin local dev (CORS required)**:
+  If the UI is served from a separate dev server (for example Nova Panic at
+  ``http://localhost:9000``) and you point it at the **remote** API, the
+  **remote** nginx CORS map must allow that origin.
