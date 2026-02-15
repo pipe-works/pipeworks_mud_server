@@ -19,6 +19,7 @@ dependencies = [
     "requests==2.32.5",
     "passlib==1.7.4",
     "bcrypt==3.2.2",  # Must be 3.x for passlib 1.7.4 compatibility
+    "PyYAML==6.0.2",
 ]
 
 [project.urls]
@@ -46,6 +47,7 @@ dev = [
     "ruff>=0.14.0",
     "black==26.1.0",  # PINNED org-wide to prevent formatting drift
     "mypy>=1.19.0",
+    "types-PyYAML>=6.0.12.20241230",
     "bandit[toml]>=1.7.0",
 ]
 docs = [
