@@ -1,0 +1,65 @@
+version: 0.1.0
+source: pipeworks_entity_state_generation
+axes:
+  physique:
+    values:
+    - skinny
+    - wiry
+    - stocky
+    - hunched
+    - frail
+    - broad
+    ordering:
+      type: ordinal
+      values: [skinny, wiry, stocky, hunched, frail, broad]
+  wealth:
+    values:
+    - poor
+    - modest
+    - well-kept
+    - wealthy
+    - decadent
+    ordering:
+      type: ordinal
+      values: [poor, modest, well-kept, wealthy, decadent]
+  health:
+    values:
+    - sickly
+    - scarred
+    - weary
+    - hale
+    - limping
+    ordering:
+      type: ordinal
+      values: [sickly, scarred, weary, hale, limping]
+  demeanor:
+    values:
+    - timid
+    - suspicious
+    - resentful
+    - alert
+    - proud
+    ordering:
+      type: ordinal
+      values: [timid, suspicious, resentful, alert, proud]
+  age:
+    values:
+    - young
+    - middle-aged
+    - old
+    - ancient
+    ordering:
+      type: ordinal
+      values: [young, middle-aged, old, ancient]
+  facial_signal:
+    values:
+    - understated
+    - pronounced
+    - exaggerated
+    - asymmetrical
+    - weathered
+    - soft-featured
+    - sharp-featured
+    ordering:
+      type: ordinal
+      values: [understated, pronounced, exaggerated, asymmetrical, weathered, soft-featured, sharp-featured]

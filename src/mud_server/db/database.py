@@ -120,6 +120,50 @@ def init_database(*, skip_superuser: bool = False) -> None:
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS axis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            ordering_json TEXT,
+            UNIQUE(world_id, name)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS axis_value (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            axis_id INTEGER NOT NULL REFERENCES axis(id) ON DELETE CASCADE,
+            value TEXT NOT NULL,
+            min_score REAL,
+            max_score REAL,
+            ordinal INTEGER,
+            UNIQUE(axis_id, value)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS event_type (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            UNIQUE(world_id, name)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS character_axis_score (
+            character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+            world_id TEXT NOT NULL,
+            axis_id INTEGER NOT NULL REFERENCES axis(id) ON DELETE CASCADE,
+            axis_score REAL NOT NULL,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (character_id, axis_id)
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS character_locations (
             character_id INTEGER PRIMARY KEY,
             world_id TEXT NOT NULL,
@@ -150,6 +194,36 @@ def init_database(*, skip_superuser: bool = False) -> None:
             client_type TEXT DEFAULT 'unknown',
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
             FOREIGN KEY(character_id) REFERENCES characters(id) ON DELETE SET NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS event (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id TEXT NOT NULL,
+            event_type_id INTEGER NOT NULL REFERENCES event_type(id) ON DELETE RESTRICT,
+            timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS event_entity_axis_delta (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL REFERENCES event(id) ON DELETE CASCADE,
+            character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+            axis_id INTEGER NOT NULL REFERENCES axis(id) ON DELETE CASCADE,
+            old_score REAL NOT NULL,
+            new_score REAL NOT NULL,
+            delta REAL NOT NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS event_metadata (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL REFERENCES event(id) ON DELETE CASCADE,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL
         )
     """)
 

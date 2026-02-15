@@ -32,6 +32,7 @@ The ASCII diagram below reflects the current SQLite schema in ``data/mud.db``.
     | PK  id                 INTEGER   |
     |     user_id            INTEGER   | FK -> users.id (ON DELETE SET NULL)
     | NN  name               TEXT      | UNIQUE
+    | NN  world_id           TEXT      |
     | NN  inventory          TEXT      | DEFAULT '[]'
     | NN  is_guest_created   INTEGER   | DEFAULT 0
     |     created_at         TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
@@ -43,8 +44,9 @@ The ASCII diagram below reflects the current SQLite schema in ``data/mud.db``.
     | character_locations              |
     +----------------------------------+
     | PK  character_id      INTEGER    | FK -> characters.id (ON DELETE CASCADE)
-    | NN  room_id           TEXT       |
-    |     updated_at        TIMESTAMP  | DEFAULT CURRENT_TIMESTAMP
+    | NN  world_id           TEXT      |
+    | NN  room_id            TEXT      |
+    |     updated_at         TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
     +----------------------------------+
 
 
@@ -54,6 +56,7 @@ The ASCII diagram below reflects the current SQLite schema in ``data/mud.db``.
     | PK  id                 INTEGER   |
     | NN  user_id            INTEGER   | FK -> users.id (ON DELETE CASCADE)
     |     character_id       INTEGER   | FK -> characters.id (ON DELETE SET NULL)
+    |     world_id           TEXT      |
     | NN  session_id         TEXT      | UNIQUE
     |     created_at         TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
     |     last_activity      TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
@@ -69,9 +72,109 @@ The ASCII diagram below reflects the current SQLite schema in ``data/mud.db``.
     |     character_id       INTEGER   | FK -> characters.id (ON DELETE SET NULL)
     |     user_id            INTEGER   | FK -> users.id (ON DELETE SET NULL)
     | NN  message            TEXT      |
+    | NN  world_id           TEXT      |
     | NN  room               TEXT      |
     |     recipient_character_id INTEGER | FK -> characters.id (ON DELETE SET NULL)
     |     timestamp          TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
+    +----------------------------------+
+
+
+    +----------------------------------+
+    | worlds                           |
+    +----------------------------------+
+    | PK  id                 TEXT      |
+    | NN  name               TEXT      |
+    |     description        TEXT      |
+    | NN  is_active          INTEGER   | DEFAULT 1
+    | NN  config_json        TEXT      | DEFAULT '{}'
+    |     created_at         TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
+    +----------------------------------+
+
+
+    +----------------------------------+
+    | world_permissions                |
+    +----------------------------------+
+    | PK  user_id            INTEGER   | FK -> users.id (ON DELETE CASCADE)
+    | PK  world_id           TEXT      | FK -> worlds.id (ON DELETE CASCADE)
+    | NN  can_access         INTEGER   | DEFAULT 1
+    |     created_at         TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
+    +----------------------------------+
+
+
+    +----------------------------------+
+    | axis                             |
+    +----------------------------------+
+    | PK  id                 INTEGER   |
+    | NN  world_id           TEXT      |
+    | NN  name               TEXT      |
+    |     description        TEXT      |
+    |     ordering_json      TEXT      |
+    +----------------------------------+
+
+
+    +----------------------------------+
+    | axis_value                       |
+    +----------------------------------+
+    | PK  id                 INTEGER   |
+    | NN  axis_id            INTEGER   | FK -> axis.id (ON DELETE CASCADE)
+    | NN  value              TEXT      |
+    |     min_score          REAL      |
+    |     max_score          REAL      |
+    |     ordinal            INTEGER   |
+    +----------------------------------+
+
+
+    +----------------------------------+
+    | event_type                       |
+    +----------------------------------+
+    | PK  id                 INTEGER   |
+    | NN  world_id           TEXT      |
+    | NN  name               TEXT      |
+    |     description        TEXT      |
+    +----------------------------------+
+
+
+    +----------------------------------+
+    | character_axis_score             |
+    +----------------------------------+
+    | PK  character_id      INTEGER    | FK -> characters.id (ON DELETE CASCADE)
+    | PK  axis_id           INTEGER    | FK -> axis.id (ON DELETE CASCADE)
+    | NN  world_id           TEXT      |
+    | NN  axis_score         REAL      |
+    |     updated_at         TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
+    +----------------------------------+
+
+
+    +----------------------------------+
+    | event                            |
+    +----------------------------------+
+    | PK  id                 INTEGER   |
+    | NN  world_id           TEXT      |
+    | NN  event_type_id      INTEGER   | FK -> event_type.id
+    |     timestamp          TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
+    +----------------------------------+
+
+
+    +----------------------------------+
+    | event_entity_axis_delta          |
+    +----------------------------------+
+    | PK  id                 INTEGER   |
+    | NN  event_id           INTEGER   | FK -> event.id (ON DELETE CASCADE)
+    | NN  character_id       INTEGER   | FK -> characters.id (ON DELETE CASCADE)
+    | NN  axis_id            INTEGER   | FK -> axis.id (ON DELETE CASCADE)
+    | NN  old_score          REAL      |
+    | NN  new_score          REAL      |
+    | NN  delta              REAL      |
+    +----------------------------------+
+
+
+    +----------------------------------+
+    | event_metadata                   |
+    +----------------------------------+
+    | PK  id                 INTEGER   |
+    | NN  event_id           INTEGER   | FK -> event.id (ON DELETE CASCADE)
+    | NN  key                TEXT      |
+    | NN  value              TEXT      |
     +----------------------------------+
 
 Notes
@@ -85,3 +188,5 @@ Notes
   (``user_id`` set to NULL) rather than deleted.
 - ``characters.name`` is a plain TEXT field, so names with spaces (e.g., first + last)
   are supported.
+- Axis state is tracked in **normalized tables** (``axis``, ``axis_value``,
+  ``character_axis_score``) with an **event ledger** (``event*`` tables).

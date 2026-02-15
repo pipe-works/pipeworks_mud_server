@@ -76,12 +76,38 @@ def test_init_database_creates_tables(temp_db_path):
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'")
         assert cursor.fetchone() is not None
 
+        # Check event ledger tables exist
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='event'")
+        assert cursor.fetchone() is not None
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='event_entity_axis_delta'"
+        )
+        assert cursor.fetchone() is not None
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='event_metadata'"
+        )
+        assert cursor.fetchone() is not None
+
         # Check chat_messages table exists
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chat_messages'")
         assert cursor.fetchone() is not None
 
         # Check characters table exists
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='characters'")
+        assert cursor.fetchone() is not None
+
+        # Check axis registry tables exist
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='axis'")
+        assert cursor.fetchone() is not None
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='axis_value'")
+        assert cursor.fetchone() is not None
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='event_type'")
+        assert cursor.fetchone() is not None
+
+        # Check character axis state table exists
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='character_axis_score'"
+        )
         assert cursor.fetchone() is not None
 
         # Check character_locations table exists
