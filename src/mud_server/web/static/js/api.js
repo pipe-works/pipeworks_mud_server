@@ -149,6 +149,14 @@ class ApiClient {
   }
 
   /**
+   * Fetch axis events for a character (admin only).
+   */
+  async getCharacterAxisEvents(sessionId, characterId, limit = 25) {
+    const params = new URLSearchParams({ session_id: sessionId, limit: `${limit}` });
+    return this.fetcher(`/admin/characters/${characterId}/axis-events?${params.toString()}`);
+  }
+
+  /**
    * Kick an active session.
    */
   async kickSession(sessionId, targetSessionId) {

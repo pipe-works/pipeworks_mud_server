@@ -413,6 +413,8 @@ class DatabasePlayersResponse(BaseModel):
             - is_guest: Guest flag
             - guest_expires_at: Guest expiry timestamp
             - character_count: Number of linked characters
+            - is_online_account: True if any active session exists
+            - is_online_in_world: True if any active session has a character
             - created_at: Account creation timestamp
             - last_login: Last login timestamp
             - is_active: Account status (True=active, False=banned)
@@ -661,6 +663,59 @@ class DatabaseCharacterAxisStateResponse(BaseModel):
     base_state: dict[str, Any] | None
     current_state: dict[str, Any] | None
     axes: list[CharacterAxisScore]
+
+
+class CharacterAxisDelta(BaseModel):
+    """
+    Axis delta entry for an event.
+
+    Attributes:
+        axis_name: Axis name.
+        old_score: Score before applying delta.
+        new_score: Score after applying delta.
+        delta: Applied delta value.
+    """
+
+    axis_name: str
+    old_score: float
+    new_score: float
+    delta: float
+
+
+class CharacterAxisEvent(BaseModel):
+    """
+    Axis event entry with deltas and metadata.
+
+    Attributes:
+        event_id: Event identifier.
+        world_id: World identifier for the event.
+        event_type: Event type name.
+        event_type_description: Optional event type description.
+        timestamp: Event timestamp.
+        metadata: Key/value metadata entries.
+        deltas: Axis delta entries.
+    """
+
+    event_id: int
+    world_id: str
+    event_type: str
+    event_type_description: str | None
+    timestamp: str | None
+    metadata: dict[str, str]
+    deltas: list[CharacterAxisDelta]
+
+
+class DatabaseCharacterAxisEventsResponse(BaseModel):
+    """
+    Admin response containing axis events for a character.
+
+    Attributes:
+        character_id: Character id.
+        events: Event entries.
+    """
+
+    character_id: int
+    events: list[CharacterAxisEvent]
 
 
 class UserManagementResponse(BaseModel):

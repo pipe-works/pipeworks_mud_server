@@ -1376,6 +1376,62 @@ def test_admin_character_axis_state_endpoint(test_client, test_db, temp_db_path,
 
 
 @pytest.mark.api
+def test_admin_character_axis_events_endpoint(test_client, test_db, temp_db_path, db_with_users):
+    """Admin axis-events endpoint should return event history."""
+    with use_test_database(temp_db_path):
+        axes_payload = {
+            "axes": {
+                "wealth": {
+                    "description": "Economic status",
+                    "ordering": {"type": "ordinal", "values": ["poor", "wealthy"]},
+                }
+            }
+        }
+        thresholds_payload = {
+            "axes": {
+                "wealth": {
+                    "values": {
+                        "poor": {"min": 0.0, "max": 0.49},
+                        "wealthy": {"min": 0.5, "max": 1.0},
+                    }
+                }
+            }
+        }
+        database.seed_axis_registry(
+            world_id=database.DEFAULT_WORLD_ID,
+            axes_payload=axes_payload,
+            thresholds_payload=thresholds_payload,
+        )
+
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+        admin_id = database.get_user_id("testadmin")
+        assert admin_id is not None
+
+        assert database.create_character_for_user(admin_id, "axis_event_char")
+        character = database.get_character_by_name("axis_event_char")
+        assert character is not None
+
+        database.apply_axis_event(
+            world_id=database.DEFAULT_WORLD_ID,
+            character_id=int(character["id"]),
+            event_type_name="axis_event_test",
+            deltas={"wealth": 0.1},
+        )
+
+        response = test_client.get(
+            f"/admin/characters/{character['id']}/axis-events",
+            params={"session_id": session_id},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["character_id"] == character["id"]
+        assert payload["events"][0]["event_type"] == "axis_event_test"
+
+
+@pytest.mark.api
 def test_admin_kick_session_not_found(test_client, test_db, temp_db_path, db_with_users):
     """Kick session should return not found when session is missing."""
     with use_test_database(temp_db_path):

@@ -174,3 +174,41 @@ def test_apply_axis_event_empty_deltas_raises() -> None:
             event_type_name="empty_event",
             deltas={},
         )
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_character_axis_events_returns_event(temp_db_path, monkeypatch) -> None:
+    """Axis event query should return events with metadata and deltas."""
+    with use_test_database(temp_db_path):
+        database.init_database(skip_superuser=True)
+
+        monkeypatch.setattr(database, "_get_axis_policy_hash", lambda _world_id: "policyhash")
+
+        world_id = "test_world"
+        _seed_policy(world_id)
+
+        assert database.create_user_with_password(
+            "event_query_user", TEST_PASSWORD, create_default_character=False
+        )
+        user_id = database.get_user_id("event_query_user")
+        assert user_id is not None
+        assert database.create_character_for_user(user_id, "event_query_char", world_id=world_id)
+        character = database.get_character_by_name("event_query_char")
+        assert character is not None
+
+        event_id = database.apply_axis_event(
+            world_id=world_id,
+            character_id=int(character["id"]),
+            event_type_name="query_event",
+            deltas={"wealth": 0.2},
+            metadata={"source": "query"},
+        )
+
+        events = database.get_character_axis_events(int(character["id"]))
+        assert len(events) == 1
+        event = events[0]
+        assert event["event_id"] == event_id
+        assert event["event_type"] == "query_event"
+        assert event["metadata"]["source"] == "query"
+        assert event["deltas"][0]["axis_name"] == "wealth"
