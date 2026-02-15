@@ -195,10 +195,11 @@ function buildUserDetails({
   worldsById,
   permissionsByUser,
   locationsByCharacter,
+  activeTab,
 }) {
   if (!user) {
     return `
-      <div class="detail-card">
+      <div class="detail-card tab-card">
         <h3>User Details</h3>
         <p class="muted">Select a user to see account details.</p>
       </div>
@@ -236,30 +237,50 @@ function buildUserDetails({
         .join('')
     : '<p class="muted">No world permissions recorded.</p>';
 
+  const tab = activeTab || 'account';
+
   return `
-    <div class="detail-card">
-      <h3>Account</h3>
-      <dl class="detail-list">
-        <div><dt>ID</dt><dd>${user.id}</dd></div>
-        <div><dt>Username</dt><dd>${user.username}</dd></div>
-        <div><dt>Role</dt><dd>${formatRole(user.role)}</dd></div>
-        <div><dt>Active</dt><dd>${user.is_active ? 'Yes' : 'No'}</dd></div>
-        <div><dt>Guest</dt><dd>${user.is_guest ? 'Yes' : 'No'}</dd></div>
-        <div><dt>Origin</dt><dd>${user.account_origin || '—'}</dd></div>
-        <div><dt>Created</dt><dd>${formatDate(user.created_at)}</dd></div>
-        <div><dt>Last Login</dt><dd>${formatDate(user.last_login)}</dd></div>
-        <div><dt>Guest Expires</dt><dd>${formatDate(user.guest_expires_at)}</dd></div>
-        <div><dt>Tombstoned</dt><dd>${formatDate(user.tombstoned_at)}</dd></div>
-        <div><dt>Characters</dt><dd>${user.character_count ?? 0}</dd></div>
-      </dl>
-    </div>
-    <div class="detail-card">
-      <h3>Characters</h3>
-      ${charactersHtml}
-    </div>
-    <div class="detail-card">
-      <h3>World Access</h3>
-      <div class="tag-list">${worldsHtml}</div>
+    <div class="detail-card tab-card users-detail-card" data-user-tabs>
+      <div class="tab-header">
+        <h3>Account Details</h3>
+        <div class="tab-buttons" role="tablist" aria-label="User details tabs">
+          <button class="tab-button ${tab === 'account' ? 'is-active' : ''}" data-tab="account">
+            Account
+          </button>
+          <button class="tab-button ${tab === 'characters' ? 'is-active' : ''}" data-tab="characters">
+            Characters
+          </button>
+          <button class="tab-button ${tab === 'worlds' ? 'is-active' : ''}" data-tab="worlds">
+            World Access
+          </button>
+        </div>
+      </div>
+
+      <div class="tab-panel" data-tab-panel="account" ${tab !== 'account' ? 'hidden' : ''}>
+        <dl class="detail-list">
+          <div><dt>ID</dt><dd>${user.id}</dd></div>
+          <div><dt>Username</dt><dd>${user.username}</dd></div>
+          <div><dt>Role</dt><dd>${formatRole(user.role)}</dd></div>
+          <div><dt>Active</dt><dd>${user.is_active ? 'Yes' : 'No'}</dd></div>
+          <div><dt>Guest</dt><dd>${user.is_guest ? 'Yes' : 'No'}</dd></div>
+          <div><dt>Origin</dt><dd>${user.account_origin || '—'}</dd></div>
+          <div><dt>Created</dt><dd>${formatDate(user.created_at)}</dd></div>
+          <div><dt>Last Login</dt><dd>${formatDate(user.last_login)}</dd></div>
+          <div><dt>Guest Expires</dt><dd>${formatDate(user.guest_expires_at)}</dd></div>
+          <div><dt>Tombstoned</dt><dd>${formatDate(user.tombstoned_at)}</dd></div>
+          <div><dt>Characters</dt><dd>${user.character_count ?? 0}</dd></div>
+        </dl>
+      </div>
+
+      <div class="tab-panel" data-tab-panel="characters" ${tab !== 'characters' ? 'hidden' : ''}>
+        <h4>Characters</h4>
+        ${charactersHtml}
+      </div>
+
+      <div class="tab-panel" data-tab-panel="worlds" ${tab !== 'worlds' ? 'hidden' : ''}>
+        <h4>World Access</h4>
+        <div class="tag-list">${worldsHtml}</div>
+      </div>
     </div>
   `;
 }
@@ -274,7 +295,7 @@ function buildCreateUserCard(role) {
       : ['player', 'worldbuilder'];
 
   return `
-    <div class="detail-card">
+    <div class="detail-card users-create-card">
       <h3>Create Account</h3>
       <form class="detail-form" data-create-user>
         <label>
@@ -332,6 +353,7 @@ async function renderUsers(root, { api, session }) {
     let selectedUserId = users[0]?.id ?? null;
     let searchTerm = '';
     let activeOnly = false;
+    let activeDetailTab = 'account';
 
     let characters = [];
     let worldsById = new Map();
@@ -395,35 +417,44 @@ async function renderUsers(root, { api, session }) {
               <p class="muted">${sortedUsers.length} of ${users.length} users shown.</p>
             </div>
           </div>
-          <div class="split-layout">
-            <div class="card table-card users-table-card">
-              <div class="table-toolbar">
-                <label class="table-search">
-                  <span>Search</span>
-                  <input
-                    type="search"
-                    id="user-search"
-                    placeholder="Username, role, origin"
-                    value="${searchTerm.replace(/"/g, '&quot;')}"
-                  />
-                </label>
-                <label class="table-toggle">
-                  <input type="checkbox" id="user-active-only" ${
-                    activeOnly ? 'checked' : ''
-                  } />
-                  <span>Active only</span>
-                </label>
+          <div class="split-layout users-split">
+            <div class="users-left">
+              <div class="card table-card users-table-card">
+                <div class="table-toolbar">
+                  <label class="table-search">
+                    <span>Search</span>
+                    <input
+                      type="search"
+                      id="user-search"
+                      placeholder="Username, role, origin"
+                      value="${searchTerm.replace(/"/g, '&quot;')}"
+                    />
+                  </label>
+                  <label class="table-toggle">
+                    <input type="checkbox" id="user-active-only" ${
+                      activeOnly ? 'checked' : ''
+                    } />
+                    <span>Active only</span>
+                  </label>
+                </div>
+                ${buildUsersTable(sortedUsers, sortState, selectedUser?.id)}
               </div>
-              ${buildUsersTable(sortedUsers, sortState, selectedUser?.id)}
+              <div class="users-bottom-row">
+                ${buildCreateUserCard(session.role)}
+                <div class="detail-card users-placeholder-card">
+                  <h3>Secondary Panel</h3>
+                  <p class="muted">Reserved for additional tools.</p>
+                </div>
+              </div>
             </div>
             <aside class="detail-panel">
-              ${buildCreateUserCard(session.role)}
               ${buildUserDetails({
                 user: selectedUser,
                 characters,
                 worldsById,
                 permissionsByUser,
                 locationsByCharacter,
+                activeTab: activeDetailTab,
               })}
             </aside>
           </div>
@@ -488,6 +519,13 @@ async function renderUsers(root, { api, session }) {
       root.querySelectorAll('tr[data-user-id]').forEach((row) => {
         row.addEventListener('click', () => {
           selectedUserId = Number(row.dataset.userId);
+          renderPage();
+        });
+      });
+
+      root.querySelectorAll('.tab-button[data-tab]').forEach((button) => {
+        button.addEventListener('click', () => {
+          activeDetailTab = button.dataset.tab;
           renderPage();
         });
       });
