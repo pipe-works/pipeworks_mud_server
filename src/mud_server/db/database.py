@@ -1247,6 +1247,7 @@ def create_character_for_user(
     Returns:
         True if character created, False on constraint violation.
     """
+    conn: sqlite3.Connection | None = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -1282,6 +1283,10 @@ def create_character_for_user(
         conn.close()
         return True
     except sqlite3.IntegrityError:
+        # Important: close the connection on constraint errors to avoid
+        # leaving SQLite write locks behind during retry loops.
+        if conn is not None:
+            conn.close()
         return False
 
 

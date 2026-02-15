@@ -14,7 +14,8 @@ Tests cover:
 All tests use temporary databases for isolation.
 """
 
-from unittest.mock import patch
+import sqlite3
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -608,6 +609,15 @@ def test_remove_sessions_for_character_returns_false_when_none_removed(
 
 @pytest.mark.unit
 @pytest.mark.db
+def test_remove_sessions_for_character_handles_database_error(monkeypatch):
+    """Character session cleanup should return False when DB operations fail."""
+    monkeypatch.setattr(database, "get_connection", Mock(side_effect=sqlite3.Error("db boom")))
+
+    assert database.remove_sessions_for_character(42) is False
+
+
+@pytest.mark.unit
+@pytest.mark.db
 def test_delete_player_removes_related_data(test_db, temp_db_path, db_with_users):
     """Test delete_player tombstones user and unlinks characters."""
     with use_test_database(temp_db_path):
@@ -761,6 +771,71 @@ def test_get_character_by_name_missing_returns_none(test_db, temp_db_path):
 def test_get_character_by_id_missing_returns_none(test_db, temp_db_path):
     with use_test_database(temp_db_path):
         assert database.get_character_by_id(9999) is None
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_tombstone_character_success_detaches_owner_and_renames(test_db, temp_db_path):
+    """Tombstoning should detach ownership while preserving row history."""
+    with use_test_database(temp_db_path):
+        database.create_user_with_password(
+            "stone_user", TEST_PASSWORD, create_default_character=False
+        )
+        user_id = database.get_user_id("stone_user")
+        assert user_id is not None
+        assert (
+            database.create_character_for_user(user_id, "Stone Name", world_id="pipeworks_web")
+            is True
+        )
+
+        character = database.get_character_by_name("Stone Name")
+        assert character is not None
+        character_id = int(character["id"])
+
+        assert database.tombstone_character(character_id) is True
+
+        tombstoned = database.get_character_by_id(character_id)
+        assert tombstoned is not None
+        assert tombstoned["user_id"] is None
+        assert tombstoned["name"].startswith(f"tombstone_{character_id}_")
+
+        # Original name becomes available after tombstoning.
+        assert (
+            database.create_character_for_user(user_id, "Stone Name", world_id="pipeworks_web")
+            is True
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_tombstone_character_missing_returns_false(test_db, temp_db_path):
+    """Tombstone helper should return False for unknown ids."""
+    with use_test_database(temp_db_path):
+        assert database.tombstone_character(123456) is False
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_delete_character_success_and_missing(test_db, temp_db_path):
+    """Delete helper should remove existing rows and report missing rows."""
+    with use_test_database(temp_db_path):
+        database.create_user_with_password(
+            "delete_user", TEST_PASSWORD, create_default_character=False
+        )
+        user_id = database.get_user_id("delete_user")
+        assert user_id is not None
+        assert (
+            database.create_character_for_user(user_id, "Delete Me", world_id="pipeworks_web")
+            is True
+        )
+
+        character = database.get_character_by_name("Delete Me")
+        assert character is not None
+        character_id = int(character["id"])
+
+        assert database.delete_character(character_id) is True
+        assert database.get_character_by_id(character_id) is None
+        assert database.delete_character(character_id) is False
 
 
 @pytest.mark.unit
