@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.8](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.7...mud_server-v0.3.8) (2026-02-16)
+
+
+### Features
+
+* **admin:** add section 2 account and character dashboards ([8470bd0](https://github.com/pipe-works/pipeworks_mud_server/commit/8470bd0274304c1b6475914ac05333dcfaa4fd25))
+* **admin:** complete section 2 active users dashboards ([3699d39](https://github.com/pipe-works/pipeworks_mud_server/commit/3699d392537910360f8fade9c6c37dad0fc05ac6))
+* **auth:** enforce account-only registration flow ([7acec29](https://github.com/pipe-works/pipeworks_mud_server/commit/7acec2944d2a2aab4398f12e2efb5b007ca6b1d0))
+* **auth:** enforce account-only registration flow ([6825b6d](https://github.com/pipe-works/pipeworks_mud_server/commit/6825b6de48075e48c789b584b2cb64a3a43e2aaf))
+
 ## [0.3.7](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.6...mud_server-v0.3.7) (2026-02-16)
 
 
