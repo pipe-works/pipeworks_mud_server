@@ -943,53 +943,19 @@ def create_user_with_password(
     Returns:
         True if created successfully, False if username already exists.
     """
-    from mud_server.api.password import hash_password
+    from mud_server.db.users_repo import create_user_with_password as create_user_with_password_impl
 
-    # Breaking change (Option A):
-    # account creation and character creation are now always separate flows.
-    if create_default_character:
-        raise ValueError(
-            "Automatic character creation is removed. "
-            "Call create_character_for_user() explicitly."
-        )
-    _ = world_id
-
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        password_hash = hash_password(password)
-        cursor.execute(
-            """
-            INSERT INTO users (
-                username,
-                password_hash,
-                email_hash,
-                role,
-                is_guest,
-                guest_expires_at,
-                account_origin
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                username,
-                password_hash,
-                email_hash,
-                role,
-                int(is_guest),
-                guest_expires_at,
-                account_origin,
-            ),
-        )
-        user_id = cursor.lastrowid
-        if user_id is None:
-            raise ValueError("Failed to create user.")
-
-        conn.commit()
-        conn.close()
-        return True
-    except sqlite3.IntegrityError:
-        return False
+    return create_user_with_password_impl(
+        username,
+        password,
+        role=role,
+        account_origin=account_origin,
+        email_hash=email_hash,
+        is_guest=is_guest,
+        guest_expires_at=guest_expires_at,
+        create_default_character=create_default_character,
+        world_id=world_id,
+    )
 
 
 def create_character_for_user(
@@ -1083,65 +1049,44 @@ def create_character_for_user(
 
 def user_exists(username: str) -> bool:
     """Return True if a user account exists."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
-    result = cursor.fetchone()
-    conn.close()
-    return result is not None
+    from mud_server.db.users_repo import user_exists as user_exists_impl
+
+    return user_exists_impl(username)
 
 
 def get_user_id(username: str) -> int | None:
     """Return user id for the given username, or None if not found."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
-    row = cursor.fetchone()
-    conn.close()
-    return int(row[0]) if row else None
+    from mud_server.db.users_repo import get_user_id as get_user_id_impl
+
+    return get_user_id_impl(username)
 
 
 def get_username_by_id(user_id: int) -> str | None:
     """Return username for a user id, or None if not found."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else None
+    from mud_server.db.users_repo import get_username_by_id as get_username_by_id_impl
+
+    return get_username_by_id_impl(user_id)
 
 
 def get_user_role(username: str) -> str | None:
     """Return the role for a username, or None if not found."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT role FROM users WHERE username = ?", (username,))
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else None
+    from mud_server.db.users_repo import get_user_role as get_user_role_impl
+
+    return get_user_role_impl(username)
 
 
 def get_user_account_origin(username: str) -> str | None:
     """Return account_origin for the given username."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT account_origin FROM users WHERE username = ?", (username,))
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else None
+    from mud_server.db.users_repo import get_user_account_origin as get_user_account_origin_impl
+
+    return get_user_account_origin_impl(username)
 
 
 def set_user_role(username: str, role: str) -> bool:
     """Update a user's role."""
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET role = ? WHERE username = ?", (role, username))
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
+    from mud_server.db.users_repo import set_user_role as set_user_role_impl
+
+    return set_user_role_impl(username, role)
 
 
 def verify_password_for_user(username: str, password: str) -> bool:
@@ -1150,93 +1095,44 @@ def verify_password_for_user(username: str, password: str) -> bool:
 
     Uses a dummy hash for timing safety when user doesn't exist.
     """
-    from mud_server.api.password import verify_password
+    from mud_server.db.users_repo import verify_password_for_user as verify_password_for_user_impl
 
-    DUMMY_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4.G5j1L3tDPZ3q4q"  # nosec B105
-
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
-    row = cursor.fetchone()
-    conn.close()
-
-    if not row:
-        verify_password(password, DUMMY_HASH)
-        return False
-
-    return verify_password(password, row[0])
+    return verify_password_for_user_impl(username, password)
 
 
 def is_user_active(username: str) -> bool:
     """Return True if the user is active (not banned)."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT is_active FROM users WHERE username = ?", (username,))
-    row = cursor.fetchone()
-    conn.close()
-    return bool(row[0]) if row else False
+    from mud_server.db.users_repo import is_user_active as is_user_active_impl
+
+    return is_user_active_impl(username)
 
 
 def deactivate_user(username: str) -> bool:
     """Deactivate (ban) a user account."""
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET is_active = 0 WHERE username = ?", (username,))
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
+    from mud_server.db.users_repo import deactivate_user as deactivate_user_impl
+
+    return deactivate_user_impl(username)
 
 
 def activate_user(username: str) -> bool:
     """Activate (unban) a user account."""
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET is_active = 1 WHERE username = ?", (username,))
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
+    from mud_server.db.users_repo import activate_user as activate_user_impl
+
+    return activate_user_impl(username)
 
 
 def change_password_for_user(username: str, new_password: str) -> bool:
     """Change a user's password (hashes with bcrypt)."""
-    from mud_server.api.password import hash_password
+    from mud_server.db.users_repo import change_password_for_user as change_password_for_user_impl
 
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        password_hash = hash_password(new_password)
-        cursor.execute(
-            "UPDATE users SET password_hash = ? WHERE username = ?",
-            (password_hash, username),
-        )
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
+    return change_password_for_user_impl(username, new_password)
 
 
 def tombstone_user(user_id: int) -> None:
     """Tombstone a user account without deleting rows."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        UPDATE users
-        SET is_active = 0,
-            tombstoned_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-    """,
-        (user_id,),
-    )
-    conn.commit()
-    conn.close()
+    from mud_server.db.users_repo import tombstone_user as tombstone_user_impl
+
+    tombstone_user_impl(user_id)
 
 
 def delete_user(username: str) -> bool:
@@ -1248,24 +1144,9 @@ def delete_user(username: str) -> bool:
       - Remove all sessions
       - Tombstone the user row (soft delete)
     """
-    user_id = get_user_id(username)
-    if not user_id:
-        return False
+    from mud_server.db.users_repo import delete_user as delete_user_impl
 
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE characters SET user_id = NULL WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
-        cursor.execute(
-            "UPDATE users SET is_active = 0, tombstoned_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (user_id,),
-        )
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
+    return delete_user_impl(username)
 
 
 # ==========================================================================
@@ -1649,11 +1530,11 @@ def delete_character(character_id: int) -> bool:
 
 def unlink_characters_for_user(user_id: int) -> None:
     """Detach characters from a user (used when tombstoning guest accounts)."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE characters SET user_id = NULL WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
+    from mud_server.db.users_repo import (
+        unlink_characters_for_user as unlink_characters_for_user_impl,
+    )
+
+    unlink_characters_for_user_impl(user_id)
 
 
 # ==========================================================================
@@ -1984,91 +1865,15 @@ def create_session(
       - Character/world binding must be explicit via ``set_session_character``
         (or by passing both ``character_id`` and ``world_id`` directly).
     """
-    from mud_server.config import config
+    from mud_server.db.sessions_repo import create_session as create_session_impl
 
-    try:
-        if isinstance(user_id, str):
-            resolved = get_user_id(user_id)
-            if not resolved:
-                return False
-            user_id = resolved
-
-        # Derive world binding only when the caller explicitly binds a
-        # character but omits world_id.
-        if character_id is not None and world_id is None:
-            character = get_character_by_id(int(character_id))
-            if not character:
-                return False
-            character_world_id = character.get("world_id")
-            if not character_world_id:
-                return False
-            world_id = str(character_world_id)
-
-        # Enforce account-only invariant: sessions without a bound character
-        # must not carry a world binding.
-        if character_id is None:
-            world_id = None
-
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        if not config.session.allow_multiple_sessions:
-            cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
-
-        client_type = client_type.strip().lower() if client_type else "unknown"
-
-        if config.session.ttl_minutes > 0:
-            cursor.execute(
-                """
-                INSERT INTO sessions (
-                    user_id,
-                    character_id,
-                    world_id,
-                    session_id,
-                    created_at,
-                    last_activity,
-                    expires_at,
-                    client_type
-                )
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, datetime('now', ?), ?)
-            """,
-                (
-                    user_id,
-                    character_id,
-                    world_id,
-                    session_id,
-                    f"+{config.session.ttl_minutes} minutes",
-                    client_type,
-                ),
-            )
-        else:
-            cursor.execute(
-                """
-                INSERT INTO sessions (
-                    user_id,
-                    character_id,
-                    world_id,
-                    session_id,
-                    created_at,
-                    last_activity,
-                    expires_at,
-                    client_type
-                )
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, ?)
-            """,
-                (user_id, character_id, world_id, session_id, client_type),
-            )
-
-        cursor.execute(
-            "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?",
-            (user_id,),
-        )
-
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
+    return create_session_impl(
+        user_id,
+        session_id,
+        client_type=client_type,
+        character_id=character_id,
+        world_id=world_id,
+    )
 
 
 def set_session_character(
@@ -2089,55 +1894,25 @@ def set_session_character(
       - When ``world_id`` is omitted, we resolve it from the character row.
       - We do not assume a default world for character binding.
     """
-    try:
-        if world_id is None:
-            character = get_character_by_id(character_id)
-            if not character:
-                return False
-            character_world_id = character.get("world_id")
-            if not character_world_id:
-                return False
-            world_id = str(character_world_id)
+    from mud_server.db.sessions_repo import set_session_character as set_session_character_impl
 
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE sessions SET character_id = ?, world_id = ? WHERE session_id = ?",
-            (character_id, world_id, session_id),
-        )
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
+    return set_session_character_impl(session_id, character_id, world_id=world_id)
 
 
 def remove_session_by_id(session_id: str) -> bool:
     """Remove a specific session by its session_id."""
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
-        removed = int(cursor.rowcount or 0)
-        conn.commit()
-        conn.close()
-        return removed > 0
-    except Exception:
-        return False
+    from mud_server.db.sessions_repo import remove_session_by_id as remove_session_by_id_impl
+
+    return remove_session_by_id_impl(session_id)
 
 
 def remove_sessions_for_user(user_id: int) -> bool:
     """Remove all sessions for a user (used for forced logout/ban)."""
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
-        removed = int(cursor.rowcount or 0)
-        conn.commit()
-        conn.close()
-        return removed > 0
-    except Exception:
-        return False
+    from mud_server.db.sessions_repo import (
+        remove_sessions_for_user as remove_sessions_for_user_impl,
+    )
+
+    return remove_sessions_for_user_impl(user_id)
 
 
 def remove_sessions_for_character(character_id: int) -> bool:
@@ -2153,7 +1928,11 @@ def remove_sessions_for_character(character_id: int) -> bool:
     Returns:
         True when at least one session was removed; otherwise False.
     """
-    return remove_sessions_for_character_count(character_id) > 0
+    from mud_server.db.sessions_repo import (
+        remove_sessions_for_character as remove_sessions_for_character_impl,
+    )
+
+    return remove_sessions_for_character_impl(character_id)
 
 
 def remove_sessions_for_character_count(character_id: int) -> int:
@@ -2170,131 +1949,52 @@ def remove_sessions_for_character_count(character_id: int) -> int:
     Returns:
         Number of removed session rows. Returns ``0`` on failure.
     """
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM sessions WHERE character_id = ?", (character_id,))
-        removed = int(cursor.rowcount or 0)
-        conn.commit()
-        conn.close()
-        return removed
-    except Exception:
-        return 0
+    from mud_server.db.sessions_repo import (
+        remove_sessions_for_character_count as remove_sessions_for_character_count_impl,
+    )
+
+    return remove_sessions_for_character_count_impl(character_id)
 
 
 def update_session_activity(session_id: str) -> bool:
     """
     Update last_activity for a session and extend expiry when sliding is enabled.
     """
-    from mud_server.config import config
+    from mud_server.db.sessions_repo import update_session_activity as update_session_activity_impl
 
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        if config.session.sliding_expiration and config.session.ttl_minutes > 0:
-            cursor.execute(
-                """
-                UPDATE sessions
-                SET last_activity = CURRENT_TIMESTAMP,
-                    expires_at = datetime('now', ?)
-                WHERE session_id = ?
-                """,
-                (f"+{config.session.ttl_minutes} minutes", session_id),
-            )
-        else:
-            cursor.execute(
-                "UPDATE sessions SET last_activity = CURRENT_TIMESTAMP WHERE session_id = ?",
-                (session_id,),
-            )
-
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
+    return update_session_activity_impl(session_id)
 
 
 def get_session_by_id(session_id: str) -> dict[str, Any] | None:
     """Return session record by session_id (or None if not found)."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT user_id, character_id, world_id, session_id, created_at, last_activity, expires_at,
-               client_type
-        FROM sessions WHERE session_id = ?
-        """,
-        (session_id,),
-    )
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        return None
-    return {
-        "user_id": int(row[0]),
-        "character_id": row[1],
-        "world_id": row[2],
-        "session_id": row[3],
-        "created_at": row[4],
-        "last_activity": row[5],
-        "expires_at": row[6],
-        "client_type": row[7],
-    }
+    from mud_server.db.sessions_repo import get_session_by_id as get_session_by_id_impl
+
+    return get_session_by_id_impl(session_id)
 
 
 def get_active_session_count() -> int:
     """Count active sessions within the configured activity window."""
-    from mud_server.config import config
+    from mud_server.db.sessions_repo import (
+        get_active_session_count as get_active_session_count_impl,
+    )
 
-    conn = get_connection()
-    cursor = conn.cursor()
-    where_clauses = ["(expires_at IS NULL OR datetime(expires_at) > datetime('now'))"]
-    params: list[str] = []
-    if config.session.active_window_minutes > 0:
-        where_clauses.append("datetime(last_activity) >= datetime('now', ?)")
-        params.append(f"-{config.session.active_window_minutes} minutes")
-
-    sql = f"""
-        SELECT COUNT(*) FROM sessions
-        WHERE {" AND ".join(where_clauses)}
-    """  # nosec B608
-    cursor.execute(sql, params)
-    row = cursor.fetchone()
-    count = int(row[0]) if row else 0
-    conn.close()
-    return count
+    return get_active_session_count_impl()
 
 
 def cleanup_expired_sessions() -> int:
     """Remove expired sessions based on expires_at timestamp."""
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            DELETE FROM sessions
-            WHERE expires_at IS NOT NULL AND datetime(expires_at) <= datetime('now')
-            """)
-        removed_count: int = cursor.rowcount
-        conn.commit()
-        conn.close()
-        return removed_count
-    except Exception:
-        return 0
+    from mud_server.db.sessions_repo import (
+        cleanup_expired_sessions as cleanup_expired_sessions_impl,
+    )
+
+    return cleanup_expired_sessions_impl()
 
 
 def clear_all_sessions() -> int:
     """Remove all sessions from the database."""
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM sessions")
-        removed_count: int = cursor.rowcount
-        conn.commit()
-        conn.close()
-        return removed_count
-    except Exception:
-        return 0
+    from mud_server.db.sessions_repo import clear_all_sessions as clear_all_sessions_impl
+
+    return clear_all_sessions_impl()
 
 
 def get_active_characters(*, world_id: str | None = None) -> list[str]:
@@ -2305,31 +2005,9 @@ def get_active_characters(*, world_id: str | None = None) -> list[str]:
         world_id: Optional world scope. When provided, only sessions bound to
             that world are included. Account-only sessions are excluded.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    if world_id is None:
-        cursor.execute("""
-            SELECT DISTINCT c.name
-            FROM sessions s
-            JOIN characters c ON c.id = s.character_id
-            WHERE s.character_id IS NOT NULL
-              AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
-            """)
-    else:
-        cursor.execute(
-            """
-            SELECT DISTINCT c.name
-            FROM sessions s
-            JOIN characters c ON c.id = s.character_id
-            WHERE s.character_id IS NOT NULL
-              AND s.world_id = ?
-              AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
-            """,
-            (world_id,),
-        )
-    rows = cursor.fetchall()
-    conn.close()
-    return [row[0] for row in rows]
+    from mud_server.db.sessions_repo import get_active_characters as get_active_characters_impl
+
+    return get_active_characters_impl(world_id=world_id)
 
 
 # ==========================================================================
@@ -2344,46 +2022,11 @@ def cleanup_expired_guest_accounts() -> int:
     Returns:
         Number of guest users deleted.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT id
-        FROM users
-        WHERE tombstoned_at IS NULL
-          AND (
-            (is_guest = 1 AND guest_expires_at IS NOT NULL
-             AND datetime(guest_expires_at) <= datetime('now'))
-            OR
-            (account_origin = 'visitor'
-             AND guest_expires_at IS NULL
-             AND datetime(created_at) <= datetime('now', '-24 hours'))
-          )
-        """)
-    rows = cursor.fetchall()
-    if not rows:
-        conn.close()
-        return 0
-
-    user_ids = [int(row[0]) for row in rows]
-
-    placeholders = ",".join(["?"] * len(user_ids))
-    cursor.execute(
-        f"UPDATE characters SET user_id = NULL WHERE user_id IN ({placeholders})",  # nosec B608
-        user_ids,
-    )
-    cursor.execute(
-        f"DELETE FROM sessions WHERE user_id IN ({placeholders})",  # nosec B608
-        user_ids,
-    )
-    cursor.execute(
-        f"DELETE FROM users WHERE id IN ({placeholders})",  # nosec B608
-        user_ids,
+    from mud_server.db.users_repo import (
+        cleanup_expired_guest_accounts as cleanup_expired_guest_accounts_impl,
     )
 
-    conn.commit()
-    conn.close()
-    return len(user_ids)
+    return cleanup_expired_guest_accounts_impl()
 
 
 # ==========================================================================
