@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.9](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.8...mud_server-v0.3.9) (2026-02-16)
+
+
+### Features
+
+* **policy:** implement section 3 world access foundations ([001101c](https://github.com/pipe-works/pipeworks_mud_server/commit/001101c71caa9eddd3ba78a2db9be861444ef824))
+* **policy:** implement section 3 world access foundations ([7b801f1](https://github.com/pipe-works/pipeworks_mud_server/commit/7b801f1998eb7a48b692443af217fa9e697e47b7))
+
 ## [0.3.8](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.7...mud_server-v0.3.8) (2026-02-16)
 
 
