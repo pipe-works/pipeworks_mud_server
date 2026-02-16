@@ -5,6 +5,7 @@ generation from code docstrings. No manual .rst files needed for API docs.
 """
 
 import logging
+import socket
 import sys
 import tomllib
 from pathlib import Path
@@ -19,7 +20,10 @@ def get_version_from_pyproject() -> str:
     pyproject_path = project_root / "pyproject.toml"
     with open(pyproject_path, "rb") as f:
         data = tomllib.load(f)
-    return data["project"]["version"]
+    version_value = data.get("project", {}).get("version")
+    if not isinstance(version_value, str):
+        raise ValueError("pyproject.toml is missing project.version")
+    return version_value
 
 
 # -- Project information -----------------------------------------------------
@@ -82,14 +86,34 @@ napoleon_attr_annotations = True
 autodoc_typehints = "description"
 autodoc_typehints_description_target = "documented"
 
+
+def _can_resolve_host(hostname: str) -> bool:
+    """
+    Return True when DNS can resolve ``hostname`` in the current environment.
+
+    Local/offline development environments may not have outbound DNS or
+    internet access. In that case Sphinx intersphinx inventory downloads emit
+    warnings unrelated to documentation correctness. We use a lightweight DNS
+    check to enable intersphinx only when reachable.
+    """
+    try:
+        socket.getaddrinfo(hostname, 443)
+        return True
+    except OSError:
+        return False
+
+
 # -- Intersphinx mapping -----------------------------------------------------
-intersphinx_mapping = {
-    "python": ("https://docs.python.org/3", None),
-}
+if _can_resolve_host("docs.python.org"):
+    intersphinx_mapping = {
+        "python": ("https://docs.python.org/3", None),
+    }
+else:
+    intersphinx_mapping = {}
 
 # -- Path configuration ------------------------------------------------------
 templates_path = ["_templates"]
-exclude_patterns = []
+exclude_patterns: list[str] = []
 
 # -- Source file configuration -----------------------------------------------
 source_suffix = {

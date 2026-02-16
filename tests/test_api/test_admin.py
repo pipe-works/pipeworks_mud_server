@@ -46,6 +46,76 @@ def test_admin_view_players_as_admin(test_client, test_db, temp_db_path, db_with
 
 @pytest.mark.admin
 @pytest.mark.api
+def test_admin_players_online_world_updates_after_character_selection(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """
+    Admin players view should separate account-online from in-world-online states.
+
+    This regression test validates the session model enforced by Option A:
+    - `/login` creates an account-only session (`character_id` remains NULL)
+    - `/characters/select` binds `character_id` and `world_id` for gameplay
+
+    The admin users table data must therefore transition in two steps:
+    1) account-online = true, in-world-online = false immediately after login
+    2) account-online = true, in-world-online = true after character selection
+    """
+    with use_test_database(temp_db_path):
+        # Create an admin account session that can inspect `/admin/database/players`.
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        assert admin_login.status_code == 200
+        admin_session_id = admin_login.json()["session_id"]
+
+        # Create an account-only player session; this should not count as "in-world".
+        player_login = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        assert player_login.status_code == 200
+        player_session_id = player_login.json()["session_id"]
+
+        players_before = test_client.get(f"/admin/database/players?session_id={admin_session_id}")
+        assert players_before.status_code == 200
+        before_row = next(
+            row for row in players_before.json()["players"] if row["username"] == "testplayer"
+        )
+        assert before_row["is_online_account"] is True
+        assert before_row["is_online_in_world"] is False
+        assert before_row["online_world_ids"] == []
+
+        # Bind the player's session to a concrete character/world pair.
+        characters_response = test_client.get(
+            "/characters",
+            params={"session_id": player_session_id, "world_id": database.DEFAULT_WORLD_ID},
+        )
+        assert characters_response.status_code == 200
+        characters = characters_response.json()["characters"]
+        assert characters, "Expected seeded character for testplayer in default world."
+        selected_character_id = int(characters[0]["id"])
+
+        select_response = test_client.post(
+            "/characters/select",
+            json={
+                "session_id": player_session_id,
+                "character_id": selected_character_id,
+                "world_id": database.DEFAULT_WORLD_ID,
+            },
+        )
+        assert select_response.status_code == 200
+
+        players_after = test_client.get(f"/admin/database/players?session_id={admin_session_id}")
+        assert players_after.status_code == 200
+        after_row = next(
+            row for row in players_after.json()["players"] if row["username"] == "testplayer"
+        )
+        assert after_row["is_online_account"] is True
+        assert after_row["is_online_in_world"] is True
+        assert after_row["online_world_ids"] == [database.DEFAULT_WORLD_ID]
+
+
+@pytest.mark.admin
+@pytest.mark.api
 def test_admin_view_tables_as_admin(test_client, test_db, temp_db_path, db_with_users):
     """Test admin can view database table metadata."""
     with use_test_database(temp_db_path):
@@ -226,6 +296,8 @@ def test_admin_can_create_player(test_client, test_db, temp_db_path, db_with_use
 
         assert response.status_code == 200
         assert response.json()["success"] is True
+        # Admin account creation should not auto-provision any character rows.
+        assert database.get_character_by_name("newplayer_char") is None
 
 
 @pytest.mark.admin

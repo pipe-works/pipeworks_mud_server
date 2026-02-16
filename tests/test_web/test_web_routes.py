@@ -55,7 +55,10 @@ def test_play_shell_served_at_root():
     assert response.status_code == 200
     assert "PipeWorks Play" in response.text
     assert "Account username" in response.text
+    assert 'id="play-character-select"' in response.text
+    assert "Select a world to load available characters." in response.text
     assert "play/css/shell.css" in response.text
+    assert "play/js/play.js?v=" in response.text
 
 
 def test_play_shell_served_for_world():
@@ -71,6 +74,8 @@ def test_play_shell_served_for_world():
     assert "play/css/fonts.css" in response.text
     assert "play/css/shared-base.css" in response.text
     assert "play/css/shell.css" in response.text
+    assert "play/css/worlds/pipeworks_web.css?v=" in response.text
+    assert "play/js/worlds/pipeworks_web.js?v=" in response.text
 
 
 def test_play_shell_served_for_world_subpaths():

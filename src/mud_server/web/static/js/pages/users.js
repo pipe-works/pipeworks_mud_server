@@ -9,6 +9,7 @@ import {
   bindCreateCharacterPanel,
   buildCreateCharacterPanel,
 } from './users_create_character.js';
+import { renderTable } from '../ui/table.js';
 
 function formatRole(role) {
   return role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Unknown';
@@ -17,10 +18,23 @@ function formatRole(role) {
 function buildOnlineStatus(user) {
   const accountClass = user.is_online_account ? 'is-online' : 'is-offline';
   const worldClass = user.is_online_in_world ? 'is-online' : 'is-offline';
+  const activeWorldIds = Array.isArray(user.online_world_ids) ? user.online_world_ids : [];
+  const worldChips = activeWorldIds.length
+    ? `
+      <div class="status-world-list" aria-label="Active worlds">
+        ${activeWorldIds
+          .map((worldId) => `<span class="status-world-chip">${escapeHtml(worldId)}</span>`)
+          .join('')}
+      </div>
+    `
+    : '';
   return `
     <div class="status-stack">
       <span class="status-pill ${accountClass}">Account</span>
-      <span class="status-pill ${worldClass}">In-world</span>
+      <span class="status-pill ${worldClass}">
+        In-world${activeWorldIds.length ? ` (${activeWorldIds.length})` : ''}
+      </span>
+      ${worldChips}
     </div>
   `;
 }
@@ -183,7 +197,13 @@ function buildUsersTable(users, sortState, selectedUserId) {
     ? users
         .map((user) => {
           const isSelected = selectedUserId === user.id;
-          const rowClass = isSelected ? 'is-selected is-selectable' : 'is-selectable';
+          const rowClass = [
+            'is-selectable',
+            isSelected ? 'is-selected' : '',
+            user.is_online_in_world ? 'is-in-world' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
           const cells = [
             user.username,
             formatRole(user.role),
@@ -489,7 +509,15 @@ function buildUserDetails({
   }
 
   const userCharacters = characters.filter((character) => character.user_id === user.id);
-  const worldAccess = permissionsByUser.get(user.id) || [];
+  const explicitWorldAccess = permissionsByUser.get(user.id) || [];
+  // Fallback to character-linked worlds so access is still visible when
+  // permissions table rows are absent for legacy/provisioned accounts.
+  const inferredWorldAccess = userCharacters
+    .map((character) => character.world_id)
+    .filter((worldId) => Boolean(worldId));
+  const worldAccess = [...new Set([...explicitWorldAccess, ...inferredWorldAccess])];
+  const onlineWorldIds = Array.isArray(user.online_world_ids) ? user.online_world_ids : [];
+  const onlineWorldNames = onlineWorldIds.map((worldId) => worldsById.get(worldId) || worldId);
 
   const charactersHtml = userCharacters.length
     ? userCharacters
@@ -558,6 +586,7 @@ function buildUserDetails({
           <div><dt>Role</dt><dd>${formatRole(user.role)}</dd></div>
           <div><dt>Account Online</dt><dd>${user.is_online_account ? 'Yes' : 'No'}</dd></div>
           <div><dt>In-world</dt><dd>${user.is_online_in_world ? 'Yes' : 'No'}</dd></div>
+          <div><dt>In-world Worlds</dt><dd>${onlineWorldNames.join(', ') || '—'}</dd></div>
           <div><dt>Active</dt><dd>${user.is_active ? 'Yes' : 'No'}</dd></div>
           <div><dt>Guest</dt><dd>${user.is_guest ? 'Yes' : 'No'}</dd></div>
           <div><dt>Origin</dt><dd>${user.account_origin || '—'}</dd></div>
@@ -649,6 +678,55 @@ function buildCreateUserCard(role) {
   `;
 }
 
+function isTombstonedCharacter(character) {
+  const hasDetachedOwner = character.user_id === null || character.user_id === undefined;
+  const isTombstoneName =
+    typeof character.name === 'string' && character.name.startsWith('tombstone_');
+  return hasDetachedOwner && isTombstoneName;
+}
+
+/**
+ * Build a compact table of tombstoned characters for admin auditing.
+ */
+function buildTombstonedCharactersCard(characters, worldsById) {
+  const tombstoned = characters
+    .filter((character) => isTombstonedCharacter(character))
+    .sort((a, b) => {
+      const aTs = Date.parse(a.updated_at || a.created_at || '') || 0;
+      const bTs = Date.parse(b.updated_at || b.created_at || '') || 0;
+      return bTs - aTs;
+    })
+    .slice(0, 50);
+
+  if (!tombstoned.length) {
+    return `
+      <div class="detail-card users-tombstoned-card">
+        <h3>Tombstoned Characters</h3>
+        <p class="muted">No tombstoned characters recorded.</p>
+      </div>
+    `;
+  }
+
+  const headers = ['ID', 'Character', 'World', 'Updated'];
+  const rows = tombstoned.map((character) => {
+    const worldName = worldsById.get(character.world_id) || character.world_id || '—';
+    return [
+      `${character.id ?? '—'}`,
+      escapeHtml(character.name || '—'),
+      escapeHtml(worldName),
+      escapeHtml(formatDate(character.updated_at || character.created_at)),
+    ];
+  });
+
+  return `
+    <div class="detail-card users-tombstoned-card">
+      <h3>Tombstoned Characters</h3>
+      <p class="muted">Most recent tombstoned character records for audit/recovery workflows.</p>
+      ${renderTable(headers, rows)}
+    </div>
+  `;
+}
+
 /**
  * Build the persistent users page shell.
  *
@@ -671,10 +749,7 @@ function buildUsersPageShell(role) {
           <div data-users-table-region></div>
           <div class="users-bottom-row">
             ${buildCreateUserCard(role)}
-            <div class="detail-card users-placeholder-card">
-              <h3>Secondary Panel</h3>
-              <p class="muted">Reserved for additional tools.</p>
-            </div>
+            <div data-users-secondary-region></div>
           </div>
         </div>
         <aside class="detail-panel" data-users-detail-region></aside>
@@ -740,10 +815,11 @@ async function renderUsers(root, { api, session }) {
   // Render a stable layout once so auto-refresh updates only data regions.
   root.innerHTML = buildUsersPageShell(session.role);
   const tableRegion = root.querySelector('[data-users-table-region]');
+  const secondaryRegion = root.querySelector('[data-users-secondary-region]');
   const detailRegion = root.querySelector('[data-users-detail-region]');
   const usersCountLabel = root.querySelector('[data-users-count]');
   const createForm = root.querySelector('[data-create-user]');
-  if (!tableRegion || !detailRegion || !usersCountLabel || !createForm) {
+  if (!tableRegion || !secondaryRegion || !detailRegion || !usersCountLabel || !createForm) {
     root.innerHTML = `
       <div class="panel wide">
         <h1>Users</h1>
@@ -963,6 +1039,7 @@ async function renderUsers(root, { api, session }) {
 
     tableRegion.innerHTML = `
       <div class="card table-card users-table-card">
+        <h3>Active Users</h3>
         <div class="table-toolbar">
           <label class="table-search">
             <span>Search</span>
@@ -986,6 +1063,7 @@ async function renderUsers(root, { api, session }) {
         ${buildUsersTable(sortedUsers, sortState, selectedUser?.id)}
       </div>
     `;
+    secondaryRegion.innerHTML = buildTombstonedCharactersCard(characters, worldsById);
 
     detailRegion.innerHTML = `
       ${buildUserDetails({

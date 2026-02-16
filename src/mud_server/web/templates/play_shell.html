@@ -9,15 +9,15 @@
       Shared font declarations and base tokens.
       These are intentionally world-agnostic and reused across worlds.
     -->
-    <link rel="stylesheet" href="/web/static/play/css/fonts.css" />
-    <link rel="stylesheet" href="/web/static/play/css/shared-base.css" />
-    <link rel="stylesheet" href="/web/static/play/css/shell.css" />
+    <link rel="stylesheet" href="/web/static/play/css/fonts.css?v={{ asset_version }}" />
+    <link rel="stylesheet" href="/web/static/play/css/shared-base.css?v={{ asset_version }}" />
+    <link rel="stylesheet" href="/web/static/play/css/shell.css?v={{ asset_version }}" />
 
     {% if world_id %}
     <!--
       World-specific CSS: keeps layouts isolated while preserving one shell.
     -->
-    <link rel="stylesheet" href="/web/static/play/css/worlds/{{ world_id }}.css" />
+    <link rel="stylesheet" href="/web/static/play/css/worlds/{{ world_id }}.css?v={{ asset_version }}" />
     {% endif %}
   </head>
 
@@ -84,6 +84,13 @@
           <label class="stat-label" for="play-world-select">Available worlds</label>
           <select id="play-world-select"></select>
         </div>
+        <div class="stat-group">
+          <label class="stat-label" for="play-character-select">Available characters</label>
+          <select id="play-character-select" aria-describedby="play-character-hint"></select>
+        </div>
+        <p class="character-article" id="play-character-hint">
+          Select a world to load available characters.
+        </p>
         <div class="stat-group">
           <button class="play-button" type="button" id="play-enter-world">Enter world</button>
         </div>
@@ -224,11 +231,11 @@
     </div>
 
     <!-- Base play shell script: handles state and delegates per world. -->
-    <script type="module" src="/web/static/play/js/play.js"></script>
+    <script type="module" src="/web/static/play/js/play.js?v={{ asset_version }}"></script>
 
     {% if world_id %}
     <!-- World-specific JS for UI and gameplay hooks. -->
-    <script type="module" src="/web/static/play/js/worlds/{{ world_id }}.js"></script>
+    <script type="module" src="/web/static/play/js/worlds/{{ world_id }}.js?v={{ asset_version }}"></script>
     {% endif %}
   </body>
 </html>

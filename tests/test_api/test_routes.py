@@ -85,6 +85,8 @@ def test_register_success(test_client, test_db, temp_db_path):
         assert data["success"] is True
         assert "created successfully" in data["message"].lower()
         assert database.get_player_account_origin("newuser") == "visitor"
+        # Account registration no longer auto-provisions a bootstrap character.
+        assert database.get_character_by_name("newuser_char") is None
 
 
 @pytest.mark.api
@@ -646,6 +648,71 @@ def test_list_characters(test_client, test_db, temp_db_path, db_with_users):
 
 
 @pytest.mark.api
+def test_list_characters_excludes_legacy_defaults_when_real_character_exists(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """
+    Character listing can hide legacy bootstrap names when explicit characters exist.
+
+    Legacy account provisioning created ``<username>_char`` records. The play
+    selector requests ``exclude_legacy_defaults=true`` so users are presented
+    with their explicit characters first during the account-first flow.
+    """
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+        assert database.create_character_for_user(user_id, "Named Adventurer")
+
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(
+            "/characters",
+            params={
+                "session_id": session_id,
+                "world_id": database.DEFAULT_WORLD_ID,
+                "exclude_legacy_defaults": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        names = [entry["name"] for entry in response.json()["characters"]]
+        assert names == ["Named Adventurer"]
+
+
+@pytest.mark.api
+def test_list_characters_exclude_legacy_defaults_keeps_bootstrap_when_only_option(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """
+    Legacy bootstrap character is retained when it is the only available choice.
+
+    This fallback prevents account lockout for users that have not created a
+    non-legacy character yet.
+    """
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(
+            "/characters",
+            params={
+                "session_id": session_id,
+                "world_id": database.DEFAULT_WORLD_ID,
+                "exclude_legacy_defaults": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        names = [entry["name"] for entry in response.json()["characters"]]
+        assert names == ["testplayer_char"]
+
+
+@pytest.mark.api
 def test_select_character_success(test_client, test_db, temp_db_path, db_with_users):
     """Test selecting a character for the session."""
     with use_test_database(temp_db_path):
@@ -676,6 +743,7 @@ def test_select_character_not_owned(test_client, test_db, temp_db_path, db_with_
         database.create_user_with_password("otheruser", TEST_PASSWORD)
         other_id = database.get_user_id("otheruser")
         assert other_id is not None
+        assert database.create_character_for_user(other_id, "otheruser_char")
         other_character = database.get_user_characters(other_id)[0]
 
         login_response = test_client.post(
@@ -1254,7 +1322,12 @@ def test_full_user_flow(test_client, test_db, temp_db_path):
             )
             assert register_response.status_code == 200
 
-            # 2. Login
+            # 2. Character provisioning is a separate lifecycle step.
+            flow_user_id = database.get_user_id("flowuser")
+            assert flow_user_id is not None
+            assert database.create_character_for_user(flow_user_id, "Flow Runner")
+
+            # 3. Login
             login_response = test_client.post(
                 "/login", json={"username": "flowuser", "password": TEST_PASSWORD}
             )
@@ -1270,25 +1343,25 @@ def test_full_user_flow(test_client, test_db, temp_db_path):
             )
             assert select_response.status_code == 200
 
-            # 3. Look around
+            # 4. Look around
             look_response = test_client.post(
                 "/command", json={"session_id": session_id, "command": "look"}
             )
             assert look_response.status_code == 200
 
-            # 4. Move
+            # 5. Move
             move_response = test_client.post(
                 "/command", json={"session_id": session_id, "command": "north"}
             )
             assert move_response.status_code == 200
 
-            # 5. Say something
+            # 6. Say something
             say_response = test_client.post(
                 "/command", json={"session_id": session_id, "command": "say Testing!"}
             )
             assert say_response.status_code == 200
 
-            # 6. Logout
+            # 7. Logout
             logout_response = test_client.post("/logout", json={"session_id": session_id})
             assert logout_response.status_code == 200
 

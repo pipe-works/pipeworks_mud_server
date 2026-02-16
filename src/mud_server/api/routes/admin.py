@@ -570,7 +570,10 @@ def router(engine: GameEngine) -> APIRouter:
         ):
             return CreateUserResponse(
                 success=True,
-                message=f"User '{username}' created with role '{role}'.",
+                message=(
+                    f"User '{username}' created with role '{role}'. "
+                    "No character was provisioned automatically."
+                ),
             )
 
         raise HTTPException(status_code=500, detail="Failed to create account. Please try again.")

@@ -110,7 +110,18 @@ def db_with_users(test_db) -> dict[str, str]:
     }
 
     for username, role in users.items():
+        # Account and character creation are intentionally separate. The shared
+        # fixture provisions both steps explicitly so gameplay-oriented tests
+        # still have deterministic character names available.
         database.create_player_with_password(username, TEST_PASSWORD, role)
+        user_id = database.get_user_id(username)
+        assert user_id is not None
+        created = database.create_character_for_user(
+            user_id,
+            f"{username}_char",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
+        assert created is True
 
     return users
 

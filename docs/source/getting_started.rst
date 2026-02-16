@@ -203,8 +203,13 @@ Guest Registration
 The public ``/register`` and ``/register-guest`` endpoints create
 **temporary guest** accounts for testing/dev. ``/register-guest`` generates
 the username server-side, while ``/register`` accepts a client-supplied
-username. Each guest account gets a single character and is automatically
-purged after 24 hours (the user is deleted, characters are unlinked).
+username. Character provisioning is now explicit:
+
+* ``/register`` creates an account only (no character).
+* ``/register-guest`` creates both account + the requested character.
+
+Guest accounts are automatically purged after 24 hours (the user is deleted,
+characters are unlinked).
 
 Example: ``POST /register`` (client-supplied username)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -225,7 +230,7 @@ Example: ``POST /register`` (client-supplied username)
 
     {
       "success": true,
-      "message": "Temporary account created successfully! You can now login as guest_demo."
+      "message": "Temporary account created successfully! You can now login as guest_demo. Character creation is a separate step."
     }
 
 Example: ``POST /register-guest`` (server-generated username)

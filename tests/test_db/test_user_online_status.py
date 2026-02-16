@@ -33,6 +33,7 @@ def test_get_all_users_detailed_online_status(temp_db_path) -> None:
         user = next(entry for entry in users if entry["username"] == "online_user")
         assert user["is_online_account"] is True
         assert user["is_online_in_world"] is False
+        assert user["online_world_ids"] == []
 
         # Now simulate in-world session with a character selected.
         character = database.get_character_by_name("online_char_a")
@@ -44,3 +45,21 @@ def test_get_all_users_detailed_online_status(temp_db_path) -> None:
         user = next(entry for entry in users if entry["username"] == "online_user")
         assert user["is_online_account"] is True
         assert user["is_online_in_world"] is True
+        assert user["online_world_ids"] == [database.DEFAULT_WORLD_ID]
+
+        # Add a second world-bound character/session and verify deterministic
+        # world-list projection for the online indicator.
+        assert database.create_character_for_user(
+            user_id, "online_char_daily", world_id="daily_undertaking"
+        )
+        daily_character = database.get_character_by_name("online_char_daily")
+        assert daily_character is not None
+        assert database.create_session(
+            user_id,
+            "session-in-world-daily",
+            character_id=int(daily_character["id"]),
+        )
+
+        users = database.get_all_users_detailed()
+        user = next(entry for entry in users if entry["username"] == "online_user")
+        assert user["online_world_ids"] == ["daily_undertaking", database.DEFAULT_WORLD_ID]

@@ -144,6 +144,8 @@ def test_init_database_creates_superuser_from_env_vars(temp_db_path):
             assert database.player_exists("envadmin")
             assert database.get_player_role("envadmin") == "superuser"
             assert database.verify_password_for_user("envadmin", "securepass123")
+            # Superuser bootstrap no longer auto-provisions characters.
+            assert database.get_character_by_name("envadmin_char") is None
 
 
 @pytest.mark.unit
@@ -203,6 +205,29 @@ def test_create_player_with_password_success(test_db, temp_db_path):
 
         # Verify role
         assert database.get_player_role("newuser") == "player"
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_create_player_with_password_does_not_auto_create_character(test_db, temp_db_path):
+    """Account creation should not provision bootstrap characters automatically."""
+    with use_test_database(temp_db_path):
+        result = database.create_player_with_password("newuser", TEST_PASSWORD, "player")
+        assert result is True
+        assert database.get_character_by_name("newuser_char") is None
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_create_user_rejects_deprecated_auto_character_flag(test_db, temp_db_path):
+    """Legacy auto-character flag should fail fast under account-first model."""
+    with use_test_database(temp_db_path):
+        with pytest.raises(ValueError, match="Automatic character creation is removed"):
+            database.create_user_with_password(
+                "legacy_user",
+                TEST_PASSWORD,
+                create_default_character=True,
+            )
 
 
 @pytest.mark.unit
@@ -848,6 +873,7 @@ def test_unlink_characters_for_user(test_db, temp_db_path):
         database.create_user_with_password("unlinker", TEST_PASSWORD)
         user_id = database.get_user_id("unlinker")
         assert user_id is not None
+        assert database.create_character_for_user(user_id, "unlinker_char")
 
         database.unlink_characters_for_user(user_id)
 
@@ -898,7 +924,7 @@ def test_get_player_locations_shim(test_db, temp_db_path, db_with_users):
 
 @pytest.mark.unit
 @pytest.mark.db
-def test_init_database_missing_superuser_lastrowid_raises(monkeypatch):
+def test_init_database_superuser_bootstrap_does_not_require_character_lastrowid(monkeypatch):
     class _InitCursor(_FakeCursor):
         def __init__(self):
             super().__init__(lastrowid=None, fetchone=(0,))
@@ -908,12 +934,13 @@ def test_init_database_missing_superuser_lastrowid_raises(monkeypatch):
 
     fake_conn = _FakeConnection(_InitCursor())
 
+    # Regression guard for account-first model:
+    # superuser bootstrap should not depend on character-row creation metadata.
     with (
         patch.dict("os.environ", {"MUD_ADMIN_USER": "admin", "MUD_ADMIN_PASSWORD": TEST_PASSWORD}),
         patch.object(database.sqlite3, "connect", return_value=fake_conn),
     ):
-        with pytest.raises(ValueError):
-            database.init_database(skip_superuser=False)
+        database.init_database(skip_superuser=False)
 
 
 @pytest.mark.unit
@@ -1000,6 +1027,9 @@ def test_cleanup_expired_guest_accounts_deletes_user(test_db, temp_db_path):
             is_guest=True,
             guest_expires_at="2000-01-01 00:00:00",
         )
+        user_id = database.get_user_id("guest_user")
+        assert user_id is not None
+        assert database.create_character_for_user(user_id, "guest_user_char")
 
         removed = database.cleanup_expired_guest_accounts()
         assert removed == 1
@@ -1030,6 +1060,7 @@ def test_character_limit_trigger_enforced(temp_db_path):
             database.create_user_with_password("limit_user", TEST_PASSWORD)
             user_id = database.get_user_id("limit_user")
             assert user_id is not None
+            assert database.create_character_for_user(user_id, "limit_seed") is True
             assert database.create_character_for_user(user_id, "extra_char") is False
     finally:
         config.characters.max_slots = original_max

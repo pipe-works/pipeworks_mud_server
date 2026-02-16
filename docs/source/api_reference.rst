@@ -33,9 +33,9 @@ API Endpoints
 Authentication
 ~~~~~~~~~~~~~~
 
-* ``POST /register`` - Register **temporary guest** account (password must meet STANDARD policy)
-* ``POST /register-guest`` - Register guest account with server-generated username
-* ``POST /login`` - Log in and create session (returns character list)
+* ``POST /register`` - Register temporary visitor account (account only; no character)
+* ``POST /register-guest`` - Register guest account with server-generated username + character
+* ``POST /login`` - Log in and create account session (character selection is separate)
 * ``POST /logout`` - Log out and destroy session
 * ``POST /change-password`` - Change password (password must meet STANDARD policy)
 * ``GET /characters`` - List characters for session
@@ -62,7 +62,7 @@ Register Guest Examples
 
     {
       "success": true,
-      "message": "Temporary account created successfully! You can now login as guest_demo."
+      "message": "Temporary account created successfully! You can now login as guest_demo. Character creation is a separate step."
     }
 
 **POST /register-guest** (server-generated username)
@@ -183,16 +183,18 @@ Guest Accounts
 ~~~~~~~~~~~~~~
 
 Guest registrations are intended for testing/dev. Accounts created via
-``POST /register`` are marked as temporary and automatically purged after
-24 hours. Admin- or superuser-created accounts are not affected.
+``POST /register`` and ``POST /register-guest`` are marked as temporary and
+automatically purged after 24 hours. Admin- or superuser-created accounts are
+not affected.
 
 Session Creation
 ~~~~~~~~~~~~~~~~
 
 1. **Register**: ``POST /register`` with username and password (must meet policy)
-2. **Login**: ``POST /login`` with credentials and receive character list
-3. **Select**: ``POST /characters/select`` with chosen character ID (if needed)
-4. **Use**: Include session_id in all subsequent requests
+2. **Create Character**: Provision via admin/API flow (or use ``/register-guest``)
+3. **Login**: ``POST /login`` with credentials and receive account session
+4. **Select**: ``POST /characters/select`` with chosen character ID
+5. **Use**: Include session_id in all subsequent requests
 
 Session Format
 ~~~~~~~~~~~~~~

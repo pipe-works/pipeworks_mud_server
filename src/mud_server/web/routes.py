@@ -28,6 +28,9 @@ _STATIC_DIR = _WEB_ROOT / "static"
 # Static asset version token for admin shell cache busting.
 # Bump this when frontend assets change and deployments should force refresh.
 ADMIN_ASSET_VERSION = "20260216a"
+# Static asset version token for play shell cache busting.
+# Keep separate from admin so play-shell rollouts can be versioned independently.
+PLAY_ASSET_VERSION = "20260216b"
 
 
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -91,8 +94,8 @@ def _render_play_shell(request: Request, world_id: str | None) -> HTMLResponse:
         "play_shell.html",
         {
             # Empty string keeps template logic simple when no world is selected.
-            "world_id": world_id
-            or "",
+            "world_id": world_id or "",
+            "asset_version": PLAY_ASSET_VERSION,
         },
     )
 
