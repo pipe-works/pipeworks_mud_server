@@ -324,20 +324,19 @@ def test_validate_session_for_game_requires_selection_when_multiple(test_db, db_
 @pytest.mark.unit
 @pytest.mark.auth
 def test_validate_session_for_game_missing_character_row(test_db, db_with_users):
+    """Missing character lookup should fail even for an otherwise bound session."""
     session_id = "missing-character-session"
     database.create_session("testplayer", session_id)
 
-    conn = database.get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE sessions SET character_id = ? WHERE session_id = ?",
-        (9999, session_id),
-    )
-    conn.commit()
-    conn.close()
+    player_character = database.get_character_by_name("testplayer_char")
+    assert player_character is not None
+    assert database.set_session_character(session_id, int(player_character["id"])) is True
 
-    with pytest.raises(HTTPException) as exc_info:
-        validate_session_for_game(session_id)
+    # DB invariants now prevent dangling character_id references. Simulate the
+    # lookup failure path by forcing name resolution to return None.
+    with patch.object(database, "get_character_name_by_id", return_value=None):
+        with pytest.raises(HTTPException) as exc_info:
+            validate_session_for_game(session_id)
 
     assert exc_info.value.status_code == 409
 
