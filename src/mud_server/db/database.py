@@ -307,6 +307,7 @@ def init_database(*, skip_superuser: bool = False) -> None:
     )
 
     _create_character_limit_triggers(conn, max_slots=config.characters.max_slots)
+    _create_session_invariant_triggers(conn)
 
     conn.commit()
 
@@ -424,6 +425,132 @@ def _create_character_limit_triggers(conn: sqlite3.Connection, *, max_slots: int
                 END;
         END;
         """)  # nosec B608 - limit is validated and interpolated into DDL
+
+
+def _create_session_invariant_triggers(conn: sqlite3.Connection) -> None:
+    """
+    Create triggers that enforce account-first session invariants.
+
+    Invariant model:
+    - Account-only session:
+        character_id IS NULL and world_id IS NULL
+    - In-world character session:
+        character_id IS NOT NULL and world_id IS NOT NULL
+        character must belong to session user
+        world_id must match the character's world
+
+    Why triggers:
+    - They protect integrity even when callers bypass Python helpers and write
+      directly via SQL.
+    - They apply consistently for both INSERT and UPDATE operations.
+    """
+    cursor = conn.cursor()
+    cursor.execute("DROP TRIGGER IF EXISTS enforce_session_invariants_insert")
+    cursor.execute("DROP TRIGGER IF EXISTS enforce_session_invariants_update")
+
+    cursor.execute("""
+        CREATE TRIGGER enforce_session_invariants_insert
+        BEFORE INSERT ON sessions
+        BEGIN
+            -- Account-only sessions must never carry world bindings.
+            SELECT
+                CASE
+                    WHEN NEW.character_id IS NULL AND NEW.world_id IS NOT NULL
+                    THEN RAISE(ABORT, 'session invariant violated: account session has world_id')
+                END;
+
+            -- Character-bound sessions must always carry world bindings.
+            SELECT
+                CASE
+                    WHEN NEW.character_id IS NOT NULL AND NEW.world_id IS NULL
+                    THEN RAISE(ABORT, 'session invariant violated: character session missing world_id')
+                END;
+
+            -- Character binding must reference an existing character row.
+            SELECT
+                CASE
+                    WHEN NEW.character_id IS NOT NULL
+                     AND (SELECT id FROM characters WHERE id = NEW.character_id) IS NULL
+                    THEN RAISE(ABORT, 'session invariant violated: character does not exist')
+                END;
+
+            -- Character binding must belong to the same user.
+            SELECT
+                CASE
+                    WHEN NEW.character_id IS NOT NULL
+                     AND (
+                        SELECT user_id
+                        FROM characters
+                        WHERE id = NEW.character_id
+                     ) != NEW.user_id
+                    THEN RAISE(ABORT, 'session invariant violated: character does not belong to user')
+                END;
+
+            -- Session world must mirror the character's world.
+            SELECT
+                CASE
+                    WHEN NEW.character_id IS NOT NULL
+                     AND NEW.world_id != (
+                        SELECT world_id
+                        FROM characters
+                        WHERE id = NEW.character_id
+                     )
+                    THEN RAISE(ABORT, 'session invariant violated: world mismatch for character')
+                END;
+        END;
+    """)
+
+    cursor.execute("""
+        CREATE TRIGGER enforce_session_invariants_update
+        BEFORE UPDATE OF user_id, character_id, world_id ON sessions
+        BEGIN
+            -- Account-only sessions must never carry world bindings.
+            SELECT
+                CASE
+                    WHEN NEW.character_id IS NULL AND NEW.world_id IS NOT NULL
+                    THEN RAISE(ABORT, 'session invariant violated: account session has world_id')
+                END;
+
+            -- Character-bound sessions must always carry world bindings.
+            SELECT
+                CASE
+                    WHEN NEW.character_id IS NOT NULL AND NEW.world_id IS NULL
+                    THEN RAISE(ABORT, 'session invariant violated: character session missing world_id')
+                END;
+
+            -- Character binding must reference an existing character row.
+            SELECT
+                CASE
+                    WHEN NEW.character_id IS NOT NULL
+                     AND (SELECT id FROM characters WHERE id = NEW.character_id) IS NULL
+                    THEN RAISE(ABORT, 'session invariant violated: character does not exist')
+                END;
+
+            -- Character binding must belong to the same user.
+            SELECT
+                CASE
+                    WHEN NEW.character_id IS NOT NULL
+                     AND (
+                        SELECT user_id
+                        FROM characters
+                        WHERE id = NEW.character_id
+                     ) != NEW.user_id
+                    THEN RAISE(ABORT, 'session invariant violated: character does not belong to user')
+                END;
+
+            -- Session world must mirror the character's world.
+            SELECT
+                CASE
+                    WHEN NEW.character_id IS NOT NULL
+                     AND NEW.world_id != (
+                        SELECT world_id
+                        FROM characters
+                        WHERE id = NEW.character_id
+                     )
+                    THEN RAISE(ABORT, 'session invariant violated: world mismatch for character')
+                END;
+        END;
+    """)
 
 
 def _generate_default_character_name(cursor: Any, username: str) -> str:
