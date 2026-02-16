@@ -1048,22 +1048,56 @@ def test_cleanup_expired_guest_accounts_deletes_user(test_db, temp_db_path):
 
 @pytest.mark.unit
 @pytest.mark.db
-def test_character_limit_trigger_enforced(temp_db_path):
-    """Test character slot limit trigger prevents over-allocation."""
+def test_world_scoped_character_slot_limit_enforced(temp_db_path):
+    """Per-world slot limits should cap each world independently per account."""
     from mud_server.config import config
 
-    original_max = config.characters.max_slots
-    config.characters.max_slots = 1
+    original_default_slot_limit = config.character_creation.default_world_slot_limit
+    original_world_overrides = dict(config.character_creation.world_policy_overrides)
+    config.character_creation.default_world_slot_limit = 1
+    config.character_creation.world_policy_overrides = {}
     try:
         with use_test_database(temp_db_path):
             database.init_database(skip_superuser=True)
             database.create_user_with_password("limit_user", TEST_PASSWORD)
             user_id = database.get_user_id("limit_user")
             assert user_id is not None
-            assert database.create_character_for_user(user_id, "limit_seed") is True
-            assert database.create_character_for_user(user_id, "extra_char") is False
+
+            # Seed a secondary world so we can prove limits are world-scoped.
+            conn = database.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+                VALUES (?, ?, '', 1, '{}')
+                """,
+                ("daily_undertaking", "daily_undertaking"),
+            )
+            conn.commit()
+            conn.close()
+
+            assert database.create_character_for_user(user_id, "pipeworks_slot_1") is True
+            assert database.create_character_for_user(user_id, "pipeworks_slot_2") is False
+
+            assert (
+                database.create_character_for_user(
+                    user_id,
+                    "daily_slot_1",
+                    world_id="daily_undertaking",
+                )
+                is True
+            )
+            assert (
+                database.create_character_for_user(
+                    user_id,
+                    "daily_slot_2",
+                    world_id="daily_undertaking",
+                )
+                is False
+            )
     finally:
-        config.characters.max_slots = original_max
+        config.character_creation.default_world_slot_limit = original_default_slot_limit
+        config.character_creation.world_policy_overrides = original_world_overrides
 
 
 @pytest.mark.unit

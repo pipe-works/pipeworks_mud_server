@@ -182,11 +182,26 @@ Account/character lifecycle:
 
 * ``/register`` creates an account only.
 * ``/register-guest`` creates account + character in one call.
+* ``/characters/create`` is the account-session self-service path for
+  generated character provisioning.
 
 The purge deletes the user account but leaves any characters unlinked for
 analysis. Accounts created
 by admins/superusers (or system bootstrap accounts) are not purged by this
 cleanup.
+
+Registration and character-creation are policy-gated via config:
+
+* ``[registration] account_registration_mode = open|closed``
+* ``[registration] guest_registration_enabled = true|false``
+* ``[character_creation] player_self_create_enabled = true|false``
+* ``[world_policy.<world_id>] creation_mode = open|invite``
+* ``[world_policy.<world_id>] slot_limit_per_account = N``
+
+Temporary deployment guardrail:
+
+* ``naming_mode = manual`` is treated as admin/superuser-managed in this phase.
+* Player self-service creation is generated-name only.
 
 **Checking Permissions**
 

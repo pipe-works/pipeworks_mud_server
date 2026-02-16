@@ -208,6 +208,13 @@ username. Character provisioning is now explicit:
 * ``/register`` creates an account only (no character).
 * ``/register-guest`` creates both account + the requested character.
 
+Account-first flow for normal signup:
+
+1. ``POST /register`` to create account
+2. ``POST /login`` to create account session
+3. ``POST /characters/create`` for a world with available slots
+4. ``POST /characters/select`` to enter world gameplay
+
 Guest accounts are automatically purged after 24 hours (the user is deleted,
 characters are unlinked).
 
@@ -275,6 +282,21 @@ If local snapshot state is unavailable and the external entity integration is
 configured, the server can attempt integration fallback. Registration remains
 fail-open either way and still succeeds when ``entity_state`` is ``null``.
 
+Example: ``POST /characters/create`` (self-service generated name)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+    curl -s -X POST http://localhost:8000/characters/create \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "session_id": "YOUR_ACCOUNT_SESSION_ID",
+        "world_id": "pipeworks_web"
+      }'
+
+Returns ``403`` when a world is invite-locked for the account and ``409`` when
+the per-world slot limit is reached.
+
 Environment Variables
 ---------------------
 
@@ -307,10 +329,28 @@ Optional configuration:
      - HTTP request timeout (seconds) for TUI
    * - ``MUD_CHAR_DEFAULT_SLOTS``
      - ``2``
-     - Default character slots per account
+     - Legacy global slot default (kept for compatibility)
    * - ``MUD_CHAR_MAX_SLOTS``
      - ``10``
-     - Maximum character slots per account
+     - Legacy global slot cap (kept for compatibility)
+   * - ``MUD_REGISTRATION_MODE``
+     - ``open``
+     - Account registration mode (``open`` or ``closed``)
+   * - ``MUD_GUEST_REGISTRATION_ENABLED``
+     - ``true``
+     - Enable/disable ``/register-guest``
+   * - ``MUD_PLAYER_SELF_CREATE_ENABLED``
+     - ``true``
+     - Enable player ``/characters/create``
+   * - ``MUD_CHAR_CREATE_DEFAULT_MODE``
+     - ``invite``
+     - Default world creation mode (``open`` or ``invite``)
+   * - ``MUD_CHAR_CREATE_DEFAULT_NAMING``
+     - ``generated``
+     - Default world naming mode (``generated`` or ``manual``)
+   * - ``MUD_CHAR_CREATE_DEFAULT_SLOT_LIMIT``
+     - ``10``
+     - Default per-world slot limit per account
    * - ``MUD_ENTITY_STATE_ENABLED``
      - ``true``
      - Enable entity-state generation during ``/register-guest``
@@ -323,6 +363,15 @@ Optional configuration:
    * - ``MUD_ENTITY_STATE_INCLUDE_PROMPTS``
      - ``false``
      - Include prompt strings in the returned ``entity_state`` payload
+
+World-specific overrides can be set in ``config/server.ini`` using:
+
+.. code-block:: ini
+
+    [world_policy.pipeworks_web]
+    creation_mode = open
+    naming_mode = generated
+    slot_limit_per_account = 10
 
 CLI Reference
 -------------

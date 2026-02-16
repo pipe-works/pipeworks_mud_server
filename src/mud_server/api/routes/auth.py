@@ -12,11 +12,13 @@ from mud_server.api.auth import remove_session, validate_session
 from mud_server.api.models import (
     ChangePasswordRequest,
     CharactersResponse,
+    CreateCharacterResponse,
     LoginDirectRequest,
     LoginDirectResponse,
     LoginRequest,
     LoginResponse,
     LogoutRequest,
+    PlayerCreateCharacterRequest,
     RegisterGuestRequest,
     RegisterGuestResponse,
     RegisterRequest,
@@ -28,6 +30,7 @@ from mud_server.api.routes.utils import get_available_worlds
 from mud_server.config import config
 from mud_server.core.engine import GameEngine
 from mud_server.db import database
+from mud_server.services.character_provisioning import provision_generated_character_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +245,12 @@ def router(engine: GameEngine) -> APIRouter:
         """
         from mud_server.api.password_policy import PolicyLevel, validate_password_strength
 
+        if config.registration.account_registration_mode != "open":
+            raise HTTPException(
+                status_code=403,
+                detail="Account registration is currently closed.",
+            )
+
         username = request.username.strip()
         password = request.password
         password_confirm = request.password_confirm
@@ -296,6 +305,12 @@ def router(engine: GameEngine) -> APIRouter:
         from secrets import randbelow
 
         from mud_server.api.password_policy import PolicyLevel, validate_password_strength
+
+        if not config.registration.guest_registration_enabled:
+            raise HTTPException(
+                status_code=403,
+                detail="Guest registration is currently disabled.",
+            )
 
         password = request.password
         password_confirm = request.password_confirm
@@ -419,8 +434,7 @@ def router(engine: GameEngine) -> APIRouter:
         """
         user_id, username, role = validate_session(session_id)
         if world_id:
-            available_worlds = get_available_worlds(user_id, role)
-            if world_id not in {world["id"] for world in available_worlds}:
+            if not database.can_user_access_world(user_id, world_id, role=role):
                 raise HTTPException(status_code=403, detail="World access denied")
         characters = database.get_user_characters(user_id, world_id=world_id)
 
@@ -447,8 +461,7 @@ def router(engine: GameEngine) -> APIRouter:
         if not world_id:
             raise HTTPException(status_code=400, detail="World id required")
 
-        available_worlds = get_available_worlds(user_id, role)
-        if world_id not in {world["id"] for world in available_worlds}:
+        if not database.can_user_access_world(user_id, world_id, role=role):
             raise HTTPException(status_code=403, detail="World access denied")
 
         if character.get("world_id") != world_id:
@@ -463,6 +476,80 @@ def router(engine: GameEngine) -> APIRouter:
             success=True,
             message="Character selected.",
             character_name=character["name"],
+        )
+
+    @api.post("/characters/create", response_model=CreateCharacterResponse)
+    async def create_character(request: PlayerCreateCharacterRequest):
+        """
+        Create a generated-name character for the logged-in account.
+
+        Temporary rollout constraints:
+        - Player self-create is globally toggleable via config.
+        - World policy controls open/invite access and per-world slot limits.
+        - ``naming_mode=manual`` is intentionally restricted to admin/superuser
+          operations in this phase.
+        """
+        user_id, username, role = validate_session(request.session_id)
+        world_id = request.world_id.strip()
+        if not world_id:
+            raise HTTPException(status_code=400, detail="world_id is required")
+
+        if not config.character_creation.player_self_create_enabled:
+            raise HTTPException(
+                status_code=403,
+                detail="Player self-service character creation is disabled.",
+            )
+
+        access = database.get_world_access_decision(user_id, world_id, role=role)
+        if access.reason == "world_not_found":
+            raise HTTPException(status_code=404, detail=f"World '{world_id}' not found")
+        if access.reason == "world_inactive":
+            raise HTTPException(status_code=409, detail=f"World '{world_id}' is inactive")
+        if not access.can_access:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"World '{world_id}' requires an invite. " "Ask an admin to grant world access."
+                ),
+            )
+
+        # Temporary policy guardrail:
+        # manual naming remains an elevated/admin-only capability for now.
+        if access.naming_mode != "generated" and role not in {"admin", "superuser"}:
+            raise HTTPException(
+                status_code=403,
+                detail=(f"World '{world_id}' currently requires admin-managed character naming."),
+            )
+
+        if not access.can_create and access.reason == "slot_limit_reached":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"No character slots remain in '{world_id}' for account '{username}'. "
+                    f"{access.current_character_count}/{access.slot_limit_per_account} used."
+                ),
+            )
+
+        provisioning = provision_generated_character_for_user(
+            user_id=user_id,
+            world_id=world_id,
+        )
+        if not provisioning.success:
+            if provisioning.reason == "slot_limit_reached":
+                raise HTTPException(status_code=409, detail=provisioning.message)
+            if provisioning.reason == "name_generation_failed":
+                raise HTTPException(status_code=502, detail=provisioning.message)
+            raise HTTPException(status_code=409, detail=provisioning.message)
+
+        return CreateCharacterResponse(
+            success=True,
+            message=f"Character '{provisioning.character_name}' created for '{username}'.",
+            character_id=provisioning.character_id,
+            character_name=provisioning.character_name,
+            world_id=provisioning.world_id,
+            seed=provisioning.seed,
+            entity_state=provisioning.entity_state,
+            entity_state_error=provisioning.entity_state_error,
         )
 
     @api.post("/change-password")

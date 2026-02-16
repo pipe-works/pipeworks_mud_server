@@ -245,6 +245,24 @@ async function selectCharacter(sessionId, characterId, worldId) {
 }
 
 /**
+ * Provision a generated-name character for the active account session.
+ *
+ * @param {string} sessionId
+ * @param {string} worldId
+ * @returns {Promise<any>}
+ */
+async function createCharacter(sessionId, worldId) {
+  return apiCall('/characters/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      world_id: worldId,
+    }),
+  });
+}
+
+/**
  * Update top-level status text.
  *
  * @param {string} message
@@ -273,7 +291,7 @@ function updateCharacterName(name) {
 /**
  * Fill the world selector with available worlds.
  *
- * @param {Array<{id: string, name?: string}>} worlds
+ * @param {Array<{id: string, name?: string, can_access?: boolean, access_mode?: string, is_locked?: boolean}>} worlds
  * @param {string} [selectedWorldId]
  * @returns {void}
  */
@@ -287,7 +305,11 @@ function populateWorldSelect(worlds, selectedWorldId = '') {
   worlds.forEach((world) => {
     const option = document.createElement('option');
     option.value = world.id;
-    option.textContent = world.name || world.id;
+    const baseName = world.name || world.id;
+    const modeLabel = world.access_mode === 'invite' ? 'invite' : 'open';
+    const lockLabel = world.can_access === false || world.is_locked ? 'invite-locked' : modeLabel;
+    option.textContent = `${baseName} (${lockLabel})`;
+    option.disabled = world.can_access === false || world.is_locked === true;
     option.selected = Boolean(selectedWorldId && world.id === selectedWorldId);
     select.appendChild(option);
   });
@@ -340,6 +362,47 @@ function updateCharacterHint(message) {
 }
 
 /**
+ * Update per-world policy hint text in the account dashboard.
+ *
+ * @param {{access_mode?: string, can_access?: boolean, naming_mode?: string, slot_limit_per_account?: number, current_character_count?: number}|null} worldOption
+ * @returns {void}
+ */
+function updateWorldPolicyHint(worldOption) {
+  const policyHint = document.getElementById('play-world-policy-hint');
+  const summaryHint = document.getElementById('play-account-summary-hint');
+  if (!policyHint && !summaryHint) {
+    return;
+  }
+
+  if (!worldOption) {
+    if (policyHint) {
+      policyHint.textContent = 'Select a world to view access policy.';
+    }
+    if (summaryHint) {
+      summaryHint.textContent = 'Character creation and world entry are separate actions.';
+    }
+    return;
+  }
+
+  const mode = worldOption.access_mode === 'open' ? 'open' : 'invite';
+  const canAccess = worldOption.can_access !== false;
+  const namingMode = worldOption.naming_mode || 'generated';
+  const slotLimit = Number(worldOption.slot_limit_per_account || 0);
+  const usedSlots = Number(worldOption.current_character_count || 0);
+
+  if (policyHint) {
+    if (canAccess) {
+      policyHint.textContent = `Access mode: ${mode}. Naming: ${namingMode}.`;
+    } else {
+      policyHint.textContent = 'Access mode: invite. This world is currently locked for this account.';
+    }
+  }
+  if (summaryHint) {
+    summaryHint.textContent = `World slots used: ${usedSlots}/${slotLimit}.`;
+  }
+}
+
+/**
  * Enable world entry only when a concrete character is selected.
  *
  * @returns {void}
@@ -355,18 +418,97 @@ function updateEnterWorldButtonState() {
 }
 
 /**
+ * Enable character creation only when current world policy allows it.
+ *
+ * @returns {void}
+ */
+function updateCreateCharacterButtonState() {
+  const createButton = document.getElementById('play-create-character');
+  if (!createButton) {
+    return;
+  }
+  const worldOption = getSelectedWorldOption();
+  if (!worldOption) {
+    createButton.disabled = true;
+    return;
+  }
+
+  const canCreate = worldOption.can_access !== false && worldOption.can_create !== false;
+  createButton.disabled = !canCreate;
+}
+
+/**
  * Return canonical world options for portal rendering.
  *
- * @param {Array<{id: string, name?: string}>|undefined} worlds
- * @returns {Array<{id: string, name?: string}>}
+ * @param {Array<{id: string, name?: string, can_access?: boolean, can_create?: boolean, access_mode?: string, naming_mode?: string, slot_limit_per_account?: number, current_character_count?: number, is_locked?: boolean}>|undefined} worlds
+ * @returns {Array<{id: string, name?: string, can_access: boolean, can_create: boolean, access_mode: string, naming_mode: string, slot_limit_per_account: number, current_character_count: number, is_locked: boolean}>}
  */
 function getWorldOptions(worlds) {
-  const options = Array.isArray(worlds) ? worlds.filter((entry) => entry?.id) : [];
+  const options = Array.isArray(worlds)
+    ? worlds
+        .filter((entry) => entry?.id)
+        .map((entry) => ({
+          id: entry.id,
+          name: entry.name || entry.id,
+          can_access: entry.can_access !== false,
+          can_create: entry.can_create !== false,
+          access_mode: entry.access_mode || 'invite',
+          naming_mode: entry.naming_mode || 'generated',
+          slot_limit_per_account: Number(entry.slot_limit_per_account || 0),
+          current_character_count: Number(entry.current_character_count || 0),
+          is_locked: entry.is_locked === true || entry.can_access === false,
+        }))
+    : [];
   if (options.length) {
     return options;
   }
   const fallbackWorldId = getDefaultWorldId();
-  return [{ id: fallbackWorldId, name: fallbackWorldId }];
+  return [
+    {
+      id: fallbackWorldId,
+      name: fallbackWorldId,
+      can_access: true,
+      can_create: true,
+      access_mode: 'open',
+      naming_mode: 'generated',
+      slot_limit_per_account: 10,
+      current_character_count: 0,
+      is_locked: false,
+    },
+  ];
+}
+
+/**
+ * Select a default world id, preferring currently accessible worlds.
+ *
+ * @param {Array<{id: string, can_access?: boolean}>} worlds
+ * @param {string} [selectedWorldId]
+ * @returns {string}
+ */
+function getPreferredWorldId(worlds, selectedWorldId = '') {
+  const accessible = worlds.filter((entry) => entry.can_access !== false);
+  if (selectedWorldId && accessible.some((entry) => entry.id === selectedWorldId)) {
+    return selectedWorldId;
+  }
+  if (accessible.length) {
+    return accessible[0].id;
+  }
+  if (selectedWorldId && worlds.some((entry) => entry.id === selectedWorldId)) {
+    return selectedWorldId;
+  }
+  return worlds[0]?.id || getDefaultWorldId();
+}
+
+/**
+ * Resolve selected world metadata from current session state.
+ *
+ * @returns {Record<string, unknown>|null}
+ */
+function getSelectedWorldOption() {
+  const session = readSession();
+  const selectedWorldId = getSelectedWorldId();
+  const worldOptions = getWorldOptions(session?.available_worlds);
+  return worldOptions.find((entry) => entry.id === selectedWorldId) || null;
 }
 
 /**
@@ -406,8 +548,43 @@ function getSelectedCharacterId() {
  */
 async function refreshCharactersForWorld({ sessionId, worldId, preferredCharacterId = null }) {
   updateCharacterHint(`Loading characters for ${worldId}...`);
+  const session = readSession();
+  const worldOptions = getWorldOptions(session?.available_worlds);
+  const worldEntry = worldOptions.find((entry) => entry.id === worldId) || null;
+  updateWorldPolicyHint(worldEntry);
+
+  if (worldEntry && worldEntry.can_access === false) {
+    populateCharacterSelect([], null);
+    updateSession({
+      selected_world_id: worldId,
+      selected_character_id: null,
+      selected_character_name: null,
+    });
+    updateCharacterHint(`World ${worldId} is invite-locked for this account.`);
+    updateEnterWorldButtonState();
+    updateCreateCharacterButtonState();
+    return;
+  }
+
   const response = await listCharacters(sessionId, worldId);
   const characters = Array.isArray(response?.characters) ? response.characters : [];
+
+  if (worldEntry) {
+    const updatedWorlds = worldOptions.map((entry) => {
+      if (entry.id !== worldId) {
+        return entry;
+      }
+      const slotLimit = Number(entry.slot_limit_per_account || 0);
+      const usedSlots = characters.length;
+      return {
+        ...entry,
+        current_character_count: usedSlots,
+        can_create: usedSlots < slotLimit,
+      };
+    });
+    updateSession({ available_worlds: updatedWorlds });
+    updateWorldPolicyHint(updatedWorlds.find((entry) => entry.id === worldId) || null);
+  }
 
   populateCharacterSelect(characters, preferredCharacterId);
   if (!characters.length) {
@@ -420,6 +597,7 @@ async function refreshCharactersForWorld({ sessionId, worldId, preferredCharacte
       `No characters are available in ${worldId}. Create one before entering this world.`
     );
     updateEnterWorldButtonState();
+    updateCreateCharacterButtonState();
     return;
   }
 
@@ -432,6 +610,7 @@ async function refreshCharactersForWorld({ sessionId, worldId, preferredCharacte
   });
   updateCharacterHint(`${characters.length} character(s) available in ${worldId}.`);
   updateEnterWorldButtonState();
+  updateCreateCharacterButtonState();
 }
 
 /**
@@ -474,7 +653,7 @@ async function handleLogin() {
   }
 
   const worldOptions = getWorldOptions(loginResponse.available_worlds);
-  const preferredWorldId = worldOptions[0].id;
+  const preferredWorldId = getPreferredWorldId(worldOptions);
   writeSession({
     session_id: loginResponse.session_id,
     username: accountUsername,
@@ -496,10 +675,12 @@ async function handleLogin() {
   updateLocation('Select a world and character to continue.');
 
   populateWorldSelect(worldOptions, preferredWorldId);
+  updateWorldPolicyHint(worldOptions.find((entry) => entry.id === preferredWorldId) || null);
   await refreshCharactersForWorld({
     sessionId: loginResponse.session_id,
     worldId: preferredWorldId,
   });
+  updateCreateCharacterButtonState();
   setState('select-world');
 }
 
@@ -523,11 +704,13 @@ async function handleLogout() {
   updateStatus('Ready to issue a visitor account.');
   updateLocation('Logged out.');
   updateCharacterHint('Select a world to load available characters.');
+  updateWorldPolicyHint(null);
   updateCharacterName('Character Name');
   const logoutButton = document.getElementById('play-logout-button');
   if (logoutButton) {
     logoutButton.hidden = true;
   }
+  updateCreateCharacterButtonState();
 }
 
 /**
@@ -539,6 +722,7 @@ function bindEvents() {
   const loginButton = document.getElementById('play-login-button');
   const logoutButton = document.getElementById('play-logout-button');
   const enterWorldButton = document.getElementById('play-enter-world');
+  const createCharacterButton = document.getElementById('play-create-character');
   const worldSelect = document.getElementById('play-world-select');
   const characterSelect = document.getElementById('play-character-select');
 
@@ -576,11 +760,13 @@ function bindEvents() {
       }
 
       const selectedWorld = getSelectedWorldId();
+      const worldOption = getSelectedWorldOption();
       updateSession({
         selected_world_id: selectedWorld,
         selected_character_id: null,
         selected_character_name: null,
       });
+      updateWorldPolicyHint(worldOption);
 
       try {
         await refreshCharactersForWorld({
@@ -590,6 +776,7 @@ function bindEvents() {
       } catch (err) {
         updateCharacterHint(getErrorMessage(err));
         updateEnterWorldButtonState();
+        updateCreateCharacterButtonState();
       }
     });
   }
@@ -603,6 +790,47 @@ function bindEvents() {
         selected_character_name: selectedCharacterName,
       });
       updateEnterWorldButtonState();
+      updateCreateCharacterButtonState();
+    });
+  }
+
+  if (createCharacterButton) {
+    createCharacterButton.addEventListener('click', async () => {
+      const session = readSession();
+      if (!session?.session_id) {
+        updateStatus('Session unavailable. Please log in again.');
+        setState('logged-out');
+        return;
+      }
+
+      const selectedWorld = getSelectedWorldId();
+      const worldOption = getSelectedWorldOption();
+      if (!worldOption || worldOption.can_access === false) {
+        updateCharacterHint('This world is invite-locked for your account.');
+        updateCreateCharacterButtonState();
+        return;
+      }
+
+      createCharacterButton.disabled = true;
+      updateCharacterHint(`Generating a character for ${selectedWorld}...`);
+      try {
+        const created = await createCharacter(session.session_id, selectedWorld);
+        await refreshCharactersForWorld({
+          sessionId: session.session_id,
+          worldId: selectedWorld,
+          preferredCharacterId: created?.character_id || null,
+        });
+        updateStatus(`Character ${created?.character_name || 'created'} is ready.`);
+        updateCharacterHint(
+          `Character ${created?.character_name || 'created'} is available. Select it to enter.`
+        );
+      } catch (err) {
+        updateStatus(`Goblin says: ${getErrorMessage(err)}`);
+        updateCharacterHint(getErrorMessage(err));
+      } finally {
+        createCharacterButton.disabled = false;
+        updateCreateCharacterButtonState();
+      }
     });
   }
 
@@ -676,11 +904,10 @@ async function hydratePortalSession() {
 
   const worldOptions = getWorldOptions(session.available_worlds);
   const storedWorldId = typeof session.selected_world_id === 'string' ? session.selected_world_id : '';
-  const preferredWorldId = worldOptions.some((entry) => entry.id === storedWorldId)
-    ? storedWorldId
-    : worldOptions[0].id;
+  const preferredWorldId = getPreferredWorldId(worldOptions, storedWorldId);
   updateSession({ selected_world_id: preferredWorldId });
   populateWorldSelect(worldOptions, preferredWorldId);
+  updateWorldPolicyHint(worldOptions.find((entry) => entry.id === preferredWorldId) || null);
   setState('select-world');
 
   const flashMessage = consumeFlashMessage();
@@ -695,6 +922,7 @@ async function hydratePortalSession() {
       preferredCharacterId: session.selected_character_id || null,
     });
     updateStatus('Session active. Choose a world and character to continue.');
+    updateCreateCharacterButtonState();
   } catch (err) {
     clearSession();
     setState('logged-out');

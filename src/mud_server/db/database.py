@@ -50,6 +50,36 @@ DEFAULT_AXIS_SCORE = 0.5
 # will be replaced by config-driven defaults in a later phase.
 
 
+@dataclass(slots=True)
+class WorldAccessDecision:
+    """
+    Policy resolution result for account access and character creation in a world.
+
+    Attributes:
+        world_id: Target world identifier.
+        can_access: True when the account may enter/select this world.
+        can_create: True when the account may create another character there.
+        access_mode: Effective world creation mode (open/invite).
+        naming_mode: Effective naming mode (generated/manual).
+        slot_limit_per_account: Max characters allowed for the account in this world.
+        current_character_count: Existing characters owned by the account in this world.
+        has_permission_grant: True when a world_permissions invite/grant exists.
+        has_existing_character: True when the account already owns a character there.
+        reason: Machine-friendly reason key for denials (for API/UI messaging).
+    """
+
+    world_id: str
+    can_access: bool
+    can_create: bool
+    access_mode: str
+    naming_mode: str
+    slot_limit_per_account: int
+    current_character_count: int
+    has_permission_grant: bool
+    has_existing_character: bool
+    reason: str
+
+
 def _generate_state_seed() -> int:
     """
     Generate a non-zero seed for character state snapshots.
@@ -101,7 +131,6 @@ def init_database(*, skip_superuser: bool = False) -> None:
     import os
 
     from mud_server.api.password import hash_password
-    from mud_server.config import config
 
     db_path = _get_db_path()
     conn = sqlite3.connect(str(db_path))
@@ -306,7 +335,10 @@ def init_database(*, skip_superuser: bool = False) -> None:
         (DEFAULT_WORLD_ID, DEFAULT_WORLD_ID),
     )
 
-    _create_character_limit_triggers(conn, max_slots=config.characters.max_slots)
+    # Character slot enforcement is now world-policy-aware and resolved in
+    # application code (user_id + world_id scope). The old global per-user
+    # trigger path is intentionally retired because it cannot express per-world
+    # slot budgets from configuration.
     _create_session_invariant_triggers(conn)
 
     conn.commit()
@@ -1372,12 +1404,35 @@ def create_character_for_user(
         state_seed: Optional explicit seed for initial snapshot state.
 
     Returns:
-        True if character created, False on constraint violation.
+        True if character created, False on constraint/policy violation.
+
+    Policy behavior:
+        Character slot limits are enforced per ``(user_id, world_id)`` using
+        the resolved world policy from configuration.
     """
     conn: sqlite3.Connection | None = None
     try:
+        from mud_server.config import config
+
         conn = get_connection()
         cursor = conn.cursor()
+
+        # World-tied slot enforcement:
+        # The legacy global trigger has been removed because slot limits are
+        # now policy-resolved per world. Enforce the cap here so every caller
+        # that uses this helper (admin tools, tests, onboarding flows) shares
+        # identical behavior.
+        world_policy = config.resolve_world_character_policy(world_id)
+        slot_limit = max(0, int(world_policy.slot_limit_per_account))
+        existing_count = _count_user_characters_in_world(
+            cursor,
+            user_id=user_id,
+            world_id=world_id,
+        )
+        if existing_count >= slot_limit:
+            conn.close()
+            return False
+
         cursor.execute(
             """
             INSERT INTO characters (user_id, name, world_id, is_guest_created)
@@ -2980,6 +3035,228 @@ def list_worlds(*, include_inactive: bool = False) -> list[dict[str, Any]]:
     ]
 
 
+def _query_world_rows(
+    cursor: sqlite3.Cursor,
+    *,
+    include_inactive: bool,
+) -> list[tuple[Any, ...]]:
+    """
+    Query world catalog rows with optional inactive filtering.
+
+    Keeping this query in one helper prevents tiny SQL drifts across APIs that
+    need world metadata plus policy decoration.
+    """
+    if include_inactive:
+        cursor.execute("""
+            SELECT id, name, description, is_active, config_json, created_at
+            FROM worlds
+            ORDER BY id
+            """)
+    else:
+        cursor.execute("""
+            SELECT id, name, description, is_active, config_json, created_at
+            FROM worlds
+            WHERE is_active = 1
+            ORDER BY id
+            """)
+    return cursor.fetchall()
+
+
+def _user_has_world_permission(
+    cursor: sqlite3.Cursor,
+    *,
+    user_id: int,
+    world_id: str,
+) -> bool:
+    """Return True when an explicit world_permissions grant exists."""
+    cursor.execute(
+        """
+        SELECT 1
+        FROM world_permissions
+        WHERE user_id = ? AND world_id = ? AND can_access = 1
+        LIMIT 1
+        """,
+        (user_id, world_id),
+    )
+    return cursor.fetchone() is not None
+
+
+def _count_user_characters_in_world(
+    cursor: sqlite3.Cursor,
+    *,
+    user_id: int,
+    world_id: str,
+) -> int:
+    """Count characters owned by ``user_id`` in ``world_id``."""
+    cursor.execute(
+        """
+        SELECT COUNT(*)
+        FROM characters
+        WHERE user_id = ? AND world_id = ?
+        """,
+        (user_id, world_id),
+    )
+    row = cursor.fetchone()
+    return int(row[0]) if row else 0
+
+
+def _resolve_world_access_for_row(
+    cursor: sqlite3.Cursor,
+    *,
+    user_id: int,
+    role: str | None,
+    world_row: tuple[Any, ...],
+) -> WorldAccessDecision:
+    """
+    Resolve effective access/create capabilities for a world row.
+
+    This is the canonical policy resolver used by:
+    - account dashboard world listings
+    - API access checks (`/characters`, `/characters/select`)
+    - self-service character creation guardrails
+    """
+    from mud_server.config import config
+
+    world_id = str(world_row[0])
+    is_active = bool(world_row[3])
+    world_policy = config.resolve_world_character_policy(world_id)
+
+    current_count = _count_user_characters_in_world(cursor, user_id=user_id, world_id=world_id)
+    has_existing_character = current_count > 0
+    has_permission = _user_has_world_permission(cursor, user_id=user_id, world_id=world_id)
+
+    # Elevated roles can always access worlds operationally, but world-scoped
+    # slot limits still apply to character ownership volume.
+    if role in {"admin", "superuser"}:
+        can_access = True
+    else:
+        can_access = (
+            has_permission or has_existing_character or world_policy.creation_mode == "open"
+        )
+
+    if not is_active:
+        return WorldAccessDecision(
+            world_id=world_id,
+            can_access=False,
+            can_create=False,
+            access_mode=world_policy.creation_mode,
+            naming_mode=world_policy.naming_mode,
+            slot_limit_per_account=int(world_policy.slot_limit_per_account),
+            current_character_count=current_count,
+            has_permission_grant=has_permission,
+            has_existing_character=has_existing_character,
+            reason="world_inactive",
+        )
+
+    if not can_access:
+        return WorldAccessDecision(
+            world_id=world_id,
+            can_access=False,
+            can_create=False,
+            access_mode=world_policy.creation_mode,
+            naming_mode=world_policy.naming_mode,
+            slot_limit_per_account=int(world_policy.slot_limit_per_account),
+            current_character_count=current_count,
+            has_permission_grant=has_permission,
+            has_existing_character=has_existing_character,
+            reason="invite_required",
+        )
+
+    slot_limit = max(0, int(world_policy.slot_limit_per_account))
+    if current_count >= slot_limit:
+        return WorldAccessDecision(
+            world_id=world_id,
+            can_access=True,
+            can_create=False,
+            access_mode=world_policy.creation_mode,
+            naming_mode=world_policy.naming_mode,
+            slot_limit_per_account=slot_limit,
+            current_character_count=current_count,
+            has_permission_grant=has_permission,
+            has_existing_character=has_existing_character,
+            reason="slot_limit_reached",
+        )
+
+    return WorldAccessDecision(
+        world_id=world_id,
+        can_access=True,
+        can_create=True,
+        access_mode=world_policy.creation_mode,
+        naming_mode=world_policy.naming_mode,
+        slot_limit_per_account=slot_limit,
+        current_character_count=current_count,
+        has_permission_grant=has_permission,
+        has_existing_character=has_existing_character,
+        reason="ok",
+    )
+
+
+def get_world_access_decision(
+    user_id: int,
+    world_id: str,
+    *,
+    role: str | None = None,
+) -> WorldAccessDecision:
+    """
+    Resolve account access and create capabilities for one world.
+
+    Returns a denial decision with ``reason='world_not_found'`` when the world
+    row does not exist.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, name, description, is_active, config_json, created_at
+        FROM worlds
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (world_id,),
+    )
+    world_row = cursor.fetchone()
+    if world_row is None:
+        from mud_server.config import config
+
+        world_policy = config.resolve_world_character_policy(world_id)
+        conn.close()
+        return WorldAccessDecision(
+            world_id=world_id,
+            can_access=False,
+            can_create=False,
+            access_mode=world_policy.creation_mode,
+            naming_mode=world_policy.naming_mode,
+            slot_limit_per_account=int(world_policy.slot_limit_per_account),
+            current_character_count=0,
+            has_permission_grant=False,
+            has_existing_character=False,
+            reason="world_not_found",
+        )
+
+    decision = _resolve_world_access_for_row(
+        cursor,
+        user_id=user_id,
+        role=role,
+        world_row=world_row,
+    )
+    conn.close()
+    return decision
+
+
+def can_user_access_world(user_id: int, world_id: str, *, role: str | None = None) -> bool:
+    """Return True when the user may access/select the world."""
+    return get_world_access_decision(user_id, world_id, role=role).can_access
+
+
+def get_user_character_count_for_world(user_id: int, world_id: str) -> int:
+    """Return how many characters the user owns in the specified world."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    count = _count_user_characters_in_world(cursor, user_id=user_id, world_id=world_id)
+    conn.close()
+    return count
+
+
 def get_world_admin_rows() -> list[dict[str, Any]]:
     """
     Return world-level operational rows for admin/superuser tooling.
@@ -3090,49 +3367,44 @@ def list_worlds_for_user(
     *,
     role: str | None = None,
     include_inactive: bool = False,
+    include_invite_worlds: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Return worlds accessible to the given user.
 
-    Admins and superusers have implicit access to all worlds. Other roles
-    must have a world_permissions row with can_access=1.
+    Behavior by role:
+    - Admin/superuser: all worlds are visible and accessible.
+    - Other roles:
+      - ``include_invite_worlds=False``: return accessible worlds only.
+      - ``include_invite_worlds=True``: include invite-locked worlds for UI
+        visibility, tagged with ``can_access=False``.
+
+    Access for non-admin roles is resolved using world policy + ownership:
+    - explicit world_permissions grant, OR
+    - already owns a character in the world, OR
+    - world policy is ``open``
     """
     if role is None:
         username = get_username_by_id(user_id)
         if username:
             role = get_user_role(username)
 
-    if role in {"admin", "superuser"}:
-        return list_worlds(include_inactive=include_inactive)
-
     conn = get_connection()
     cursor = conn.cursor()
-    if include_inactive:
-        cursor.execute(
-            """
-            SELECT w.id, w.name, w.description, w.is_active, w.config_json, w.created_at
-            FROM worlds w
-            JOIN world_permissions p ON p.world_id = w.id
-            WHERE p.user_id = ? AND p.can_access = 1
-            ORDER BY w.id
-            """,
-            (user_id,),
+
+    rows = _query_world_rows(cursor, include_inactive=include_inactive)
+    worlds: list[dict[str, Any]] = []
+    is_elevated = role in {"admin", "superuser"}
+    for row in rows:
+        decision = _resolve_world_access_for_row(
+            cursor,
+            user_id=user_id,
+            role=role,
+            world_row=row,
         )
-    else:
-        cursor.execute(
-            """
-            SELECT w.id, w.name, w.description, w.is_active, w.config_json, w.created_at
-            FROM worlds w
-            JOIN world_permissions p ON p.world_id = w.id
-            WHERE p.user_id = ? AND p.can_access = 1 AND w.is_active = 1
-            ORDER BY w.id
-            """,
-            (user_id,),
-        )
-    rows = cursor.fetchall()
-    if rows:
-        conn.close()
-        return [
+        if not is_elevated and not include_invite_worlds and not decision.can_access:
+            continue
+        worlds.append(
             {
                 "id": row[0],
                 "name": row[1],
@@ -3140,34 +3412,22 @@ def list_worlds_for_user(
                 "is_active": bool(row[3]),
                 "config_json": row[4],
                 "created_at": row[5],
+                "can_access": decision.can_access,
+                "can_create": decision.can_create,
+                "access_mode": decision.access_mode,
+                "naming_mode": decision.naming_mode,
+                "slot_limit_per_account": decision.slot_limit_per_account,
+                "current_character_count": decision.current_character_count,
+                "has_permission_grant": decision.has_permission_grant,
+                "has_existing_character": decision.has_existing_character,
+                "is_invite_only": decision.access_mode == "invite",
+                "is_locked": not decision.can_access,
+                "access_reason": decision.reason,
             }
-            for row in rows
-        ]
+        )
 
-    # Fallback: allow worlds where the user already has characters.
-    cursor.execute(
-        """
-        SELECT DISTINCT w.id, w.name, w.description, w.is_active, w.config_json, w.created_at
-        FROM worlds w
-        JOIN characters c ON c.world_id = w.id
-        WHERE c.user_id = ?
-        ORDER BY w.id
-        """,
-        (user_id,),
-    )
-    rows = cursor.fetchall()
     conn.close()
-    return [
-        {
-            "id": row[0],
-            "name": row[1],
-            "description": row[2],
-            "is_active": bool(row[3]),
-            "config_json": row[4],
-            "created_at": row[5],
-        }
-        for row in rows
-    ]
+    return worlds
 
 
 def _quote_identifier(identifier: str) -> str:

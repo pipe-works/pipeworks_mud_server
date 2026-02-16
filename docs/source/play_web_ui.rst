@@ -87,6 +87,24 @@ If you add new rules that change display for these sections, keep the global
 ``[hidden] { display: none !important; }`` rule so the toggling remains
 reliable.
 
+Account Dashboard Layout (Select-World State)
+----------------------------------------------
+
+The select-world state now renders as a centered 3-column dashboard:
+
+* Left column: 25% (world navigation and policy hints)
+* Center column: 50% (character selector, feedback, actions)
+* Right column: 25% (account/policy summary)
+
+On mobile (``max-width: 900px``), columns collapse to a single stacked layout.
+
+Character creation and world-entry behavior:
+
+* ``Enter world`` remains disabled until a concrete character is selected.
+* ``Generate character`` calls ``POST /characters/create`` for the selected world.
+* Invite-only worlds can appear in the selector with locked labels for visibility.
+* Locked worlds do not fetch characters and block create/select actions.
+
 World UI scaffold
 -----------------
 

@@ -82,6 +82,19 @@ class SelectCharacterRequest(BaseModel):
     world_id: str | None = None
 
 
+class PlayerCreateCharacterRequest(BaseModel):
+    """
+    Authenticated account request to self-provision a generated character.
+
+    Attributes:
+        session_id: Active account session id.
+        world_id: Target world id for character creation.
+    """
+
+    session_id: str
+    world_id: str
+
+
 class LoginDirectRequest(BaseModel):
     """
     Direct login request that binds a session to a world + character.

@@ -39,6 +39,12 @@ Environment Variable Mapping:
     MUD_NAMEGEN_ENABLED             -> integrations.namegen_enabled
     MUD_NAMEGEN_BASE_URL            -> integrations.namegen_base_url
     MUD_NAMEGEN_TIMEOUT_SECONDS     -> integrations.namegen_timeout_seconds
+    MUD_REGISTRATION_MODE           -> registration.account_registration_mode
+    MUD_GUEST_REGISTRATION_ENABLED  -> registration.guest_registration_enabled
+    MUD_PLAYER_SELF_CREATE_ENABLED  -> character_creation.player_self_create_enabled
+    MUD_CHAR_CREATE_DEFAULT_MODE    -> character_creation.default_creation_mode
+    MUD_CHAR_CREATE_DEFAULT_NAMING  -> character_creation.default_naming_mode
+    MUD_CHAR_CREATE_DEFAULT_SLOT_LIMIT -> character_creation.default_world_slot_limit
 """
 
 import configparser
@@ -137,6 +143,67 @@ class CharacterSettings:
 
 
 @dataclass
+class RegistrationSettings:
+    """Account-registration policy controls."""
+
+    account_registration_mode: Literal["open", "closed"] = "open"
+    guest_registration_enabled: bool = True
+
+
+@dataclass
+class WorldCharacterPolicy:
+    """
+    Character-creation policy for a specific world.
+
+    Attributes:
+        creation_mode: ``open`` allows account holders to self-create in the
+            world. ``invite`` requires explicit world permission.
+        naming_mode: ``generated`` means the server mints names. ``manual`` is
+            currently reserved for admin/superuser workflows.
+        slot_limit_per_account: Maximum characters an account may own in this
+            world.
+    """
+
+    creation_mode: Literal["open", "invite"] = "invite"
+    naming_mode: Literal["generated", "manual"] = "generated"
+    slot_limit_per_account: int = 10
+
+
+@dataclass
+class CharacterCreationSettings:
+    """
+    Global character-creation policy and world-level overrides.
+
+    The defaults define baseline behavior for all worlds. Per-world sections in
+    INI (``[world_policy.<world_id>]``) can override individual fields.
+    """
+
+    player_self_create_enabled: bool = True
+    default_creation_mode: Literal["open", "invite"] = "invite"
+    default_naming_mode: Literal["generated", "manual"] = "generated"
+    default_world_slot_limit: int = 10
+    world_policy_overrides: dict[str, WorldCharacterPolicy] = field(default_factory=dict)
+
+    def resolve_world_policy(self, world_id: str) -> WorldCharacterPolicy:
+        """
+        Resolve effective character policy for ``world_id``.
+
+        Resolution order:
+            1. ``[world_policy.<world_id>]`` override
+            2. Global defaults from ``[character_creation]``
+        """
+        normalized_world_id = world_id.strip()
+        override = self.world_policy_overrides.get(normalized_world_id)
+        if override is not None:
+            return override
+        return WorldCharacterPolicy(
+            creation_mode=self.default_creation_mode,
+            naming_mode=self.default_naming_mode,
+            slot_limit_per_account=self.default_world_slot_limit,
+        )
+
+
+@dataclass
 class FeatureSettings:
     """Feature flags."""
 
@@ -182,6 +249,8 @@ class ServerConfig:
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     rate_limit: RateLimitSettings = field(default_factory=RateLimitSettings)
     characters: CharacterSettings = field(default_factory=CharacterSettings)
+    registration: RegistrationSettings = field(default_factory=RegistrationSettings)
+    character_creation: CharacterCreationSettings = field(default_factory=CharacterCreationSettings)
     features: FeatureSettings = field(default_factory=FeatureSettings)
     worlds: WorldSettings = field(default_factory=WorldSettings)
     integrations: IntegrationSettings = field(default_factory=IntegrationSettings)
@@ -201,6 +270,10 @@ class ServerConfig:
         # "auto" - follow production setting
         return not self.is_production
 
+    def resolve_world_character_policy(self, world_id: str) -> WorldCharacterPolicy:
+        """Resolve world-level character-creation policy for ``world_id``."""
+        return self.character_creation.resolve_world_policy(world_id)
+
 
 # =============================================================================
 # CONFIGURATION LOADING
@@ -217,6 +290,46 @@ def _parse_list(value: str) -> list[str]:
     if not value or value.strip() == "":
         return []
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _parse_creation_mode(
+    value: str, *, default: Literal["open", "invite"]
+) -> Literal["open", "invite"]:
+    """
+    Parse world creation mode and gracefully fallback on invalid values.
+
+    This parser is intentionally tolerant: invalid deployment values should not
+    crash startup and instead fallback to a safe, explicit default.
+    """
+    normalized = value.strip().lower()
+    if normalized in {"open", "invite"}:
+        return normalized  # type: ignore[return-value]
+    return default
+
+
+def _parse_registration_mode(
+    value: str, *, default: Literal["open", "closed"]
+) -> Literal["open", "closed"]:
+    """Parse account registration mode and fallback on invalid values."""
+    normalized = value.strip().lower()
+    if normalized in {"open", "closed"}:
+        return normalized  # type: ignore[return-value]
+    return default
+
+
+def _parse_naming_mode(
+    value: str, *, default: Literal["generated", "manual"]
+) -> Literal["generated", "manual"]:
+    """
+    Parse world naming mode and fallback on invalid values.
+
+    Current policy keeps ``manual`` naming for privileged admin workflows.
+    Player self-service creation currently relies on ``generated`` names.
+    """
+    normalized = value.strip().lower()
+    if normalized in {"generated", "manual"}:
+        return normalized  # type: ignore[return-value]
+    return default
 
 
 def _load_from_ini(parser: configparser.ConfigParser, cfg: ServerConfig) -> None:
@@ -298,6 +411,40 @@ def _load_from_ini(parser: configparser.ConfigParser, cfg: ServerConfig) -> None
         if parser.has_option("characters", "max_slots"):
             cfg.characters.max_slots = parser.getint("characters", "max_slots")
 
+    # Registration policy section
+    if parser.has_section("registration"):
+        if parser.has_option("registration", "account_registration_mode"):
+            cfg.registration.account_registration_mode = _parse_registration_mode(
+                parser.get("registration", "account_registration_mode"),
+                default=cfg.registration.account_registration_mode,
+            )
+        if parser.has_option("registration", "guest_registration_enabled"):
+            cfg.registration.guest_registration_enabled = _parse_bool(
+                parser.get("registration", "guest_registration_enabled")
+            )
+
+    # Character-creation policy section
+    if parser.has_section("character_creation"):
+        if parser.has_option("character_creation", "player_self_create_enabled"):
+            cfg.character_creation.player_self_create_enabled = _parse_bool(
+                parser.get("character_creation", "player_self_create_enabled")
+            )
+        if parser.has_option("character_creation", "default_creation_mode"):
+            cfg.character_creation.default_creation_mode = _parse_creation_mode(
+                parser.get("character_creation", "default_creation_mode"),
+                default=cfg.character_creation.default_creation_mode,
+            )
+        if parser.has_option("character_creation", "default_naming_mode"):
+            cfg.character_creation.default_naming_mode = _parse_naming_mode(
+                parser.get("character_creation", "default_naming_mode"),
+                default=cfg.character_creation.default_naming_mode,
+            )
+        if parser.has_option("character_creation", "default_world_slot_limit"):
+            cfg.character_creation.default_world_slot_limit = parser.getint(
+                "character_creation",
+                "default_world_slot_limit",
+            )
+
     # Features section
     if parser.has_section("features"):
         if parser.has_option("features", "ollama_enabled"):
@@ -345,6 +492,42 @@ def _load_from_ini(parser: configparser.ConfigParser, cfg: ServerConfig) -> None
                 "integrations", "namegen_timeout_seconds"
             )
 
+    # Per-world character policy sections:
+    #   [world_policy.<world_id>]
+    # This keeps deployment policy in config rather than requiring schema
+    # changes for every policy tweak.
+    for section_name in parser.sections():
+        if not section_name.startswith("world_policy."):
+            continue
+        world_id = section_name[len("world_policy.") :].strip()
+        if not world_id:
+            continue
+
+        resolved_policy = cfg.resolve_world_character_policy(world_id)
+        world_policy = WorldCharacterPolicy(
+            creation_mode=resolved_policy.creation_mode,
+            naming_mode=resolved_policy.naming_mode,
+            slot_limit_per_account=resolved_policy.slot_limit_per_account,
+        )
+
+        if parser.has_option(section_name, "creation_mode"):
+            world_policy.creation_mode = _parse_creation_mode(
+                parser.get(section_name, "creation_mode"),
+                default=world_policy.creation_mode,
+            )
+        if parser.has_option(section_name, "naming_mode"):
+            world_policy.naming_mode = _parse_naming_mode(
+                parser.get(section_name, "naming_mode"),
+                default=world_policy.naming_mode,
+            )
+        if parser.has_option(section_name, "slot_limit_per_account"):
+            world_policy.slot_limit_per_account = parser.getint(
+                section_name,
+                "slot_limit_per_account",
+            )
+
+        cfg.character_creation.world_policy_overrides[world_id] = world_policy
+
 
 def _apply_env_overrides(cfg: ServerConfig) -> None:
     """Apply environment variable overrides to configuration."""
@@ -383,6 +566,31 @@ def _apply_env_overrides(cfg: ServerConfig) -> None:
         cfg.characters.default_slots = int(env_default_slots)
     if env_max_slots := os.getenv("MUD_CHAR_MAX_SLOTS"):
         cfg.characters.max_slots = int(env_max_slots)
+
+    # Registration policy
+    if env_registration_mode := os.getenv("MUD_REGISTRATION_MODE"):
+        cfg.registration.account_registration_mode = _parse_registration_mode(
+            env_registration_mode,
+            default=cfg.registration.account_registration_mode,
+        )
+    if env_guest_registration := os.getenv("MUD_GUEST_REGISTRATION_ENABLED"):
+        cfg.registration.guest_registration_enabled = _parse_bool(env_guest_registration)
+
+    # Character-creation policy
+    if env_player_create_enabled := os.getenv("MUD_PLAYER_SELF_CREATE_ENABLED"):
+        cfg.character_creation.player_self_create_enabled = _parse_bool(env_player_create_enabled)
+    if env_default_create_mode := os.getenv("MUD_CHAR_CREATE_DEFAULT_MODE"):
+        cfg.character_creation.default_creation_mode = _parse_creation_mode(
+            env_default_create_mode,
+            default=cfg.character_creation.default_creation_mode,
+        )
+    if env_default_naming_mode := os.getenv("MUD_CHAR_CREATE_DEFAULT_NAMING"):
+        cfg.character_creation.default_naming_mode = _parse_naming_mode(
+            env_default_naming_mode,
+            default=cfg.character_creation.default_naming_mode,
+        )
+    if env_default_slot_limit := os.getenv("MUD_CHAR_CREATE_DEFAULT_SLOT_LIMIT"):
+        cfg.character_creation.default_world_slot_limit = int(env_default_slot_limit)
 
     # World settings
     if env_worlds_root := os.getenv("MUD_WORLDS_ROOT"):
@@ -509,6 +717,18 @@ def print_config_summary() -> None:
     print(f"Sliding Exp: {config.session.sliding_expiration}")
     print(f"Multi-Session: {config.session.allow_multiple_sessions}")
     print(f"Active Window: {config.session.active_window_minutes} minutes")
+    print(
+        "Registration: "
+        f"mode={config.registration.account_registration_mode} "
+        f"guest_enabled={config.registration.guest_registration_enabled}"
+    )
+    print(
+        "Character Create: "
+        f"player_self_create={config.character_creation.player_self_create_enabled} "
+        f"default_mode={config.character_creation.default_creation_mode} "
+        f"default_naming={config.character_creation.default_naming_mode} "
+        f"default_slots={config.character_creation.default_world_slot_limit}"
+    )
     print(f"Log level:   {config.logging.level}")
     print(
         f"Entity API:  enabled={config.integrations.entity_state_enabled} "

@@ -195,3 +195,5 @@ Notes
   are supported.
 - Axis state is tracked in **normalized tables** (``axis``, ``axis_value``,
   ``character_axis_score``) with an **event ledger** (``event*`` tables).
+- ``world_permissions`` stores invite-style access grants. Open-world access is
+  policy-driven from config and may not require a row in this table.

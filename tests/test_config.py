@@ -122,6 +122,68 @@ def test_namegen_integration_ini_overrides():
 
 
 @pytest.mark.unit
+def test_registration_policy_env_overrides(monkeypatch):
+    """Registration policy settings should load from env vars."""
+    monkeypatch.setenv("MUD_REGISTRATION_MODE", "closed")
+    monkeypatch.setenv("MUD_GUEST_REGISTRATION_ENABLED", "false")
+
+    cfg = load_config()
+
+    assert cfg.registration.account_registration_mode == "closed"
+    assert cfg.registration.guest_registration_enabled is False
+
+
+@pytest.mark.unit
+def test_character_creation_policy_env_overrides(monkeypatch):
+    """Character creation policy settings should load from env vars."""
+    monkeypatch.setenv("MUD_PLAYER_SELF_CREATE_ENABLED", "false")
+    monkeypatch.setenv("MUD_CHAR_CREATE_DEFAULT_MODE", "open")
+    monkeypatch.setenv("MUD_CHAR_CREATE_DEFAULT_NAMING", "manual")
+    monkeypatch.setenv("MUD_CHAR_CREATE_DEFAULT_SLOT_LIMIT", "7")
+
+    cfg = load_config()
+
+    assert cfg.character_creation.player_self_create_enabled is False
+    assert cfg.character_creation.default_creation_mode == "open"
+    assert cfg.character_creation.default_naming_mode == "manual"
+    assert cfg.character_creation.default_world_slot_limit == 7
+
+
+@pytest.mark.unit
+def test_world_policy_ini_overrides():
+    """Per-world character policy sections should override global defaults."""
+    parser = configparser.ConfigParser()
+    parser.read_dict(
+        {
+            "character_creation": {
+                "default_creation_mode": "invite",
+                "default_naming_mode": "generated",
+                "default_world_slot_limit": "10",
+            },
+            "world_policy.pipeworks_web": {
+                "creation_mode": "open",
+                "naming_mode": "generated",
+                "slot_limit_per_account": "12",
+            },
+        }
+    )
+
+    cfg = ServerConfig()
+    _load_from_ini(parser, cfg)
+
+    pipeworks_policy = cfg.resolve_world_character_policy("pipeworks_web")
+    fallback_policy = cfg.resolve_world_character_policy("daily_undertaking")
+
+    assert pipeworks_policy.creation_mode == "open"
+    assert pipeworks_policy.naming_mode == "generated"
+    assert pipeworks_policy.slot_limit_per_account == 12
+
+    assert fallback_policy.creation_mode == "invite"
+    assert fallback_policy.naming_mode == "generated"
+    assert fallback_policy.slot_limit_per_account == 10
+
+
+@pytest.mark.unit
 def test_print_config_summary_includes_entity_api_line(capsys):
     """Config summary should include the entity integration diagnostics line."""
     print_config_summary()
