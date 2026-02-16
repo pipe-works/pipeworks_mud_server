@@ -46,6 +46,36 @@ def test_admin_view_players_as_admin(test_client, test_db, temp_db_path, db_with
 
 @pytest.mark.admin
 @pytest.mark.api
+def test_admin_players_view_excludes_tombstoned_accounts(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """
+    Admin players endpoint should omit tombstoned accounts from Active Users data.
+
+    The delete flow soft-deletes users by setting ``tombstoned_at``. This test
+    verifies the admin-facing active-users payload excludes those archived rows.
+    """
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        assert admin_login.status_code == 200
+        admin_session_id = admin_login.json()["session_id"]
+
+        # Delete/tombstone one account so it should disappear from active users.
+        assert database.delete_user("testbuilder") is True
+
+        response = test_client.get(f"/admin/database/players?session_id={admin_session_id}")
+        assert response.status_code == 200
+        payload = response.json()
+        usernames = {entry["username"] for entry in payload["players"]}
+        assert "testbuilder" not in usernames
+        assert "testplayer" in usernames
+        assert "testadmin" in usernames
+
+
+@pytest.mark.admin
+@pytest.mark.api
 def test_admin_players_online_world_updates_after_character_selection(
     test_client, test_db, temp_db_path, db_with_users
 ):

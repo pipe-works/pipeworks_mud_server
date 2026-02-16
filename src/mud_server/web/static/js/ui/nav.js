@@ -15,6 +15,9 @@ const NAV_GROUPS = [
     title: 'Operations',
     items: [
       { id: 'users', label: 'Users', path: '/admin/users' },
+      { id: 'accounts', label: 'Accounts', path: '/admin/accounts' },
+      { id: 'characters', label: 'Characters', path: '/admin/characters' },
+      { id: 'tombstones', label: 'Tombstones', path: '/admin/tombstones' },
       { id: 'sessions', label: 'Sessions', path: '/admin/sessions' },
       { id: 'connections', label: 'Connections', path: '/admin/connections' },
       { id: 'locations', label: 'Locations', path: '/admin/locations' },

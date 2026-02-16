@@ -198,6 +198,52 @@ html[data-theme='dark'] .table tbody tr.is-selected {
   overflow-x: hidden;
 }
 
+.dashboard-split {
+  grid-template-columns: minmax(0, 2fr) minmax(380px, 1fr);
+}
+
+.dashboard-left,
+.dashboard-right {
+  min-width: 0;
+}
+
+.dashboard-table-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 730px;
+}
+
+.dashboard-table-card .table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.dashboard-detail-card {
+  height: 730px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow: auto;
+}
+
+.dashboard-scroll-region {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 0.25rem 0.9rem;
+  overflow: auto;
+}
+
+.dashboard-toolbar {
+  justify-content: flex-start;
+  gap: 0.9rem;
+}
+
+.dashboard-select-inline {
+  min-width: 170px;
+}
+
 /*
  * Admin runs comfortably on wider desktop layouts. Remove the generic content
  * max-width cap so the users split can consume available horizontal space.
@@ -420,6 +466,10 @@ html[data-theme='dark'] .table tbody tr.is-selected {
     grid-template-columns: 1fr;
   }
 
+  .dashboard-split {
+    grid-template-columns: 1fr;
+  }
+
   .users-split .detail-panel {
     min-width: 0;
   }
@@ -427,5 +477,10 @@ html[data-theme='dark'] .table tbody tr.is-selected {
   .users-detail-card {
     height: auto;
     min-width: 0;
+  }
+
+  .dashboard-table-card,
+  .dashboard-detail-card {
+    height: auto;
   }
 }
