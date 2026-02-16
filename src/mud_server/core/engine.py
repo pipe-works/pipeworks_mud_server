@@ -681,6 +681,54 @@ class GameEngine:
         logger.info(f"Whisper successful: {username} -> {target}: {safe_message}")
         return True, f"You whisper to {target}: {safe_message}"
 
+    def kick_character(
+        self, actor_name: str, target: str, *, world_id: str | None = None
+    ) -> tuple[bool, str]:
+        """
+        Disconnect all active sessions for a target character.
+
+        This is a moderation primitive used by admin/superuser command flows.
+        Permission checks are intentionally handled at the API route layer so
+        this method focuses on deterministic target resolution + session revoke.
+
+        Resolution behavior:
+        1. Resolve ``target`` as a character name in the current world.
+        2. If no character matches, try resolving ``target`` as a username
+           mapped to that user's first character in the world.
+        3. Remove all sessions for the resolved character id.
+
+        Args:
+            actor_name: Character issuing the kick command.
+            target: Character name or username to disconnect.
+            world_id: Active world context for resolution.
+
+        Returns:
+            Tuple of ``(success, message)`` suitable for command responses.
+        """
+        target_name = target.strip()
+        if not target_name:
+            return False, "Kick whom? Usage: /kick <character>"
+
+        resolved_actor = (
+            database.resolve_character_name(actor_name, world_id=world_id) or actor_name
+        )
+        resolved_target = database.resolve_character_name(target_name, world_id=world_id)
+        if not resolved_target:
+            return False, f"Player '{target_name}' was not found in this world."
+
+        if resolved_target == resolved_actor:
+            return False, "You cannot kick your own session."
+
+        character = database.get_character_by_name(resolved_target)
+        if not character:
+            return False, f"Player '{target_name}' was not found in this world."
+
+        removed_sessions = database.remove_sessions_for_character_count(int(character["id"]))
+        if removed_sessions <= 0:
+            return False, f"Player '{resolved_target}' is not online."
+
+        return True, f"Kicked {resolved_target} ({removed_sessions} session(s) disconnected)."
+
     def get_room_chat(self, username: str, limit: int = 20, *, world_id: str | None = None) -> str:
         """
         Get recent chat messages from the player's current room.

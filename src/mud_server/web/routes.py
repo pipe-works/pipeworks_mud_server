@@ -27,7 +27,7 @@ _TEMPLATES_DIR = _WEB_ROOT / "templates"
 _STATIC_DIR = _WEB_ROOT / "static"
 # Static asset version token for admin shell cache busting.
 # Bump this when frontend assets change and deployments should force refresh.
-ADMIN_ASSET_VERSION = "20260215a"
+ADMIN_ASSET_VERSION = "20260216a"
 
 
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))

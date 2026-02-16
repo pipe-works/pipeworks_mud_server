@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from mud_server.api.auth import validate_session, validate_session_for_game
 from mud_server.api.models import CommandRequest, CommandResponse, StatusResponse
+from mud_server.api.permissions import Permission, has_permission
 from mud_server.core.engine import GameEngine
 from mud_server.db import database
 
@@ -21,7 +22,7 @@ def router(engine: GameEngine) -> APIRouter:
         Commands can start with "/" or not. Command verb is case-insensitive
         but arguments (like player names) preserve case.
         """
-        _, _, _, _, character_name, world_id = validate_session_for_game(request.session_id)
+        _, _, role, _, character_name, world_id = validate_session_for_game(request.session_id)
 
         command = request.command.strip()
 
@@ -109,6 +110,17 @@ def router(engine: GameEngine) -> APIRouter:
                 message = "Active players:\n" + "\n".join(f"  - {p}" for p in players)
             return CommandResponse(success=True, message=message)
 
+        if cmd == "kick":
+            if not has_permission(role, Permission.KICK_USERS):
+                return CommandResponse(
+                    success=False,
+                    message="Insufficient permissions. /kick is admin/superuser only.",
+                )
+            if not args:
+                return CommandResponse(success=False, message="Kick whom? Usage: /kick <character>")
+            success, message = engine.kick_character(character_name, args, world_id=world_id)
+            return CommandResponse(success=success, message=message)
+
         if cmd in ["help", "?"]:
             help_text = """
 [Available Commands]
@@ -130,6 +142,7 @@ Communication:
 
 Other:
   /who - List active players
+  /kick <character> - Disconnect a character (admin/superuser only)
   /help, /? - Show this help message
 
 Note: Commands can be used with or without the / prefix
