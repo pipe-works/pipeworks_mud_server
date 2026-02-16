@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.7](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.6...mud_server-v0.3.7) (2026-02-16)
+
+
+### Features
+
+* **admin:** add character lifecycle controls ([e9f8125](https://github.com/pipe-works/pipeworks_mud_server/commit/e9f81254f78013a90807e6e50aaafc2dd515e809))
+* **admin:** add character lifecycle controls ([8ebc909](https://github.com/pipe-works/pipeworks_mud_server/commit/8ebc909549711dc1df314144d3901894865cef92))
+* **admin:** add world operations status and kick controls ([eb0cb2b](https://github.com/pipe-works/pipeworks_mud_server/commit/eb0cb2bae252b4ad32e29d933afc8eac56c7b579))
+* **admin:** world operations status + kick controls ([ace07fb](https://github.com/pipe-works/pipeworks_mud_server/commit/ace07fb184380a146d5ed9c2fc8fa63bbc335c2e))
+* **api:** include guest entity state in onboarding ([cc7780a](https://github.com/pipe-works/pipeworks_mud_server/commit/cc7780a38bcd97f24f541e22cd41ef0627f20bbd))
+* **api:** include guest entity state in onboarding ([0ec1002](https://github.com/pipe-works/pipeworks_mud_server/commit/0ec10028d0f7ed5aba14de68d9691a928cc57deb))
+* **core:** randomize snapshot seed and add occupation axes ([e904a6b](https://github.com/pipe-works/pipeworks_mud_server/commit/e904a6b2e8d5b4904960b74099539d599c7a8905))
+* **core:** randomize snapshot seed and add occupation axes ([23f1e39](https://github.com/pipe-works/pipeworks_mud_server/commit/23f1e395b6bbcb754af7136859d8cdd227adf224))
+* **db:** enforce account-first session selection model ([9c7f2d4](https://github.com/pipe-works/pipeworks_mud_server/commit/9c7f2d485836a92cc28428fd5715f0e190a635aa))
+* **db:** enforce account-first session selection model ([a3868f8](https://github.com/pipe-works/pipeworks_mud_server/commit/a3868f89d4e5545f43c754f97a9dac786502e3e1))
+* **db:** enforce session invariants with sqlite triggers ([dc0a521](https://github.com/pipe-works/pipeworks_mud_server/commit/dc0a521272040ad89916ad69c7786b150c6e78be))
+* **db:** enforce sqlite session invariants ([afee4ef](https://github.com/pipe-works/pipeworks_mud_server/commit/afee4ef1e25286d6f6c1bc0f008bfbdb91ec1267))
+
 ## [0.3.6](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.5...mud_server-v0.3.6) (2026-02-15)
 
 
