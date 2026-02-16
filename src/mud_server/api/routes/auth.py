@@ -29,7 +29,7 @@ from mud_server.api.models import (
 from mud_server.api.routes.utils import get_available_worlds
 from mud_server.config import config
 from mud_server.core.engine import GameEngine
-from mud_server.db import facade as database
+from mud_server.db import database
 from mud_server.services.character_provisioning import provision_generated_character_for_user
 
 logger = logging.getLogger(__name__)

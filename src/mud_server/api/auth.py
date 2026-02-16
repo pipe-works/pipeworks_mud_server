@@ -29,7 +29,7 @@ from datetime import UTC, datetime
 from fastapi import HTTPException
 
 from mud_server.api.permissions import Permission, has_permission
-from mud_server.db import facade as database
+from mud_server.db import database
 
 # ============================================================================
 # SESSION LIFECYCLE MANAGEMENT

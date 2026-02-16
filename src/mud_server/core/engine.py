@@ -33,7 +33,7 @@ from mud_server.core.bus import MudBus
 from mud_server.core.events import Events
 from mud_server.core.world import World
 from mud_server.core.world_registry import WorldRegistry
-from mud_server.db import facade as database
+from mud_server.db import database
 
 
 def _get_bus() -> MudBus:

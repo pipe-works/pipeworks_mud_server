@@ -144,7 +144,7 @@ def cmd_init_db(args: argparse.Namespace) -> int:
     from shutil import copy2
 
     from mud_server.config import config
-    from mud_server.db.facade import init_database
+    from mud_server.db.database import init_database
 
     try:
         db_path = config.database.absolute_path
@@ -202,7 +202,7 @@ def cmd_create_superuser(args: argparse.Namespace) -> int:
     Returns:
         0 on success, 1 on error
     """
-    from mud_server.db.facade import create_user_with_password, init_database, user_exists
+    from mud_server.db.database import create_user_with_password, init_database, user_exists
 
     # Ensure database exists (skip superuser creation - we'll do it ourselves)
     init_database(skip_superuser=True)
@@ -364,7 +364,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     """
     from mud_server.api.server import find_available_port as find_api_port
     from mud_server.config import config
-    from mud_server.db.facade import init_database
+    from mud_server.db.database import init_database
 
     # ========================================================================
     # DATABASE INITIALIZATION

@@ -18,7 +18,7 @@ from typing import Any
 import requests
 
 from mud_server.config import config
-from mud_server.db import facade as database
+from mud_server.db import database
 
 logger = logging.getLogger(__name__)
 

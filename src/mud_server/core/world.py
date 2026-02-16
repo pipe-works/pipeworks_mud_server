@@ -31,7 +31,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from mud_server.db import facade as database
+from mud_server.db import database
 
 logger = logging.getLogger(__name__)
 

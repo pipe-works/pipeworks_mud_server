@@ -15,7 +15,7 @@ from typing import Any
 
 from mud_server.config import config
 from mud_server.core.world import World
-from mud_server.db import facade as database
+from mud_server.db import database
 
 
 class WorldRegistry:
