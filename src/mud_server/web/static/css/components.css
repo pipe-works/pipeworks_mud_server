@@ -207,6 +207,22 @@
   gap: 0.35rem;
 }
 
+.status-world-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.status-world-chip {
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  border: 1px dashed var(--color-border);
+  background: var(--color-bg-alt);
+  color: var(--color-muted);
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;

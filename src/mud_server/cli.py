@@ -250,6 +250,7 @@ def cmd_create_superuser(args: argparse.Namespace) -> int:
         )
         if success:
             print(f"\nSuperuser '{username}' created successfully.")
+            print("No character was created automatically; provision characters separately.")
             return 0
         else:
             print(f"Error: Failed to create user '{username}'.", file=sys.stderr)

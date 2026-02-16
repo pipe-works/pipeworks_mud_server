@@ -1,6 +1,7 @@
 """Authentication and account management endpoints."""
 
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -29,6 +30,28 @@ from mud_server.core.engine import GameEngine
 from mud_server.db import database
 
 logger = logging.getLogger(__name__)
+
+
+def _is_legacy_default_character_name(username: str, character_name: str) -> bool:
+    """
+    Return True when ``character_name`` matches the legacy auto-seeded pattern.
+
+    Historical account creation created a bootstrap character named
+    ``<username>_char`` (with optional numeric suffix when collisions occurred).
+    During the account-first migration we keep these rows for compatibility, but
+    some clients (for example the play shell selector) should prefer explicit
+    user-created characters when both exist.
+
+    Args:
+        username: Owning account username.
+        character_name: Candidate character name.
+
+    Returns:
+        True when the name matches ``<username>_char(_N)?`` exactly.
+    """
+    escaped_username = re.escape(username)
+    pattern = rf"^{escaped_username}_char(?:_\d+)?$"
+    return re.match(pattern, character_name) is not None
 
 
 def _fetch_entity_state_for_character(seed: int) -> tuple[dict[str, Any] | None, str | None]:
@@ -256,7 +279,9 @@ def router(engine: GameEngine) -> APIRouter:
             return RegisterResponse(
                 success=True,
                 message=(
-                    "Temporary account created successfully! " f"You can now login as {username}."
+                    "Temporary account created successfully! "
+                    f"You can now login as {username}. "
+                    "Character creation is a separate step."
                 ),
             )
         else:
@@ -377,14 +402,37 @@ def router(engine: GameEngine) -> APIRouter:
         return {"success": True, "message": f"Goodbye, {username}!"}
 
     @api.get("/characters", response_model=CharactersResponse)
-    async def list_characters(session_id: str, world_id: str | None = None):
-        """List available characters for the logged-in user."""
-        user_id, _, role = validate_session(session_id)
+    async def list_characters(
+        session_id: str,
+        world_id: str | None = None,
+        exclude_legacy_defaults: bool = False,
+    ):
+        """
+        List available characters for the logged-in user.
+
+        Args:
+            session_id: Account session identifier.
+            world_id: Optional world id filter.
+            exclude_legacy_defaults: When true, hide legacy auto-seeded
+                ``<username>_char`` entries if at least one non-legacy
+                character exists in the result set.
+        """
+        user_id, username, role = validate_session(session_id)
         if world_id:
             available_worlds = get_available_worlds(user_id, role)
             if world_id not in {world["id"] for world in available_worlds}:
                 raise HTTPException(status_code=403, detail="World access denied")
         characters = database.get_user_characters(user_id, world_id=world_id)
+
+        if exclude_legacy_defaults and characters:
+            non_legacy_characters = [
+                row
+                for row in characters
+                if not _is_legacy_default_character_name(username, str(row.get("name", "")))
+            ]
+            if non_legacy_characters:
+                characters = non_legacy_characters
+
         return CharactersResponse(characters=characters)
 
     @api.post("/characters/select", response_model=SelectCharacterResponse)

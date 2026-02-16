@@ -506,6 +506,7 @@ class DatabasePlayersResponse(BaseModel):
             - character_count: Number of linked characters
             - is_online_account: True if any active session exists
             - is_online_in_world: True if any active session has a character
+            - online_world_ids: Active world ids for character-bound sessions
             - created_at: Account creation timestamp
             - last_login: Last login timestamp
             - is_active: Account status (True=active, False=banned)

@@ -334,13 +334,6 @@ def init_database(*, skip_superuser: bool = False) -> None:
                 """,
                     (admin_user, password_hash, "superuser", "system"),
                 )
-                user_id = cursor.lastrowid
-                if user_id is None:
-                    raise ValueError("Failed to create superuser.")
-                character_id = _create_default_character(
-                    cursor, int(user_id), admin_user, world_id=DEFAULT_WORLD_ID
-                )
-                _seed_character_location(cursor, character_id, world_id=DEFAULT_WORLD_ID)
                 conn.commit()
 
                 print("\n" + "=" * 60)
@@ -1286,11 +1279,11 @@ def create_user_with_password(
     email_hash: str | None = None,
     is_guest: bool = False,
     guest_expires_at: str | None = None,
-    create_default_character: bool = True,
+    create_default_character: bool = False,
     world_id: str = DEFAULT_WORLD_ID,
 ) -> bool:
     """
-    Create a new user account and (optionally) a default character.
+    Create a new user account only (character provisioning is explicit).
 
     Args:
         username: Unique account username.
@@ -1300,13 +1293,25 @@ def create_user_with_password(
         email_hash: Hashed email value (nullable during development).
         is_guest: Whether this is a guest account.
         guest_expires_at: Expiration timestamp for guest accounts.
-        create_default_character: If True, create a character with the same name.
-        world_id: World to bind the default character to.
+        create_default_character: Deprecated compatibility flag. Automatic
+            character creation has been removed and this must remain False.
+        world_id: Deprecated compatibility argument retained for legacy call
+            signatures; ignored because account creation no longer provisions
+            characters.
 
     Returns:
         True if created successfully, False if username already exists.
     """
     from mud_server.api.password import hash_password
+
+    # Breaking change (Option A):
+    # account creation and character creation are now always separate flows.
+    if create_default_character:
+        raise ValueError(
+            "Automatic character creation is removed. "
+            "Call create_character_for_user() explicitly."
+        )
+    _ = world_id
 
     try:
         conn = get_connection()
@@ -1338,11 +1343,6 @@ def create_user_with_password(
         user_id = cursor.lastrowid
         if user_id is None:
             raise ValueError("Failed to create user.")
-        user_id = int(user_id)
-
-        if create_default_character:
-            character_id = _create_default_character(cursor, user_id, username, world_id=world_id)
-            _seed_character_location(cursor, character_id, world_id=world_id)
 
         conn.commit()
         conn.close()
@@ -3267,7 +3267,16 @@ def get_table_rows(table_name: str, limit: int = 100) -> tuple[list[str], list[l
 
 
 def get_all_users_detailed() -> list[dict[str, Any]]:
-    """Return detailed user list for admin database viewer."""
+    """
+    Return detailed user list for admin database viewer.
+
+    Online semantics:
+    - ``is_online_account`` is true when any active session exists.
+    - ``is_online_in_world`` is true when any active session is bound to a
+      character.
+    - ``online_world_ids`` lists worlds where the user currently has active
+      in-world presence (character-bound sessions only).
+    """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -3295,7 +3304,21 @@ def get_all_users_detailed() -> list[dict[str, Any]]:
                    WHERE s.user_id = u.id
                      AND s.character_id IS NOT NULL
                      AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
-               ) AS is_online_in_world
+               ) AS is_online_in_world,
+               (
+                   SELECT GROUP_CONCAT(world_id)
+                   FROM (
+                       SELECT DISTINCT s.world_id AS world_id
+                       FROM sessions s
+                       WHERE s.user_id = u.id
+                         AND s.character_id IS NOT NULL
+                         AND s.world_id IS NOT NULL
+                         AND (
+                           s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now')
+                         )
+                       ORDER BY s.world_id
+                   )
+               ) AS online_world_ids_csv
         FROM users u
         LEFT JOIN characters c ON c.user_id = u.id
         GROUP BY u.id
@@ -3306,6 +3329,12 @@ def get_all_users_detailed() -> list[dict[str, Any]]:
 
     users = []
     for row in rows:
+        online_world_ids_csv = row[14]
+        online_world_ids = (
+            [world_id for world_id in str(online_world_ids_csv).split(",") if world_id]
+            if online_world_ids_csv
+            else []
+        )
         users.append(
             {
                 "id": row[0],
@@ -3322,6 +3351,7 @@ def get_all_users_detailed() -> list[dict[str, Any]]:
                 "character_count": row[11],
                 "is_online_account": bool(row[12]),
                 "is_online_in_world": bool(row[13]),
+                "online_world_ids": online_world_ids,
             }
         )
     return users
@@ -3626,7 +3656,13 @@ def create_player_with_password(
     role: str = "player",
     account_origin: str = "legacy",
 ) -> bool:
-    """Backward-compatible alias for create_user_with_password()."""
+    """
+    Backward-compatible alias for create_user_with_password().
+
+    Important:
+        This helper creates account rows only. Character provisioning must be
+        performed separately via create_character_for_user().
+    """
     return create_user_with_password(
         username,
         password,

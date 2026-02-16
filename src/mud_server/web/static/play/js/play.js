@@ -1,25 +1,43 @@
 /*
  * play.js
  *
- * Base bootstrap for the play shell. This script manages the three UI states:
- * 1) Logged out (permit issuance)
- * 2) World selection
- * 3) In-world UI
+ * Base bootstrap for the play shell.
+ *
+ * The shell intentionally separates:
+ * 1) Account login session
+ * 2) Character selection for a specific world
+ * 3) In-world gameplay state
  *
  * World-specific scripts can extend this behavior when /play/<world_id> is used.
  */
 
 const STORAGE_KEY = 'pipeworks_play_session';
+const FLASH_KEY = 'pipeworks_play_flash';
 
+/**
+ * Read world id from the server-rendered body dataset.
+ *
+ * @returns {string}
+ */
 function getWorldId() {
   const root = document.body;
   return root?.dataset?.worldId || '';
 }
 
+/**
+ * Return the fallback world id when the shell route is world-agnostic.
+ *
+ * @returns {string}
+ */
 function getDefaultWorldId() {
   return getWorldId() || 'pipeworks_web';
 }
 
+/**
+ * Collect top-level UI containers for state toggling.
+ *
+ * @returns {{loggedOut: HTMLElement|null, selectWorld: HTMLElement|null, inWorld: HTMLElement|null}}
+ */
 function getStateElements() {
   return {
     loggedOut: document.querySelector('[data-play-state="logged-out"]'),
@@ -28,6 +46,12 @@ function getStateElements() {
   };
 }
 
+/**
+ * Toggle the shell state panels.
+ *
+ * @param {'logged-out'|'select-world'|'in-world'} state
+ * @returns {void}
+ */
 function setState(state) {
   const { loggedOut, selectWorld, inWorld } = getStateElements();
   if (loggedOut) loggedOut.hidden = state !== 'logged-out';
@@ -35,6 +59,11 @@ function setState(state) {
   if (inWorld) inWorld.hidden = state !== 'in-world';
 }
 
+/**
+ * Read account/character session payload from sessionStorage.
+ *
+ * @returns {Record<string, unknown>|null}
+ */
 function readSession() {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
@@ -44,14 +73,79 @@ function readSession() {
   }
 }
 
+/**
+ * Persist session payload for play shell flows.
+ *
+ * @param {Record<string, unknown>} payload
+ * @returns {void}
+ */
 function writeSession(payload) {
   sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 }
 
+/**
+ * Merge session patch data into the existing payload.
+ *
+ * @param {Record<string, unknown>} patch
+ * @returns {void}
+ */
+function updateSession(patch) {
+  const current = readSession() || {};
+  writeSession({ ...current, ...patch });
+}
+
+/**
+ * Remove current session payload.
+ *
+ * @returns {void}
+ */
 function clearSession() {
   sessionStorage.removeItem(STORAGE_KEY);
 }
 
+/**
+ * Persist a one-time flash message to show after navigation.
+ *
+ * @param {string} message
+ * @returns {void}
+ */
+function writeFlashMessage(message) {
+  sessionStorage.setItem(FLASH_KEY, message);
+}
+
+/**
+ * Read and remove a one-time flash message.
+ *
+ * @returns {string}
+ */
+function consumeFlashMessage() {
+  const message = sessionStorage.getItem(FLASH_KEY) || '';
+  if (message) {
+    sessionStorage.removeItem(FLASH_KEY);
+  }
+  return message;
+}
+
+/**
+ * Normalize thrown values into a human-readable string.
+ *
+ * @param {unknown} err
+ * @returns {string}
+ */
+function getErrorMessage(err) {
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  return 'Unexpected error.';
+}
+
+/**
+ * Execute an API call and throw meaningful errors when the request fails.
+ *
+ * @param {string} endpoint
+ * @param {RequestInit} options
+ * @returns {Promise<any>}
+ */
 async function apiCall(endpoint, options) {
   const response = await fetch(endpoint, options);
   const contentType = response.headers.get('content-type') || '';
@@ -62,32 +156,19 @@ async function apiCall(endpoint, options) {
   const data = await response.json();
   if (!response.ok) {
     const message = data?.detail || data?.error || data?.message || 'Request failed.';
-    throw new Error(message);
+    const apiError = new Error(message);
+    apiError.status = response.status;
+    throw apiError;
   }
   return data;
 }
 
-function randomPassword() {
-  const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = '';
-  for (let i = 0; i < 16; i += 1) {
-    result += alphabet[Math.floor(Math.random() * alphabet.length)];
-  }
-  return result;
-}
-
-async function registerGuest({ password, characterName }) {
-  return apiCall('/register-guest', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      password,
-      password_confirm: password,
-      character_name: characterName,
-    }),
-  });
-}
-
+/**
+ * Authenticate an account and create an account-scoped session.
+ *
+ * @param {{username: string, password: string}} params
+ * @returns {Promise<any>}
+ */
 async function login({ username, password }) {
   return apiCall('/login', {
     method: 'POST',
@@ -96,6 +177,12 @@ async function login({ username, password }) {
   });
 }
 
+/**
+ * End an existing session.
+ *
+ * @param {string} sessionId
+ * @returns {Promise<any>}
+ */
 async function logout(sessionId) {
   return apiCall('/logout', {
     method: 'POST',
@@ -104,6 +191,12 @@ async function logout(sessionId) {
   });
 }
 
+/**
+ * Fetch in-world status. This endpoint requires character selection.
+ *
+ * @param {string} sessionId
+ * @returns {Promise<any>}
+ */
 async function getStatus(sessionId) {
   return apiCall(`/status/${sessionId}`, {
     method: 'GET',
@@ -111,6 +204,52 @@ async function getStatus(sessionId) {
   });
 }
 
+/**
+ * Fetch characters available to the session for a specific world.
+ *
+ * @param {string} sessionId
+ * @param {string} worldId
+ * @returns {Promise<any>}
+ */
+async function listCharacters(sessionId, worldId) {
+  const params = new URLSearchParams({
+    session_id: sessionId,
+    world_id: worldId,
+    // Hide legacy bootstrap characters in the selector when real characters exist.
+    exclude_legacy_defaults: 'true',
+  });
+  return apiCall(`/characters?${params.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/**
+ * Bind a selected character to the active session for gameplay.
+ *
+ * @param {string} sessionId
+ * @param {number} characterId
+ * @param {string} worldId
+ * @returns {Promise<any>}
+ */
+async function selectCharacter(sessionId, characterId, worldId) {
+  return apiCall('/characters/select', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      character_id: characterId,
+      world_id: worldId,
+    }),
+  });
+}
+
+/**
+ * Update top-level status text.
+ *
+ * @param {string} message
+ * @returns {void}
+ */
 function updateStatus(message) {
   const status = document.getElementById('play-status');
   if (status) {
@@ -118,6 +257,12 @@ function updateStatus(message) {
   }
 }
 
+/**
+ * Update the in-world character name label.
+ *
+ * @param {string} name
+ * @returns {void}
+ */
 function updateCharacterName(name) {
   const label = document.getElementById('play-character-name-display');
   if (label) {
@@ -125,7 +270,14 @@ function updateCharacterName(name) {
   }
 }
 
-function populateWorldSelect(worlds) {
+/**
+ * Fill the world selector with available worlds.
+ *
+ * @param {Array<{id: string, name?: string}>} worlds
+ * @param {string} [selectedWorldId]
+ * @returns {void}
+ */
+function populateWorldSelect(worlds, selectedWorldId = '') {
   const select = document.getElementById('play-world-select');
   if (!select) {
     return;
@@ -136,10 +288,158 @@ function populateWorldSelect(worlds) {
     const option = document.createElement('option');
     option.value = world.id;
     option.textContent = world.name || world.id;
+    option.selected = Boolean(selectedWorldId && world.id === selectedWorldId);
     select.appendChild(option);
   });
 }
 
+/**
+ * Fill the character selector for the currently selected world.
+ *
+ * @param {Array<{id: number, name: string}>} characters
+ * @param {number|null} [selectedCharacterId]
+ * @returns {void}
+ */
+function populateCharacterSelect(characters, selectedCharacterId = null) {
+  const select = document.getElementById('play-character-select');
+  if (!select) {
+    return;
+  }
+
+  select.innerHTML = '';
+  if (!characters.length) {
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'No characters available in this world';
+    placeholder.selected = true;
+    select.appendChild(placeholder);
+    return;
+  }
+
+  const fallbackId = selectedCharacterId || characters[0].id;
+  characters.forEach((character) => {
+    const option = document.createElement('option');
+    option.value = String(character.id);
+    option.textContent = character.name;
+    option.selected = Number(character.id) === Number(fallbackId);
+    select.appendChild(option);
+  });
+}
+
+/**
+ * Update character helper text beneath the world/character selectors.
+ *
+ * @param {string} message
+ * @returns {void}
+ */
+function updateCharacterHint(message) {
+  const hint = document.getElementById('play-character-hint');
+  if (hint) {
+    hint.textContent = message;
+  }
+}
+
+/**
+ * Enable world entry only when a concrete character is selected.
+ *
+ * @returns {void}
+ */
+function updateEnterWorldButtonState() {
+  const enterWorldButton = document.getElementById('play-enter-world');
+  const characterSelect = document.getElementById('play-character-select');
+  if (!enterWorldButton) {
+    return;
+  }
+  const hasCharacter = Boolean(characterSelect?.value);
+  enterWorldButton.disabled = !hasCharacter;
+}
+
+/**
+ * Return canonical world options for portal rendering.
+ *
+ * @param {Array<{id: string, name?: string}>|undefined} worlds
+ * @returns {Array<{id: string, name?: string}>}
+ */
+function getWorldOptions(worlds) {
+  const options = Array.isArray(worlds) ? worlds.filter((entry) => entry?.id) : [];
+  if (options.length) {
+    return options;
+  }
+  const fallbackWorldId = getDefaultWorldId();
+  return [{ id: fallbackWorldId, name: fallbackWorldId }];
+}
+
+/**
+ * Read current world id from the selector.
+ *
+ * @returns {string}
+ */
+function getSelectedWorldId() {
+  const worldSelect = document.getElementById('play-world-select');
+  return worldSelect?.value || getDefaultWorldId();
+}
+
+/**
+ * Resolve currently selected character id as a number.
+ *
+ * @returns {number|null}
+ */
+function getSelectedCharacterId() {
+  const characterSelect = document.getElementById('play-character-select');
+  const rawValue = characterSelect?.value || '';
+  const parsed = Number.parseInt(rawValue, 10);
+  if (Number.isNaN(parsed)) {
+    return null;
+  }
+  return parsed;
+}
+
+/**
+ * Refresh character list for the selected world and persist the result.
+ *
+ * This call is the key bridge between account sessions and character-bound
+ * gameplay sessions. World entry is blocked until this list contains at least
+ * one character and `/characters/select` succeeds.
+ *
+ * @param {{sessionId: string, worldId: string, preferredCharacterId?: number|null}} params
+ * @returns {Promise<void>}
+ */
+async function refreshCharactersForWorld({ sessionId, worldId, preferredCharacterId = null }) {
+  updateCharacterHint(`Loading characters for ${worldId}...`);
+  const response = await listCharacters(sessionId, worldId);
+  const characters = Array.isArray(response?.characters) ? response.characters : [];
+
+  populateCharacterSelect(characters, preferredCharacterId);
+  if (!characters.length) {
+    updateSession({
+      selected_world_id: worldId,
+      selected_character_id: null,
+      selected_character_name: null,
+    });
+    updateCharacterHint(
+      `No characters are available in ${worldId}. Create one before entering this world.`
+    );
+    updateEnterWorldButtonState();
+    return;
+  }
+
+  const selectedCharacterId = getSelectedCharacterId();
+  const selectedCharacter = characters.find((entry) => Number(entry.id) === selectedCharacterId);
+  updateSession({
+    selected_world_id: worldId,
+    selected_character_id: selectedCharacterId,
+    selected_character_name: selectedCharacter?.name || null,
+  });
+  updateCharacterHint(`${characters.length} character(s) available in ${worldId}.`);
+  updateEnterWorldButtonState();
+}
+
+/**
+ * Update location message in the in-world panel.
+ *
+ * @param {string} message
+ * @returns {void}
+ */
 function updateLocation(message) {
   const element = document.getElementById('play-location');
   if (element) {
@@ -147,6 +447,11 @@ function updateLocation(message) {
   }
 }
 
+/**
+ * Authenticate account credentials and transition to world/character selection.
+ *
+ * @returns {Promise<void>}
+ */
 async function handleLogin() {
   const accountInput = document.getElementById('play-account-name');
   const passwordInput = document.getElementById('play-password');
@@ -168,12 +473,17 @@ async function handleLogin() {
     throw new Error('Login succeeded but session id missing.');
   }
 
+  const worldOptions = getWorldOptions(loginResponse.available_worlds);
+  const preferredWorldId = worldOptions[0].id;
   writeSession({
     session_id: loginResponse.session_id,
     username: accountUsername,
     account_username: accountUsername,
     role: loginResponse.role || null,
-    available_worlds: loginResponse.available_worlds || [],
+    available_worlds: worldOptions,
+    selected_world_id: preferredWorldId,
+    selected_character_id: null,
+    selected_character_name: null,
   });
 
   const logoutButton = document.getElementById('play-logout-button');
@@ -183,13 +493,21 @@ async function handleLogin() {
 
   updateStatus(`Logged in as ${accountUsername}.`);
   updateCharacterName(accountUsername);
-  updateLocation('Select a world to continue.');
+  updateLocation('Select a world and character to continue.');
 
-  const worlds = loginResponse.available_worlds || [];
-  populateWorldSelect(worlds.length ? worlds : [{ id: getDefaultWorldId() }]);
+  populateWorldSelect(worldOptions, preferredWorldId);
+  await refreshCharactersForWorld({
+    sessionId: loginResponse.session_id,
+    worldId: preferredWorldId,
+  });
   setState('select-world');
 }
 
+/**
+ * End the current session and reset shell state to logged out.
+ *
+ * @returns {Promise<void>}
+ */
 async function handleLogout() {
   const session = readSession();
   if (!session?.session_id) {
@@ -204,6 +522,7 @@ async function handleLogout() {
   setState('logged-out');
   updateStatus('Ready to issue a visitor account.');
   updateLocation('Logged out.');
+  updateCharacterHint('Select a world to load available characters.');
   updateCharacterName('Character Name');
   const logoutButton = document.getElementById('play-logout-button');
   if (logoutButton) {
@@ -211,11 +530,17 @@ async function handleLogout() {
   }
 }
 
+/**
+ * Wire UI events for login/logout/world entry interactions.
+ *
+ * @returns {void}
+ */
 function bindEvents() {
   const loginButton = document.getElementById('play-login-button');
   const logoutButton = document.getElementById('play-logout-button');
   const enterWorldButton = document.getElementById('play-enter-world');
   const worldSelect = document.getElementById('play-world-select');
+  const characterSelect = document.getElementById('play-character-select');
 
   if (loginButton) {
     loginButton.addEventListener('click', async () => {
@@ -223,7 +548,7 @@ function bindEvents() {
       try {
         await handleLogin();
       } catch (err) {
-        updateStatus(`Goblin says: ${err.message}`);
+        updateStatus(`Goblin says: ${getErrorMessage(err)}`);
       } finally {
         loginButton.disabled = false;
       }
@@ -236,61 +561,204 @@ function bindEvents() {
       try {
         await handleLogout();
       } catch (err) {
-        updateStatus(`Goblin says: ${err.message}`);
+        updateStatus(`Goblin says: ${getErrorMessage(err)}`);
       } finally {
         logoutButton.disabled = false;
       }
     });
   }
 
+  if (worldSelect) {
+    worldSelect.addEventListener('change', async () => {
+      const session = readSession();
+      if (!session?.session_id) {
+        return;
+      }
+
+      const selectedWorld = getSelectedWorldId();
+      updateSession({
+        selected_world_id: selectedWorld,
+        selected_character_id: null,
+        selected_character_name: null,
+      });
+
+      try {
+        await refreshCharactersForWorld({
+          sessionId: session.session_id,
+          worldId: selectedWorld,
+        });
+      } catch (err) {
+        updateCharacterHint(getErrorMessage(err));
+        updateEnterWorldButtonState();
+      }
+    });
+  }
+
+  if (characterSelect) {
+    characterSelect.addEventListener('change', () => {
+      const selectedCharacterId = getSelectedCharacterId();
+      const selectedCharacterName = characterSelect.selectedOptions?.[0]?.textContent || null;
+      updateSession({
+        selected_character_id: selectedCharacterId,
+        selected_character_name: selectedCharacterName,
+      });
+      updateEnterWorldButtonState();
+    });
+  }
+
   if (enterWorldButton) {
-    enterWorldButton.addEventListener('click', () => {
-      const selectedWorld = worldSelect?.value || getDefaultWorldId();
-      window.location.assign(`/play/${selectedWorld}`);
+    enterWorldButton.addEventListener('click', async () => {
+      const session = readSession();
+      if (!session?.session_id) {
+        updateStatus('Session unavailable. Please log in again.');
+        setState('logged-out');
+        return;
+      }
+
+      const selectedWorld = getSelectedWorldId();
+      const selectedCharacterId = getSelectedCharacterId();
+      if (!selectedCharacterId) {
+        updateCharacterHint('Select a character before entering the world.');
+        updateEnterWorldButtonState();
+        return;
+      }
+
+      enterWorldButton.disabled = true;
+      try {
+        const selection = await selectCharacter(
+          session.session_id,
+          selectedCharacterId,
+          selectedWorld
+        );
+        const selectedCharacterName = selection?.character_name || 'Character';
+        updateSession({
+          selected_world_id: selectedWorld,
+          selected_character_id: selectedCharacterId,
+          selected_character_name: selectedCharacterName,
+        });
+
+        updateStatus(`Entering ${selectedWorld} as ${selectedCharacterName}...`);
+        updateCharacterName(selectedCharacterName);
+        window.location.assign(`/play/${selectedWorld}`);
+      } catch (err) {
+        updateStatus(`Goblin says: ${getErrorMessage(err)}`);
+      } finally {
+        enterWorldButton.disabled = false;
+      }
     });
   }
 }
 
-async function hydrateSession() {
+/**
+ * Restore account session for `/play` and repopulate world/character selectors.
+ *
+ * @returns {Promise<void>}
+ */
+async function hydratePortalSession() {
   const session = readSession();
   if (!session?.session_id) {
+    const flashMessage = consumeFlashMessage();
     setState('logged-out');
+    if (flashMessage) {
+      updateStatus(flashMessage);
+    }
     return;
   }
 
-  updateStatus('Checking existing session...');
+  const logoutButton = document.getElementById('play-logout-button');
+  if (logoutButton) {
+    logoutButton.hidden = false;
+  }
+
+  updateStatus('Checking existing account session...');
+  updateCharacterName(session.selected_character_name || session.username || 'Character Name');
+  updateLocation('Select a world and character to continue.');
+
+  const worldOptions = getWorldOptions(session.available_worlds);
+  const storedWorldId = typeof session.selected_world_id === 'string' ? session.selected_world_id : '';
+  const preferredWorldId = worldOptions.some((entry) => entry.id === storedWorldId)
+    ? storedWorldId
+    : worldOptions[0].id;
+  updateSession({ selected_world_id: preferredWorldId });
+  populateWorldSelect(worldOptions, preferredWorldId);
+  setState('select-world');
+
+  const flashMessage = consumeFlashMessage();
+  if (flashMessage) {
+    updateStatus(flashMessage);
+  }
+
   try {
-    const status = await getStatus(session.session_id);
-    if (!status?.session_id) {
-      throw new Error('Session invalid');
-    }
-    updateCharacterName(session.username || 'Unknown');
-    updateLocation('Session active.');
-    const worlds = session.available_worlds || [];
-    populateWorldSelect(worlds.length ? worlds : [{ id: getDefaultWorldId() }]);
-    setState('select-world');
+    await refreshCharactersForWorld({
+      sessionId: session.session_id,
+      worldId: preferredWorldId,
+      preferredCharacterId: session.selected_character_id || null,
+    });
+    updateStatus('Session active. Choose a world and character to continue.');
   } catch (err) {
     clearSession();
     setState('logged-out');
-    updateStatus('Session expired. Awaiting credentials.');
+    updateStatus(`Session expired. ${getErrorMessage(err)}`);
   }
 }
 
-function initPlayShell() {
-  const worldId = getWorldId();
-  bindEvents();
+/**
+ * Ensure world routes only render when a character-bound session is valid.
+ *
+ * @param {string} worldId
+ * @returns {Promise<void>}
+ */
+async function hydrateWorldSession(worldId) {
+  const session = readSession();
+  if (!session?.session_id) {
+    writeFlashMessage('Log in and select a character before entering a world.');
+    window.location.assign('/play');
+    return;
+  }
 
-  if (worldId) {
+  const selectedWorldId = session.selected_world_id || '';
+  if (selectedWorldId && selectedWorldId !== worldId) {
+    window.location.assign(`/play/${selectedWorldId}`);
+    return;
+  }
+
+  updateStatus('Validating in-world session...');
+  try {
+    await getStatus(session.session_id);
     setState('in-world');
+    updateCharacterName(session.selected_character_name || session.username || 'Character Name');
     updateLocation(`Entering ${worldId}...`);
     const logoutButton = document.getElementById('play-logout-button');
     if (logoutButton) {
       logoutButton.hidden = false;
     }
+  } catch (err) {
+    writeFlashMessage(
+      `Unable to enter ${worldId}: ${getErrorMessage(err)} Select a character and try again.`
+    );
+    window.location.assign('/play');
+  }
+}
+
+/**
+ * Bootstrap the play shell based on current route context.
+ *
+ * @returns {Promise<void>}
+ */
+async function initPlayShell() {
+  const worldId = getWorldId();
+  bindEvents();
+
+  if (worldId) {
+    await hydrateWorldSession(worldId);
     return;
   }
 
-  hydrateSession();
+  await hydratePortalSession();
 }
 
-initPlayShell();
+initPlayShell().catch((err) => {
+  clearSession();
+  setState('logged-out');
+  updateStatus(`Goblin says: ${getErrorMessage(err)}`);
+});

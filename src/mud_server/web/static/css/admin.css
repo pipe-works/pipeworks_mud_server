@@ -103,11 +103,28 @@ html[data-theme='dark'] .table tbody tr:nth-child(even) {
 }
 
 .table tbody tr.is-selected {
-  background: rgba(37, 99, 235, 0.12);
+  background: rgba(37, 99, 235, 0.16);
+  box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
 .table tbody tr:hover {
   background: rgba(37, 99, 235, 0.08);
+}
+
+.table tbody tr.is-in-world {
+  background: rgba(22, 163, 74, 0.09);
+}
+
+.table tbody tr.is-selected:hover {
+  background: rgba(37, 99, 235, 0.2);
+}
+
+html[data-theme='dark'] .table tbody tr.is-in-world {
+  background: rgba(74, 222, 128, 0.14);
+}
+
+html[data-theme='dark'] .table tbody tr.is-selected {
+  background: rgba(106, 160, 255, 0.26);
 }
 
 .table-wrap {
@@ -147,6 +164,11 @@ html[data-theme='dark'] .table tbody tr:nth-child(even) {
 .users-table-card .table th:nth-child(5),
 .users-table-card .table td:nth-child(5) {
   min-width: 180px;
+}
+
+.users-tombstoned-card .table-wrap {
+  max-height: 260px;
+  overflow: auto;
 }
 
 .users-split {
