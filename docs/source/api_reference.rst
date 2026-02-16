@@ -39,6 +39,7 @@ Authentication
 * ``POST /logout`` - Log out and destroy session
 * ``POST /change-password`` - Change password (password must meet STANDARD policy)
 * ``GET /characters`` - List characters for session
+* ``POST /characters/create`` - Self-provision generated character for selected world
 * ``POST /characters/select`` - Select active character for session
 
 Register Guest Examples
@@ -111,6 +112,59 @@ Notes:
   succeeds and ``entity_state`` is ``null`` with ``entity_state_error``
   populated.
 
+Character Provisioning (Account Session)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``POST /characters/create`` provisions one generated-name character for the
+authenticated account in the requested world.
+
+**Request**
+
+.. code-block:: json
+
+    {
+      "session_id": "uuid-session-id",
+      "world_id": "pipeworks_web"
+    }
+
+**Response** (200)
+
+.. code-block:: json
+
+    {
+      "success": true,
+      "message": "Character 'Fimenscu Tarharsh' created for 'aggro'.",
+      "character_id": 314,
+      "character_name": "Fimenscu Tarharsh",
+      "world_id": "pipeworks_web",
+      "seed": 187392,
+      "entity_state": null,
+      "entity_state_error": null
+    }
+
+Policy behavior:
+
+* Requires a valid **account session** (no implicit world entry).
+* Honors global and world policy from ``config/server.ini``:
+  * ``[character_creation] player_self_create_enabled``
+  * ``[world_policy.<world_id>] creation_mode``
+  * ``[world_policy.<world_id>] slot_limit_per_account``
+* Returns ``403`` for invite-locked worlds without access grants.
+* Returns ``409`` when world slot capacity is exhausted.
+* Returns ``502`` when name generation integration is unavailable.
+
+World List Metadata
+~~~~~~~~~~~~~~~~~~~
+
+``/login`` returns ``available_worlds`` rows decorated for account dashboards:
+
+* ``can_access`` - whether the account can enter/select the world now
+* ``can_create`` - whether character creation is currently allowed
+* ``access_mode`` - ``open`` or ``invite``
+* ``naming_mode`` - ``generated`` or ``manual``
+* ``slot_limit_per_account`` / ``current_character_count`` - world slot usage
+* ``is_locked`` - convenience flag for invite-only preview rows
+
 Game Actions
 ~~~~~~~~~~~~
 
@@ -134,6 +188,7 @@ Admin
 * ``GET /admin/characters/{character_id}/axis-state`` - Axis scores + snapshots (Admin+)
 * ``GET /admin/characters/{character_id}/axis-events`` - Axis event history (Admin+)
 * ``POST /admin/user/create`` - Create user account (Admin/Superuser)
+* ``POST /admin/user/create-character`` - Provision generated character for account (Admin+)
 * ``POST /admin/user/manage`` - Manage user (change role, ban, delete, password)
 * ``POST /admin/session/kick`` - Kick session (Admin+)
 * ``POST /admin/server/stop`` - Stop server (Admin+)
@@ -192,8 +247,8 @@ Session Creation
 ~~~~~~~~~~~~~~~~
 
 1. **Register**: ``POST /register`` with username and password (must meet policy)
-2. **Create Character**: Provision via admin/API flow (or use ``/register-guest``)
-3. **Login**: ``POST /login`` with credentials and receive account session
+2. **Login**: ``POST /login`` with credentials and receive account session
+3. **Create Character**: ``POST /characters/create`` (or admin/API flow, or ``/register-guest``)
 4. **Select**: ``POST /characters/select`` with chosen character ID
 5. **Use**: Include session_id in all subsequent requests
 

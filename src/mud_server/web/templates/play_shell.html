@@ -75,24 +75,51 @@
       <!-- WORLD SELECT STATE (USER PORTAL) -->
       <!-- ============================= -->
       <section class="play-state play-state--select" data-play-state="select-world" hidden>
-        <div class="panel-title">Select a World</div>
-        <p class="character-article">
-          Choose a world to enter. This selection controls both the world data and
-          the UI skin that loads for your session.
-        </p>
-        <div class="stat-group">
-          <label class="stat-label" for="play-world-select">Available worlds</label>
-          <select id="play-world-select"></select>
-        </div>
-        <div class="stat-group">
-          <label class="stat-label" for="play-character-select">Available characters</label>
-          <select id="play-character-select" aria-describedby="play-character-hint"></select>
-        </div>
-        <p class="character-article" id="play-character-hint">
-          Select a world to load available characters.
-        </p>
-        <div class="stat-group">
-          <button class="play-button" type="button" id="play-enter-world">Enter world</button>
+        <div class="play-dashboard-grid">
+          <aside class="play-dashboard-column play-dashboard-column--left">
+            <div class="panel-title">World Navigation</div>
+            <p class="character-article">
+              Choose the world channel your account should operate in.
+            </p>
+            <div class="stat-group">
+              <label class="stat-label" for="play-world-select">Available worlds</label>
+              <select id="play-world-select"></select>
+            </div>
+            <p class="character-article" id="play-world-policy-hint">
+              Worlds marked invite require explicit account access.
+            </p>
+          </aside>
+
+          <div class="play-dashboard-column play-dashboard-column--center">
+            <div class="panel-title">Account Feedback</div>
+            <p class="character-article">
+              Select a world to inspect its characters. World entry is only enabled
+              once a character is selected.
+            </p>
+            <div class="stat-group">
+              <label class="stat-label" for="play-character-select">Available characters</label>
+              <select id="play-character-select" aria-describedby="play-character-hint"></select>
+            </div>
+            <p class="character-article" id="play-character-hint">
+              Select a world to load available characters.
+            </p>
+            <div class="stat-group">
+              <button class="play-button" type="button" id="play-enter-world">Enter world</button>
+              <button class="play-button" type="button" id="play-create-character">
+                Generate character
+              </button>
+            </div>
+          </div>
+
+          <aside class="play-dashboard-column play-dashboard-column--right">
+            <div class="panel-title">Account Details</div>
+            <p class="character-article" id="play-account-summary-hint">
+              Character creation and world entry are separate actions.
+            </p>
+            <p class="character-article">
+              Temporary policy note: manual naming remains admin-managed.
+            </p>
+          </aside>
         </div>
       </section>
 

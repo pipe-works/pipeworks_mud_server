@@ -38,7 +38,7 @@ def test_list_worlds_filters_active(test_db):
 @pytest.mark.unit
 @pytest.mark.db
 def test_list_worlds_for_user_permissions(db_with_users):
-    """Non-admin users only see worlds granted in world_permissions."""
+    """Non-admin users see worlds they can access via grant/open/owned-character rules."""
     testplayer_id = database.get_user_id("testplayer")
     assert testplayer_id is not None
 
@@ -57,7 +57,33 @@ def test_list_worlds_for_user_permissions(db_with_users):
     conn.close()
 
     worlds = database.list_worlds_for_user(testplayer_id, role="player")
-    assert [world["id"] for world in worlds] == ["daily_undertaking"]
+    assert [world["id"] for world in worlds] == ["daily_undertaking", "pipeworks_web"]
+    assert all(world["can_access"] is True for world in worlds)
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_list_worlds_for_user_include_invite_locked_preview(db_with_users):
+    """Invite-locked worlds should still be visible when preview mode is enabled."""
+    testplayer_id = database.get_user_id("testplayer")
+    assert testplayer_id is not None
+
+    conn = database.get_connection()
+    cursor = conn.cursor()
+    _seed_world(cursor, "invite_only_world", is_active=1)
+    conn.commit()
+    conn.close()
+
+    worlds = database.list_worlds_for_user(
+        testplayer_id,
+        role="player",
+        include_invite_worlds=True,
+    )
+    by_id = {row["id"]: row for row in worlds}
+    assert "invite_only_world" in by_id
+    assert by_id["invite_only_world"]["can_access"] is False
+    assert by_id["invite_only_world"]["is_locked"] is True
+    assert by_id["invite_only_world"]["access_mode"] == "invite"
 
 
 @pytest.mark.unit

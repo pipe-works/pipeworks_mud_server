@@ -170,6 +170,27 @@ def test_register_create_user_failure(test_client, test_db, temp_db_path):
         assert response.status_code == 500
 
 
+@pytest.mark.api
+def test_register_closed_by_policy(test_client, test_db, temp_db_path):
+    """Registration should return 403 when account registration mode is closed."""
+    original_mode = config.registration.account_registration_mode
+    config.registration.account_registration_mode = "closed"
+    try:
+        with use_test_database(temp_db_path):
+            response = test_client.post(
+                "/register",
+                json={
+                    "username": "newuser",
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                },
+            )
+        assert response.status_code == 403
+        assert "closed" in response.json()["detail"].lower()
+    finally:
+        config.registration.account_registration_mode = original_mode
+
+
 # ============================================================================
 # GUEST REGISTRATION TESTS
 # ============================================================================
@@ -208,6 +229,27 @@ def test_register_guest_success(test_client, test_db, temp_db_path):
         character = database.get_character_by_name("Guest Traveler")
         assert character is not None
         assert character["is_guest_created"] is True
+
+
+@pytest.mark.api
+def test_register_guest_disabled_by_policy(test_client, test_db, temp_db_path):
+    """Guest registration should return 403 when guest mode is disabled."""
+    original_guest_enabled = config.registration.guest_registration_enabled
+    config.registration.guest_registration_enabled = False
+    try:
+        with use_test_database(temp_db_path):
+            response = test_client.post(
+                "/register-guest",
+                json={
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                    "character_name": "Guest Disabled",
+                },
+            )
+        assert response.status_code == 403
+        assert "disabled" in response.json()["detail"].lower()
+    finally:
+        config.registration.guest_registration_enabled = original_guest_enabled
 
 
 @pytest.mark.api
@@ -1473,6 +1515,35 @@ def test_login_includes_available_worlds(test_client, test_db, temp_db_path, db_
 
 
 @pytest.mark.api
+def test_login_includes_invite_locked_world_preview(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Login world list should include invite-locked worlds with can_access=false."""
+    with use_test_database(temp_db_path):
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("invite_only_world", "invite_only_world"),
+        )
+        conn.commit()
+        conn.close()
+
+        response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        assert response.status_code == 200
+        worlds = response.json()["available_worlds"]
+        invite_world = next(world for world in worlds if world["id"] == "invite_only_world")
+        assert invite_world["can_access"] is False
+        assert invite_world["is_locked"] is True
+        assert invite_world["access_mode"] == "invite"
+
+
+@pytest.mark.api
 def test_login_direct_world_access_denied(test_client, test_db, temp_db_path, db_with_users):
     """Deprecated login-direct should return migration guidance."""
     with use_test_database(temp_db_path):
@@ -2104,6 +2175,123 @@ def test_list_characters_world_access_allowed(test_client, test_db, temp_db_path
         )
         assert response.status_code == 200
         assert response.json()["characters"] == []
+
+
+@pytest.mark.api
+def test_create_character_for_session_success_open_world(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Players should be able to self-create generated characters in open worlds."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        with (
+            patch(
+                "mud_server.services.character_provisioning.fetch_generated_full_name",
+                return_value=("Fimenscu Tarharsh", None),
+            ),
+            patch(
+                "mud_server.services.character_provisioning.fetch_entity_state_for_seed",
+                return_value=(None, None),
+            ),
+        ):
+            response = test_client.post(
+                "/characters/create",
+                json={"session_id": session_id, "world_id": "pipeworks_web"},
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["success"] is True
+        assert payload["character_name"] == "Fimenscu Tarharsh"
+
+        character = database.get_character_by_name("Fimenscu Tarharsh")
+        assert character is not None
+        assert character["world_id"] == "pipeworks_web"
+
+
+@pytest.mark.api
+def test_create_character_for_session_invite_world_denied(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Invite-only worlds should deny self-create without explicit grants."""
+    with use_test_database(temp_db_path):
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO worlds (id, name, description, is_active, config_json)
+            VALUES (?, ?, '', 1, '{}')
+            """,
+            ("daily_undertaking", "daily_undertaking"),
+        )
+        conn.commit()
+        conn.close()
+
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+        response = test_client.post(
+            "/characters/create",
+            json={"session_id": session_id, "world_id": "daily_undertaking"},
+        )
+        assert response.status_code == 403
+        assert "invite" in response.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_create_character_for_session_respects_world_slot_limit(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Self-create should return 409 when world slot cap is exhausted."""
+    original_slot_limit = config.character_creation.default_world_slot_limit
+    original_world_overrides = dict(config.character_creation.world_policy_overrides)
+    config.character_creation.default_world_slot_limit = 1
+    config.character_creation.world_policy_overrides = {}
+    try:
+        with use_test_database(temp_db_path):
+            login_response = test_client.post(
+                "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+            )
+            session_id = login_response.json()["session_id"]
+
+            # testplayer already owns one seeded character in pipeworks_web.
+            response = test_client.post(
+                "/characters/create",
+                json={"session_id": session_id, "world_id": "pipeworks_web"},
+            )
+            assert response.status_code == 409
+            assert "slot" in response.json()["detail"].lower()
+    finally:
+        config.character_creation.default_world_slot_limit = original_slot_limit
+        config.character_creation.world_policy_overrides = original_world_overrides
+
+
+@pytest.mark.api
+def test_create_character_for_session_disabled_by_policy(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Self-create endpoint should respect the global policy toggle."""
+    original_enabled = config.character_creation.player_self_create_enabled
+    config.character_creation.player_self_create_enabled = False
+    try:
+        with use_test_database(temp_db_path):
+            login_response = test_client.post(
+                "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+            )
+            session_id = login_response.json()["session_id"]
+            response = test_client.post(
+                "/characters/create",
+                json={"session_id": session_id, "world_id": "pipeworks_web"},
+            )
+            assert response.status_code == 403
+            assert "disabled" in response.json()["detail"].lower()
+    finally:
+        config.character_creation.player_self_create_enabled = original_enabled
 
 
 # ============================================================================

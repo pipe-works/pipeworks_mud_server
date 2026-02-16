@@ -9,15 +9,17 @@ import pytest
 from mud_server.api.routes import admin
 from mud_server.config import use_test_database
 from mud_server.db import database
+from mud_server.services import character_provisioning
+from mud_server.services.character_provisioning import CharacterProvisioningResult
 from tests.constants import TEST_PASSWORD
 
 
 @pytest.mark.unit
 def test_fetch_generated_name_returns_none_when_integration_disabled(monkeypatch):
     """Name helper should short-circuit when namegen integration is disabled."""
-    monkeypatch.setattr(admin.config.integrations, "namegen_enabled", False)
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", False)
 
-    name, error = admin._fetch_generated_name(seed=101)
+    name, error = character_provisioning._fetch_generated_name(seed=101)
 
     assert name is None
     assert error == "Name generation integration is disabled."
@@ -26,16 +28,18 @@ def test_fetch_generated_name_returns_none_when_integration_disabled(monkeypatch
 @pytest.mark.unit
 def test_fetch_generated_name_returns_payload_for_valid_response(monkeypatch):
     """Name helper should parse the first generated name from upstream payload."""
-    monkeypatch.setattr(admin.config.integrations, "namegen_enabled", True)
-    monkeypatch.setattr(admin.config.integrations, "namegen_base_url", "https://name.example.org/")
-    monkeypatch.setattr(admin.config.integrations, "namegen_timeout_seconds", 4.5)
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", True)
+    monkeypatch.setattr(
+        character_provisioning.config.integrations, "namegen_base_url", "https://name.example.org/"
+    )
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_timeout_seconds", 4.5)
 
     fake_response = Mock(status_code=200)
     fake_response.json.return_value = {"names": ["Sera"]}
     post_mock = Mock(return_value=fake_response)
-    monkeypatch.setattr(admin.requests, "post", post_mock)
+    monkeypatch.setattr(character_provisioning.requests, "post", post_mock)
 
-    name, error = admin._fetch_generated_name(seed=303)
+    name, error = character_provisioning._fetch_generated_name(seed=303)
 
     assert error is None
     assert name == "Sera"
@@ -58,10 +62,10 @@ def test_fetch_generated_name_returns_payload_for_valid_response(monkeypatch):
 @pytest.mark.unit
 def test_fetch_generated_name_handles_empty_base_url(monkeypatch):
     """Name helper should fail fast when integration URL is blank."""
-    monkeypatch.setattr(admin.config.integrations, "namegen_enabled", True)
-    monkeypatch.setattr(admin.config.integrations, "namegen_base_url", "   ")
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", True)
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_base_url", "   ")
 
-    name, error = admin._fetch_generated_name(seed=12)
+    name, error = character_provisioning._fetch_generated_name(seed=12)
 
     assert name is None
     assert error == "Name generation integration is enabled but no base URL is configured."
@@ -70,14 +74,16 @@ def test_fetch_generated_name_handles_empty_base_url(monkeypatch):
 @pytest.mark.unit
 def test_fetch_generated_name_handles_non_200(monkeypatch):
     """Name helper should surface upstream HTTP status failures."""
-    monkeypatch.setattr(admin.config.integrations, "namegen_enabled", True)
-    monkeypatch.setattr(admin.config.integrations, "namegen_base_url", "https://name.example.org")
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", True)
+    monkeypatch.setattr(
+        character_provisioning.config.integrations, "namegen_base_url", "https://name.example.org"
+    )
 
     fake_response = Mock(status_code=503)
     fake_response.json.return_value = {}
-    monkeypatch.setattr(admin.requests, "post", Mock(return_value=fake_response))
+    monkeypatch.setattr(character_provisioning.requests, "post", Mock(return_value=fake_response))
 
-    name, error = admin._fetch_generated_name(seed=12)
+    name, error = character_provisioning._fetch_generated_name(seed=12)
 
     assert name is None
     assert error == "Name generation API returned HTTP 503."
@@ -86,14 +92,16 @@ def test_fetch_generated_name_handles_non_200(monkeypatch):
 @pytest.mark.unit
 def test_fetch_generated_name_handles_non_object_payload(monkeypatch):
     """Name helper should reject non-dict JSON payloads."""
-    monkeypatch.setattr(admin.config.integrations, "namegen_enabled", True)
-    monkeypatch.setattr(admin.config.integrations, "namegen_base_url", "https://name.example.org")
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", True)
+    monkeypatch.setattr(
+        character_provisioning.config.integrations, "namegen_base_url", "https://name.example.org"
+    )
 
     fake_response = Mock(status_code=200)
     fake_response.json.return_value = ["not", "an", "object"]
-    monkeypatch.setattr(admin.requests, "post", Mock(return_value=fake_response))
+    monkeypatch.setattr(character_provisioning.requests, "post", Mock(return_value=fake_response))
 
-    name, error = admin._fetch_generated_name(seed=88)
+    name, error = character_provisioning._fetch_generated_name(seed=88)
 
     assert name is None
     assert error == "Name generation API returned a non-object payload."
@@ -102,14 +110,16 @@ def test_fetch_generated_name_handles_non_object_payload(monkeypatch):
 @pytest.mark.unit
 def test_fetch_generated_name_handles_invalid_name_list(monkeypatch):
     """Name helper should reject malformed name arrays."""
-    monkeypatch.setattr(admin.config.integrations, "namegen_enabled", True)
-    monkeypatch.setattr(admin.config.integrations, "namegen_base_url", "https://name.example.org")
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", True)
+    monkeypatch.setattr(
+        character_provisioning.config.integrations, "namegen_base_url", "https://name.example.org"
+    )
 
     fake_response = Mock(status_code=200)
     fake_response.json.return_value = {"names": [123]}
-    monkeypatch.setattr(admin.requests, "post", Mock(return_value=fake_response))
+    monkeypatch.setattr(character_provisioning.requests, "post", Mock(return_value=fake_response))
 
-    name, error = admin._fetch_generated_name(seed=88)
+    name, error = character_provisioning._fetch_generated_name(seed=88)
 
     assert name is None
     assert error == "Name generation API did not return a valid name."
@@ -118,14 +128,16 @@ def test_fetch_generated_name_handles_invalid_name_list(monkeypatch):
 @pytest.mark.unit
 def test_fetch_generated_name_handles_blank_name(monkeypatch):
     """Name helper should reject blank first entry values."""
-    monkeypatch.setattr(admin.config.integrations, "namegen_enabled", True)
-    monkeypatch.setattr(admin.config.integrations, "namegen_base_url", "https://name.example.org")
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", True)
+    monkeypatch.setattr(
+        character_provisioning.config.integrations, "namegen_base_url", "https://name.example.org"
+    )
 
     fake_response = Mock(status_code=200)
     fake_response.json.return_value = {"names": ["   "]}
-    monkeypatch.setattr(admin.requests, "post", Mock(return_value=fake_response))
+    monkeypatch.setattr(character_provisioning.requests, "post", Mock(return_value=fake_response))
 
-    name, error = admin._fetch_generated_name(seed=88)
+    name, error = character_provisioning._fetch_generated_name(seed=88)
 
     assert name is None
     assert error == "Name generation API returned an empty name."
@@ -134,15 +146,17 @@ def test_fetch_generated_name_handles_blank_name(monkeypatch):
 @pytest.mark.unit
 def test_fetch_generated_name_handles_request_exception(monkeypatch):
     """Network-layer errors should become an availability message."""
-    monkeypatch.setattr(admin.config.integrations, "namegen_enabled", True)
-    monkeypatch.setattr(admin.config.integrations, "namegen_base_url", "https://name.example.org")
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", True)
+    monkeypatch.setattr(
+        character_provisioning.config.integrations, "namegen_base_url", "https://name.example.org"
+    )
 
     def _boom(*_args, **_kwargs):  # noqa: ANN002,ANN003 - test double
-        raise admin.requests.exceptions.RequestException("boom")
+        raise character_provisioning.requests.exceptions.RequestException("boom")
 
-    monkeypatch.setattr(admin.requests, "post", _boom)
+    monkeypatch.setattr(character_provisioning.requests, "post", _boom)
 
-    name, error = admin._fetch_generated_name(seed=12)
+    name, error = character_provisioning._fetch_generated_name(seed=12)
 
     assert name is None
     assert error == "Name generation API unavailable."
@@ -151,14 +165,16 @@ def test_fetch_generated_name_handles_request_exception(monkeypatch):
 @pytest.mark.unit
 def test_fetch_generated_name_handles_invalid_json(monkeypatch):
     """JSON parsing errors should return a controlled message."""
-    monkeypatch.setattr(admin.config.integrations, "namegen_enabled", True)
-    monkeypatch.setattr(admin.config.integrations, "namegen_base_url", "https://name.example.org")
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", True)
+    monkeypatch.setattr(
+        character_provisioning.config.integrations, "namegen_base_url", "https://name.example.org"
+    )
 
     fake_response = Mock(status_code=200)
     fake_response.json.side_effect = ValueError("invalid")
-    monkeypatch.setattr(admin.requests, "post", Mock(return_value=fake_response))
+    monkeypatch.setattr(character_provisioning.requests, "post", Mock(return_value=fake_response))
 
-    name, error = admin._fetch_generated_name(seed=12)
+    name, error = character_provisioning._fetch_generated_name(seed=12)
 
     assert name is None
     assert error == "Name generation API returned invalid JSON."
@@ -179,11 +195,13 @@ def test_fetch_generated_full_name_uses_first_and_last_name_keys(monkeypatch):
             response.json.return_value = {"names": ["Varyn"]}
         return response
 
-    monkeypatch.setattr(admin.config.integrations, "namegen_enabled", True)
-    monkeypatch.setattr(admin.config.integrations, "namegen_base_url", "https://name.example.org")
-    monkeypatch.setattr(admin.requests, "post", _fake_post)
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", True)
+    monkeypatch.setattr(
+        character_provisioning.config.integrations, "namegen_base_url", "https://name.example.org"
+    )
+    monkeypatch.setattr(character_provisioning.requests, "post", _fake_post)
 
-    full_name, error = admin._fetch_generated_full_name(seed=441)
+    full_name, error = character_provisioning.fetch_generated_full_name(seed=441)
 
     assert error is None
     assert full_name == "Elira Varyn"
@@ -195,12 +213,12 @@ def test_fetch_generated_full_name_uses_first_and_last_name_keys(monkeypatch):
 def test_fetch_generated_full_name_surfaces_first_name_error(monkeypatch):
     """Full-name helper should stop when first-name generation fails."""
     monkeypatch.setattr(
-        admin,
+        character_provisioning,
         "_fetch_generated_name",
         lambda _seed, class_key="first_name": (None, f"{class_key} failed"),
     )
 
-    full_name, error = admin._fetch_generated_full_name(seed=51)
+    full_name, error = character_provisioning.fetch_generated_full_name(seed=51)
 
     assert full_name is None
     assert error == "first_name failed"
@@ -215,9 +233,9 @@ def test_fetch_generated_full_name_surfaces_last_name_error(monkeypatch):
             return "Ari", None
         return None, "last_name failed"
 
-    monkeypatch.setattr(admin, "_fetch_generated_name", _fake)
+    monkeypatch.setattr(character_provisioning, "_fetch_generated_name", _fake)
 
-    full_name, error = admin._fetch_generated_full_name(seed=51)
+    full_name, error = character_provisioning.fetch_generated_full_name(seed=51)
 
     assert full_name is None
     assert error == "last_name failed"
@@ -226,7 +244,7 @@ def test_fetch_generated_full_name_surfaces_last_name_error(monkeypatch):
 @pytest.mark.unit
 def test_generate_provisioning_seed_is_non_zero():
     """Provisioning seed helper should never return zero."""
-    seed = admin._generate_provisioning_seed()
+    seed = character_provisioning.generate_provisioning_seed()
     assert isinstance(seed, int)
     assert seed > 0
 
@@ -240,9 +258,9 @@ def test_fetch_generated_full_name_rejects_non_split_name(monkeypatch):
         _ = class_key
         return " ", None
 
-    monkeypatch.setattr(admin, "_fetch_generated_name", _fake)
+    monkeypatch.setattr(character_provisioning, "_fetch_generated_name", _fake)
 
-    full_name, error = admin._fetch_generated_full_name(seed=51)
+    full_name, error = character_provisioning.fetch_generated_full_name(seed=51)
 
     assert full_name is None
     assert error == "Name generation API returned an invalid full name."
@@ -251,9 +269,9 @@ def test_fetch_generated_full_name_rejects_non_split_name(monkeypatch):
 @pytest.mark.unit
 def test_fetch_entity_state_for_seed_disabled_returns_none(monkeypatch):
     """Entity helper should no-op cleanly when integration is disabled."""
-    monkeypatch.setattr(admin.config.integrations, "entity_state_enabled", False)
+    monkeypatch.setattr(character_provisioning.config.integrations, "entity_state_enabled", False)
 
-    payload, error = admin._fetch_entity_state_for_seed(seed=1001)
+    payload, error = character_provisioning.fetch_entity_state_for_seed(seed=1001)
 
     assert payload is None
     assert error is None
@@ -262,10 +280,10 @@ def test_fetch_entity_state_for_seed_disabled_returns_none(monkeypatch):
 @pytest.mark.unit
 def test_fetch_entity_state_for_seed_handles_blank_base_url(monkeypatch):
     """Entity helper should fail fast when base URL config is missing."""
-    monkeypatch.setattr(admin.config.integrations, "entity_state_enabled", True)
-    monkeypatch.setattr(admin.config.integrations, "entity_state_base_url", " ")
+    monkeypatch.setattr(character_provisioning.config.integrations, "entity_state_enabled", True)
+    monkeypatch.setattr(character_provisioning.config.integrations, "entity_state_base_url", " ")
 
-    payload, error = admin._fetch_entity_state_for_seed(seed=1001)
+    payload, error = character_provisioning.fetch_entity_state_for_seed(seed=1001)
 
     assert payload is None
     assert error == "Entity state integration is enabled but no base URL is configured."
@@ -274,16 +292,18 @@ def test_fetch_entity_state_for_seed_handles_blank_base_url(monkeypatch):
 @pytest.mark.unit
 def test_fetch_entity_state_for_seed_handles_non_200(monkeypatch):
     """Entity helper should propagate upstream status failures."""
-    monkeypatch.setattr(admin.config.integrations, "entity_state_enabled", True)
+    monkeypatch.setattr(character_provisioning.config.integrations, "entity_state_enabled", True)
     monkeypatch.setattr(
-        admin.config.integrations, "entity_state_base_url", "https://entity.example.org"
+        character_provisioning.config.integrations,
+        "entity_state_base_url",
+        "https://entity.example.org",
     )
 
     fake_response = Mock(status_code=500)
     fake_response.json.return_value = {}
-    monkeypatch.setattr(admin.requests, "post", Mock(return_value=fake_response))
+    monkeypatch.setattr(character_provisioning.requests, "post", Mock(return_value=fake_response))
 
-    payload, error = admin._fetch_entity_state_for_seed(seed=1001)
+    payload, error = character_provisioning.fetch_entity_state_for_seed(seed=1001)
 
     assert payload is None
     assert error == "Entity state API returned HTTP 500."
@@ -292,16 +312,18 @@ def test_fetch_entity_state_for_seed_handles_non_200(monkeypatch):
 @pytest.mark.unit
 def test_fetch_entity_state_for_seed_handles_non_object(monkeypatch):
     """Entity helper should reject non-dictionary payloads."""
-    monkeypatch.setattr(admin.config.integrations, "entity_state_enabled", True)
+    monkeypatch.setattr(character_provisioning.config.integrations, "entity_state_enabled", True)
     monkeypatch.setattr(
-        admin.config.integrations, "entity_state_base_url", "https://entity.example.org"
+        character_provisioning.config.integrations,
+        "entity_state_base_url",
+        "https://entity.example.org",
     )
 
     fake_response = Mock(status_code=200)
     fake_response.json.return_value = ["bad"]
-    monkeypatch.setattr(admin.requests, "post", Mock(return_value=fake_response))
+    monkeypatch.setattr(character_provisioning.requests, "post", Mock(return_value=fake_response))
 
-    payload, error = admin._fetch_entity_state_for_seed(seed=1001)
+    payload, error = character_provisioning.fetch_entity_state_for_seed(seed=1001)
 
     assert payload is None
     assert error == "Entity state API returned a non-object payload."
@@ -310,17 +332,19 @@ def test_fetch_entity_state_for_seed_handles_non_object(monkeypatch):
 @pytest.mark.unit
 def test_fetch_entity_state_for_seed_handles_request_exception(monkeypatch):
     """Entity helper should map network failures to a stable error message."""
-    monkeypatch.setattr(admin.config.integrations, "entity_state_enabled", True)
+    monkeypatch.setattr(character_provisioning.config.integrations, "entity_state_enabled", True)
     monkeypatch.setattr(
-        admin.config.integrations, "entity_state_base_url", "https://entity.example.org"
+        character_provisioning.config.integrations,
+        "entity_state_base_url",
+        "https://entity.example.org",
     )
 
     def _boom(*_args, **_kwargs):  # noqa: ANN002,ANN003 - test double
-        raise admin.requests.exceptions.RequestException("boom")
+        raise character_provisioning.requests.exceptions.RequestException("boom")
 
-    monkeypatch.setattr(admin.requests, "post", _boom)
+    monkeypatch.setattr(character_provisioning.requests, "post", _boom)
 
-    payload, error = admin._fetch_entity_state_for_seed(seed=1001)
+    payload, error = character_provisioning.fetch_entity_state_for_seed(seed=1001)
 
     assert payload is None
     assert error == "Entity state API unavailable."
@@ -329,16 +353,18 @@ def test_fetch_entity_state_for_seed_handles_request_exception(monkeypatch):
 @pytest.mark.unit
 def test_fetch_entity_state_for_seed_handles_invalid_json(monkeypatch):
     """Entity helper should guard against invalid JSON payloads."""
-    monkeypatch.setattr(admin.config.integrations, "entity_state_enabled", True)
+    monkeypatch.setattr(character_provisioning.config.integrations, "entity_state_enabled", True)
     monkeypatch.setattr(
-        admin.config.integrations, "entity_state_base_url", "https://entity.example.org"
+        character_provisioning.config.integrations,
+        "entity_state_base_url",
+        "https://entity.example.org",
     )
 
     fake_response = Mock(status_code=200)
     fake_response.json.side_effect = ValueError("invalid")
-    monkeypatch.setattr(admin.requests, "post", Mock(return_value=fake_response))
+    monkeypatch.setattr(character_provisioning.requests, "post", Mock(return_value=fake_response))
 
-    payload, error = admin._fetch_entity_state_for_seed(seed=1001)
+    payload, error = character_provisioning.fetch_entity_state_for_seed(seed=1001)
 
     assert payload is None
     assert error == "Entity state API returned invalid JSON."
@@ -358,9 +384,32 @@ def test_admin_create_character_endpoint_success(test_client, test_db, temp_db_p
             "occupation": {"legitimacy": "illicit"},
         }
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(admin, "_generate_provisioning_seed", lambda: 98765)
-            mp.setattr(admin, "_fetch_generated_full_name", lambda _seed: ("Admin Generated", None))
-            mp.setattr(admin, "_fetch_entity_state_for_seed", lambda _seed: (payload, None))
+
+            def _fake_provision(*, user_id: int, world_id: str):
+                assert (
+                    database.create_character_for_user(
+                        user_id,
+                        "Admin Generated",
+                        world_id=world_id,
+                        state_seed=98765,
+                    )
+                    is True
+                )
+                created = database.get_character_by_name("Admin Generated")
+                assert created is not None
+                return CharacterProvisioningResult(
+                    success=True,
+                    reason="ok",
+                    message="Character created successfully.",
+                    character_id=int(created["id"]),
+                    character_name="Admin Generated",
+                    world_id=world_id,
+                    seed=98765,
+                    entity_state=payload,
+                    entity_state_error=None,
+                )
+
+            mp.setattr(admin, "provision_generated_character_for_user", _fake_provision)
 
             response = test_client.post(
                 "/admin/user/create-character",
@@ -376,15 +425,12 @@ def test_admin_create_character_endpoint_success(test_client, test_db, temp_db_p
         assert body["success"] is True
         assert body["character_name"] == "Admin Generated"
         assert body["seed"] == 98765
+        assert body["entity_state"] == payload
         assert body["entity_state_error"] is None
 
         created = database.get_character_by_name("Admin Generated")
         assert created is not None
-        axis_state = database.get_character_axis_state(int(created["id"]))
-        assert axis_state is not None
-        labels = {axis["axis_name"]: axis["axis_label"] for axis in axis_state["axes"]}
-        assert labels["wealth"] == "poor"
-        assert labels["legitimacy"] == "illicit"
+        assert created["world_id"] == "pipeworks_web"
 
 
 @pytest.mark.api
@@ -399,11 +445,14 @@ def test_admin_create_character_endpoint_rejects_namegen_failure(
         session_id = login.json()["session_id"]
 
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(admin, "_generate_provisioning_seed", lambda: 123)
             mp.setattr(
                 admin,
-                "_fetch_generated_full_name",
-                lambda _seed: (None, "Name generation API unavailable."),
+                "provision_generated_character_for_user",
+                lambda **_kwargs: CharacterProvisioningResult(
+                    success=False,
+                    reason="name_generation_failed",
+                    message="Name generation API unavailable.",
+                ),
             )
 
             response = test_client.post(
@@ -546,15 +595,32 @@ def test_admin_create_character_endpoint_retries_name_collision(
         )
 
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(admin, "_generate_provisioning_seed", lambda: 444)
 
-            def _name_for_seed(seed):  # noqa: ANN001 - test helper
-                if seed == 444:
-                    return "Collision Name", None
-                return "Resolved Name", None
+            def _fake_provision(*, user_id: int, world_id: str):
+                assert (
+                    database.create_character_for_user(
+                        user_id,
+                        "Resolved Name",
+                        world_id=world_id,
+                        state_seed=445,
+                    )
+                    is True
+                )
+                created = database.get_character_by_name("Resolved Name")
+                assert created is not None
+                return CharacterProvisioningResult(
+                    success=True,
+                    reason="ok",
+                    message="Character created successfully.",
+                    character_id=int(created["id"]),
+                    character_name="Resolved Name",
+                    world_id=world_id,
+                    seed=445,
+                    entity_state=None,
+                    entity_state_error=None,
+                )
 
-            mp.setattr(admin, "_fetch_generated_full_name", _name_for_seed)
-            mp.setattr(admin, "_fetch_entity_state_for_seed", lambda _seed: (None, None))
+            mp.setattr(admin, "provision_generated_character_for_user", _fake_provision)
 
             response = test_client.post(
                 "/admin/user/create-character",

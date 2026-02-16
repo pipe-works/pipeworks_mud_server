@@ -7,8 +7,13 @@ from mud_server.db import database
 
 
 def get_available_worlds(user_id: int, role: str) -> list[dict[str, Any]]:
-    """Return available worlds filtered by permissions and account rules."""
-    return database.list_worlds_for_user(user_id, role=role)
+    """
+    Return world options for account dashboards and world selectors.
+
+    Non-admin users receive invite-only worlds as preview rows so the account
+    dashboard can label them as locked/invite without granting access.
+    """
+    return database.list_worlds_for_user(user_id, role=role, include_invite_worlds=True)
 
 
 def resolve_zone_id(engine: GameEngine, room_id: str | None, world_id: str | None) -> str | None:
