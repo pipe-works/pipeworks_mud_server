@@ -39,12 +39,12 @@ from pathlib import Path
 from secrets import randbelow
 from typing import Any, cast
 
+from mud_server.db.constants import DEFAULT_AXIS_SCORE, DEFAULT_WORLD_ID
+
 # ==========================================================================
 # CONFIGURATION
 # ==========================================================================
 
-DEFAULT_WORLD_ID = "pipeworks_web"
-DEFAULT_AXIS_SCORE = 0.5
 # Default world identifier used for legacy code paths that do not yet provide
 # an explicit world_id. This keeps the server functional during migration and
 # will be replaced by config-driven defaults in a later phase.
@@ -102,9 +102,10 @@ def _get_db_path() -> Path:
     Returns:
         Absolute path to the SQLite database file.
     """
-    from mud_server.config import config
+    # Phase 1 extraction: delegate path resolution to db.connection.
+    from mud_server.db.connection import get_db_path
 
-    return config.database.absolute_path
+    return get_db_path()
 
 
 # ==========================================================================
@@ -128,262 +129,10 @@ def init_database(*, skip_superuser: bool = False) -> None:
         - Creates tables if they don't exist
         - Creates superuser if env vars set and no users exist
     """
-    import os
+    # Phase 1 extraction: the schema source of truth now lives in db.schema.
+    from mud_server.db.schema import init_database as init_database_impl
 
-    from mud_server.api.password import hash_password
-
-    db_path = _get_db_path()
-    conn = sqlite3.connect(str(db_path))
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            email_hash TEXT UNIQUE,
-            role TEXT NOT NULL DEFAULT 'player',
-            is_active INTEGER NOT NULL DEFAULT 1,
-            is_guest INTEGER NOT NULL DEFAULT 0,
-            guest_expires_at TIMESTAMP,
-            account_origin TEXT NOT NULL DEFAULT 'legacy',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_login TIMESTAMP,
-            tombstoned_at TIMESTAMP
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS characters (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            name TEXT UNIQUE NOT NULL,
-            world_id TEXT NOT NULL,
-            inventory TEXT NOT NULL DEFAULT '[]',
-            is_guest_created INTEGER NOT NULL DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            base_state_json TEXT,
-            current_state_json TEXT,
-            state_seed INTEGER DEFAULT 0,
-            state_version TEXT,
-            state_updated_at TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
-        )
-    """)
-
-    # Ensure newly added state snapshot columns exist for legacy databases.
-    _ensure_character_state_columns(cursor)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS axis (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            world_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            description TEXT,
-            ordering_json TEXT,
-            UNIQUE(world_id, name)
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS axis_value (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            axis_id INTEGER NOT NULL REFERENCES axis(id) ON DELETE CASCADE,
-            value TEXT NOT NULL,
-            min_score REAL,
-            max_score REAL,
-            ordinal INTEGER,
-            UNIQUE(axis_id, value)
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS event_type (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            world_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            description TEXT,
-            UNIQUE(world_id, name)
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS character_axis_score (
-            character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
-            world_id TEXT NOT NULL,
-            axis_id INTEGER NOT NULL REFERENCES axis(id) ON DELETE CASCADE,
-            axis_score REAL NOT NULL,
-            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (character_id, axis_id)
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS character_locations (
-            character_id INTEGER PRIMARY KEY,
-            world_id TEXT NOT NULL,
-            room_id TEXT NOT NULL,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(character_id) REFERENCES characters(id) ON DELETE CASCADE
-        )
-    """)
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_character_locations_room_id "
-        "ON character_locations(room_id)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_character_locations_world_room "
-        "ON character_locations(world_id, room_id)"
-    )
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            character_id INTEGER,
-            world_id TEXT,
-            session_id TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            expires_at TIMESTAMP,
-            client_type TEXT DEFAULT 'unknown',
-            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY(character_id) REFERENCES characters(id) ON DELETE SET NULL
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS event (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            world_id TEXT NOT NULL,
-            event_type_id INTEGER NOT NULL REFERENCES event_type(id) ON DELETE RESTRICT,
-            timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS event_entity_axis_delta (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_id INTEGER NOT NULL REFERENCES event(id) ON DELETE CASCADE,
-            character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
-            axis_id INTEGER NOT NULL REFERENCES axis(id) ON DELETE CASCADE,
-            old_score REAL NOT NULL,
-            new_score REAL NOT NULL,
-            delta REAL NOT NULL
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS event_metadata (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_id INTEGER NOT NULL REFERENCES event(id) ON DELETE CASCADE,
-            key TEXT NOT NULL,
-            value TEXT NOT NULL
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS chat_messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            character_id INTEGER,
-            user_id INTEGER,
-            message TEXT NOT NULL,
-            world_id TEXT NOT NULL,
-            room TEXT NOT NULL,
-            recipient_character_id INTEGER,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(character_id) REFERENCES characters(id) ON DELETE SET NULL,
-            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL,
-            FOREIGN KEY(recipient_character_id) REFERENCES characters(id) ON DELETE SET NULL
-        )
-    """)
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_chat_messages_world_room "
-        "ON chat_messages(world_id, room)"
-    )
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS worlds (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            config_json TEXT NOT NULL DEFAULT '{}',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS world_permissions (
-            user_id INTEGER NOT NULL,
-            world_id TEXT NOT NULL,
-            can_access INTEGER NOT NULL DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (user_id, world_id),
-            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY(world_id) REFERENCES worlds(id) ON DELETE CASCADE
-        )
-    """)
-
-    # Ensure the default world exists in the catalog.
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO worlds (id, name, description, is_active, config_json)
-        VALUES (?, ?, '', 1, '{}')
-        """,
-        (DEFAULT_WORLD_ID, DEFAULT_WORLD_ID),
-    )
-
-    # Character slot enforcement is now world-policy-aware and resolved in
-    # application code (user_id + world_id scope). The old global per-user
-    # trigger path is intentionally retired because it cannot express per-world
-    # slot budgets from configuration.
-    _create_session_invariant_triggers(conn)
-
-    conn.commit()
-
-    if skip_superuser:
-        conn.close()
-        return
-
-    cursor.execute("SELECT COUNT(*) FROM users")
-    user_count = int(cursor.fetchone()[0])
-
-    if user_count == 0:
-        admin_user = os.environ.get("MUD_ADMIN_USER")
-        admin_password = os.environ.get("MUD_ADMIN_PASSWORD")
-
-        if admin_user and admin_password:
-            if len(admin_password) < 8:
-                print("Warning: MUD_ADMIN_PASSWORD must be at least 8 characters. Skipping.")
-            else:
-                password_hash = hash_password(admin_password)
-                cursor.execute(
-                    """
-                    INSERT INTO users (username, password_hash, role, account_origin)
-                    VALUES (?, ?, ?, ?)
-                """,
-                    (admin_user, password_hash, "superuser", "system"),
-                )
-                conn.commit()
-
-                print("\n" + "=" * 60)
-                print("SUPERUSER CREATED FROM ENVIRONMENT VARIABLES")
-                print("=" * 60)
-                print(f"Username: {admin_user}")
-                print("=" * 60 + "\n")
-        else:
-            print("\n" + "=" * 60)
-            print("DATABASE INITIALIZED (no superuser created)")
-            print("=" * 60)
-            print("To create a superuser, either:")
-            print("  1. Set MUD_ADMIN_USER and MUD_ADMIN_PASSWORD environment variables")
-            print("     and run: mud-server init-db")
-            print("  2. Run interactively: mud-server create-superuser")
-            print("=" * 60 + "\n")
-
-    conn.close()
+    init_database_impl(skip_superuser=skip_superuser)
 
 
 def _ensure_character_state_columns(cursor: sqlite3.Cursor) -> None:
@@ -393,24 +142,10 @@ def _ensure_character_state_columns(cursor: sqlite3.Cursor) -> None:
     SQLite does not support adding columns via CREATE TABLE for existing
     databases, so we use ALTER TABLE when new columns are introduced.
     """
-    cursor.execute("PRAGMA table_info(characters)")
-    existing_columns = {row[1] for row in cursor.fetchall()}
+    # Phase 1 extraction: maintain compatibility through delegated schema helper.
+    from mud_server.db.schema import ensure_character_state_columns
 
-    columns_to_add = {
-        "base_state_json": "TEXT",
-        "current_state_json": "TEXT",
-        "state_seed": "INTEGER DEFAULT 0",
-        "state_version": "TEXT",
-        "state_updated_at": "TIMESTAMP",
-    }
-
-    for column_name, column_def in columns_to_add.items():
-        if column_name in existing_columns:
-            continue
-        cursor.execute(f"ALTER TABLE characters ADD COLUMN {column_name} {column_def}")
-
-    if "state_seed" in existing_columns or "state_seed" in columns_to_add:
-        cursor.execute("UPDATE characters SET state_seed = 0 WHERE state_seed IS NULL")
+    ensure_character_state_columns(cursor)
 
 
 def _create_character_limit_triggers(conn: sqlite3.Connection, *, max_slots: int) -> None:
@@ -421,35 +156,9 @@ def _create_character_limit_triggers(conn: sqlite3.Connection, *, max_slots: int
         SQLite cannot read config at runtime inside a trigger. We bake the
         configured limit into the trigger at init time.
     """
-    cursor = conn.cursor()
-    cursor.execute("DROP TRIGGER IF EXISTS enforce_character_limit_insert")
-    cursor.execute("DROP TRIGGER IF EXISTS enforce_character_limit_update")
+    from mud_server.db.schema import create_character_limit_triggers
 
-    cursor.execute(f"""
-        CREATE TRIGGER enforce_character_limit_insert
-        BEFORE INSERT ON characters
-        WHEN NEW.user_id IS NOT NULL
-        BEGIN
-            SELECT
-                CASE
-                    WHEN (SELECT COUNT(*) FROM characters WHERE user_id = NEW.user_id) >= {int(max_slots)}
-                    THEN RAISE(ABORT, 'character limit exceeded')
-                END;
-        END;
-        """)  # nosec B608 - limit is validated and interpolated into DDL
-
-    cursor.execute(f"""
-        CREATE TRIGGER enforce_character_limit_update
-        BEFORE UPDATE OF user_id ON characters
-        WHEN NEW.user_id IS NOT NULL
-        BEGIN
-            SELECT
-                CASE
-                    WHEN (SELECT COUNT(*) FROM characters WHERE user_id = NEW.user_id) >= {int(max_slots)}
-                    THEN RAISE(ABORT, 'character limit exceeded')
-                END;
-        END;
-        """)  # nosec B608 - limit is validated and interpolated into DDL
+    create_character_limit_triggers(conn, max_slots=max_slots)
 
 
 def _create_session_invariant_triggers(conn: sqlite3.Connection) -> None:
@@ -469,113 +178,9 @@ def _create_session_invariant_triggers(conn: sqlite3.Connection) -> None:
       directly via SQL.
     - They apply consistently for both INSERT and UPDATE operations.
     """
-    cursor = conn.cursor()
-    cursor.execute("DROP TRIGGER IF EXISTS enforce_session_invariants_insert")
-    cursor.execute("DROP TRIGGER IF EXISTS enforce_session_invariants_update")
+    from mud_server.db.schema import create_session_invariant_triggers
 
-    cursor.execute("""
-        CREATE TRIGGER enforce_session_invariants_insert
-        BEFORE INSERT ON sessions
-        BEGIN
-            -- Account-only sessions must never carry world bindings.
-            SELECT
-                CASE
-                    WHEN NEW.character_id IS NULL AND NEW.world_id IS NOT NULL
-                    THEN RAISE(ABORT, 'session invariant violated: account session has world_id')
-                END;
-
-            -- Character-bound sessions must always carry world bindings.
-            SELECT
-                CASE
-                    WHEN NEW.character_id IS NOT NULL AND NEW.world_id IS NULL
-                    THEN RAISE(ABORT, 'session invariant violated: character session missing world_id')
-                END;
-
-            -- Character binding must reference an existing character row.
-            SELECT
-                CASE
-                    WHEN NEW.character_id IS NOT NULL
-                     AND (SELECT id FROM characters WHERE id = NEW.character_id) IS NULL
-                    THEN RAISE(ABORT, 'session invariant violated: character does not exist')
-                END;
-
-            -- Character binding must belong to the same user.
-            SELECT
-                CASE
-                    WHEN NEW.character_id IS NOT NULL
-                     AND (
-                        SELECT user_id
-                        FROM characters
-                        WHERE id = NEW.character_id
-                     ) != NEW.user_id
-                    THEN RAISE(ABORT, 'session invariant violated: character does not belong to user')
-                END;
-
-            -- Session world must mirror the character's world.
-            SELECT
-                CASE
-                    WHEN NEW.character_id IS NOT NULL
-                     AND NEW.world_id != (
-                        SELECT world_id
-                        FROM characters
-                        WHERE id = NEW.character_id
-                     )
-                    THEN RAISE(ABORT, 'session invariant violated: world mismatch for character')
-                END;
-        END;
-    """)
-
-    cursor.execute("""
-        CREATE TRIGGER enforce_session_invariants_update
-        BEFORE UPDATE OF user_id, character_id, world_id ON sessions
-        BEGIN
-            -- Account-only sessions must never carry world bindings.
-            SELECT
-                CASE
-                    WHEN NEW.character_id IS NULL AND NEW.world_id IS NOT NULL
-                    THEN RAISE(ABORT, 'session invariant violated: account session has world_id')
-                END;
-
-            -- Character-bound sessions must always carry world bindings.
-            SELECT
-                CASE
-                    WHEN NEW.character_id IS NOT NULL AND NEW.world_id IS NULL
-                    THEN RAISE(ABORT, 'session invariant violated: character session missing world_id')
-                END;
-
-            -- Character binding must reference an existing character row.
-            SELECT
-                CASE
-                    WHEN NEW.character_id IS NOT NULL
-                     AND (SELECT id FROM characters WHERE id = NEW.character_id) IS NULL
-                    THEN RAISE(ABORT, 'session invariant violated: character does not exist')
-                END;
-
-            -- Character binding must belong to the same user.
-            SELECT
-                CASE
-                    WHEN NEW.character_id IS NOT NULL
-                     AND (
-                        SELECT user_id
-                        FROM characters
-                        WHERE id = NEW.character_id
-                     ) != NEW.user_id
-                    THEN RAISE(ABORT, 'session invariant violated: character does not belong to user')
-                END;
-
-            -- Session world must mirror the character's world.
-            SELECT
-                CASE
-                    WHEN NEW.character_id IS NOT NULL
-                     AND NEW.world_id != (
-                        SELECT world_id
-                        FROM characters
-                        WHERE id = NEW.character_id
-                     )
-                    THEN RAISE(ABORT, 'session invariant violated: world mismatch for character')
-                END;
-        END;
-    """)
+    create_session_invariant_triggers(conn)
 
 
 def _generate_default_character_name(cursor: Any, username: str) -> str:
@@ -698,7 +303,11 @@ def get_connection() -> sqlite3.Connection:
     Returns:
         sqlite3.Connection object
     """
-    return sqlite3.connect(str(_get_db_path()))
+    # Phase 1 extraction: delegate connection setup to db.connection so pragma
+    # configuration and lock behavior are defined in one module.
+    from mud_server.db.connection import get_connection as get_connection_impl
+
+    return get_connection_impl()
 
 
 # ==========================================================================

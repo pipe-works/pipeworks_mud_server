@@ -47,6 +47,10 @@ class _FakeConnection:
     def cursor(self):
         return self._cursor
 
+    def execute(self, sql, params=None):
+        """Mirror sqlite3.Connection.execute for schema bootstrap fakes."""
+        return self._cursor.execute(sql, params)
+
     def commit(self):
         return None
 
@@ -938,7 +942,7 @@ def test_init_database_superuser_bootstrap_does_not_require_character_lastrowid(
     # superuser bootstrap should not depend on character-row creation metadata.
     with (
         patch.dict("os.environ", {"MUD_ADMIN_USER": "admin", "MUD_ADMIN_PASSWORD": TEST_PASSWORD}),
-        patch.object(database.sqlite3, "connect", return_value=fake_conn),
+        patch("mud_server.db.connection.sqlite3.connect", return_value=fake_conn),
     ):
         database.init_database(skip_superuser=False)
 
