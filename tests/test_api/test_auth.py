@@ -347,6 +347,10 @@ def test_validate_session_for_game_missing_user(test_db, temp_db_path):
     with use_test_database(temp_db_path):
         conn = database.get_connection()
         cursor = conn.cursor()
+        # Foreign keys are enforced on all runtime connections. Temporarily
+        # disable them in this test to seed an orphaned session row and verify
+        # the auth-layer defensive branch for missing users.
+        cursor.execute("PRAGMA foreign_keys = OFF")
         cursor.execute(
             """
             INSERT INTO sessions (user_id, character_id, session_id, created_at, last_activity)
@@ -355,6 +359,7 @@ def test_validate_session_for_game_missing_user(test_db, temp_db_path):
             (999, "orphan-session"),
         )
         conn.commit()
+        cursor.execute("PRAGMA foreign_keys = ON")
         conn.close()
 
         with pytest.raises(HTTPException) as exc_info:
