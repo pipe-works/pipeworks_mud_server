@@ -312,6 +312,15 @@ def authenticated_client(test_client: TestClient, db_with_users: dict[str, str])
     assert response.status_code == 200
     data = response.json()
 
+    # Gameplay endpoints now require explicit character selection.
+    characters = data.get("characters") or []
+    assert characters, "Expected at least one character for testplayer."
+    select_response = test_client.post(
+        "/characters/select",
+        json={"session_id": data["session_id"], "character_id": int(characters[0]["id"])},
+    )
+    assert select_response.status_code == 200
+
     return {
         "client": test_client,
         "session_id": data["session_id"],

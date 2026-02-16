@@ -19,6 +19,23 @@ from mud_server.config import config, use_test_database
 from mud_server.db import database
 from tests.constants import TEST_PASSWORD
 
+
+def assert_login_direct_deprecated(response) -> None:
+    """
+    Assert the migration contract for the deprecated /login-direct endpoint.
+
+    Option A enforces account-first authentication, so legacy direct-world
+    requests must return a stable error that points clients to:
+      1) /login
+      2) /characters/select
+    """
+    assert response.status_code == 410
+    detail = response.json().get("detail", "")
+    assert "Direct world login is deprecated" in detail
+    assert "/login" in detail
+    assert "/characters/select" in detail
+
+
 # ============================================================================
 # PUBLIC ENDPOINT TESTS
 # ============================================================================
@@ -489,7 +506,7 @@ def test_login_nonexistent_user(test_client, test_db, temp_db_path):
 
 @pytest.mark.api
 def test_login_creates_session(test_client, test_db, temp_db_path, db_with_users):
-    """Test that login creates session in the database."""
+    """Test that login creates an account-only session in the database."""
     with use_test_database(temp_db_path):
         response = test_client.post(
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
@@ -500,6 +517,10 @@ def test_login_creates_session(test_client, test_db, temp_db_path, db_with_users
         assert session is not None
         assert session["user_id"] == database.get_user_id("testplayer")
         assert session["client_type"] == "unknown"
+        # Account-first invariant: login does not implicitly select a
+        # character or world.
+        assert session["character_id"] is None
+        assert session["world_id"] is None
 
 
 @pytest.mark.api
@@ -585,7 +606,7 @@ def test_login_create_session_failure(test_client, test_db, temp_db_path, db_wit
 
 @pytest.mark.api
 def test_login_direct_create_session_failure(test_client, test_db, temp_db_path, db_with_users):
-    """login-direct should return 500 when session creation fails."""
+    """Deprecated login-direct should return migration guidance."""
     with use_test_database(temp_db_path):
         with patch.object(database, "create_session", return_value=False):
             response = test_client.post(
@@ -598,8 +619,7 @@ def test_login_direct_create_session_failure(test_client, test_db, temp_db_path,
                 },
             )
 
-        assert response.status_code == 500
-        assert "failed to create session" in response.json()["detail"].lower()
+        assert_login_direct_deprecated(response)
 
 
 # ============================================================================
@@ -1116,11 +1136,25 @@ def test_command_kick_as_admin_disconnects_target(
             "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
         )
         admin_session = admin_login.json()["session_id"]
+        admin_characters = admin_login.json()["characters"]
+        assert admin_characters
+        admin_select = test_client.post(
+            "/characters/select",
+            json={"session_id": admin_session, "character_id": int(admin_characters[0]["id"])},
+        )
+        assert admin_select.status_code == 200
 
         player_login = test_client.post(
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
         player_session = player_login.json()["session_id"]
+        player_characters = player_login.json()["characters"]
+        assert player_characters
+        player_select = test_client.post(
+            "/characters/select",
+            json={"session_id": player_session, "character_id": int(player_characters[0]["id"])},
+        )
+        assert player_select.status_code == 200
 
         response = test_client.post(
             "/command",
@@ -1225,6 +1259,15 @@ def test_full_user_flow(test_client, test_db, temp_db_path):
             )
             assert login_response.status_code == 200
             session_id = login_response.json()["session_id"]
+            characters = login_response.json()["characters"]
+            assert characters
+
+            # Account login is intentionally separate from world entry.
+            select_response = test_client.post(
+                "/characters/select",
+                json={"session_id": session_id, "character_id": int(characters[0]["id"])},
+            )
+            assert select_response.status_code == 200
 
             # 3. Look around
             look_response = test_client.post(
@@ -1269,7 +1312,7 @@ def test_ping_endpoint(test_client, test_db, temp_db_path, db_with_users):
 
 @pytest.mark.api
 def test_login_direct_success(test_client, test_db, temp_db_path, db_with_users):
-    """Test login-direct binds session to world and character."""
+    """Deprecated login-direct should return migration guidance."""
     with use_test_database(temp_db_path):
         response = test_client.post(
             "/login-direct",
@@ -1281,17 +1324,12 @@ def test_login_direct_success(test_client, test_db, temp_db_path, db_with_users)
             },
         )
 
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["success"] is True
-        assert payload["world_id"] == "pipeworks_web"
-        assert payload["character_name"] == "testplayer_char"
-        assert payload["session_id"]
+        assert_login_direct_deprecated(response)
 
 
 @pytest.mark.api
 def test_login_direct_requires_character_name(test_client, test_db, temp_db_path, db_with_users):
-    """Test login-direct rejects missing character_name."""
+    """Deprecated login-direct should ignore old payload shape and return 410."""
     with use_test_database(temp_db_path):
         response = test_client.post(
             "/login-direct",
@@ -1302,14 +1340,14 @@ def test_login_direct_requires_character_name(test_client, test_db, temp_db_path
             },
         )
 
-        assert response.status_code == 400
+        assert_login_direct_deprecated(response)
 
 
 @pytest.mark.api
 def test_login_direct_blocks_multi_world_character_creation(
     test_client, test_db, temp_db_path, db_with_users
 ):
-    """Test login-direct blocks new world when multi-world is disabled."""
+    """Deprecated login-direct should return migration guidance."""
     with use_test_database(temp_db_path):
         user_id = database.get_user_id("testplayer")
         assert user_id is not None
@@ -1343,7 +1381,7 @@ def test_login_direct_blocks_multi_world_character_creation(
             },
         )
 
-        assert response.status_code == 409
+        assert_login_direct_deprecated(response)
 
 
 @pytest.mark.api
@@ -1362,7 +1400,7 @@ def test_login_includes_available_worlds(test_client, test_db, temp_db_path, db_
 
 @pytest.mark.api
 def test_login_direct_world_access_denied(test_client, test_db, temp_db_path, db_with_users):
-    """login-direct should deny worlds without access grants."""
+    """Deprecated login-direct should return migration guidance."""
     with use_test_database(temp_db_path):
         conn = database.get_connection()
         cursor = conn.cursor()
@@ -1386,7 +1424,7 @@ def test_login_direct_world_access_denied(test_client, test_db, temp_db_path, db
             },
         )
 
-        assert response.status_code == 403
+        assert_login_direct_deprecated(response)
 
 
 @pytest.mark.api
@@ -1470,7 +1508,8 @@ def test_admin_sessions_fallback_without_character(
         )
         session_id = admin_login.json()["session_id"]
 
-        # Create a second character so validate_session_for_game does not auto-select.
+        # Keep this session character-less to verify admin introspection
+        # endpoints do not depend on gameplay selection state.
         admin_id = database.get_user_id("testadmin")
         assert admin_id is not None
         database.create_character_for_user(admin_id, "admin_alt")
@@ -1658,6 +1697,13 @@ def test_admin_database_worlds_includes_online_status(
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
         player_session = player_login.json()["session_id"]
+        player_characters = player_login.json()["characters"]
+        assert player_characters
+        select_response = test_client.post(
+            "/characters/select",
+            json={"session_id": player_session, "character_id": int(player_characters[0]["id"])},
+        )
+        assert select_response.status_code == 200
 
         response = test_client.get("/admin/database/worlds", params={"session_id": session_id})
         assert response.status_code == 200
@@ -1703,6 +1749,13 @@ def test_admin_kick_character_disconnects_active_sessions(
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
         player_session = player_login.json()["session_id"]
+        player_characters = player_login.json()["characters"]
+        assert player_characters
+        select_response = test_client.post(
+            "/characters/select",
+            json={"session_id": player_session, "character_id": int(player_characters[0]["id"])},
+        )
+        assert select_response.status_code == 200
 
         target_character = database.get_character_by_name("testplayer_char")
         assert target_character is not None
@@ -1778,7 +1831,7 @@ def test_login_filters_characters_by_world(test_client, test_db, temp_db_path, d
 
 @pytest.mark.api
 def test_login_direct_create_character_success(test_client, test_db, temp_db_path, db_with_users):
-    """login-direct should create a character when requested."""
+    """Deprecated login-direct should return migration guidance."""
     with use_test_database(temp_db_path):
         user_id = database.get_user_id("testplayer")
         assert user_id is not None
@@ -1816,9 +1869,7 @@ def test_login_direct_create_character_success(test_client, test_db, temp_db_pat
             },
         )
 
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["character_name"] == "daily_char"
+        assert_login_direct_deprecated(response)
 
         config.worlds.allow_multi_world_characters = original
 
@@ -1827,7 +1878,7 @@ def test_login_direct_create_character_success(test_client, test_db, temp_db_pat
 def test_login_direct_character_not_found_without_create(
     test_client, test_db, temp_db_path, db_with_users
 ):
-    """login-direct should 404 when character missing and create disabled."""
+    """Deprecated login-direct should return migration guidance."""
     with use_test_database(temp_db_path):
         user_id = database.get_user_id("testplayer")
         assert user_id is not None
@@ -1860,7 +1911,7 @@ def test_login_direct_character_not_found_without_create(
             },
         )
 
-        assert response.status_code == 404
+        assert_login_direct_deprecated(response)
 
 
 @pytest.mark.api
@@ -1893,17 +1944,28 @@ def test_session_locked_to_world_in_game_command(test_client, test_db, temp_db_p
             user_id, "daily_char", world_id="daily_undertaking"
         )
 
-        response = test_client.post(
-            "/login-direct",
+        login_response = test_client.post(
+            "/login",
             json={
                 "username": "testplayer",
                 "password": TEST_PASSWORD,
                 "world_id": "daily_undertaking",
-                "character_name": "daily_char",
             },
         )
-        assert response.status_code == 200
-        session_id = response.json()["session_id"]
+        assert login_response.status_code == 200
+        session_id = login_response.json()["session_id"]
+
+        daily_char = database.get_character_by_name("daily_char")
+        assert daily_char is not None
+        select_response = test_client.post(
+            "/characters/select",
+            json={
+                "session_id": session_id,
+                "character_id": int(daily_char["id"]),
+                "world_id": "daily_undertaking",
+            },
+        )
+        assert select_response.status_code == 200
 
         # Flip the session world_id to simulate a mismatched world binding.
         conn = database.get_connection()
@@ -2000,7 +2062,7 @@ def test_change_password_success(test_client, test_db, temp_db_path, db_with_use
 
 @pytest.mark.api
 def test_login_direct_create_character_failure(test_client, test_db, temp_db_path, db_with_users):
-    """login-direct should return 409 when character creation fails."""
+    """Deprecated login-direct should return migration guidance."""
     with use_test_database(temp_db_path):
         with patch.object(database, "create_character_for_user", return_value=False):
             response = test_client.post(
@@ -2014,15 +2076,14 @@ def test_login_direct_create_character_failure(test_client, test_db, temp_db_pat
                 },
             )
 
-        assert response.status_code == 409
-        assert "failed to create character" in response.json()["detail"].lower()
+        assert_login_direct_deprecated(response)
 
 
 @pytest.mark.api
 def test_login_direct_set_session_character_failure(
     test_client, test_db, temp_db_path, db_with_users
 ):
-    """login-direct should return 500 when binding the character fails."""
+    """Deprecated login-direct should return migration guidance."""
     with use_test_database(temp_db_path):
         with patch.object(database, "set_session_character", return_value=False):
             response = test_client.post(
@@ -2035,8 +2096,7 @@ def test_login_direct_set_session_character_failure(
                 },
             )
 
-        assert response.status_code == 500
-        assert "failed to bind character" in response.json()["detail"].lower()
+        assert_login_direct_deprecated(response)
 
 
 @pytest.mark.api

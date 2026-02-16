@@ -291,37 +291,18 @@ def test_validate_session_rejects_missing_role_lookup():
 
 @pytest.mark.unit
 @pytest.mark.auth
-def test_validate_session_for_game_auto_selects_single_character(test_db, db_with_users):
+def test_validate_session_for_game_requires_explicit_selection_single_character(
+    test_db, db_with_users
+):
+    """Single-character accounts should not be auto-selected for gameplay access."""
     session_id = "game-session"
     database.create_session("testplayer", session_id)
-    conn = database.get_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE sessions SET character_id = NULL WHERE session_id = ?", (session_id,))
-    conn.commit()
-    conn.close()
 
-    with patch.object(
-        database, "set_session_character", wraps=database.set_session_character
-    ) as spy:
-        (
-            user_id,
-            username,
-            role,
-            character_id,
-            character_name,
-            world_id,
-        ) = validate_session_for_game(session_id)
+    with pytest.raises(HTTPException) as exc_info:
+        validate_session_for_game(session_id)
 
-        assert spy.called is True
-
-    assert username == "testplayer"
-    assert role == "player"
-    assert character_id is not None
-    assert character_name == "testplayer_char"
-    assert world_id is not None
-    session = database.get_session_by_id(session_id)
-    assert session is not None
-    assert session["character_id"] == character_id
+    assert exc_info.value.status_code == 409
+    assert "Select a character first" in str(exc_info.value.detail)
 
 
 @pytest.mark.unit
@@ -488,7 +469,12 @@ def test_validate_session_for_game_sets_world_id(test_db, db_with_users):
     session_id = "world-sync-session"
     database.create_session("testplayer", session_id)
 
-    # Force session world_id to NULL to exercise sync path.
+    player_character = database.get_character_by_name("testplayer_char")
+    assert player_character is not None
+    assert database.set_session_character(session_id, int(player_character["id"])) is True
+
+    # Force session world_id to NULL to exercise sync path while character_id
+    # remains bound.
     conn = database.get_connection()
     cursor = conn.cursor()
     cursor.execute("UPDATE sessions SET world_id = NULL WHERE session_id = ?", (session_id,))

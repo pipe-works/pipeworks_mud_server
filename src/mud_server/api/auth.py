@@ -182,14 +182,14 @@ def validate_session_for_game(session_id: str) -> tuple[int, str, str, int, str,
     if not role:
         raise HTTPException(status_code=401, detail="Invalid session user")
 
+    # Account and character sessions are intentionally separate.
+    # Gameplay access requires an explicit prior character selection.
     character_id = session.get("character_id")
     if not character_id:
-        characters = database.get_user_characters(user_id)
-        if len(characters) == 1:
-            character_id = characters[0]["id"]
-            database.set_session_character(session_id, int(character_id))
-        else:
-            raise HTTPException(status_code=409, detail="No character selected for session")
+        raise HTTPException(
+            status_code=409,
+            detail="No character selected for session. Select a character first.",
+        )
 
     character_name = database.get_character_name_by_id(int(character_id))
     if not character_name:
