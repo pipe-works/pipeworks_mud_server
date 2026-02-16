@@ -587,6 +587,9 @@ def test_remove_sessions_for_character(test_db, temp_db_path, db_with_users):
     """Character-scoped session cleanup should remove matching sessions only."""
     with use_test_database(temp_db_path):
         assert database.create_session("testplayer", "session-char")
+        player_character = database.get_character_by_name("testplayer_char")
+        assert player_character is not None
+        assert database.set_session_character("session-char", int(player_character["id"]))
         session = database.get_session_by_id("session-char")
         assert session is not None
         assert session["character_id"] is not None

@@ -27,7 +27,7 @@ def test_get_all_users_detailed_online_status(temp_db_path) -> None:
         assert database.create_character_for_user(user_id, "online_char_a")
         assert database.create_character_for_user(user_id, "online_char_b")
 
-        # Account online without character selection (multiple characters prevents auto-select).
+        # Account-level login should remain character-less until explicit selection.
         assert database.create_session(user_id, "session-account-only")
         users = database.get_all_users_detailed()
         user = next(entry for entry in users if entry["username"] == "online_user")

@@ -46,6 +46,22 @@ def reset_bus_for_engine_tests():
     MudBus.reset_for_testing()
 
 
+def _bind_session_to_first_character(username: str, session_id: str) -> None:
+    """
+    Create an in-world session for a user's first character.
+
+    Account-first login now creates account-only sessions by default, so tests
+    that validate in-world online presence must explicitly bind a character to
+    the session.
+    """
+    user_id = database.get_user_id(username)
+    assert user_id is not None
+    characters = database.get_user_characters(user_id)
+    assert characters
+    assert database.create_session(user_id, session_id)
+    assert database.set_session_character(session_id, int(characters[0]["id"]))
+
+
 # ============================================================================
 # LOGIN/LOGOUT TESTS
 # ============================================================================
@@ -479,9 +495,9 @@ def test_whisper_success(mock_engine, test_db, temp_db_path, db_with_users):
         database.set_player_room("testplayer", "spawn")
         database.set_player_room("testadmin", "spawn")
 
-        # Create sessions (both online)
-        database.create_session("testplayer", "session-1")
-        database.create_session("testadmin", "session-2")
+        # Bind both users to in-world sessions so whisper online checks pass.
+        _bind_session_to_first_character("testplayer", "session-1")
+        _bind_session_to_first_character("testadmin", "session-2")
 
         success, message = mock_engine.whisper(
             "testplayer", "testadmin", "Secret message", world_id="pipeworks_web"
@@ -517,9 +533,9 @@ def test_whisper_target_different_room(mock_engine, test_db, temp_db_path, db_wi
         database.set_player_room("testplayer", "spawn")
         database.set_player_room("testadmin", "forest")
 
-        # Both online
-        database.create_session("testplayer", "session-1")
-        database.create_session("testadmin", "session-2")
+        # Both online with explicit in-world session bindings.
+        _bind_session_to_first_character("testplayer", "session-1")
+        _bind_session_to_first_character("testadmin", "session-2")
 
         success, message = mock_engine.whisper(
             "testplayer", "testadmin", "Hello", world_id="pipeworks_web"
@@ -597,8 +613,8 @@ def test_whisper_sanitizes_xss(mock_engine, test_db, temp_db_path, db_with_users
     with use_test_database(temp_db_path):
         database.set_player_room("testplayer", "spawn")
         database.set_player_room("testadmin", "spawn")
-        database.create_session("testplayer", "session-1")
-        database.create_session("testadmin", "session-2")
+        _bind_session_to_first_character("testplayer", "session-1")
+        _bind_session_to_first_character("testadmin", "session-2")
 
         xss_payload = "<a href='javascript:alert(1)'>click</a>"
         success, message = mock_engine.whisper(
@@ -759,9 +775,9 @@ def test_look_invalid_room(mock_engine, test_db, temp_db_path, db_with_users):
 def test_get_active_players(mock_engine, test_db, temp_db_path, db_with_users):
     """Test getting list of active players."""
     with use_test_database(temp_db_path):
-        # Create sessions
-        database.create_session("testplayer", "session-1")
-        database.create_session("testadmin", "session-2")
+        # Create in-world sessions (character selected).
+        _bind_session_to_first_character("testplayer", "session-1")
+        _bind_session_to_first_character("testadmin", "session-2")
 
         active = mock_engine.get_active_players()
 

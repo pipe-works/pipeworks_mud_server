@@ -173,95 +173,24 @@ def router(engine: GameEngine) -> APIRouter:
     @api.post("/login-direct", response_model=LoginDirectResponse)
     async def login_direct(request: LoginDirectRequest, http_request: Request):
         """
-        Direct login that binds a session to a world + character.
+        DEPRECATED: direct world login path.
 
-        This endpoint is intended for API clients that want to skip the
-        explicit world/character selection steps.
+        Architectural decision (Option A / breaking change):
+            Accounts must always authenticate into an account-only session
+            first, then explicitly select a character via `/characters/select`
+            before entering gameplay endpoints.
+
+        This endpoint is retained temporarily only to return a deterministic
+        migration error for older clients.
         """
-        username = request.username.strip()
-        password = request.password
-        world_id = request.world_id.strip()
-        character_name = request.character_name.strip() if request.character_name else None
-
-        if not character_name:
-            raise HTTPException(status_code=400, detail="character_name is required")
-
-        if not username or len(username) < 2 or len(username) > 20:
-            raise HTTPException(status_code=400, detail="Username must be 2-20 characters")
-
-        if not database.user_exists(username):
-            raise HTTPException(status_code=401, detail="Invalid username or password")
-
-        if not database.verify_password_for_user(username, password):
-            raise HTTPException(status_code=401, detail="Invalid username or password")
-
-        if not database.is_user_active(username):
-            raise HTTPException(status_code=401, detail="Account is deactivated")
-
-        user_id = database.get_user_id(username)
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid user record")
-
-        role = database.get_user_role(username)
-        if not role:
-            raise HTTPException(status_code=401, detail="Invalid user role")
-
-        available_worlds = get_available_worlds(user_id, role)
-        if world_id not in {world["id"] for world in available_worlds}:
-            raise HTTPException(status_code=403, detail="World access denied")
-
-        character_id: int | None = None
-        if character_name:
-            character = database.get_character_by_name(character_name)
-            if character:
-                if character.get("user_id") != user_id or character.get("world_id") != world_id:
-                    raise HTTPException(status_code=403, detail="Character not available")
-                character_id = int(character["id"])
-            else:
-                if not request.create_character:
-                    raise HTTPException(status_code=404, detail="Character not found")
-                if not config.worlds.allow_multi_world_characters:
-                    existing_worlds = database.get_user_character_world_ids(user_id)
-                    if existing_worlds and world_id not in existing_worlds:
-                        raise HTTPException(
-                            status_code=409,
-                            detail="Multi-world characters are disabled",
-                        )
-                if not database.create_character_for_user(
-                    user_id, character_name, world_id=world_id
-                ):
-                    raise HTTPException(status_code=409, detail="Failed to create character")
-                character = database.get_character_by_name(character_name)
-                if not character:
-                    raise HTTPException(status_code=500, detail="Character creation failed")
-                character_id = int(character["id"])
-
-        session_id = str(uuid.uuid4())
-        client_type = http_request.headers.get("X-Client-Type", "unknown").strip().lower()
-        if not client_type:
-            client_type = "unknown"
-
-        if not database.create_session(
-            user_id,
-            session_id,
-            client_type=client_type,
-            character_id=character_id,
-            world_id=world_id,
-        ):
-            raise HTTPException(status_code=500, detail="Failed to create session")
-
-        if character_id is not None:
-            if not database.set_session_character(session_id, character_id, world_id=world_id):
-                raise HTTPException(status_code=500, detail="Failed to bind character")
-
-        message = "Login successful."
-        return LoginDirectResponse(
-            success=True,
-            message=message,
-            session_id=session_id,
-            role=role,
-            character_name=character_name,
-            world_id=world_id,
+        _ = request
+        _ = http_request
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "Direct world login is deprecated. Use /login to create an account session, "
+                "then call /characters/select to enter a world."
+            ),
         )
 
     # =========================================================================

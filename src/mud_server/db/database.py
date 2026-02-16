@@ -464,13 +464,13 @@ def _create_default_character(
     character_id = cursor.lastrowid
     if character_id is None:
         raise ValueError("Failed to create default character.")
-    character_id = int(character_id)
+    character_id_int = int(character_id)
 
     # Seed axis scores + snapshots so new characters have baseline state.
-    _seed_character_axis_scores(cursor, character_id=character_id, world_id=world_id)
-    _seed_character_state_snapshot(cursor, character_id=character_id, world_id=world_id)
+    _seed_character_axis_scores(cursor, character_id=character_id_int, world_id=world_id)
+    _seed_character_state_snapshot(cursor, character_id=character_id_int, world_id=world_id)
 
-    return character_id
+    return character_id_int
 
 
 def _seed_character_location(
@@ -2178,42 +2178,46 @@ def create_session(
     """
     Create a new session record for a user.
 
+    Session model invariant (account-first authentication):
+      - Account-only session (default login):
+          character_id = NULL, world_id = NULL
+      - In-world session (after explicit selection):
+          character_id != NULL, world_id != NULL
+
     Behavior depends on configuration:
       - allow_multiple_sessions = False: remove existing sessions for the user
       - allow_multiple_sessions = True: keep existing sessions
 
-    If world_id is omitted, the default world is used. This is temporary
-    compatibility behavior until the API layer is updated to provide it.
+    Important:
+      - This function never auto-selects a character.
+      - Character/world binding must be explicit via ``set_session_character``
+        (or by passing both ``character_id`` and ``world_id`` directly).
     """
     from mud_server.config import config
 
     try:
-        if world_id is None:
-            world_id = DEFAULT_WORLD_ID
         if isinstance(user_id, str):
             resolved = get_user_id(user_id)
             if not resolved:
                 return False
             user_id = resolved
 
+        # Derive world binding only when the caller explicitly binds a
+        # character but omits world_id.
+        if character_id is not None and world_id is None:
+            character = get_character_by_id(int(character_id))
+            if not character:
+                return False
+            character_world_id = character.get("world_id")
+            if not character_world_id:
+                return False
+            world_id = str(character_world_id)
+
+        # Enforce account-only invariant: sessions without a bound character
+        # must not carry a world binding.
         if character_id is None:
-            conn = get_connection()
-            cursor = conn.cursor()
-            if world_id:
-                cursor.execute(
-                    "SELECT id FROM characters WHERE user_id = ? AND world_id = ? "
-                    "ORDER BY created_at ASC",
-                    (user_id, world_id),
-                )
-            else:
-                cursor.execute(
-                    "SELECT id FROM characters WHERE user_id = ? ORDER BY created_at ASC",
-                    (user_id,),
-                )
-            rows = cursor.fetchall()
-            conn.close()
-            if len(rows) == 1:
-                character_id = int(rows[0][0])
+            world_id = None
+
         conn = get_connection()
         cursor = conn.cursor()
 
@@ -2279,10 +2283,31 @@ def create_session(
 def set_session_character(
     session_id: str, character_id: int, *, world_id: str | None = None
 ) -> bool:
-    """Attach a character (and optionally world) to an existing session."""
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
+    """
+    Attach a character + world to an existing account session.
+
+    Args:
+        session_id: Existing session identifier.
+        character_id: Character id to bind.
+        world_id: Optional world id override.
+
+    Returns:
+        True when the session update succeeds; otherwise False.
+
+    Behavior:
+      - When ``world_id`` is omitted, we resolve it from the character row.
+      - We do not assume a default world for character binding.
+    """
     try:
+        if world_id is None:
+            character = get_character_by_id(character_id)
+            if not character:
+                return False
+            character_world_id = character.get("world_id")
+            if not character_world_id:
+                return False
+            world_id = str(character_world_id)
+
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
@@ -2482,22 +2507,35 @@ def clear_all_sessions() -> int:
 
 
 def get_active_characters(*, world_id: str | None = None) -> list[str]:
-    """Return character names with active sessions for a world."""
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
+    """
+    Return active in-world character names.
+
+    Args:
+        world_id: Optional world scope. When provided, only sessions bound to
+            that world are included. Account-only sessions are excluded.
+    """
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT DISTINCT c.name
-        FROM sessions s
-        JOIN characters c ON c.id = s.character_id
-        WHERE s.character_id IS NOT NULL
-          AND (s.world_id IS NULL OR s.world_id = ?)
-          AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
-    """,
-        (world_id,),
-    )
+    if world_id is None:
+        cursor.execute("""
+            SELECT DISTINCT c.name
+            FROM sessions s
+            JOIN characters c ON c.id = s.character_id
+            WHERE s.character_id IS NOT NULL
+              AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
+            """)
+    else:
+        cursor.execute(
+            """
+            SELECT DISTINCT c.name
+            FROM sessions s
+            JOIN characters c ON c.id = s.character_id
+            WHERE s.character_id IS NOT NULL
+              AND s.world_id = ?
+              AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
+            """,
+            (world_id,),
+        )
     rows = cursor.fetchall()
     conn.close()
     return [row[0] for row in rows]
@@ -2833,8 +2871,7 @@ def get_world_admin_rows() -> list[dict[str, Any]]:
     """
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        """
+    cursor.execute("""
         SELECT w.id,
                w.name,
                w.description,
@@ -2849,14 +2886,13 @@ def get_world_admin_rows() -> list[dict[str, Any]]:
                u.username
         FROM worlds w
         LEFT JOIN sessions s
-               ON COALESCE(s.world_id, ?) = w.id
+               ON s.world_id = w.id
+              AND s.character_id IS NOT NULL
               AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
         LEFT JOIN characters c ON c.id = s.character_id
         LEFT JOIN users u ON u.id = s.user_id
         ORDER BY w.id ASC, datetime(s.last_activity) DESC
-        """,
-        (DEFAULT_WORLD_ID,),
-    )
+        """)
     rows = cursor.fetchall()
     conn.close()
 
@@ -3272,7 +3308,7 @@ def get_all_sessions(*, world_id: str | None = None) -> list[dict[str, Any]]:
             JOIN users u ON u.id = s.user_id
             LEFT JOIN characters c ON c.id = s.character_id
             WHERE (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
-              AND (s.world_id IS NULL OR s.world_id = ?)
+              AND s.world_id = ?
             ORDER BY s.created_at DESC
         """,
             (world_id,),
@@ -3325,7 +3361,7 @@ def get_active_connections(*, world_id: str | None = None) -> list[dict[str, Any
         FROM sessions s
         JOIN users u ON u.id = s.user_id
         LEFT JOIN characters c ON c.id = s.character_id
-        WHERE {" AND ".join(where_clauses)} {"" if world_id is None else "AND (s.world_id IS NULL OR s.world_id = ?)"}
+        WHERE {" AND ".join(where_clauses)} {"" if world_id is None else "AND s.world_id = ?"}
         ORDER BY s.last_activity DESC
     """  # nosec B608
     if world_id is None:
