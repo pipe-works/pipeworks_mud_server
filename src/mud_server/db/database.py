@@ -31,13 +31,10 @@ Performance Notes:
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
-from secrets import randbelow
-from typing import Any, cast
+from typing import Any
 
 from mud_server.db.constants import DEFAULT_AXIS_SCORE, DEFAULT_WORLD_ID
 
@@ -92,7 +89,9 @@ def _generate_state_seed() -> int:
     Returns:
         Positive integer in the inclusive range [1, 2_147_483_647].
     """
-    return randbelow(2_147_483_647) + 1
+    from mud_server.db.axis_repo import _generate_state_seed as generate_state_seed_impl
+
+    return generate_state_seed_impl()
 
 
 def _get_db_path() -> Path:
@@ -190,15 +189,11 @@ def _generate_default_character_name(cursor: Any, username: str) -> str:
     The name intentionally differs from the account username to reduce
     confusion in admin views (characters vs. users).
     """
-    base = f"{username}_char"
-    candidate = base
-    counter = 1
-    while True:
-        cursor.execute("SELECT 1 FROM characters WHERE name = ? LIMIT 1", (candidate,))
-        if cursor.fetchone() is None:
-            return candidate
-        counter += 1
-        candidate = f"{base}_{counter}"
+    from mud_server.db.characters_repo import (
+        _generate_default_character_name as generate_default_character_name_impl,
+    )
+
+    return generate_default_character_name_impl(cursor, username)
 
 
 def _create_default_character(
@@ -210,37 +205,22 @@ def _create_default_character(
     Returns:
         The newly created character id.
     """
-    character_name = _generate_default_character_name(cursor, username)
-    cursor.execute(
-        """
-        INSERT INTO characters (user_id, name, world_id, is_guest_created)
-        VALUES (?, ?, ?, 0)
-    """,
-        (user_id, character_name, world_id),
+    from mud_server.db.characters_repo import (
+        _create_default_character as create_default_character_impl,
     )
-    character_id = cursor.lastrowid
-    if character_id is None:
-        raise ValueError("Failed to create default character.")
-    character_id_int = int(character_id)
 
-    # Seed axis scores + snapshots so new characters have baseline state.
-    _seed_character_axis_scores(cursor, character_id=character_id_int, world_id=world_id)
-    _seed_character_state_snapshot(cursor, character_id=character_id_int, world_id=world_id)
-
-    return character_id_int
+    return create_default_character_impl(cursor, user_id, username, world_id=world_id)
 
 
 def _seed_character_location(
     cursor: Any, character_id: int, *, world_id: str = DEFAULT_WORLD_ID
 ) -> None:
     """Seed a new character's location to the spawn room for the given world."""
-    cursor.execute(
-        """
-        INSERT INTO character_locations (character_id, world_id, room_id)
-        VALUES (?, ?, ?)
-    """,
-        (character_id, world_id, "spawn"),
+    from mud_server.db.characters_repo import (
+        _seed_character_location as seed_character_location_impl,
     )
+
+    seed_character_location_impl(cursor, character_id, world_id=world_id)
 
 
 def _resolve_character_name(cursor: Any, name: str, *, world_id: str | None = None) -> str | None:
@@ -251,30 +231,11 @@ def _resolve_character_name(cursor: Any, name: str, *, world_id: str | None = No
     into character-facing functions by mapping them to the user's first
     character (oldest by created_at).
     """
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
-
-    cursor.execute(
-        "SELECT name FROM characters WHERE name = ? AND world_id = ? LIMIT 1",
-        (name, world_id),
+    from mud_server.db.characters_repo import (
+        _resolve_character_name as resolve_character_name_impl,
     )
-    row = cursor.fetchone()
-    if row:
-        return cast(str, row[0])
 
-    cursor.execute("SELECT id FROM users WHERE username = ? LIMIT 1", (name,))
-    user_row = cursor.fetchone()
-    if not user_row:
-        return None
-
-    user_id = int(user_row[0])
-    cursor.execute(
-        "SELECT name FROM characters WHERE user_id = ? AND world_id = ? "
-        "ORDER BY created_at ASC LIMIT 1",
-        (user_id, world_id),
-    )
-    char_row = cursor.fetchone()
-    return cast(str, char_row[0]) if char_row else None
+    return resolve_character_name_impl(cursor, name, world_id=world_id)
 
 
 def resolve_character_name(name: str, *, world_id: str | None = None) -> str | None:
@@ -343,15 +304,11 @@ def _extract_axis_ordering_values(axis_data: dict[str, Any]) -> list[str]:
     Returns:
         List of ordered axis values if present, otherwise an empty list.
     """
-    ordering = (axis_data or {}).get("ordering")
-    if not isinstance(ordering, dict):
-        return []
+    from mud_server.db.axis_repo import (
+        _extract_axis_ordering_values as extract_axis_ordering_values_impl,
+    )
 
-    values = ordering.get("values")
-    if not isinstance(values, list):
-        return []
-
-    return [str(value) for value in values]
+    return extract_axis_ordering_values_impl(axis_data)
 
 
 def seed_axis_registry(
@@ -378,102 +335,12 @@ def seed_axis_registry(
     Returns:
         AxisRegistrySeedStats with counts of inserts and skips.
     """
-    axes_definitions = axes_payload.get("axes") or {}
-    thresholds_definitions = thresholds_payload.get("axes") or {}
+    from mud_server.db.axis_repo import seed_axis_registry as seed_axis_registry_impl
 
-    axes_upserted = 0
-    axis_values_inserted = 0
-    axes_missing_thresholds = 0
-    axis_values_skipped = 0
-
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    for axis_name, axis_data in axes_definitions.items():
-        axis_data = axis_data or {}
-
-        # Store ordering as JSON so the DB preserves world policy intent.
-        ordering = axis_data.get("ordering")
-        ordering_json = json.dumps(ordering, sort_keys=True) if ordering else None
-
-        # Persist axis registry row (description/order updates are idempotent).
-        cursor.execute(
-            """
-            INSERT INTO axis (world_id, name, description, ordering_json)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(world_id, name) DO UPDATE SET
-                description = excluded.description,
-                ordering_json = excluded.ordering_json
-            """,
-            (
-                world_id,
-                axis_name,
-                axis_data.get("description"),
-                ordering_json,
-            ),
-        )
-        axes_upserted += 1
-
-        cursor.execute(
-            "SELECT id FROM axis WHERE world_id = ? AND name = ? LIMIT 1",
-            (world_id, axis_name),
-        )
-        axis_row = cursor.fetchone()
-        if not axis_row:
-            # Defensive: if row resolution fails, skip axis values rather than crashing.
-            axis_values_skipped += 1
-            continue
-        axis_id = int(axis_row[0])
-
-        thresholds = thresholds_definitions.get(axis_name)
-        if not isinstance(thresholds, dict):
-            axes_missing_thresholds += 1
-            continue
-
-        values = thresholds.get("values") or {}
-        if not isinstance(values, dict):
-            axis_values_skipped += 1
-            continue
-
-        # Use ordering values for ordinals when available.
-        ordering_values = _extract_axis_ordering_values(axis_data)
-        ordinal_map = {value: index for index, value in enumerate(ordering_values)}
-
-        # Remove existing axis values so registry always reflects policy.
-        cursor.execute("DELETE FROM axis_value WHERE axis_id = ?", (axis_id,))
-
-        for value_name, value_bounds in values.items():
-            value_bounds = value_bounds or {}
-            min_score = value_bounds.get("min")
-            max_score = value_bounds.get("max")
-
-            # Normalize numeric bounds where possible (None preserves unknowns).
-            min_score = float(min_score) if min_score is not None else None
-            max_score = float(max_score) if max_score is not None else None
-
-            cursor.execute(
-                """
-                INSERT INTO axis_value (axis_id, value, min_score, max_score, ordinal)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    axis_id,
-                    str(value_name),
-                    min_score,
-                    max_score,
-                    ordinal_map.get(str(value_name)),
-                ),
-            )
-            axis_values_inserted += 1
-
-    conn.commit()
-    conn.close()
-
-    return AxisRegistrySeedStats(
-        axes_upserted=axes_upserted,
-        axis_values_inserted=axis_values_inserted,
-        axes_missing_thresholds=axes_missing_thresholds,
-        axis_values_skipped=axis_values_skipped,
+    return seed_axis_registry_impl(
+        world_id=world_id,
+        axes_payload=axes_payload,
+        thresholds_payload=thresholds_payload,
     )
 
 
@@ -489,14 +356,9 @@ def _get_axis_policy_hash(world_id: str) -> str | None:
     The hash is derived from the on-disk policy files, keeping state snapshots
     tied to a specific policy version.
     """
-    from pathlib import Path
+    from mud_server.db.axis_repo import _get_axis_policy_hash as get_axis_policy_hash_impl
 
-    from mud_server.config import config
-    from mud_server.policies import AxisPolicyLoader
-
-    loader = AxisPolicyLoader(worlds_root=Path(config.worlds.worlds_root))
-    _payload, report = loader.load(world_id)
-    return report.policy_hash
+    return get_axis_policy_hash_impl(world_id)
 
 
 def _resolve_axis_label_for_score(cursor: sqlite3.Cursor, axis_id: int, score: float) -> str | None:
@@ -506,23 +368,11 @@ def _resolve_axis_label_for_score(cursor: sqlite3.Cursor, axis_id: int, score: f
     The axis_value table is treated as a derived cache of policy thresholds.
     If no range matches, the label resolves to None.
     """
-    cursor.execute(
-        """
-        SELECT value
-        FROM axis_value
-        WHERE axis_id = ?
-          AND (? >= min_score OR min_score IS NULL)
-          AND (? <= max_score OR max_score IS NULL)
-        ORDER BY
-          CASE WHEN ordinal IS NULL THEN 1 ELSE 0 END,
-          ordinal,
-          min_score
-        LIMIT 1
-        """,
-        (axis_id, score, score),
+    from mud_server.db.axis_repo import (
+        _resolve_axis_label_for_score as resolve_axis_label_for_score_impl,
     )
-    row = cursor.fetchone()
-    return row[0] if row else None
+
+    return resolve_axis_label_for_score_impl(cursor, axis_id, score)
 
 
 def _resolve_axis_score_for_label(
@@ -544,29 +394,16 @@ def _resolve_axis_score_for_label(
     Returns:
         Numeric score for the label, or ``None`` when no mapping exists.
     """
-    cursor.execute(
-        """
-        SELECT av.min_score, av.max_score
-        FROM axis_value av
-        JOIN axis a ON a.id = av.axis_id
-        WHERE a.world_id = ? AND a.name = ? AND av.value = ?
-        LIMIT 1
-        """,
-        (world_id, axis_name, axis_label),
+    from mud_server.db.axis_repo import (
+        _resolve_axis_score_for_label as resolve_axis_score_for_label_impl,
     )
-    row = cursor.fetchone()
-    if not row:
-        return None
 
-    min_score = float(row[0]) if row[0] is not None else None
-    max_score = float(row[1]) if row[1] is not None else None
-    if min_score is not None and max_score is not None:
-        return (min_score + max_score) / 2.0
-    if min_score is not None:
-        return min_score
-    if max_score is not None:
-        return max_score
-    return DEFAULT_AXIS_SCORE
+    return resolve_axis_score_for_label_impl(
+        cursor,
+        world_id=world_id,
+        axis_name=axis_name,
+        axis_label=axis_label,
+    )
 
 
 def _flatten_entity_axis_labels(entity_state: dict[str, Any]) -> dict[str, str]:
@@ -583,26 +420,11 @@ def _flatten_entity_axis_labels(entity_state: dict[str, Any]) -> dict[str, str]:
     Returns:
         Flat mapping of axis names to label strings.
     """
-    labels: dict[str, str] = {}
+    from mud_server.db.axis_repo import (
+        _flatten_entity_axis_labels as flatten_entity_axis_labels_impl,
+    )
 
-    for group in ("character", "occupation"):
-        group_payload = entity_state.get(group)
-        if isinstance(group_payload, dict):
-            for axis_name, axis_value in group_payload.items():
-                if isinstance(axis_value, str) and axis_value.strip():
-                    labels[str(axis_name)] = axis_value.strip()
-
-    axes_payload = entity_state.get("axes")
-    if isinstance(axes_payload, dict):
-        for axis_name, axis_value in axes_payload.items():
-            if isinstance(axis_value, dict):
-                label = axis_value.get("label")
-                if isinstance(label, str) and label.strip():
-                    labels[str(axis_name)] = label.strip()
-            elif isinstance(axis_value, str) and axis_value.strip():
-                labels[str(axis_name)] = axis_value.strip()
-
-    return labels
+    return flatten_entity_axis_labels_impl(entity_state)
 
 
 def apply_entity_state_to_character(
@@ -632,56 +454,16 @@ def apply_entity_state_to_character(
         Event id when deltas were applied, otherwise ``None`` when no axis
         mappings were resolvable from the payload.
     """
-    axis_labels = _flatten_entity_axis_labels(entity_state)
-    if not axis_labels:
-        return None
+    from mud_server.db.axis_repo import (
+        apply_entity_state_to_character as apply_entity_state_to_character_impl,
+    )
 
-    conn = get_connection()
-    cursor = conn.cursor()
-    try:
-        current_scores = {
-            row["axis_name"]: float(row["axis_score"])
-            for row in _fetch_character_axis_scores(cursor, character_id, world_id)
-        }
-
-        deltas: dict[str, float] = {}
-        for axis_name, axis_label in axis_labels.items():
-            target_score = _resolve_axis_score_for_label(
-                cursor,
-                world_id=world_id,
-                axis_name=axis_name,
-                axis_label=axis_label,
-            )
-            if target_score is None:
-                continue
-
-            old_score = current_scores.get(axis_name, DEFAULT_AXIS_SCORE)
-            delta = target_score - old_score
-            if abs(delta) < 1e-9:
-                continue
-            deltas[axis_name] = delta
-    finally:
-        conn.close()
-
-    if not deltas:
-        return None
-
-    metadata: dict[str, str] = {
-        "source": "entity_state_api",
-        "axis_count": str(len(deltas)),
-    }
-    if seed is not None:
-        metadata["seed"] = str(seed)
-
-    return apply_axis_event(
-        world_id=world_id,
+    return apply_entity_state_to_character_impl(
         character_id=character_id,
+        world_id=world_id,
+        entity_state=entity_state,
+        seed=seed,
         event_type_name=event_type_name,
-        event_type_description=(
-            "Initial axis profile generated from external entity-state integration."
-        ),
-        deltas=deltas,
-        metadata=metadata,
     )
 
 
@@ -694,24 +476,11 @@ def _fetch_character_axis_scores(
     Returns:
         List of dicts with keys: axis_id, axis_name, axis_score.
     """
-    cursor.execute(
-        """
-        SELECT a.id, a.name, s.axis_score
-        FROM character_axis_score s
-        JOIN axis a ON a.id = s.axis_id
-        WHERE s.character_id = ? AND s.world_id = ?
-        ORDER BY a.name
-        """,
-        (character_id, world_id),
+    from mud_server.db.axis_repo import (
+        _fetch_character_axis_scores as fetch_character_axis_scores_impl,
     )
-    return [
-        {
-            "axis_id": int(row[0]),
-            "axis_name": row[1],
-            "axis_score": float(row[2]),
-        }
-        for row in cursor.fetchall()
-    ]
+
+    return fetch_character_axis_scores_impl(cursor, character_id, world_id)
 
 
 def _seed_character_axis_scores(
@@ -730,24 +499,16 @@ def _seed_character_axis_scores(
         world_id: World identifier for the character.
         default_score: Default numeric score for each axis.
     """
-    cursor.execute(
-        """
-        SELECT id, name
-        FROM axis
-        WHERE world_id = ?
-        ORDER BY name
-        """,
-        (world_id,),
+    from mud_server.db.axis_repo import (
+        _seed_character_axis_scores as seed_character_axis_scores_impl,
     )
-    for axis_id, _axis_name in cursor.fetchall():
-        cursor.execute(
-            """
-            INSERT OR IGNORE INTO character_axis_score
-                (character_id, world_id, axis_id, axis_score)
-            VALUES (?, ?, ?, ?)
-            """,
-            (character_id, world_id, int(axis_id), float(default_score)),
-        )
+
+    seed_character_axis_scores_impl(
+        cursor,
+        character_id=character_id,
+        world_id=world_id,
+        default_score=default_score,
+    )
 
 
 def _build_character_state_snapshot(
@@ -779,20 +540,17 @@ def _build_character_state_snapshot(
     Returns:
         Snapshot payload suitable for JSON serialization.
     """
-    axes_payload: dict[str, Any] = {}
-    for axis_row in _fetch_character_axis_scores(cursor, character_id, world_id):
-        label = _resolve_axis_label_for_score(cursor, axis_row["axis_id"], axis_row["axis_score"])
-        axes_payload[axis_row["axis_name"]] = {
-            "score": axis_row["axis_score"],
-            "label": label,
-        }
+    from mud_server.db.axis_repo import (
+        _build_character_state_snapshot as build_character_state_snapshot_impl,
+    )
 
-    return {
-        "world_id": world_id,
-        "seed": seed,
-        "policy_hash": policy_hash,
-        "axes": axes_payload,
-    }
+    return build_character_state_snapshot_impl(
+        cursor,
+        character_id=character_id,
+        world_id=world_id,
+        seed=seed,
+        policy_hash=policy_hash,
+    )
 
 
 def _seed_character_state_snapshot(
@@ -813,45 +571,15 @@ def _seed_character_state_snapshot(
         - Existing non-zero ``state_seed`` values are preserved.
         - Snapshot JSON and persisted ``state_seed`` are kept aligned.
     """
-    # Resolve the effective seed before building JSON so the serialized
-    # snapshot seed always matches the stored state_seed column.
-    cursor.execute("SELECT state_seed FROM characters WHERE id = ?", (character_id,))
-    row = cursor.fetchone()
-    existing_seed = int(row[0]) if row and row[0] is not None else 0
-    effective_seed = existing_seed if existing_seed > 0 else (seed or _generate_state_seed())
+    from mud_server.db.axis_repo import (
+        _seed_character_state_snapshot as seed_character_state_snapshot_impl,
+    )
 
-    policy_hash = _get_axis_policy_hash(world_id)
-    snapshot = _build_character_state_snapshot(
+    seed_character_state_snapshot_impl(
         cursor,
         character_id=character_id,
         world_id=world_id,
-        seed=effective_seed,
-        policy_hash=policy_hash,
-    )
-    snapshot_json = json.dumps(snapshot, sort_keys=True)
-    state_updated_at = datetime.now(UTC).isoformat()
-
-    cursor.execute(
-        """
-        UPDATE characters
-        SET base_state_json = COALESCE(base_state_json, ?),
-            current_state_json = ?,
-            state_seed = CASE
-                WHEN state_seed IS NULL OR state_seed = 0 THEN ?
-                ELSE state_seed
-            END,
-            state_version = ?,
-            state_updated_at = ?
-        WHERE id = ?
-        """,
-        (
-            snapshot_json,
-            snapshot_json,
-            effective_seed,
-            policy_hash,
-            state_updated_at,
-            character_id,
-        ),
+        seed=seed,
     )
 
 
@@ -871,38 +599,15 @@ def _refresh_character_current_snapshot(
         world_id: World identifier for the character.
         seed_increment: Amount to increment the stored state_seed.
     """
-    cursor.execute("SELECT state_seed FROM characters WHERE id = ?", (character_id,))
-    row = cursor.fetchone()
-    current_seed = int(row[0]) if row and row[0] is not None else 0
-    new_seed = current_seed + seed_increment
+    from mud_server.db.axis_repo import (
+        _refresh_character_current_snapshot as refresh_character_current_snapshot_impl,
+    )
 
-    policy_hash = _get_axis_policy_hash(world_id)
-    snapshot = _build_character_state_snapshot(
+    refresh_character_current_snapshot_impl(
         cursor,
         character_id=character_id,
         world_id=world_id,
-        seed=new_seed,
-        policy_hash=policy_hash,
-    )
-    snapshot_json = json.dumps(snapshot, sort_keys=True)
-    state_updated_at = datetime.now(UTC).isoformat()
-
-    cursor.execute(
-        """
-        UPDATE characters
-        SET current_state_json = ?,
-            state_seed = ?,
-            state_version = ?,
-            state_updated_at = ?
-        WHERE id = ?
-        """,
-        (
-            snapshot_json,
-            new_seed,
-            policy_hash,
-            state_updated_at,
-            character_id,
-        ),
+        seed_increment=seed_increment,
     )
 
 
@@ -1116,37 +821,25 @@ def _get_or_create_event_type_id(
     """
     Return event_type id for a world, creating it if missing.
     """
-    cursor.execute(
-        "SELECT id FROM event_type WHERE world_id = ? AND name = ? LIMIT 1",
-        (world_id, event_type_name),
+    from mud_server.db.events_repo import (
+        _get_or_create_event_type_id as get_or_create_event_type_id_impl,
     )
-    row = cursor.fetchone()
-    if row:
-        return int(row[0])
 
-    cursor.execute(
-        """
-        INSERT INTO event_type (world_id, name, description)
-        VALUES (?, ?, ?)
-        """,
-        (world_id, event_type_name, description),
+    return get_or_create_event_type_id_impl(
+        cursor,
+        world_id=world_id,
+        event_type_name=event_type_name,
+        description=description,
     )
-    event_type_id = cursor.lastrowid
-    if event_type_id is None:
-        raise ValueError("Failed to create event_type.")
-    return int(event_type_id)
 
 
 def _resolve_axis_id(cursor: sqlite3.Cursor, *, world_id: str, axis_name: str) -> int | None:
     """
     Resolve an axis id from name + world.
     """
-    cursor.execute(
-        "SELECT id FROM axis WHERE world_id = ? AND name = ? LIMIT 1",
-        (world_id, axis_name),
-    )
-    row = cursor.fetchone()
-    return int(row[0]) if row else None
+    from mud_server.db.events_repo import _resolve_axis_id as resolve_axis_id_impl
+
+    return resolve_axis_id_impl(cursor, world_id=world_id, axis_name=axis_name)
 
 
 def apply_axis_event(
@@ -1180,103 +873,16 @@ def apply_axis_event(
     Returns:
         Newly created event id.
     """
-    if not deltas:
-        raise ValueError("Event deltas must not be empty.")
+    from mud_server.db.events_repo import apply_axis_event as apply_axis_event_impl
 
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute("BEGIN")
-        event_type_id = _get_or_create_event_type_id(
-            cursor,
-            world_id=world_id,
-            event_type_name=event_type_name,
-            description=event_type_description,
-        )
-
-        cursor.execute(
-            """
-            INSERT INTO event (world_id, event_type_id)
-            VALUES (?, ?)
-            """,
-            (world_id, event_type_id),
-        )
-        event_id = cursor.lastrowid
-        if event_id is None:
-            raise ValueError("Failed to create event.")
-        event_id = int(event_id)
-
-        for axis_name, delta in deltas.items():
-            axis_id = _resolve_axis_id(cursor, world_id=world_id, axis_name=axis_name)
-            if axis_id is None:
-                raise ValueError(f"Unknown axis '{axis_name}' for world '{world_id}'.")
-
-            cursor.execute(
-                """
-                SELECT axis_score
-                FROM character_axis_score
-                WHERE character_id = ? AND axis_id = ?
-                """,
-                (character_id, axis_id),
-            )
-            row = cursor.fetchone()
-            if row is None:
-                old_score = DEFAULT_AXIS_SCORE
-                cursor.execute(
-                    """
-                    INSERT INTO character_axis_score
-                        (character_id, world_id, axis_id, axis_score)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (character_id, world_id, axis_id, old_score),
-                )
-            else:
-                old_score = float(row[0])
-
-            new_score = old_score + float(delta)
-
-            cursor.execute(
-                """
-                UPDATE character_axis_score
-                SET axis_score = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE character_id = ? AND axis_id = ?
-                """,
-                (new_score, character_id, axis_id),
-            )
-
-            cursor.execute(
-                """
-                INSERT INTO event_entity_axis_delta
-                    (event_id, character_id, axis_id, old_score, new_score, delta)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (event_id, character_id, axis_id, old_score, new_score, float(delta)),
-            )
-
-        if metadata:
-            for key, value in metadata.items():
-                cursor.execute(
-                    """
-                    INSERT INTO event_metadata (event_id, key, value)
-                    VALUES (?, ?, ?)
-                    """,
-                    (event_id, key, value),
-                )
-
-        _refresh_character_current_snapshot(
-            cursor,
-            character_id=character_id,
-            world_id=world_id,
-        )
-
-        conn.commit()
-        return event_id
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    return apply_axis_event_impl(
+        world_id=world_id,
+        character_id=character_id,
+        event_type_name=event_type_name,
+        deltas=deltas,
+        metadata=metadata,
+        event_type_description=event_type_description,
+    )
 
 
 # ==========================================================================
@@ -1706,66 +1312,9 @@ def get_character_axis_state(character_id: int) -> dict[str, Any] | None:
     Returns:
         Dict containing character state info or None if character is missing.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT id,
-               world_id,
-               base_state_json,
-               current_state_json,
-               state_seed,
-               state_version,
-               state_updated_at
-        FROM characters
-        WHERE id = ?
-        """,
-        (character_id,),
-    )
-    row = cursor.fetchone()
-    if not row:
-        conn.close()
-        return None
+    from mud_server.db.axis_repo import get_character_axis_state as get_character_axis_state_impl
 
-    world_id = row[1]
-    base_state_json = row[2]
-    current_state_json = row[3]
-    state_seed = row[4]
-    state_version = row[5]
-    state_updated_at = row[6]
-
-    def _safe_load(payload: str | None) -> dict[str, Any] | None:
-        if not payload:
-            return None
-        try:
-            return cast(dict[str, Any], json.loads(payload))
-        except json.JSONDecodeError:
-            return None
-
-    axes = []
-    for axis_row in _fetch_character_axis_scores(cursor, character_id, world_id):
-        label = _resolve_axis_label_for_score(cursor, axis_row["axis_id"], axis_row["axis_score"])
-        axes.append(
-            {
-                "axis_id": axis_row["axis_id"],
-                "axis_name": axis_row["axis_name"],
-                "axis_score": axis_row["axis_score"],
-                "axis_label": label,
-            }
-        )
-
-    conn.close()
-
-    return {
-        "character_id": int(row[0]),
-        "world_id": world_id,
-        "state_seed": state_seed,
-        "state_version": state_version,
-        "state_updated_at": state_updated_at,
-        "base_state": _safe_load(base_state_json),
-        "current_state": _safe_load(current_state_json),
-        "axes": axes,
-    }
+    return get_character_axis_state_impl(character_id)
 
 
 def get_character_axis_events(character_id: int, *, limit: int = 50) -> list[dict[str, Any]]:
@@ -1779,98 +1328,11 @@ def get_character_axis_events(character_id: int, *, limit: int = 50) -> list[dic
     Returns:
         List of events with deltas and metadata.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT DISTINCT e.id
-        FROM event_entity_axis_delta d
-        JOIN event e ON e.id = d.event_id
-        WHERE d.character_id = ?
-        ORDER BY e.id DESC
-        LIMIT ?
-        """,
-        (character_id, limit),
+    from mud_server.db.events_repo import (
+        get_character_axis_events as get_character_axis_events_impl,
     )
-    event_ids = [row[0] for row in cursor.fetchall()]
-    if not event_ids:
-        conn.close()
-        return []
 
-    placeholders = ",".join(["?"] * len(event_ids))
-    events_query = f"""
-        SELECT e.id,
-               e.world_id,
-               e.timestamp,
-               et.name,
-               et.description,
-               a.name,
-               d.old_score,
-               d.new_score,
-               d.delta
-        FROM event_entity_axis_delta d
-        JOIN event e ON e.id = d.event_id
-        JOIN event_type et ON et.id = e.event_type_id
-        JOIN axis a ON a.id = d.axis_id
-        WHERE d.character_id = ?
-          AND e.id IN ({placeholders})
-        ORDER BY e.id DESC, a.name ASC
-        """  # nosec B608
-    cursor.execute(events_query, [character_id, *event_ids])
-    rows = cursor.fetchall()
-
-    metadata_query = f"""
-        SELECT event_id, key, value
-        FROM event_metadata
-        WHERE event_id IN ({placeholders})
-        """  # nosec B608
-    cursor.execute(metadata_query, event_ids)
-    metadata_rows = cursor.fetchall()
-
-    conn.close()
-
-    metadata_map: dict[int, dict[str, str]] = {}
-    for event_id, key, value in metadata_rows:
-        event_id_int = int(event_id)
-        metadata_map.setdefault(event_id_int, {})[key] = value
-
-    events: dict[int, dict[str, Any]] = {}
-    for (
-        event_id,
-        world_id,
-        timestamp,
-        event_type_name,
-        event_type_description,
-        axis_name,
-        old_score,
-        new_score,
-        delta,
-    ) in rows:
-        event_id_int = int(event_id)
-        event = events.get(event_id_int)
-        if event is None:
-            event = {
-                "event_id": event_id_int,
-                "world_id": world_id,
-                "event_type": event_type_name,
-                "event_type_description": event_type_description,
-                "timestamp": timestamp,
-                "metadata": metadata_map.get(event_id_int, {}),
-                "deltas": [],
-            }
-            events[event_id_int] = event
-        event["deltas"].append(
-            {
-                "axis_name": axis_name,
-                "old_score": float(old_score),
-                "new_score": float(new_score),
-                "delta": float(delta),
-            }
-        )
-
-    ordered_events = [events[int(event_id)] for event_id in event_ids if int(event_id) in events]
-    return ordered_events
+    return get_character_axis_events_impl(character_id, limit=limit)
 
 
 # ==========================================================================
@@ -2066,98 +1528,37 @@ def list_worlds_for_user(
 
 def _quote_identifier(identifier: str) -> str:
     """Safely quote an SQLite identifier (table/column name)."""
-    escaped = identifier.replace('"', '""')
-    return f'"{escaped}"'
+    from mud_server.db.admin_repo import _quote_identifier as quote_identifier_impl
+
+    return quote_identifier_impl(identifier)
 
 
 def get_table_names() -> list[str]:
     """Return a sorted list of user-defined table names (excludes sqlite_*)."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT name
-        FROM sqlite_master
-        WHERE type='table' AND name NOT LIKE 'sqlite_%'
-        ORDER BY name
-    """)
-    rows = cursor.fetchall()
-    conn.close()
-    return [row[0] for row in rows]
+    from mud_server.db.admin_repo import get_table_names as get_table_names_impl
+
+    return get_table_names_impl()
 
 
 def list_tables() -> list[dict[str, Any]]:
     """Return table metadata for admin database browsing."""
-    conn = get_connection()
-    cursor = conn.cursor()
+    from mud_server.db.admin_repo import list_tables as list_tables_impl
 
-    tables: list[dict[str, Any]] = []
-    for table_name in get_table_names():
-        quoted_table = _quote_identifier(table_name)
-        cursor.execute(f"PRAGMA table_info({quoted_table})")
-        columns = [row[1] for row in cursor.fetchall()]
-
-        cursor.execute(f"SELECT COUNT(*) FROM {quoted_table}")  # nosec B608
-        row_count = int(cursor.fetchone()[0])
-
-        tables.append({"name": table_name, "columns": columns, "row_count": row_count})
-
-    conn.close()
-    return tables
+    return list_tables_impl()
 
 
 def get_schema_map() -> list[dict[str, Any]]:
     """Return table schemas with foreign key relationships for admin tooling."""
-    conn = get_connection()
-    cursor = conn.cursor()
+    from mud_server.db.admin_repo import get_schema_map as get_schema_map_impl
 
-    schema: list[dict[str, Any]] = []
-    for table_name in get_table_names():
-        quoted_table = _quote_identifier(table_name)
-        cursor.execute(f"PRAGMA table_info({quoted_table})")
-        columns = [row[1] for row in cursor.fetchall()]
-
-        cursor.execute(f"PRAGMA foreign_key_list({quoted_table})")
-        foreign_keys = [
-            {
-                "from_column": row[3],
-                "ref_table": row[2],
-                "ref_column": row[4],
-                "on_update": row[5],
-                "on_delete": row[6],
-            }
-            for row in cursor.fetchall()
-        ]
-
-        schema.append(
-            {
-                "name": table_name,
-                "columns": columns,
-                "foreign_keys": foreign_keys,
-            }
-        )
-
-    conn.close()
-    return schema
+    return get_schema_map_impl()
 
 
 def get_table_rows(table_name: str, limit: int = 100) -> tuple[list[str], list[list[Any]]]:
     """Return column names and rows for a given table."""
-    table_names = set(get_table_names())
-    if table_name not in table_names:
-        raise ValueError(f"Table '{table_name}' does not exist")
+    from mud_server.db.admin_repo import get_table_rows as get_table_rows_impl
 
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    quoted_table = _quote_identifier(table_name)
-    cursor.execute(f"PRAGMA table_info({quoted_table})")
-    columns = [row[1] for row in cursor.fetchall()]
-
-    cursor.execute(f"SELECT * FROM {quoted_table} LIMIT ?", (limit,))  # nosec B608
-    rows = [list(row) for row in cursor.fetchall()]
-
-    conn.close()
-    return columns, rows
+    return get_table_rows_impl(table_name, limit=limit)
 
 
 def get_all_users_detailed() -> list[dict[str, Any]]:
@@ -2176,330 +1577,44 @@ def get_all_users_detailed() -> list[dict[str, Any]]:
     - ``online_world_ids`` lists worlds where the user currently has active
       in-world presence (character-bound sessions only).
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT u.id,
-               u.username,
-               u.password_hash,
-               u.role,
-               u.account_origin,
-               u.is_guest,
-               u.guest_expires_at,
-               u.created_at,
-               u.last_login,
-               u.is_active,
-               u.tombstoned_at,
-               COUNT(c.id) AS character_count,
-               EXISTS(
-                   SELECT 1
-                   FROM sessions s
-                   WHERE s.user_id = u.id
-                     AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
-               ) AS is_online_account,
-               EXISTS(
-                   SELECT 1
-                   FROM sessions s
-                   WHERE s.user_id = u.id
-                     AND s.character_id IS NOT NULL
-                     AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
-               ) AS is_online_in_world,
-               (
-                   SELECT GROUP_CONCAT(world_id)
-                   FROM (
-                       SELECT DISTINCT s.world_id AS world_id
-                       FROM sessions s
-                       WHERE s.user_id = u.id
-                         AND s.character_id IS NOT NULL
-                         AND s.world_id IS NOT NULL
-                         AND (
-                           s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now')
-                         )
-                       ORDER BY s.world_id
-                   )
-               ) AS online_world_ids_csv
-        FROM users u
-        LEFT JOIN characters c ON c.user_id = u.id
-        WHERE u.tombstoned_at IS NULL
-        GROUP BY u.id
-        ORDER BY u.created_at DESC
-    """)
-    rows = cursor.fetchall()
-    conn.close()
+    from mud_server.db.admin_repo import get_all_users_detailed as get_all_users_detailed_impl
 
-    users = []
-    for row in rows:
-        online_world_ids_csv = row[14]
-        online_world_ids = (
-            [world_id for world_id in str(online_world_ids_csv).split(",") if world_id]
-            if online_world_ids_csv
-            else []
-        )
-        users.append(
-            {
-                "id": row[0],
-                "username": row[1],
-                "password_hash": row[2][:20] + "..." if len(row[2]) > 20 else row[2],
-                "role": row[3],
-                "account_origin": row[4],
-                "is_guest": bool(row[5]),
-                "guest_expires_at": row[6],
-                "created_at": row[7],
-                "last_login": row[8],
-                "is_active": bool(row[9]),
-                "tombstoned_at": row[10],
-                "character_count": row[11],
-                "is_online_account": bool(row[12]),
-                "is_online_in_world": bool(row[13]),
-                "online_world_ids": online_world_ids,
-            }
-        )
-    return users
+    return get_all_users_detailed_impl()
 
 
 def get_all_users() -> list[dict[str, Any]]:
     """Return basic user list for admin summaries."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT username, role, created_at, last_login, is_active
-        FROM users
-        ORDER BY created_at DESC
-    """)
-    rows = cursor.fetchall()
-    conn.close()
+    from mud_server.db.admin_repo import get_all_users as get_all_users_impl
 
-    return [
-        {
-            "username": row[0],
-            "role": row[1],
-            "created_at": row[2],
-            "last_login": row[3],
-            "is_active": bool(row[4]),
-        }
-        for row in rows
-    ]
+    return get_all_users_impl()
 
 
 def get_character_locations(*, world_id: str | None = None) -> list[dict[str, Any]]:
     """Return character location rows with names for admin display."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    if world_id is None:
-        cursor.execute("""
-            SELECT c.id,
-                   c.name,
-                   l.world_id,
-                   l.room_id,
-                   l.updated_at
-            FROM character_locations l
-            JOIN characters c ON c.id = l.character_id
-            ORDER BY c.id
-        """)
-    else:
-        cursor.execute(
-            """
-            SELECT c.id,
-                   c.name,
-                   l.world_id,
-                   l.room_id,
-                   l.updated_at
-            FROM character_locations l
-            JOIN characters c ON c.id = l.character_id
-            WHERE l.world_id = ?
-            ORDER BY c.id
-        """,
-            (world_id,),
-        )
-    rows = cursor.fetchall()
-    conn.close()
+    from mud_server.db.admin_repo import get_character_locations as get_character_locations_impl
 
-    locations: list[dict[str, Any]] = []
-    for row in rows:
-        locations.append(
-            {
-                "character_id": row[0],
-                "character_name": row[1],
-                "world_id": row[2],
-                "room_id": row[3],
-                "updated_at": row[4],
-            }
-        )
-    return locations
+    return get_character_locations_impl(world_id=world_id)
 
 
 def get_all_sessions(*, world_id: str | None = None) -> list[dict[str, Any]]:
     """Return all active (non-expired) sessions."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    if world_id is None:
-        cursor.execute("""
-            SELECT s.id,
-                   u.username,
-                   c.name,
-                   s.world_id,
-                   s.session_id,
-                   s.created_at,
-                   s.last_activity,
-                   s.expires_at,
-                   s.client_type
-            FROM sessions s
-            JOIN users u ON u.id = s.user_id
-            LEFT JOIN characters c ON c.id = s.character_id
-            WHERE s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now')
-            ORDER BY s.created_at DESC
-        """)
-    else:
-        cursor.execute(
-            """
-            SELECT s.id,
-                   u.username,
-                   c.name,
-                   s.world_id,
-                   s.session_id,
-                   s.created_at,
-                   s.last_activity,
-                   s.expires_at,
-                   s.client_type
-            FROM sessions s
-            JOIN users u ON u.id = s.user_id
-            LEFT JOIN characters c ON c.id = s.character_id
-            WHERE (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
-              AND s.world_id = ?
-            ORDER BY s.created_at DESC
-        """,
-            (world_id,),
-        )
-    rows = cursor.fetchall()
-    conn.close()
+    from mud_server.db.admin_repo import get_all_sessions as get_all_sessions_impl
 
-    sessions = []
-    for row in rows:
-        sessions.append(
-            {
-                "id": row[0],
-                "username": row[1],
-                "character_name": row[2],
-                "world_id": row[3],
-                "session_id": row[4],
-                "created_at": row[5],
-                "last_activity": row[6],
-                "expires_at": row[7],
-                "client_type": row[8],
-            }
-        )
-    return sessions
+    return get_all_sessions_impl(world_id=world_id)
 
 
 def get_active_connections(*, world_id: str | None = None) -> list[dict[str, Any]]:
     """Return active sessions with activity age in seconds."""
-    from mud_server.config import config
+    from mud_server.db.admin_repo import get_active_connections as get_active_connections_impl
 
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    where_clauses = ["(s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))"]
-    params: list[str] = []
-    if config.session.active_window_minutes > 0:
-        where_clauses.append("datetime(s.last_activity) >= datetime('now', ?)")
-        params.append(f"-{config.session.active_window_minutes} minutes")
-
-    sql = f"""
-        SELECT s.id,
-               u.username,
-               c.name,
-               s.world_id,
-               s.session_id,
-               s.created_at,
-               s.last_activity,
-               s.expires_at,
-               s.client_type,
-               CAST(strftime('%s','now') - strftime('%s', s.last_activity) AS INTEGER) AS age_seconds
-        FROM sessions s
-        JOIN users u ON u.id = s.user_id
-        LEFT JOIN characters c ON c.id = s.character_id
-        WHERE {" AND ".join(where_clauses)} {"" if world_id is None else "AND s.world_id = ?"}
-        ORDER BY s.last_activity DESC
-    """  # nosec B608
-    if world_id is None:
-        cursor.execute(sql, params)
-    else:
-        cursor.execute(sql, [*params, world_id])
-    rows = cursor.fetchall()
-    conn.close()
-
-    sessions: list[dict[str, Any]] = []
-    for row in rows:
-        sessions.append(
-            {
-                "id": row[0],
-                "username": row[1],
-                "character_name": row[2],
-                "world_id": row[3],
-                "session_id": row[4],
-                "created_at": row[5],
-                "last_activity": row[6],
-                "expires_at": row[7],
-                "client_type": row[8],
-                "age_seconds": row[9],
-            }
-        )
-    return sessions
+    return get_active_connections_impl(world_id=world_id)
 
 
 def get_all_chat_messages(limit: int = 100, *, world_id: str | None = None) -> list[dict[str, Any]]:
     """Return recent chat messages across all rooms."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    if world_id is None:
-        cursor.execute(
-            """
-            SELECT m.id,
-                   c.name,
-                   m.message,
-                   m.world_id,
-                   m.room,
-                   m.timestamp
-            FROM chat_messages m
-            JOIN characters c ON c.id = m.character_id
-            ORDER BY m.timestamp DESC
-            LIMIT ?
-        """,
-            (limit,),
-        )
-    else:
-        cursor.execute(
-            """
-            SELECT m.id,
-                   c.name,
-                   m.message,
-                   m.world_id,
-                   m.room,
-                   m.timestamp
-            FROM chat_messages m
-            JOIN characters c ON c.id = m.character_id
-            WHERE m.world_id = ?
-            ORDER BY m.timestamp DESC
-            LIMIT ?
-        """,
-            (world_id, limit),
-        )
-    rows = cursor.fetchall()
-    conn.close()
+    from mud_server.db.admin_repo import get_all_chat_messages as get_all_chat_messages_impl
 
-    messages = []
-    for row in rows:
-        messages.append(
-            {
-                "id": row[0],
-                "username": row[1],
-                "message": row[2],
-                "world_id": row[3],
-                "room": row[4],
-                "timestamp": row[5],
-            }
-        )
-    return messages
+    return get_all_chat_messages_impl(limit=limit, world_id=world_id)
 
 
 # ==========================================================================
@@ -2509,15 +1624,9 @@ def get_all_chat_messages(limit: int = 100, *, world_id: str | None = None) -> l
 
 def player_exists(username: str) -> bool:
     """Backward-compatible alias for user_exists()."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id FROM users WHERE username = ? AND tombstoned_at IS NULL",
-        (username,),
-    )
-    row = cursor.fetchone()
-    conn.close()
-    return row is not None
+    from mud_server.db.users_repo import player_exists as player_exists_impl
+
+    return player_exists_impl(username)
 
 
 def get_player_role(username: str) -> str | None:

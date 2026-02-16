@@ -110,6 +110,19 @@ def user_exists(username: str) -> bool:
     return result is not None
 
 
+def player_exists(username: str) -> bool:
+    """Return ``True`` for non-tombstoned account rows matching username."""
+    conn = _get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id FROM users WHERE username = ? AND tombstoned_at IS NULL",
+        (username,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return row is not None
+
+
 def get_user_id(username: str) -> int | None:
     """Return user id for ``username`` or ``None`` if missing."""
     conn = _get_connection()

@@ -73,6 +73,54 @@ def _resolve_character_name(cursor: Any, name: str, *, world_id: str | None = No
     return cast(str, char_row[0]) if char_row else None
 
 
+def _generate_default_character_name(cursor: Any, username: str) -> str:
+    """Generate a unique compatibility default character name for a username."""
+    base = f"{username}_char"
+    candidate = base
+    counter = 1
+    while True:
+        cursor.execute("SELECT 1 FROM characters WHERE name = ? LIMIT 1", (candidate,))
+        if cursor.fetchone() is None:
+            return candidate
+        counter += 1
+        candidate = f"{base}_{counter}"
+
+
+def _create_default_character(cursor: Any, user_id: int, username: str, *, world_id: str) -> int:
+    """Create a default character row and seed axis/location snapshot state."""
+    from mud_server.db import database
+
+    character_name = _generate_default_character_name(cursor, username)
+    cursor.execute(
+        """
+        INSERT INTO characters (user_id, name, world_id, is_guest_created)
+        VALUES (?, ?, ?, 0)
+        """,
+        (user_id, character_name, world_id),
+    )
+    character_id = cursor.lastrowid
+    if character_id is None:
+        raise ValueError("Failed to create default character.")
+    character_id_int = int(character_id)
+
+    database._seed_character_axis_scores(cursor, character_id=character_id_int, world_id=world_id)
+    database._seed_character_state_snapshot(
+        cursor, character_id=character_id_int, world_id=world_id
+    )
+    return character_id_int
+
+
+def _seed_character_location(cursor: Any, character_id: int, *, world_id: str) -> None:
+    """Seed a new character location row to the world spawn room."""
+    cursor.execute(
+        """
+        INSERT INTO character_locations (character_id, world_id, room_id)
+        VALUES (?, ?, ?)
+        """,
+        (character_id, world_id, "spawn"),
+    )
+
+
 def resolve_character_name(name: str, *, world_id: str | None = None) -> str | None:
     """Public wrapper that resolves a character name using compatibility rules."""
     conn = _get_connection()
