@@ -3268,7 +3268,12 @@ def get_table_rows(table_name: str, limit: int = 100) -> tuple[list[str], list[l
 
 def get_all_users_detailed() -> list[dict[str, Any]]:
     """
-    Return detailed user list for admin database viewer.
+    Return detailed, active-account user rows for the admin Active Users view.
+
+    Tombstoned accounts are intentionally excluded from this query. The Active
+    Users card is the operational surface for live/managed accounts; historical
+    tombstone audit remains available via character tombstone data and raw table
+    inspection endpoints.
 
     Online semantics:
     - ``is_online_account`` is true when any active session exists.
@@ -3321,6 +3326,7 @@ def get_all_users_detailed() -> list[dict[str, Any]]:
                ) AS online_world_ids_csv
         FROM users u
         LEFT JOIN characters c ON c.user_id = u.id
+        WHERE u.tombstoned_at IS NULL
         GROUP BY u.id
         ORDER BY u.created_at DESC
     """)

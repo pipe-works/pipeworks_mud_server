@@ -52,6 +52,9 @@ async function renderDashboard(root, { api, session }) {
           <p class="muted">Jump straight to high-impact views.</p>
           <div class="actions">
             <a href="/admin/users">Manage users</a>
+            <a href="/admin/accounts">Account dashboard</a>
+            <a href="/admin/characters">Character dashboard</a>
+            <a href="/admin/tombstones">Tombstone dashboard</a>
             <a href="/admin/sessions">Active sessions</a>
             <a href="/admin/tables">Database tables</a>
           </div>

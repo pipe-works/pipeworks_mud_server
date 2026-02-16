@@ -490,9 +490,11 @@ class UserListResponse(BaseModel):
 
 class DatabasePlayersResponse(BaseModel):
     """
-    Admin response containing all user records from database.
+    Admin response containing non-tombstoned user records for Active Users views.
 
-    Requires VIEW_LOGS permission. Includes account details and character counts.
+    Requires VIEW_LOGS permission. Includes account details and character counts
+    for currently manageable accounts. Tombstoned/deleted (archival) accounts
+    are intentionally excluded from this response contract.
 
     Attributes:
         players: List of user data dictionaries with fields:

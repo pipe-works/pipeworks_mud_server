@@ -124,6 +124,7 @@ Admin
 * ``GET /admin/database/players`` - List users (Admin+)
   - Includes ``is_online_account`` and ``is_online_in_world`` to distinguish
     dashboard logins from active in-world sessions.
+  - Returns non-tombstoned accounts for the Active Users card.
 * ``GET /admin/database/connections`` - Active connections (Admin+)
 * ``GET /admin/database/player-locations`` - Character locations (Admin+)
 * ``GET /admin/database/tables`` - Database table metadata (Admin+)

@@ -63,3 +63,44 @@ def test_get_all_users_detailed_online_status(temp_db_path) -> None:
         users = database.get_all_users_detailed()
         user = next(entry for entry in users if entry["username"] == "online_user")
         assert user["online_world_ids"] == ["daily_undertaking", database.DEFAULT_WORLD_ID]
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_all_users_detailed_excludes_tombstoned_accounts(temp_db_path) -> None:
+    """
+    Active-users query should hide tombstoned accounts.
+
+    Section 2 of the admin card requirements separates live operational rows
+    from archival/deleted account records. Tombstoned users should therefore be
+    absent from ``get_all_users_detailed()`` even though their row still exists
+    in the ``users`` table for audit/history purposes.
+    """
+    with use_test_database(temp_db_path):
+        database.init_database(skip_superuser=True)
+
+        assert database.create_user_with_password(
+            "active_account", TEST_PASSWORD, create_default_character=False
+        )
+        assert database.create_user_with_password(
+            "to_be_tombstoned", TEST_PASSWORD, create_default_character=False
+        )
+
+        assert database.delete_user("to_be_tombstoned") is True
+
+        # Verify the row still exists in storage as a tombstone record.
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT tombstoned_at FROM users WHERE username = ?",
+            ("to_be_tombstoned",),
+        )
+        tombstone_row = cursor.fetchone()
+        conn.close()
+        assert tombstone_row is not None
+        assert tombstone_row[0] is not None
+
+        users = database.get_all_users_detailed()
+        usernames = {entry["username"] for entry in users}
+        assert "active_account" in usernames
+        assert "to_be_tombstoned" not in usernames

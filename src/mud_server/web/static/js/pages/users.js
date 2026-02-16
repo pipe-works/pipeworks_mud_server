@@ -270,7 +270,9 @@ function sortUsers(users, sortState) {
 }
 
 function filterUsers(users, searchTerm, activeOnly, onlineOnly) {
-  let filtered = [...users];
+  // Keep the Active Users grid focused on currently manageable accounts.
+  // Tombstoned users remain visible through explicit audit/table flows.
+  let filtered = users.filter((user) => !user.tombstoned_at);
   if (activeOnly) {
     filtered = filtered.filter((user) => user.is_active);
   }
@@ -307,6 +309,74 @@ function formatAxisScore(score) {
     return '—';
   }
   return score.toFixed(2);
+}
+
+/**
+ * Convert technical event keys (for example "entity_state_apply") into a
+ * human-readable title for event cards.
+ */
+function formatEventTypeLabel(eventType) {
+  if (!eventType) {
+    return 'Event';
+  }
+  return String(eventType)
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/**
+ * Derive a compact summary that explains what the axis event actually did.
+ *
+ * The rendering pipeline prefers explicit backend descriptions, then metadata,
+ * then falls back to a delta-derived sentence.
+ */
+function buildAxisEventSummary(event) {
+  const description =
+    event?.event_type_description && String(event.event_type_description).trim();
+  if (description) {
+    return description;
+  }
+
+  const metadata = event?.metadata || {};
+  const summary = metadata.summary || metadata.reason || metadata.message || '';
+  if (summary) {
+    return String(summary);
+  }
+
+  const action = metadata.action ? String(metadata.action) : '';
+  const source = metadata.source ? String(metadata.source) : '';
+  if (action && source) {
+    return `${action} (${source})`;
+  }
+  if (action) {
+    return action;
+  }
+  if (source) {
+    return source;
+  }
+
+  const deltas = Array.isArray(event?.deltas) ? event.deltas : [];
+  if (deltas.length === 1) {
+    const [delta] = deltas;
+    const axisName = delta?.axis_name ? String(delta.axis_name) : 'Axis';
+    const change = Number(delta?.delta);
+    if (Number.isFinite(change)) {
+      if (change > 0) {
+        return `${axisName} increased by ${formatAxisScore(change)}`;
+      }
+      if (change < 0) {
+        return `${axisName} decreased by ${formatAxisScore(Math.abs(change))}`;
+      }
+    }
+    return `${axisName} was updated`;
+  }
+
+  if (deltas.length > 1) {
+    return `${deltas.length} axis values updated`;
+  }
+
+  return 'No additional event details.';
 }
 
 function escapeHtml(value) {
@@ -401,6 +471,8 @@ function buildAxisStatePanel({
 
     return axisEvents
       .map((event) => {
+        const eventLabel = formatEventTypeLabel(event.event_type);
+        const eventSummary = buildAxisEventSummary(event);
         const metadata = event.metadata || {};
         const metadataHtml = Object.keys(metadata).length
           ? `
@@ -433,7 +505,9 @@ function buildAxisStatePanel({
           <div class="axis-event">
             <div class="axis-event-header">
               <div>
-                <div class="axis-event-title">${escapeHtml(event.event_type)}</div>
+                <div class="axis-event-title">${escapeHtml(eventLabel)}</div>
+                <div class="axis-event-kind">${escapeHtml(event.event_type)}</div>
+                <div class="axis-event-summary">${escapeHtml(eventSummary)}</div>
                 <div class="axis-event-sub">${escapeHtml(event.timestamp || '—')}</div>
               </div>
               <div class="axis-event-world">${escapeHtml(event.world_id)}</div>
