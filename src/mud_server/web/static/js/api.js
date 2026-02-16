@@ -142,6 +142,13 @@ class ApiClient {
   }
 
   /**
+   * Fetch world operations rows (status + active character sessions).
+   */
+  async getWorldStatus(sessionId) {
+    return this.fetcher(`/admin/database/worlds?session_id=${sessionId}`);
+  }
+
+  /**
    * Fetch axis state for a character (admin only).
    */
   async getCharacterAxisState(sessionId, characterId) {
@@ -164,6 +171,17 @@ class ApiClient {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId, target_session_id: targetSessionId }),
+    });
+  }
+
+  /**
+   * Kick all active sessions for a target character.
+   */
+  async kickCharacter(sessionId, characterId) {
+    return this.fetcher('/admin/character/kick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, character_id: characterId }),
     });
   }
 

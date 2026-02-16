@@ -81,3 +81,53 @@ def test_list_worlds_for_admin_roles(db_with_users):
 
     assert {world["id"] for world in admin_worlds} == {"daily_undertaking", "pipeworks_web"}
     assert {world["id"] for world in super_worlds} == {"daily_undertaking", "pipeworks_web"}
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_world_admin_rows_reports_online_state_and_active_characters(db_with_users):
+    """World admin rows should include live online state and kickable character rows."""
+    admin_id = database.get_user_id("testadmin")
+    assert admin_id is not None
+
+    conn = database.get_connection()
+    cursor = conn.cursor()
+    _seed_world(cursor, "daily_undertaking", is_active=1)
+    _seed_world(cursor, "offline_world", is_active=1)
+    conn.commit()
+    conn.close()
+
+    assert database.create_session("testplayer", "player-session")
+
+    assert database.create_character_for_user(
+        admin_id, "testadmin_daily", world_id="daily_undertaking"
+    )
+    daily_character = database.get_character_by_name("testadmin_daily")
+    assert daily_character is not None
+    assert database.create_session(
+        admin_id,
+        "admin-daily-session",
+        character_id=int(daily_character["id"]),
+        world_id="daily_undertaking",
+    )
+
+    rows = database.get_world_admin_rows()
+    by_world = {row["world_id"]: row for row in rows}
+
+    pipeworks = by_world["pipeworks_web"]
+    assert pipeworks["is_online"] is True
+    assert pipeworks["active_session_count"] >= 1
+    assert pipeworks["active_character_count"] >= 1
+    assert any(entry["session_id"] == "player-session" for entry in pipeworks["active_characters"])
+
+    daily = by_world["daily_undertaking"]
+    assert daily["is_online"] is True
+    assert daily["active_session_count"] == 1
+    assert daily["active_character_count"] == 1
+    assert daily["active_characters"][0]["character_name"] == "testadmin_daily"
+
+    offline = by_world["offline_world"]
+    assert offline["is_online"] is False
+    assert offline["active_session_count"] == 0
+    assert offline["active_character_count"] == 0
+    assert offline["active_characters"] == []

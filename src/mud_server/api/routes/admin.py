@@ -28,6 +28,10 @@ from mud_server.api.models import (
     DatabaseTableInfo,
     DatabaseTableRowsResponse,
     DatabaseTablesResponse,
+    DatabaseWorldStatusResponse,
+    DatabaseWorldStatusRow,
+    KickCharacterRequest,
+    KickCharacterResponse,
     KickSessionRequest,
     KickSessionResponse,
     ManageCharacterRequest,
@@ -36,6 +40,7 @@ from mud_server.api.models import (
     ServerStopResponse,
     UserManagementRequest,
     UserManagementResponse,
+    WorldActiveCharacterSession,
 )
 from mud_server.api.permissions import Permission, can_manage_role
 from mud_server.api.routes.utils import resolve_zone_id
@@ -198,6 +203,35 @@ def router(engine: GameEngine) -> APIRouter:
         users = database.get_all_users_detailed()
         return DatabasePlayersResponse(players=users)
 
+    @api.get("/admin/database/worlds", response_model=DatabaseWorldStatusResponse)
+    async def get_database_worlds(session_id: str):
+        """
+        Get world operations rows with live online/session details (Admin only).
+
+        This endpoint is purpose-built for the WebUI worlds operations table.
+        It exposes per-world online state and kickable character session rows.
+        """
+        _, _, _ = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
+        worlds = []
+        for row in database.get_world_admin_rows():
+            active_characters = [
+                WorldActiveCharacterSession(**entry) for entry in row.get("active_characters", [])
+            ]
+            worlds.append(
+                DatabaseWorldStatusRow(
+                    world_id=row["world_id"],
+                    name=row["name"],
+                    description=row["description"] or "",
+                    is_active=bool(row["is_active"]),
+                    is_online=bool(row["is_online"]),
+                    active_session_count=int(row["active_session_count"]),
+                    active_character_count=int(row["active_character_count"]),
+                    last_activity=row.get("last_activity"),
+                    active_characters=active_characters,
+                )
+            )
+        return DatabaseWorldStatusResponse(worlds=worlds)
+
     @api.get("/admin/database/connections", response_model=DatabaseConnectionsResponse)
     async def get_database_connections(session_id: str):
         """Get active session connections with activity age (Admin only)."""
@@ -264,6 +298,33 @@ def router(engine: GameEngine) -> APIRouter:
         if removed:
             return KickSessionResponse(success=True, message="Session disconnected")
         return KickSessionResponse(success=False, message="Session not found")
+
+    @api.post("/admin/character/kick", response_model=KickCharacterResponse)
+    async def kick_character(request: KickCharacterRequest):
+        """
+        Disconnect all active sessions for a target character.
+
+        This supports world-operations tooling where moderators target a
+        character identity rather than a raw session id.
+        """
+        _, _, _ = validate_session_with_permission(request.session_id, Permission.KICK_USERS)
+
+        character = database.get_character_by_id(request.character_id)
+        if character is None:
+            raise HTTPException(status_code=404, detail="Character not found")
+
+        removed_count = database.remove_sessions_for_character_count(request.character_id)
+        if removed_count > 0:
+            return KickCharacterResponse(
+                success=True,
+                message=f"Disconnected {removed_count} session(s) for {character['name']}.",
+                removed_sessions=removed_count,
+            )
+        return KickCharacterResponse(
+            success=False,
+            message=f"No active sessions found for {character['name']}.",
+            removed_sessions=0,
+        )
 
     @api.get("/admin/database/tables", response_model=DatabaseTablesResponse)
     async def get_database_tables(session_id: str):

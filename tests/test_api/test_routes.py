@@ -1090,6 +1090,50 @@ def test_command_who_lists_players(authenticated_client, test_db, temp_db_path, 
 
 @pytest.mark.api
 @pytest.mark.game
+def test_command_kick_requires_admin_permissions(authenticated_client, test_db, temp_db_path):
+    """Player role should not be able to execute /kick."""
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        response = client.post(
+            "/command", json={"session_id": session_id, "command": "kick testadmin_char"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+        assert "Insufficient permissions" in response.json()["message"]
+
+
+@pytest.mark.api
+@pytest.mark.game
+def test_command_kick_as_admin_disconnects_target(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Admin /kick should disconnect all sessions for the target character."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        admin_session = admin_login.json()["session_id"]
+
+        player_login = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        player_session = player_login.json()["session_id"]
+
+        response = test_client.post(
+            "/command",
+            json={"session_id": admin_session, "command": "kick testplayer_char"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+        assert database.get_session_by_id(player_session) is None
+
+
+@pytest.mark.api
+@pytest.mark.game
 def test_command_help(authenticated_client, test_db, temp_db_path):
     """Test /command help returns help text."""
     with use_test_database(temp_db_path):
@@ -1597,6 +1641,85 @@ def test_admin_kick_session_not_found(test_client, test_db, temp_db_path, db_wit
         )
         assert response.status_code == 200
         assert response.json()["success"] is False
+
+
+@pytest.mark.api
+def test_admin_database_worlds_includes_online_status(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Worlds operations endpoint should expose world online state and active characters."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        player_login = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        player_session = player_login.json()["session_id"]
+
+        response = test_client.get("/admin/database/worlds", params={"session_id": session_id})
+        assert response.status_code == 200
+        payload = response.json()
+        assert "worlds" in payload
+
+        pipeworks = next(
+            world for world in payload["worlds"] if world["world_id"] == "pipeworks_web"
+        )
+        assert pipeworks["is_online"] is True
+        assert pipeworks["active_session_count"] >= 1
+        assert any(row["session_id"] == player_session for row in pipeworks["active_characters"])
+
+
+@pytest.mark.api
+def test_admin_kick_character_not_found(test_client, test_db, temp_db_path, db_with_users):
+    """Kick character should return 404 for unknown character id."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = admin_login.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/character/kick",
+            json={"session_id": session_id, "character_id": 999999},
+        )
+        assert response.status_code == 404
+
+
+@pytest.mark.api
+def test_admin_kick_character_disconnects_active_sessions(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Kick character should remove active sessions bound to the target character."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        admin_session = admin_login.json()["session_id"]
+
+        player_login = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        player_session = player_login.json()["session_id"]
+
+        target_character = database.get_character_by_name("testplayer_char")
+        assert target_character is not None
+
+        response = test_client.post(
+            "/admin/character/kick",
+            json={
+                "session_id": admin_session,
+                "character_id": int(target_character["id"]),
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["success"] is True
+        assert payload["removed_sessions"] >= 1
+        assert database.get_session_by_id(player_session) is None
 
 
 @pytest.mark.api

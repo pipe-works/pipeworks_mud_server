@@ -417,6 +417,31 @@ def test_player_cannot_kick_session(test_client, test_db, temp_db_path, db_with_
         assert response.status_code == 403
 
 
+@pytest.mark.admin
+@pytest.mark.api
+def test_player_cannot_kick_character(test_client, test_db, temp_db_path, db_with_users):
+    """Test player cannot kick characters."""
+    with use_test_database(temp_db_path):
+        player_login = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        player_session = player_login.json()["session_id"]
+
+        target_character = database.get_character_by_name("testadmin_char")
+        assert target_character is not None
+
+        response = test_client.post(
+            "/admin/character/kick",
+            json={
+                "session_id": player_session,
+                "character_id": int(target_character["id"]),
+                "reason": "test",
+            },
+        )
+
+        assert response.status_code == 403
+
+
 # ============================================================================
 # USER MANAGEMENT TESTS
 # ============================================================================

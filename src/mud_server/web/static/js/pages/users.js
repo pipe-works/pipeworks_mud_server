@@ -650,6 +650,40 @@ function buildCreateUserCard(role) {
 }
 
 /**
+ * Build the persistent users page shell.
+ *
+ * Important UX behavior:
+ * - The create-account card is rendered once and kept mounted.
+ * - Auto-refresh updates only the users table + detail panel regions.
+ * - This avoids form resets and focus jumps while admins are typing.
+ */
+function buildUsersPageShell(role) {
+  return `
+    <div class="page">
+      <div class="page-header">
+        <div>
+          <h2>Users</h2>
+          <p class="muted" data-users-count>Loading users...</p>
+        </div>
+      </div>
+      <div class="split-layout users-split">
+        <div class="users-left">
+          <div data-users-table-region></div>
+          <div class="users-bottom-row">
+            ${buildCreateUserCard(role)}
+            <div class="detail-card users-placeholder-card">
+              <h3>Secondary Panel</h3>
+              <p class="muted">Reserved for additional tools.</p>
+            </div>
+          </div>
+        </div>
+        <aside class="detail-panel" data-users-detail-region></aside>
+      </div>
+    </div>
+  `;
+}
+
+/**
  * Convert tabular rows (column list + row arrays) into objects.
  */
 function rowsToObjects(columns, rows) {
@@ -702,6 +736,44 @@ async function renderUsers(root, { api, session }) {
   const axisStateLoading = new Set();
   const axisEventsCache = new Map();
   const axisEventsLoading = new Set();
+
+  // Render a stable layout once so auto-refresh updates only data regions.
+  root.innerHTML = buildUsersPageShell(session.role);
+  const tableRegion = root.querySelector('[data-users-table-region]');
+  const detailRegion = root.querySelector('[data-users-detail-region]');
+  const usersCountLabel = root.querySelector('[data-users-count]');
+  const createForm = root.querySelector('[data-create-user]');
+  if (!tableRegion || !detailRegion || !usersCountLabel || !createForm) {
+    root.innerHTML = `
+      <div class="panel wide">
+        <h1>Users</h1>
+        <p class="error">Failed to render users UI shell.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Bind once: this form should remain mounted between table refreshes.
+  createForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(createForm);
+    const payload = {
+      session_id: sessionId,
+      username: (formData.get('username') || '').toString().trim(),
+      role: (formData.get('role') || '').toString(),
+      password: (formData.get('password') || '').toString(),
+      password_confirm: (formData.get('password_confirm') || '').toString(),
+    };
+
+    try {
+      await api.createUser(payload);
+      showToast(`Created user '${payload.username}'.`, 'success');
+      createForm.reset();
+      await refreshData({ includeMetadata: true, showErrorToast: false });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to create user.', 'error');
+    }
+  });
 
   /**
    * Build human-readable sync text for the auto-refresh hint.
@@ -837,7 +909,7 @@ async function renderUsers(root, { api, session }) {
   };
 
   /**
-   * Render the full users page from local state.
+   * Render mutable regions for table/details from local state.
    */
   const renderPage = () => {
     const activeElement = document.activeElement;
@@ -845,9 +917,9 @@ async function renderUsers(root, { api, session }) {
       activeElement instanceof HTMLInputElement && activeElement.id === 'user-search';
     const selectionStart = searchWasFocused ? activeElement.selectionStart : null;
     const selectionEnd = searchWasFocused ? activeElement.selectionEnd : null;
-    const previousScrollTop = root.querySelector('.table-wrap')?.scrollTop ?? null;
+    const previousScrollTop = tableRegion.querySelector('.table-wrap')?.scrollTop ?? null;
     const previousDetailScrollByTab = {};
-    root.querySelectorAll('.users-detail-card .tab-panel[data-tab-panel]').forEach((panel) => {
+    detailRegion.querySelectorAll('.users-detail-card .tab-panel[data-tab-panel]').forEach((panel) => {
       const tabName = panel.getAttribute('data-tab-panel');
       if (!tabName) {
         return;
@@ -887,97 +959,58 @@ async function renderUsers(root, { api, session }) {
     const axisEventsLoadingActive =
       activeAxisCharacterId !== null && axisEventsLoading.has(activeAxisCharacterId);
 
-    root.innerHTML = `
-      <div class="page">
-        <div class="page-header">
-          <div>
-            <h2>Users</h2>
-            <p class="muted">${sortedUsers.length} of ${users.length} users shown.</p>
-          </div>
+    usersCountLabel.textContent = `${sortedUsers.length} of ${users.length} users shown.`;
+
+    tableRegion.innerHTML = `
+      <div class="card table-card users-table-card">
+        <div class="table-toolbar">
+          <label class="table-search">
+            <span>Search</span>
+            <input
+              type="search"
+              id="user-search"
+              placeholder="Username, role, origin"
+              value="${searchTerm.replace(/"/g, '&quot;')}"
+            />
+          </label>
+          <label class="table-toggle">
+            <input type="checkbox" id="user-active-only" ${activeOnly ? 'checked' : ''} />
+            <span>Active only</span>
+          </label>
+          <label class="table-toggle">
+            <input type="checkbox" id="user-online-only" ${onlineOnly ? 'checked' : ''} />
+            <span>Online only</span>
+          </label>
+          <span class="table-refresh-note">${getRefreshHint()}</span>
         </div>
-        <div class="split-layout users-split">
-          <div class="users-left">
-            <div class="card table-card users-table-card">
-              <div class="table-toolbar">
-                <label class="table-search">
-                  <span>Search</span>
-                  <input
-                    type="search"
-                    id="user-search"
-                    placeholder="Username, role, origin"
-                    value="${searchTerm.replace(/"/g, '&quot;')}"
-                  />
-                </label>
-                <label class="table-toggle">
-                  <input type="checkbox" id="user-active-only" ${activeOnly ? 'checked' : ''} />
-                  <span>Active only</span>
-                </label>
-                <label class="table-toggle">
-                  <input type="checkbox" id="user-online-only" ${onlineOnly ? 'checked' : ''} />
-                  <span>Online only</span>
-                </label>
-                <span class="table-refresh-note">${getRefreshHint()}</span>
-              </div>
-              ${buildUsersTable(sortedUsers, sortState, selectedUser?.id)}
-            </div>
-            <div class="users-bottom-row">
-              ${buildCreateUserCard(session.role)}
-              <div class="detail-card users-placeholder-card">
-                <h3>Secondary Panel</h3>
-                <p class="muted">Reserved for additional tools.</p>
-              </div>
-            </div>
-          </div>
-          <aside class="detail-panel">
-            ${buildUserDetails({
-              user: selectedUser,
-              characters,
-              worldsById,
-              worldOptions,
-              permissionsByUser,
-              locationsByCharacter,
-              sessionRole: session.role,
-              activeTab: activeDetailTab,
-              createCharacterWorldId,
-              createCharacterSubmitting,
-              characterActionPending,
-              axisState,
-              axisCharacterId: activeAxisCharacterId,
-              axisStateLoading: axisStateLoadingActive,
-              axisStateError,
-              axisEvents,
-              axisEventsLoading: axisEventsLoadingActive,
-              axisEventsError,
-            })}
-          </aside>
-        </div>
+        ${buildUsersTable(sortedUsers, sortState, selectedUser?.id)}
       </div>
     `;
 
-    const createForm = root.querySelector('[data-create-user]');
-    if (createForm) {
-      createForm.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const formData = new FormData(createForm);
-        const payload = {
-          session_id: sessionId,
-          username: (formData.get('username') || '').toString().trim(),
-          role: (formData.get('role') || '').toString(),
-          password: (formData.get('password') || '').toString(),
-          password_confirm: (formData.get('password_confirm') || '').toString(),
-        };
+    detailRegion.innerHTML = `
+      ${buildUserDetails({
+        user: selectedUser,
+        characters,
+        worldsById,
+        worldOptions,
+        permissionsByUser,
+        locationsByCharacter,
+        sessionRole: session.role,
+        activeTab: activeDetailTab,
+        createCharacterWorldId,
+        createCharacterSubmitting,
+        characterActionPending,
+        axisState,
+        axisCharacterId: activeAxisCharacterId,
+        axisStateLoading: axisStateLoadingActive,
+        axisStateError,
+        axisEvents,
+        axisEventsLoading: axisEventsLoadingActive,
+        axisEventsError,
+      })}
+    `;
 
-        try {
-          await api.createUser(payload);
-          showToast(`Created user '${payload.username}'.`, 'success');
-          await refreshData({ includeMetadata: true, showErrorToast: false });
-        } catch (err) {
-          showToast(err instanceof Error ? err.message : 'Failed to create user.', 'error');
-        }
-      });
-    }
-
-    root.querySelectorAll('[data-user-actions]').forEach((container) => {
+    tableRegion.querySelectorAll('[data-user-actions]').forEach((container) => {
       const username = container.getAttribute('data-user-actions');
       container.querySelectorAll('button').forEach((button) => {
         button.addEventListener('click', (event) => {
@@ -993,7 +1026,7 @@ async function renderUsers(root, { api, session }) {
       });
     });
 
-    root.querySelectorAll('th.sortable').forEach((header) => {
+    tableRegion.querySelectorAll('th.sortable').forEach((header) => {
       header.addEventListener('click', () => {
         const key = header.dataset.sortKey;
         if (!key) {
@@ -1009,21 +1042,21 @@ async function renderUsers(root, { api, session }) {
       });
     });
 
-    root.querySelectorAll('tr[data-user-id]').forEach((row) => {
+    tableRegion.querySelectorAll('tr[data-user-id]').forEach((row) => {
       row.addEventListener('click', () => {
         selectedUserId = Number(row.dataset.userId);
         renderPage();
       });
     });
 
-    root.querySelectorAll('.tab-button[data-tab]').forEach((button) => {
+    detailRegion.querySelectorAll('.tab-button[data-tab]').forEach((button) => {
       button.addEventListener('click', () => {
         activeDetailTab = button.dataset.tab;
         renderPage();
       });
     });
 
-    root.querySelectorAll('[data-character-action]').forEach((button) => {
+    detailRegion.querySelectorAll('[data-character-action]').forEach((button) => {
       button.addEventListener('click', async (event) => {
         event.stopPropagation();
         const action = button.getAttribute('data-character-action');
@@ -1048,7 +1081,7 @@ async function renderUsers(root, { api, session }) {
     });
 
     bindCreateCharacterPanel({
-      root,
+      root: detailRegion,
       api,
       sessionId,
       user: selectedUser,
@@ -1074,7 +1107,7 @@ async function renderUsers(root, { api, session }) {
       },
     });
 
-    const axisSelect = root.querySelector('[data-axis-character]');
+    const axisSelect = detailRegion.querySelector('[data-axis-character]');
     if (axisSelect) {
       axisSelect.addEventListener('change', (event) => {
         activeAxisCharacterId = Number(event.target.value);
@@ -1084,7 +1117,7 @@ async function renderUsers(root, { api, session }) {
       });
     }
 
-    const searchInput = root.querySelector('#user-search');
+    const searchInput = tableRegion.querySelector('#user-search');
     if (searchInput) {
       searchInput.addEventListener('input', (event) => {
         searchTerm = event.target.value;
@@ -1092,7 +1125,7 @@ async function renderUsers(root, { api, session }) {
       });
     }
 
-    const activeToggle = root.querySelector('#user-active-only');
+    const activeToggle = tableRegion.querySelector('#user-active-only');
     if (activeToggle) {
       activeToggle.addEventListener('change', (event) => {
         activeOnly = event.target.checked;
@@ -1100,7 +1133,7 @@ async function renderUsers(root, { api, session }) {
       });
     }
 
-    const onlineToggle = root.querySelector('#user-online-only');
+    const onlineToggle = tableRegion.querySelector('#user-online-only');
     if (onlineToggle) {
       onlineToggle.addEventListener('change', (event) => {
         onlineOnly = event.target.checked;
@@ -1116,14 +1149,16 @@ async function renderUsers(root, { api, session }) {
     }
 
     if (previousScrollTop !== null) {
-      const tableWrap = root.querySelector('.table-wrap');
+      const tableWrap = tableRegion.querySelector('.table-wrap');
       if (tableWrap) {
         tableWrap.scrollTop = previousScrollTop;
       }
     }
 
     Object.entries(previousDetailScrollByTab).forEach(([tabName, scrollTop]) => {
-      const panel = root.querySelector(`.users-detail-card .tab-panel[data-tab-panel="${tabName}"]`);
+      const panel = detailRegion.querySelector(
+        `.users-detail-card .tab-panel[data-tab-panel="${tabName}"]`
+      );
       if (panel) {
         panel.scrollTop = scrollTop;
       }

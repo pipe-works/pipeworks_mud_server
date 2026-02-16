@@ -2337,6 +2337,23 @@ def remove_sessions_for_character(character_id: int) -> bool:
     Returns:
         True when at least one session was removed; otherwise False.
     """
+    return remove_sessions_for_character_count(character_id) > 0
+
+
+def remove_sessions_for_character_count(character_id: int) -> int:
+    """
+    Remove all sessions bound to a specific character and return removal count.
+
+    This is useful for moderation flows where callers need deterministic
+    feedback (for example, "0 sessions removed" vs "3 sessions removed") for
+    UI messaging and audit trails.
+
+    Args:
+        character_id: Character id whose sessions should be removed.
+
+    Returns:
+        Number of removed session rows. Returns ``0`` on failure.
+    """
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -2344,9 +2361,9 @@ def remove_sessions_for_character(character_id: int) -> bool:
         removed = int(cursor.rowcount or 0)
         conn.commit()
         conn.close()
-        return removed > 0
+        return removed
     except Exception:
-        return False
+        return 0
 
 
 def update_session_activity(session_id: str) -> bool:
@@ -2796,6 +2813,113 @@ def list_worlds(*, include_inactive: bool = False) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def get_world_admin_rows() -> list[dict[str, Any]]:
+    """
+    Return world-level operational rows for admin/superuser tooling.
+
+    This API view is intentionally richer than ``list_worlds``. It combines:
+    - static world catalog metadata (id/name/description/is_active)
+    - live session activity (session counts, character counts, last activity)
+    - kickable in-world character session rows for operations UI
+
+    "Online" semantics:
+    - ``is_online`` is True when at least one active session in the world has
+      a bound character (in-world presence), not merely an account login.
+
+    Returns:
+        List of world dictionaries sorted by world id.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT w.id,
+               w.name,
+               w.description,
+               w.is_active,
+               w.config_json,
+               w.created_at,
+               s.session_id,
+               s.last_activity,
+               s.client_type,
+               c.id,
+               c.name,
+               u.username
+        FROM worlds w
+        LEFT JOIN sessions s
+               ON COALESCE(s.world_id, ?) = w.id
+              AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
+        LEFT JOIN characters c ON c.id = s.character_id
+        LEFT JOIN users u ON u.id = s.user_id
+        ORDER BY w.id ASC, datetime(s.last_activity) DESC
+        """,
+        (DEFAULT_WORLD_ID,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    worlds_by_id: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        world_id = cast(str, row[0])
+        world = worlds_by_id.get(world_id)
+        if world is None:
+            world = {
+                "world_id": world_id,
+                "name": row[1],
+                "description": row[2],
+                "is_active": bool(row[3]),
+                "config_json": row[4],
+                "created_at": row[5],
+                "active_session_count": 0,
+                "active_character_count": 0,
+                "is_online": False,
+                "last_activity": None,
+                "active_characters": [],
+                "_session_ids": set(),
+                "_character_ids": set(),
+            }
+            worlds_by_id[world_id] = world
+
+        session_id = row[6]
+        if session_id:
+            session_ids = cast(set[str], world["_session_ids"])
+            if session_id not in session_ids:
+                session_ids.add(session_id)
+                world["active_session_count"] = int(world["active_session_count"]) + 1
+
+            if world["last_activity"] is None and row[7] is not None:
+                world["last_activity"] = row[7]
+
+        character_id = row[9]
+        if character_id is None:
+            continue
+
+        character_ids = cast(set[int], world["_character_ids"])
+        if int(character_id) not in character_ids:
+            character_ids.add(int(character_id))
+            world["active_character_count"] = int(world["active_character_count"]) + 1
+
+        world["is_online"] = True
+        world["active_characters"].append(
+            {
+                "character_id": int(character_id),
+                "character_name": row[10],
+                "username": row[11],
+                "session_id": session_id,
+                "last_activity": row[7],
+                "client_type": row[8] or "unknown",
+            }
+        )
+
+    result: list[dict[str, Any]] = []
+    for world_id in sorted(worlds_by_id):
+        world = worlds_by_id[world_id]
+        world.pop("_session_ids", None)
+        world.pop("_character_ids", None)
+        result.append(world)
+    return result
 
 
 def list_worlds_for_user(

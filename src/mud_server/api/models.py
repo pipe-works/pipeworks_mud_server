@@ -645,6 +645,67 @@ class DatabaseConnectionsResponse(BaseModel):
     connections: list[dict[str, Any]]
 
 
+class WorldActiveCharacterSession(BaseModel):
+    """
+    Active in-world character session row for world operations.
+
+    Attributes:
+        character_id: Character identifier bound to the session.
+        character_name: Character display name.
+        username: Owning account username (if resolvable).
+        session_id: Active session identifier for this character session.
+        last_activity: Timestamp of most recent activity.
+        client_type: Client source for the session (browser/tui/api/etc.).
+    """
+
+    character_id: int
+    character_name: str
+    username: str | None = None
+    session_id: str
+    last_activity: str | None = None
+    client_type: str = "unknown"
+
+
+class DatabaseWorldStatusRow(BaseModel):
+    """
+    World operations row for admin and superuser inspection.
+
+    Attributes:
+        world_id: World identifier.
+        name: Human-readable world name.
+        description: World description text.
+        is_active: Catalog activation flag from worlds table.
+        is_online: True when one or more in-world character sessions are active.
+        active_session_count: Number of active sessions scoped to this world.
+        active_character_count: Number of unique active characters in this world.
+        last_activity: Most recent session activity timestamp in this world.
+        active_characters: Kickable active character-session rows.
+    """
+
+    world_id: str
+    name: str
+    description: str
+    is_active: bool
+    is_online: bool
+    active_session_count: int
+    active_character_count: int
+    last_activity: str | None = None
+    active_characters: list[WorldActiveCharacterSession]
+
+
+class DatabaseWorldStatusResponse(BaseModel):
+    """
+    Admin response containing world operations rows.
+
+    Requires VIEW_LOGS permission.
+
+    Attributes:
+        worlds: World operations rows.
+    """
+
+    worlds: list[DatabaseWorldStatusRow]
+
+
 class KickSessionRequest(BaseModel):
     """
     Request to force-disconnect a session.
@@ -662,6 +723,23 @@ class KickSessionRequest(BaseModel):
     reason: str | None = None
 
 
+class KickCharacterRequest(BaseModel):
+    """
+    Request to disconnect all sessions bound to a character.
+
+    Requires KICK_USERS permission.
+
+    Attributes:
+        session_id: Admin/superuser session id.
+        character_id: Target character id to disconnect.
+        reason: Optional moderation reason for logging/audit.
+    """
+
+    session_id: str
+    character_id: int
+    reason: str | None = None
+
+
 class KickSessionResponse(BaseModel):
     """
     Response for a kick session request.
@@ -673,6 +751,21 @@ class KickSessionResponse(BaseModel):
 
     success: bool
     message: str
+
+
+class KickCharacterResponse(BaseModel):
+    """
+    Response for a character kick operation.
+
+    Attributes:
+        success: True if at least one session was removed.
+        message: Human-readable operation result.
+        removed_sessions: Number of removed sessions.
+    """
+
+    success: bool
+    message: str
+    removed_sessions: int
 
 
 class DatabaseSessionsResponse(BaseModel):
