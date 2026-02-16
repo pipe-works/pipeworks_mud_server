@@ -284,11 +284,11 @@ def resolve_character_name(name: str, *, world_id: str | None = None) -> str | N
     This preserves legacy call sites that still supply usernames while the
     character model is being adopted across the codebase.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    resolved = _resolve_character_name(cursor, name, world_id=world_id)
-    conn.close()
-    return resolved
+    from mud_server.db.characters_repo import (
+        resolve_character_name as resolve_character_name_impl,
+    )
+
+    return resolve_character_name_impl(name, world_id=world_id)
 
 
 # ==========================================================================
@@ -985,66 +985,18 @@ def create_character_for_user(
         Character slot limits are enforced per ``(user_id, world_id)`` using
         the resolved world policy from configuration.
     """
-    conn: sqlite3.Connection | None = None
-    try:
-        from mud_server.config import config
+    from mud_server.db.characters_repo import (
+        create_character_for_user as create_character_for_user_impl,
+    )
 
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        # World-tied slot enforcement:
-        # The legacy global trigger has been removed because slot limits are
-        # now policy-resolved per world. Enforce the cap here so every caller
-        # that uses this helper (admin tools, tests, onboarding flows) shares
-        # identical behavior.
-        world_policy = config.resolve_world_character_policy(world_id)
-        slot_limit = max(0, int(world_policy.slot_limit_per_account))
-        existing_count = _count_user_characters_in_world(
-            cursor,
-            user_id=user_id,
-            world_id=world_id,
-        )
-        if existing_count >= slot_limit:
-            conn.close()
-            return False
-
-        cursor.execute(
-            """
-            INSERT INTO characters (user_id, name, world_id, is_guest_created)
-            VALUES (?, ?, ?, ?)
-        """,
-            (user_id, name, world_id, int(is_guest_created)),
-        )
-        character_id = cursor.lastrowid
-        if character_id is None:
-            raise ValueError("Failed to create character.")
-        character_id = int(character_id)
-        _seed_character_location(cursor, character_id, world_id=world_id)
-        _seed_character_axis_scores(cursor, character_id=character_id, world_id=world_id)
-        _seed_character_state_snapshot(
-            cursor,
-            character_id=character_id,
-            world_id=world_id,
-            seed=state_seed,
-        )
-        if room_id != "spawn":
-            cursor.execute(
-                """
-                UPDATE character_locations
-                SET room_id = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE character_id = ?
-            """,
-                (room_id, character_id),
-            )
-        conn.commit()
-        conn.close()
-        return True
-    except sqlite3.IntegrityError:
-        # Important: close the connection on constraint errors to avoid
-        # leaving SQLite write locks behind during retry loops.
-        if conn is not None:
-            conn.close()
-        return False
+    return create_character_for_user_impl(
+        user_id,
+        name,
+        is_guest_created=is_guest_created,
+        room_id=room_id,
+        world_id=world_id,
+        state_seed=state_seed,
+    )
 
 
 def user_exists(username: str) -> bool:
@@ -1334,78 +1286,32 @@ def apply_axis_event(
 
 def character_exists(name: str) -> bool:
     """Return True if a character with this name exists."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM characters WHERE name = ?", (name,))
-    row = cursor.fetchone()
-    conn.close()
-    return row is not None
+    from mud_server.db.characters_repo import character_exists as character_exists_impl
+
+    return character_exists_impl(name)
 
 
 def get_character_by_name(name: str) -> dict[str, Any] | None:
     """Return character row by name."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT id, user_id, name, world_id, inventory, is_guest_created, created_at, updated_at
-        FROM characters
-        WHERE name = ?
-    """,
-        (name,),
-    )
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        return None
-    return {
-        "id": int(row[0]),
-        "user_id": row[1],
-        "name": row[2],
-        "world_id": row[3],
-        "inventory": row[4],
-        "is_guest_created": bool(row[5]),
-        "created_at": row[6],
-        "updated_at": row[7],
-    }
+    from mud_server.db.characters_repo import get_character_by_name as get_character_by_name_impl
+
+    return get_character_by_name_impl(name)
 
 
 def get_character_by_id(character_id: int) -> dict[str, Any] | None:
     """Return character row by id."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT id, user_id, name, world_id, inventory, is_guest_created, created_at, updated_at
-        FROM characters
-        WHERE id = ?
-    """,
-        (character_id,),
-    )
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        return None
-    return {
-        "id": int(row[0]),
-        "user_id": row[1],
-        "name": row[2],
-        "world_id": row[3],
-        "inventory": row[4],
-        "is_guest_created": bool(row[5]),
-        "created_at": row[6],
-        "updated_at": row[7],
-    }
+    from mud_server.db.characters_repo import get_character_by_id as get_character_by_id_impl
+
+    return get_character_by_id_impl(character_id)
 
 
 def get_character_name_by_id(character_id: int) -> str | None:
     """Return character name for the given id, or None if not found."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM characters WHERE id = ?", (character_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else None
+    from mud_server.db.characters_repo import (
+        get_character_name_by_id as get_character_name_by_id_impl,
+    )
+
+    return get_character_name_by_id_impl(character_id)
 
 
 def get_user_characters(user_id: int, *, world_id: str | None = None) -> list[dict[str, Any]]:
@@ -1415,32 +1321,9 @@ def get_user_characters(user_id: int, *, world_id: str | None = None) -> list[di
     When world_id is omitted, the default world is used to keep legacy code
     paths functional during the migration.
     """
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT id, name, world_id, is_guest_created, created_at, updated_at
-        FROM characters
-        WHERE user_id = ? AND world_id = ?
-        ORDER BY created_at ASC
-    """,
-        (user_id, world_id),
-    )
-    rows = cursor.fetchall()
-    conn.close()
-    return [
-        {
-            "id": int(row[0]),
-            "name": row[1],
-            "world_id": row[2],
-            "is_guest_created": bool(row[3]),
-            "created_at": row[4],
-            "updated_at": row[5],
-        }
-        for row in rows
-    ]
+    from mud_server.db.characters_repo import get_user_characters as get_user_characters_impl
+
+    return get_user_characters_impl(user_id, world_id=world_id)
 
 
 def get_user_character_world_ids(user_id: int) -> set[str]:
@@ -1450,19 +1333,11 @@ def get_user_character_world_ids(user_id: int) -> set[str]:
     This is used to enforce allow_multi_world_characters when creating
     new characters.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT DISTINCT world_id
-        FROM characters
-        WHERE user_id = ?
-        """,
-        (user_id,),
+    from mud_server.db.characters_repo import (
+        get_user_character_world_ids as get_user_character_world_ids_impl,
     )
-    rows = cursor.fetchall()
-    conn.close()
-    return {row[0] for row in rows}
+
+    return get_user_character_world_ids_impl(user_id)
 
 
 def tombstone_character(character_id: int) -> bool:
@@ -1480,29 +1355,9 @@ def tombstone_character(character_id: int) -> bool:
     Returns:
         True when tombstoned, False when character does not exist.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM characters WHERE id = ?", (character_id,))
-    row = cursor.fetchone()
-    if row is None:
-        conn.close()
-        return False
+    from mud_server.db.characters_repo import tombstone_character as tombstone_character_impl
 
-    original_name = str(row[0] or "character")
-    tombstone_name = f"tombstone_{character_id}_{original_name}"
-    cursor.execute(
-        """
-        UPDATE characters
-        SET user_id = NULL,
-            name = ?,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-        """,
-        (tombstone_name, character_id),
-    )
-    conn.commit()
-    conn.close()
-    return True
+    return tombstone_character_impl(character_id)
 
 
 def delete_character(character_id: int) -> bool:
@@ -1519,13 +1374,9 @@ def delete_character(character_id: int) -> bool:
     Returns:
         True when a row was deleted, otherwise False.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM characters WHERE id = ?", (character_id,))
-    deleted = cursor.rowcount > 0
-    conn.commit()
-    conn.close()
-    return deleted
+    from mud_server.db.characters_repo import delete_character as delete_character_impl
+
+    return delete_character_impl(character_id)
 
 
 def unlink_characters_for_user(user_id: int) -> None:
@@ -1544,90 +1395,25 @@ def unlink_characters_for_user(user_id: int) -> None:
 
 def get_character_room(name: str, *, world_id: str | None = None) -> str | None:
     """Return the current room for a character by name within a world."""
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
-    conn = get_connection()
-    cursor = conn.cursor()
-    resolved_name = _resolve_character_name(cursor, name, world_id=world_id)
-    if not resolved_name:
-        conn.close()
-        return None
+    from mud_server.db.characters_repo import get_character_room as get_character_room_impl
 
-    cursor.execute("SELECT id FROM characters WHERE name = ?", (resolved_name,))
-    row = cursor.fetchone()
-    if not row:
-        conn.close()
-        return None
-
-    character_id = int(row[0])
-    cursor.execute(
-        "SELECT room_id FROM character_locations WHERE character_id = ? AND world_id = ?",
-        (character_id, world_id),
-    )
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else None
+    return get_character_room_impl(name, world_id=world_id)
 
 
 def set_character_room(name: str, room: str, *, world_id: str | None = None) -> bool:
     """Set the current room for a character by name within a world."""
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        resolved_name = _resolve_character_name(cursor, name, world_id=world_id)
-        if not resolved_name:
-            conn.close()
-            return False
+    from mud_server.db.characters_repo import set_character_room as set_character_room_impl
 
-        cursor.execute("SELECT id FROM characters WHERE name = ?", (resolved_name,))
-        row = cursor.fetchone()
-        if not row:
-            conn.close()
-            return False
-
-        character_id = int(row[0])
-        cursor.execute(
-            """
-            INSERT INTO character_locations (character_id, world_id, room_id, updated_at)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(character_id) DO UPDATE
-                SET world_id = excluded.world_id,
-                    room_id = excluded.room_id,
-                    updated_at = CURRENT_TIMESTAMP
-        """,
-            (character_id, world_id, room),
-        )
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
+    return set_character_room_impl(name, room, world_id=world_id)
 
 
 def get_characters_in_room(room: str, *, world_id: str | None = None) -> list[str]:
     """Return character names in a room with active sessions for a world."""
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT DISTINCT c.name
-        FROM characters c
-        JOIN character_locations l ON c.id = l.character_id
-        JOIN sessions s ON s.character_id = c.id
-        WHERE l.world_id = ?
-          AND l.room_id = ?
-          AND (s.world_id IS NULL OR s.world_id = ?)
-          AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
-    """,
-        (world_id, room, world_id),
+    from mud_server.db.characters_repo import (
+        get_characters_in_room as get_characters_in_room_impl,
     )
-    rows = cursor.fetchall()
-    conn.close()
-    return [row[0] for row in rows]
+
+    return get_characters_in_room_impl(room, world_id=world_id)
 
 
 # ==========================================================================
@@ -1637,41 +1423,20 @@ def get_characters_in_room(room: str, *, world_id: str | None = None) -> list[st
 
 def get_character_inventory(name: str) -> list[str]:
     """Return the character inventory as a list of item ids."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    resolved_name = _resolve_character_name(cursor, name)
-    if not resolved_name:
-        conn.close()
-        return []
+    from mud_server.db.characters_repo import (
+        get_character_inventory as get_character_inventory_impl,
+    )
 
-    cursor.execute("SELECT inventory FROM characters WHERE name = ?", (resolved_name,))
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        return []
-    inventory: list[str] = json.loads(row[0])
-    return inventory
+    return get_character_inventory_impl(name)
 
 
 def set_character_inventory(name: str, inventory: list[str]) -> bool:
     """Set the character inventory."""
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        resolved_name = _resolve_character_name(cursor, name)
-        if not resolved_name:
-            conn.close()
-            return False
+    from mud_server.db.characters_repo import (
+        set_character_inventory as set_character_inventory_impl,
+    )
 
-        cursor.execute(
-            "UPDATE characters SET inventory = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?",
-            (json.dumps(inventory), resolved_name),
-        )
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
+    return set_character_inventory_impl(name, inventory)
 
 
 # ==========================================================================
@@ -1694,67 +1459,16 @@ def add_chat_message(
     Supports optional whisper recipient and uses world scoping. If world_id
     is omitted, the default world is used during migration.
     """
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
+    from mud_server.db.chat_repo import add_chat_message as add_chat_message_impl
 
-        resolved_sender = _resolve_character_name(cursor, character_name, world_id=world_id)
-        if not resolved_sender:
-            conn.close()
-            return False
-
-        cursor.execute(
-            "SELECT id, user_id FROM characters WHERE name = ? AND world_id = ?",
-            (resolved_sender, world_id),
-        )
-        sender_row = cursor.fetchone()
-        if not sender_row:
-            conn.close()
-            return False
-
-        sender_id = int(sender_row[0])
-        user_id = sender_row[1]
-
-        recipient_id: int | None = None
-        if recipient_character_name is None and recipient is not None:
-            recipient_character_name = recipient
-
-        if recipient_character_name:
-            resolved_recipient = _resolve_character_name(
-                cursor, recipient_character_name, world_id=world_id
-            )
-            if resolved_recipient:
-                recipient_character_name = resolved_recipient
-
-            cursor.execute(
-                "SELECT id FROM characters WHERE name = ? AND world_id = ?",
-                (recipient_character_name, world_id),
-            )
-            recipient_row = cursor.fetchone()
-            if recipient_row:
-                recipient_id = int(recipient_row[0])
-
-        cursor.execute(
-            """
-            INSERT INTO chat_messages (
-                character_id,
-                user_id,
-                message,
-                world_id,
-                room,
-                recipient_character_id
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-        """,
-            (sender_id, user_id, message, world_id, room, recipient_id),
-        )
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
+    return add_chat_message_impl(
+        character_name,
+        message,
+        room,
+        recipient_character_name=recipient_character_name,
+        recipient=recipient,
+        world_id=world_id,
+    )
 
 
 def get_room_messages(
@@ -1771,67 +1485,15 @@ def get_room_messages(
     Messages are scoped to the provided world_id; default world is used when
     omitted to preserve legacy code paths during migration.
     """
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
-    conn = get_connection()
-    cursor = conn.cursor()
+    from mud_server.db.chat_repo import get_room_messages as get_room_messages_impl
 
-    if character_name is None and username is not None:
-        character_name = username
-
-    if character_name:
-        resolved_name = _resolve_character_name(cursor, character_name, world_id=world_id)
-        if resolved_name is None and username is not None:
-            resolved_name = _resolve_character_name(cursor, username, world_id=world_id)
-        if not resolved_name:
-            conn.close()
-            return []
-
-        cursor.execute(
-            "SELECT id FROM characters WHERE name = ? AND world_id = ?",
-            (resolved_name, world_id),
-        )
-        row = cursor.fetchone()
-        if not row:
-            conn.close()
-            return []
-        character_id = int(row[0])
-
-        cursor.execute(
-            """
-            SELECT c.name, m.message, m.timestamp
-            FROM chat_messages m
-            JOIN characters c ON c.id = m.character_id
-            WHERE m.world_id = ? AND m.room = ? AND (
-                m.recipient_character_id IS NULL OR
-                m.recipient_character_id = ? OR
-                m.character_id = ?
-            )
-            ORDER BY m.timestamp DESC, m.id DESC
-            LIMIT ?
-        """,
-            (world_id, room, character_id, character_id, limit),
-        )
-    else:
-        cursor.execute(
-            """
-            SELECT c.name, m.message, m.timestamp
-            FROM chat_messages m
-            JOIN characters c ON c.id = m.character_id
-            WHERE m.world_id = ? AND m.room = ?
-            ORDER BY m.timestamp DESC, m.id DESC
-            LIMIT ?
-        """,
-            (world_id, room, limit),
-        )
-
-    rows = cursor.fetchall()
-    conn.close()
-
-    messages = []
-    for name, message, timestamp in reversed(rows):
-        messages.append({"username": name, "message": message, "timestamp": timestamp})
-    return messages
+    return get_room_messages_impl(
+        room,
+        limit=limit,
+        character_name=character_name,
+        username=username,
+        world_id=world_id,
+    )
 
 
 # ==========================================================================
@@ -2226,28 +1888,9 @@ def get_world_by_id(world_id: str) -> dict[str, Any] | None:
     Returns:
         Dict with world fields or None if not found.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT id, name, description, is_active, config_json, created_at
-        FROM worlds
-        WHERE id = ?
-        """,
-        (world_id,),
-    )
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        return None
-    return {
-        "id": row[0],
-        "name": row[1],
-        "description": row[2],
-        "is_active": bool(row[3]),
-        "config_json": row[4],
-        "created_at": row[5],
-    }
+    from mud_server.db.worlds_repo import get_world_by_id as get_world_by_id_impl
+
+    return get_world_by_id_impl(world_id)
 
 
 def list_worlds(*, include_inactive: bool = False) -> list[dict[str, Any]]:
@@ -2257,34 +1900,9 @@ def list_worlds(*, include_inactive: bool = False) -> list[dict[str, Any]]:
     Args:
         include_inactive: When False, only active worlds are returned.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    if include_inactive:
-        cursor.execute("""
-            SELECT id, name, description, is_active, config_json, created_at
-            FROM worlds
-            ORDER BY id
-            """)
-    else:
-        cursor.execute("""
-            SELECT id, name, description, is_active, config_json, created_at
-            FROM worlds
-            WHERE is_active = 1
-            ORDER BY id
-            """)
-    rows = cursor.fetchall()
-    conn.close()
-    return [
-        {
-            "id": row[0],
-            "name": row[1],
-            "description": row[2],
-            "is_active": bool(row[3]),
-            "config_json": row[4],
-            "created_at": row[5],
-        }
-        for row in rows
-    ]
+    from mud_server.db.worlds_repo import list_worlds as list_worlds_impl
+
+    return list_worlds_impl(include_inactive=include_inactive)
 
 
 def _query_world_rows(
@@ -2298,20 +1916,9 @@ def _query_world_rows(
     Keeping this query in one helper prevents tiny SQL drifts across APIs that
     need world metadata plus policy decoration.
     """
-    if include_inactive:
-        cursor.execute("""
-            SELECT id, name, description, is_active, config_json, created_at
-            FROM worlds
-            ORDER BY id
-            """)
-    else:
-        cursor.execute("""
-            SELECT id, name, description, is_active, config_json, created_at
-            FROM worlds
-            WHERE is_active = 1
-            ORDER BY id
-            """)
-    return cursor.fetchall()
+    from mud_server.db.worlds_repo import _query_world_rows as query_world_rows_impl
+
+    return query_world_rows_impl(cursor, include_inactive=include_inactive)
 
 
 def _user_has_world_permission(
@@ -2321,16 +1928,11 @@ def _user_has_world_permission(
     world_id: str,
 ) -> bool:
     """Return True when an explicit world_permissions grant exists."""
-    cursor.execute(
-        """
-        SELECT 1
-        FROM world_permissions
-        WHERE user_id = ? AND world_id = ? AND can_access = 1
-        LIMIT 1
-        """,
-        (user_id, world_id),
+    from mud_server.db.worlds_repo import (
+        _user_has_world_permission as user_has_world_permission_impl,
     )
-    return cursor.fetchone() is not None
+
+    return user_has_world_permission_impl(cursor, user_id=user_id, world_id=world_id)
 
 
 def _count_user_characters_in_world(
@@ -2340,16 +1942,11 @@ def _count_user_characters_in_world(
     world_id: str,
 ) -> int:
     """Count characters owned by ``user_id`` in ``world_id``."""
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-        FROM characters
-        WHERE user_id = ? AND world_id = ?
-        """,
-        (user_id, world_id),
+    from mud_server.db.worlds_repo import (
+        _count_user_characters_in_world as count_user_characters_in_world_impl,
     )
-    row = cursor.fetchone()
-    return int(row[0]) if row else 0
+
+    return count_user_characters_in_world_impl(cursor, user_id=user_id, world_id=world_id)
 
 
 def _resolve_world_access_for_row(
@@ -2367,79 +1964,15 @@ def _resolve_world_access_for_row(
     - API access checks (`/characters`, `/characters/select`)
     - self-service character creation guardrails
     """
-    from mud_server.config import config
+    from mud_server.db.worlds_repo import (
+        _resolve_world_access_for_row as resolve_world_access_for_row_impl,
+    )
 
-    world_id = str(world_row[0])
-    is_active = bool(world_row[3])
-    world_policy = config.resolve_world_character_policy(world_id)
-
-    current_count = _count_user_characters_in_world(cursor, user_id=user_id, world_id=world_id)
-    has_existing_character = current_count > 0
-    has_permission = _user_has_world_permission(cursor, user_id=user_id, world_id=world_id)
-
-    # Elevated roles can always access worlds operationally, but world-scoped
-    # slot limits still apply to character ownership volume.
-    if role in {"admin", "superuser"}:
-        can_access = True
-    else:
-        can_access = (
-            has_permission or has_existing_character or world_policy.creation_mode == "open"
-        )
-
-    if not is_active:
-        return WorldAccessDecision(
-            world_id=world_id,
-            can_access=False,
-            can_create=False,
-            access_mode=world_policy.creation_mode,
-            naming_mode=world_policy.naming_mode,
-            slot_limit_per_account=int(world_policy.slot_limit_per_account),
-            current_character_count=current_count,
-            has_permission_grant=has_permission,
-            has_existing_character=has_existing_character,
-            reason="world_inactive",
-        )
-
-    if not can_access:
-        return WorldAccessDecision(
-            world_id=world_id,
-            can_access=False,
-            can_create=False,
-            access_mode=world_policy.creation_mode,
-            naming_mode=world_policy.naming_mode,
-            slot_limit_per_account=int(world_policy.slot_limit_per_account),
-            current_character_count=current_count,
-            has_permission_grant=has_permission,
-            has_existing_character=has_existing_character,
-            reason="invite_required",
-        )
-
-    slot_limit = max(0, int(world_policy.slot_limit_per_account))
-    if current_count >= slot_limit:
-        return WorldAccessDecision(
-            world_id=world_id,
-            can_access=True,
-            can_create=False,
-            access_mode=world_policy.creation_mode,
-            naming_mode=world_policy.naming_mode,
-            slot_limit_per_account=slot_limit,
-            current_character_count=current_count,
-            has_permission_grant=has_permission,
-            has_existing_character=has_existing_character,
-            reason="slot_limit_reached",
-        )
-
-    return WorldAccessDecision(
-        world_id=world_id,
-        can_access=True,
-        can_create=True,
-        access_mode=world_policy.creation_mode,
-        naming_mode=world_policy.naming_mode,
-        slot_limit_per_account=slot_limit,
-        current_character_count=current_count,
-        has_permission_grant=has_permission,
-        has_existing_character=has_existing_character,
-        reason="ok",
+    return resolve_world_access_for_row_impl(
+        cursor,
+        user_id=user_id,
+        role=role,
+        world_row=world_row,
     )
 
 
@@ -2455,58 +1988,27 @@ def get_world_access_decision(
     Returns a denial decision with ``reason='world_not_found'`` when the world
     row does not exist.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT id, name, description, is_active, config_json, created_at
-        FROM worlds
-        WHERE id = ?
-        LIMIT 1
-        """,
-        (world_id,),
+    from mud_server.db.worlds_repo import (
+        get_world_access_decision as get_world_access_decision_impl,
     )
-    world_row = cursor.fetchone()
-    if world_row is None:
-        from mud_server.config import config
 
-        world_policy = config.resolve_world_character_policy(world_id)
-        conn.close()
-        return WorldAccessDecision(
-            world_id=world_id,
-            can_access=False,
-            can_create=False,
-            access_mode=world_policy.creation_mode,
-            naming_mode=world_policy.naming_mode,
-            slot_limit_per_account=int(world_policy.slot_limit_per_account),
-            current_character_count=0,
-            has_permission_grant=False,
-            has_existing_character=False,
-            reason="world_not_found",
-        )
-
-    decision = _resolve_world_access_for_row(
-        cursor,
-        user_id=user_id,
-        role=role,
-        world_row=world_row,
-    )
-    conn.close()
-    return decision
+    return get_world_access_decision_impl(user_id, world_id, role=role)
 
 
 def can_user_access_world(user_id: int, world_id: str, *, role: str | None = None) -> bool:
     """Return True when the user may access/select the world."""
-    return get_world_access_decision(user_id, world_id, role=role).can_access
+    from mud_server.db.worlds_repo import can_user_access_world as can_user_access_world_impl
+
+    return can_user_access_world_impl(user_id, world_id, role=role)
 
 
 def get_user_character_count_for_world(user_id: int, world_id: str) -> int:
     """Return how many characters the user owns in the specified world."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    count = _count_user_characters_in_world(cursor, user_id=user_id, world_id=world_id)
-    conn.close()
-    return count
+    from mud_server.db.worlds_repo import (
+        get_user_character_count_for_world as get_user_character_count_for_world_impl,
+    )
+
+    return get_user_character_count_for_world_impl(user_id, world_id)
 
 
 def get_world_admin_rows() -> list[dict[str, Any]]:
@@ -2525,93 +2027,9 @@ def get_world_admin_rows() -> list[dict[str, Any]]:
     Returns:
         List of world dictionaries sorted by world id.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT w.id,
-               w.name,
-               w.description,
-               w.is_active,
-               w.config_json,
-               w.created_at,
-               s.session_id,
-               s.last_activity,
-               s.client_type,
-               c.id,
-               c.name,
-               u.username
-        FROM worlds w
-        LEFT JOIN sessions s
-               ON s.world_id = w.id
-              AND s.character_id IS NOT NULL
-              AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
-        LEFT JOIN characters c ON c.id = s.character_id
-        LEFT JOIN users u ON u.id = s.user_id
-        ORDER BY w.id ASC, datetime(s.last_activity) DESC
-        """)
-    rows = cursor.fetchall()
-    conn.close()
+    from mud_server.db.worlds_repo import get_world_admin_rows as get_world_admin_rows_impl
 
-    worlds_by_id: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        world_id = cast(str, row[0])
-        world = worlds_by_id.get(world_id)
-        if world is None:
-            world = {
-                "world_id": world_id,
-                "name": row[1],
-                "description": row[2],
-                "is_active": bool(row[3]),
-                "config_json": row[4],
-                "created_at": row[5],
-                "active_session_count": 0,
-                "active_character_count": 0,
-                "is_online": False,
-                "last_activity": None,
-                "active_characters": [],
-                "_session_ids": set(),
-                "_character_ids": set(),
-            }
-            worlds_by_id[world_id] = world
-
-        session_id = row[6]
-        if session_id:
-            session_ids = cast(set[str], world["_session_ids"])
-            if session_id not in session_ids:
-                session_ids.add(session_id)
-                world["active_session_count"] = int(world["active_session_count"]) + 1
-
-            if world["last_activity"] is None and row[7] is not None:
-                world["last_activity"] = row[7]
-
-        character_id = row[9]
-        if character_id is None:
-            continue
-
-        character_ids = cast(set[int], world["_character_ids"])
-        if int(character_id) not in character_ids:
-            character_ids.add(int(character_id))
-            world["active_character_count"] = int(world["active_character_count"]) + 1
-
-        world["is_online"] = True
-        world["active_characters"].append(
-            {
-                "character_id": int(character_id),
-                "character_name": row[10],
-                "username": row[11],
-                "session_id": session_id,
-                "last_activity": row[7],
-                "client_type": row[8] or "unknown",
-            }
-        )
-
-    result: list[dict[str, Any]] = []
-    for world_id in sorted(worlds_by_id):
-        world = worlds_by_id[world_id]
-        world.pop("_session_ids", None)
-        world.pop("_character_ids", None)
-        result.append(world)
-    return result
+    return get_world_admin_rows_impl()
 
 
 def list_worlds_for_user(
@@ -2636,50 +2054,14 @@ def list_worlds_for_user(
     - already owns a character in the world, OR
     - world policy is ``open``
     """
-    if role is None:
-        username = get_username_by_id(user_id)
-        if username:
-            role = get_user_role(username)
+    from mud_server.db.worlds_repo import list_worlds_for_user as list_worlds_for_user_impl
 
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    rows = _query_world_rows(cursor, include_inactive=include_inactive)
-    worlds: list[dict[str, Any]] = []
-    is_elevated = role in {"admin", "superuser"}
-    for row in rows:
-        decision = _resolve_world_access_for_row(
-            cursor,
-            user_id=user_id,
-            role=role,
-            world_row=row,
-        )
-        if not is_elevated and not include_invite_worlds and not decision.can_access:
-            continue
-        worlds.append(
-            {
-                "id": row[0],
-                "name": row[1],
-                "description": row[2],
-                "is_active": bool(row[3]),
-                "config_json": row[4],
-                "created_at": row[5],
-                "can_access": decision.can_access,
-                "can_create": decision.can_create,
-                "access_mode": decision.access_mode,
-                "naming_mode": decision.naming_mode,
-                "slot_limit_per_account": decision.slot_limit_per_account,
-                "current_character_count": decision.current_character_count,
-                "has_permission_grant": decision.has_permission_grant,
-                "has_existing_character": decision.has_existing_character,
-                "is_invite_only": decision.access_mode == "invite",
-                "is_locked": not decision.can_access,
-                "access_reason": decision.reason,
-            }
-        )
-
-    conn.close()
-    return worlds
+    return list_worlds_for_user_impl(
+        user_id,
+        role=role,
+        include_inactive=include_inactive,
+        include_invite_worlds=include_invite_worlds,
+    )
 
 
 def _quote_identifier(identifier: str) -> str:
