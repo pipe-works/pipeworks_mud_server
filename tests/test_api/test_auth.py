@@ -465,21 +465,13 @@ def test_get_active_session_count_respects_activity_window(test_db, db_with_user
 @pytest.mark.unit
 @pytest.mark.auth
 def test_validate_session_for_game_sets_world_id(test_db, db_with_users):
-    """validate_session_for_game should sync session world_id from character."""
+    """validate_session_for_game should return the world bound to the character session."""
     session_id = "world-sync-session"
     database.create_session("testplayer", session_id)
 
     player_character = database.get_character_by_name("testplayer_char")
     assert player_character is not None
     assert database.set_session_character(session_id, int(player_character["id"])) is True
-
-    # Force session world_id to NULL to exercise sync path while character_id
-    # remains bound.
-    conn = database.get_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE sessions SET world_id = NULL WHERE session_id = ?", (session_id,))
-    conn.commit()
-    conn.close()
 
     _, _, _, character_id, _, world_id = validate_session_for_game(session_id)
     assert character_id is not None

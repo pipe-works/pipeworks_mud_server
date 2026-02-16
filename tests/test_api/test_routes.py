@@ -11,6 +11,7 @@ Tests cover:
 Uses TestClient for HTTP request testing.
 """
 
+import sqlite3
 from unittest.mock import patch
 
 import pytest
@@ -1967,14 +1968,14 @@ def test_session_locked_to_world_in_game_command(test_client, test_db, temp_db_p
         )
         assert select_response.status_code == 200
 
-        # Flip the session world_id to simulate a mismatched world binding.
+        # Direct SQL tampering should be rejected by session invariant triggers.
         conn = database.get_connection()
         cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE sessions SET world_id = ? WHERE session_id = ?",
-            ("pipeworks_web", session_id),
-        )
-        conn.commit()
+        with pytest.raises(sqlite3.IntegrityError):
+            cursor.execute(
+                "UPDATE sessions SET world_id = ? WHERE session_id = ?",
+                ("pipeworks_web", session_id),
+            )
         conn.close()
 
         command_response = test_client.post(

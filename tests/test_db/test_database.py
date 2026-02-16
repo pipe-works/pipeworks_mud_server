@@ -1037,6 +1037,94 @@ def test_character_limit_trigger_enforced(temp_db_path):
 
 @pytest.mark.unit
 @pytest.mark.db
+def test_session_invariant_trigger_rejects_account_world_binding(
+    test_db, temp_db_path, db_with_users
+):
+    """Account-only sessions must not set world_id without a character binding."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        with pytest.raises(sqlite3.IntegrityError, match="account session has world_id"):
+            cursor.execute(
+                """
+                INSERT INTO sessions (user_id, world_id, session_id)
+                VALUES (?, ?, ?)
+                """,
+                (user_id, "pipeworks_web", "invalid-account-world"),
+            )
+        conn.close()
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_session_invariant_trigger_rejects_character_without_world(
+    test_db, temp_db_path, db_with_users
+):
+    """Character sessions must include a world binding."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        character = database.get_character_by_name("testplayer_char")
+        assert user_id is not None
+        assert character is not None
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        with pytest.raises(sqlite3.IntegrityError, match="character session missing world_id"):
+            cursor.execute(
+                """
+                INSERT INTO sessions (user_id, character_id, session_id)
+                VALUES (?, ?, ?)
+                """,
+                (user_id, int(character["id"]), "invalid-character-no-world"),
+            )
+        conn.close()
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_session_invariant_trigger_rejects_world_mismatch(test_db, temp_db_path, db_with_users):
+    """Session world must match the bound character's world."""
+    with use_test_database(temp_db_path):
+        user_id = database.get_user_id("testplayer")
+        character = database.get_character_by_name("testplayer_char")
+        assert user_id is not None
+        assert character is not None
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        with pytest.raises(sqlite3.IntegrityError, match="world mismatch for character"):
+            cursor.execute(
+                """
+                INSERT INTO sessions (user_id, character_id, world_id, session_id)
+                VALUES (?, ?, ?, ?)
+                """,
+                (user_id, int(character["id"]), "daily_undertaking", "invalid-world-mismatch"),
+            )
+        conn.close()
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_session_invariant_trigger_rejects_update_tampering(test_db, temp_db_path, db_with_users):
+    """Session update trigger should reject direct SQL state tampering."""
+    with use_test_database(temp_db_path):
+        assert database.create_session("testplayer", "tamper-session")
+
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        with pytest.raises(sqlite3.IntegrityError, match="account session has world_id"):
+            cursor.execute(
+                "UPDATE sessions SET world_id = ? WHERE session_id = ?",
+                ("pipeworks_web", "tamper-session"),
+            )
+        conn.close()
+
+
+@pytest.mark.unit
+@pytest.mark.db
 def test_create_session_no_ttl_sets_null_expiry(test_db, temp_db_path, db_with_users):
     """Test that TTL=0 stores NULL expiry."""
     from mud_server.config import config
