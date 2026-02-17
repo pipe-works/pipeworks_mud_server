@@ -80,7 +80,7 @@ def _generate_default_character_name(cursor: Any, username: str) -> str:
 
 def _create_default_character(cursor: Any, user_id: int, username: str, *, world_id: str) -> int:
     """Create a default character row and seed axis/location snapshot state."""
-    from mud_server.db import database
+    from mud_server.db.axis_repo import _seed_character_axis_scores, _seed_character_state_snapshot
 
     character_name = _generate_default_character_name(cursor, username)
     cursor.execute(
@@ -95,10 +95,8 @@ def _create_default_character(cursor: Any, user_id: int, username: str, *, world
         raise ValueError("Failed to create default character.")
     character_id_int = int(character_id)
 
-    database._seed_character_axis_scores(cursor, character_id=character_id_int, world_id=world_id)
-    database._seed_character_state_snapshot(
-        cursor, character_id=character_id_int, world_id=world_id
-    )
+    _seed_character_axis_scores(cursor, character_id=character_id_int, world_id=world_id)
+    _seed_character_state_snapshot(cursor, character_id=character_id_int, world_id=world_id)
     return character_id_int
 
 
@@ -144,7 +142,10 @@ def create_character_for_user(
     """
     try:
         from mud_server.config import config
-        from mud_server.db import database
+        from mud_server.db.axis_repo import (
+            _seed_character_axis_scores,
+            _seed_character_state_snapshot,
+        )
 
         with connection_scope(write=True) as conn:
             cursor = conn.cursor()
@@ -170,15 +171,14 @@ def create_character_for_user(
                 raise ValueError("Failed to create character.")
             character_id_int = int(character_id)
 
-            # Keep seed/init behavior centralized in existing helpers during the
-            # incremental refactor so downstream state logic remains unchanged.
-            database._seed_character_location(cursor, character_id_int, world_id=world_id)
-            database._seed_character_axis_scores(
+            # Seed location/axis state in the same transaction as creation.
+            _seed_character_location(cursor, character_id_int, world_id=world_id)
+            _seed_character_axis_scores(
                 cursor,
                 character_id=character_id_int,
                 world_id=world_id,
             )
-            database._seed_character_state_snapshot(
+            _seed_character_state_snapshot(
                 cursor,
                 character_id=character_id_int,
                 world_id=world_id,

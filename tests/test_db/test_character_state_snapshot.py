@@ -14,7 +14,7 @@ import sqlite3
 import pytest
 
 from mud_server.config import use_test_database
-from mud_server.db import database
+from mud_server.db import axis_repo, database
 from tests.constants import TEST_PASSWORD
 
 
@@ -55,9 +55,9 @@ def test_character_state_snapshot_seeded_on_creation(temp_db_path, monkeypatch) 
     with use_test_database(temp_db_path):
         database.init_database(skip_superuser=True)
 
-        monkeypatch.setattr(database, "_get_axis_policy_hash", lambda _world_id: "policyhash")
+        monkeypatch.setattr(axis_repo, "_get_axis_policy_hash", lambda _world_id: "policyhash")
         # Use a fixed seed in this unit test so assertions remain deterministic.
-        monkeypatch.setattr(database, "_generate_state_seed", lambda: 424242)
+        monkeypatch.setattr(axis_repo, "_generate_state_seed", lambda: 424242)
 
         axes_payload = {
             "axes": {

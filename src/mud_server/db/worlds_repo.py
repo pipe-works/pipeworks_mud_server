@@ -363,12 +363,12 @@ def list_worlds_for_user(
     include_invite_worlds: bool = False,
 ) -> list[dict[str, Any]]:
     """Return world rows decorated with access policy for one account."""
-    from mud_server.db import database
+    from mud_server.db.users_repo import get_user_role, get_username_by_id
 
     if role is None:
-        username = database.get_username_by_id(user_id)
+        username = get_username_by_id(user_id)
         if username:
-            role = database.get_user_role(username)
+            role = get_user_role(username)
 
     conn = _get_connection()
     cursor = conn.cursor()
