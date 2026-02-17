@@ -138,11 +138,14 @@ def router(engine: GameEngine) -> APIRouter:
         """Get recent axis events for a character (Admin only)."""
         _, _username, _role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
 
-        events = [
-            CharacterAxisEvent(**event)
-            for event in database.get_character_axis_events(character_id, limit=limit)
-        ]
-        return DatabaseCharacterAxisEventsResponse(character_id=character_id, events=events)
+        try:
+            events = [
+                CharacterAxisEvent(**event)
+                for event in database.get_character_axis_events(character_id, limit=limit)
+            ]
+            return DatabaseCharacterAxisEventsResponse(character_id=character_id, events=events)
+        except DatabaseError as exc:
+            raise HTTPException(status_code=500, detail="Character events unavailable") from exc
 
     @api.post("/admin/session/kick", response_model=KickSessionResponse)
     async def kick_session(request: KickSessionRequest):
@@ -263,114 +266,120 @@ def router(engine: GameEngine) -> APIRouter:
                 ),
             )
 
-        _, username, role = validate_session_with_permission(
-            request.session_id, required_permission
-        )
-
-        target_username = request.target_username
-        if not database.user_exists(target_username):
-            raise HTTPException(status_code=404, detail=f"User '{target_username}' not found")
-
-        target_role = database.get_user_role(target_username)
-        if not target_role:
-            raise HTTPException(status_code=404, detail="Target user not found")
-
-        if username == target_username and action != "change_password":
-            raise HTTPException(status_code=400, detail="Cannot manage your own account")
-
-        if not can_manage_role(role, target_role):
-            raise HTTPException(
-                status_code=403,
-                detail=f"Insufficient permissions to manage user with role '{target_role}'",
+        try:
+            _, username, role = validate_session_with_permission(
+                request.session_id, required_permission
             )
 
-        if action == "change_role":
-            if not request.new_role:
-                raise HTTPException(
-                    status_code=400, detail="new_role is required for change_role action"
-                )
+            target_username = request.target_username
+            if not database.user_exists(target_username):
+                raise HTTPException(status_code=404, detail=f"User '{target_username}' not found")
 
-            new_role = request.new_role.lower()
-            valid_roles = ["player", "worldbuilder", "admin", "superuser"]
+            target_role = database.get_user_role(target_username)
+            if not target_role:
+                raise HTTPException(status_code=404, detail="Target user not found")
 
-            if new_role not in valid_roles:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid role. Valid roles: {', '.join(valid_roles)}",
-                )
+            if username == target_username and action != "change_password":
+                raise HTTPException(status_code=400, detail="Cannot manage your own account")
 
-            if not can_manage_role(role, new_role):
+            if not can_manage_role(role, target_role):
                 raise HTTPException(
                     status_code=403,
-                    detail=f"Insufficient permissions to assign role '{new_role}'",
+                    detail=f"Insufficient permissions to manage user with role '{target_role}'",
                 )
 
-            if database.set_user_role(target_username, new_role):
-                return UserManagementResponse(
-                    success=True,
-                    message=f"Successfully changed {target_username}'s role to {new_role}",
-                )
-            raise HTTPException(status_code=500, detail="Failed to change role")
+            if action == "change_role":
+                if not request.new_role:
+                    raise HTTPException(
+                        status_code=400, detail="new_role is required for change_role action"
+                    )
 
-        if action == "ban":
-            if database.deactivate_user(target_username):
-                user_id = database.get_user_id(target_username)
-                if user_id:
-                    try:
-                        database.remove_sessions_for_user(user_id)
-                    except DatabaseError as exc:
-                        raise HTTPException(status_code=500, detail="Failed to ban user") from exc
+                new_role = request.new_role.lower()
+                valid_roles = ["player", "worldbuilder", "admin", "superuser"]
 
-                return UserManagementResponse(
-                    success=True, message=f"Successfully banned {target_username}"
-                )
-            raise HTTPException(status_code=500, detail="Failed to ban user")
+                if new_role not in valid_roles:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid role. Valid roles: {', '.join(valid_roles)}",
+                    )
 
-        if action == "delete":
-            if role != "superuser":
-                raise HTTPException(
-                    status_code=403,
-                    detail="Only superusers may permanently delete users",
-                )
+                if not can_manage_role(role, new_role):
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Insufficient permissions to assign role '{new_role}'",
+                    )
 
-            if database.delete_user(target_username):
-                return UserManagementResponse(
-                    success=True, message=f"Successfully deleted {target_username}"
-                )
-            raise HTTPException(status_code=500, detail="Failed to delete user")
+                if database.set_user_role(target_username, new_role):
+                    return UserManagementResponse(
+                        success=True,
+                        message=f"Successfully changed {target_username}'s role to {new_role}",
+                    )
+                raise HTTPException(status_code=500, detail="Failed to change role")
 
-        if action == "unban":
-            if database.activate_user(target_username):
-                return UserManagementResponse(
-                    success=True, message=f"Successfully unbanned {target_username}"
-                )
-            raise HTTPException(status_code=500, detail="Failed to unban user")
+            if action == "ban":
+                if database.deactivate_user(target_username):
+                    user_id = database.get_user_id(target_username)
+                    if user_id:
+                        try:
+                            database.remove_sessions_for_user(user_id)
+                        except DatabaseError as exc:
+                            raise HTTPException(
+                                status_code=500, detail="Failed to ban user"
+                            ) from exc
 
-        if action == "change_password":
-            new_password = request.new_password
-            if not new_password:
-                raise HTTPException(
-                    status_code=400, detail="new_password is required for change_password action"
-                )
+                    return UserManagementResponse(
+                        success=True, message=f"Successfully banned {target_username}"
+                    )
+                raise HTTPException(status_code=500, detail="Failed to ban user")
 
-            if len(new_password) < 8:
-                raise HTTPException(
-                    status_code=400, detail="Password must be at least 8 characters long"
-                )
+            if action == "delete":
+                if role != "superuser":
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Only superusers may permanently delete users",
+                    )
 
-            if database.change_password_for_user(target_username, new_password):
-                return UserManagementResponse(
-                    success=True, message=f"Successfully changed password for {target_username}"
-                )
-            raise HTTPException(status_code=500, detail="Failed to change password")
+                if database.delete_user(target_username):
+                    return UserManagementResponse(
+                        success=True, message=f"Successfully deleted {target_username}"
+                    )
+                raise HTTPException(status_code=500, detail="Failed to delete user")
 
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Invalid action '{action}'. Valid actions: change_role, "
-                "ban, deactivate, unban, delete, change_password"
-            ),
-        )
+            if action == "unban":
+                if database.activate_user(target_username):
+                    return UserManagementResponse(
+                        success=True, message=f"Successfully unbanned {target_username}"
+                    )
+                raise HTTPException(status_code=500, detail="Failed to unban user")
+
+            if action == "change_password":
+                new_password = request.new_password
+                if not new_password:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="new_password is required for change_password action",
+                    )
+
+                if len(new_password) < 8:
+                    raise HTTPException(
+                        status_code=400, detail="Password must be at least 8 characters long"
+                    )
+
+                if database.change_password_for_user(target_username, new_password):
+                    return UserManagementResponse(
+                        success=True, message=f"Successfully changed password for {target_username}"
+                    )
+                raise HTTPException(status_code=500, detail="Failed to change password")
+
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid action '{action}'. Valid actions: change_role, "
+                    "ban, deactivate, unban, delete, change_password"
+                ),
+            )
+        except DatabaseError as exc:
+            raise HTTPException(status_code=500, detail="User management unavailable") from exc
 
     @api.post("/admin/user/create", response_model=CreateUserResponse)
     async def create_user(request: CreateUserRequest):
@@ -418,29 +427,34 @@ def router(engine: GameEngine) -> APIRouter:
                 detail=f"Insufficient permissions to create role '{role}'",
             )
 
-        if database.user_exists(username):
-            raise HTTPException(status_code=400, detail="Username already taken")
+        try:
+            if database.user_exists(username):
+                raise HTTPException(status_code=400, detail="Username already taken")
 
-        if password != password_confirm:
-            raise HTTPException(status_code=400, detail="Passwords do not match")
+            if password != password_confirm:
+                raise HTTPException(status_code=400, detail="Passwords do not match")
 
-        result = validate_password_strength(password, level=PolicyLevel.STANDARD)
-        if not result.is_valid:
-            error_detail = " ".join(result.errors)
-            raise HTTPException(status_code=400, detail=error_detail)
+            result = validate_password_strength(password, level=PolicyLevel.STANDARD)
+            if not result.is_valid:
+                error_detail = " ".join(result.errors)
+                raise HTTPException(status_code=400, detail=error_detail)
 
-        if database.create_user_with_password(
-            username, password, role=role, account_origin=creator_role
-        ):
-            return CreateUserResponse(
-                success=True,
-                message=(
-                    f"User '{username}' created with role '{role}'. "
-                    "No character was provisioned automatically."
-                ),
+            if database.create_user_with_password(
+                username, password, role=role, account_origin=creator_role
+            ):
+                return CreateUserResponse(
+                    success=True,
+                    message=(
+                        f"User '{username}' created with role '{role}'. "
+                        "No character was provisioned automatically."
+                    ),
+                )
+
+            raise HTTPException(
+                status_code=500, detail="Failed to create account. Please try again."
             )
-
-        raise HTTPException(status_code=500, detail="Failed to create account. Please try again.")
+        except DatabaseError as exc:
+            raise HTTPException(status_code=500, detail="User creation unavailable") from exc
 
     @api.post("/admin/user/create-character", response_model=CreateCharacterResponse)
     async def create_character(request: CreateCharacterRequest):
@@ -454,69 +468,78 @@ def router(engine: GameEngine) -> APIRouter:
         4. Create character in DB and seed baseline axis snapshot.
         5. Fetch entity profile and apply axis deltas through the event ledger.
         """
-        _, actor_username, actor_role = validate_session_with_permission(
-            request.session_id,
-            Permission.CREATE_USERS,
-        )
-
-        target_username = request.target_username.strip()
-        world_id = request.world_id.strip()
-        if not target_username:
-            raise HTTPException(status_code=400, detail="target_username is required")
-        if not world_id:
-            raise HTTPException(status_code=400, detail="world_id is required")
-
-        if not database.user_exists(target_username):
-            raise HTTPException(status_code=404, detail=f"User '{target_username}' not found")
-
-        target_role = database.get_user_role(target_username)
-        if not target_role:
-            raise HTTPException(status_code=404, detail=f"Role not found for '{target_username}'")
-
-        # Follow the same role hierarchy guardrails as other admin-management
-        # operations, but permit self-service character creation.
-        if actor_username != target_username and not can_manage_role(actor_role, target_role):
-            raise HTTPException(
-                status_code=403,
-                detail=f"Insufficient permissions to manage user with role '{target_role}'",
+        try:
+            _, actor_username, actor_role = validate_session_with_permission(
+                request.session_id,
+                Permission.CREATE_USERS,
             )
 
-        target_user_id = database.get_user_id(target_username)
-        if target_user_id is None:
-            raise HTTPException(status_code=404, detail=f"User '{target_username}' not found")
+            target_username = request.target_username.strip()
+            world_id = request.world_id.strip()
+            if not target_username:
+                raise HTTPException(status_code=400, detail="target_username is required")
+            if not world_id:
+                raise HTTPException(status_code=400, detail="world_id is required")
 
-        world = database.get_world_by_id(world_id)
-        if world is None:
-            raise HTTPException(status_code=404, detail=f"World '{world_id}' not found")
-        if not world.get("is_active", False):
-            raise HTTPException(status_code=409, detail=f"World '{world_id}' is inactive")
+            if not database.user_exists(target_username):
+                raise HTTPException(status_code=404, detail=f"User '{target_username}' not found")
 
-        provisioning = provision_generated_character_for_user(
-            user_id=target_user_id,
-            world_id=world_id,
-        )
-        if not provisioning.success:
-            if provisioning.reason == "slot_limit_reached":
+            target_role = database.get_user_role(target_username)
+            if not target_role:
+                raise HTTPException(
+                    status_code=404, detail=f"Role not found for '{target_username}'"
+                )
+
+            # Follow the same role hierarchy guardrails as other admin-management
+            # operations, but permit self-service character creation.
+            if actor_username != target_username and not can_manage_role(actor_role, target_role):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Insufficient permissions to manage user with role '{target_role}'",
+                )
+
+            target_user_id = database.get_user_id(target_username)
+            if target_user_id is None:
+                raise HTTPException(status_code=404, detail=f"User '{target_username}' not found")
+
+            world = database.get_world_by_id(world_id)
+            if world is None:
+                raise HTTPException(status_code=404, detail=f"World '{world_id}' not found")
+            if not world.get("is_active", False):
+                raise HTTPException(status_code=409, detail=f"World '{world_id}' is inactive")
+
+            provisioning = provision_generated_character_for_user(
+                user_id=target_user_id,
+                world_id=world_id,
+            )
+            if not provisioning.success:
+                if provisioning.reason == "slot_limit_reached":
+                    raise HTTPException(status_code=409, detail=provisioning.message)
+                if provisioning.reason == "name_generation_failed":
+                    raise HTTPException(status_code=502, detail=provisioning.message)
                 raise HTTPException(status_code=409, detail=provisioning.message)
-            if provisioning.reason == "name_generation_failed":
-                raise HTTPException(status_code=502, detail=provisioning.message)
-            raise HTTPException(status_code=409, detail=provisioning.message)
 
-        if provisioning.character_id is None or provisioning.character_name is None:
-            raise HTTPException(
-                status_code=500, detail="Character provisioning returned no identity"
+            if provisioning.character_id is None or provisioning.character_name is None:
+                raise HTTPException(
+                    status_code=500, detail="Character provisioning returned no identity"
+                )
+
+            return CreateCharacterResponse(
+                success=True,
+                message=(
+                    f"Character '{provisioning.character_name}' created for '{target_username}'."
+                ),
+                character_id=provisioning.character_id,
+                character_name=provisioning.character_name,
+                world_id=world_id,
+                seed=provisioning.seed,
+                entity_state=provisioning.entity_state,
+                entity_state_error=provisioning.entity_state_error,
             )
-
-        return CreateCharacterResponse(
-            success=True,
-            message=(f"Character '{provisioning.character_name}' created for '{target_username}'."),
-            character_id=provisioning.character_id,
-            character_name=provisioning.character_name,
-            world_id=world_id,
-            seed=provisioning.seed,
-            entity_state=provisioning.entity_state,
-            entity_state_error=provisioning.entity_state_error,
-        )
+        except DatabaseError as exc:
+            raise HTTPException(
+                status_code=500, detail="Character provisioning unavailable"
+            ) from exc
 
     @api.post("/admin/character/manage", response_model=ManageCharacterResponse)
     async def manage_character(request: ManageCharacterRequest):

@@ -3,16 +3,36 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any
+from typing import Any, NoReturn
 
+from mud_server.db.connection import connection_scope
 from mud_server.db.constants import DEFAULT_AXIS_SCORE
+from mud_server.db.errors import (
+    DatabaseError,
+    DatabaseOperationContext,
+    DatabaseReadError,
+    DatabaseWriteError,
+)
 
 
-def _get_connection() -> sqlite3.Connection:
-    """Return a DB connection from the shared connection module."""
-    from mud_server.db.connection import get_connection as get_connection_impl
+def _raise_read_error(operation: str, exc: Exception, *, details: str | None = None) -> NoReturn:
+    """Raise a typed repository read error while preserving chained cause."""
+    if isinstance(exc, DatabaseError):
+        raise exc
+    raise DatabaseReadError(
+        context=DatabaseOperationContext(operation=operation, details=details),
+        cause=exc,
+    ) from exc
 
-    return get_connection_impl()
+
+def _raise_write_error(operation: str, exc: Exception, *, details: str | None = None) -> NoReturn:
+    """Raise a typed repository write error while preserving chained cause."""
+    if isinstance(exc, DatabaseError):
+        raise exc
+    raise DatabaseWriteError(
+        context=DatabaseOperationContext(operation=operation, details=details),
+        cause=exc,
+    ) from exc
 
 
 def _get_or_create_event_type_id(
@@ -69,190 +89,200 @@ def apply_axis_event(
     if not deltas:
         raise ValueError("Event deltas must not be empty.")
 
-    conn = _get_connection()
-    cursor = conn.cursor()
     try:
-        cursor.execute("BEGIN")
-        event_type_id = _get_or_create_event_type_id(
-            cursor,
-            world_id=world_id,
-            event_type_name=event_type_name,
-            description=event_type_description,
-        )
-
-        cursor.execute(
-            """
-            INSERT INTO event (world_id, event_type_id)
-            VALUES (?, ?)
-            """,
-            (world_id, event_type_id),
-        )
-        event_id = cursor.lastrowid
-        if event_id is None:
-            raise ValueError("Failed to create event.")
-        event_id = int(event_id)
-
-        for axis_name, delta in deltas.items():
-            axis_id = _resolve_axis_id(cursor, world_id=world_id, axis_name=axis_name)
-            if axis_id is None:
-                raise ValueError(f"Unknown axis '{axis_name}' for world '{world_id}'.")
+        with connection_scope(write=True) as conn:
+            cursor = conn.cursor()
+            event_type_id = _get_or_create_event_type_id(
+                cursor,
+                world_id=world_id,
+                event_type_name=event_type_name,
+                description=event_type_description,
+            )
 
             cursor.execute(
                 """
-                SELECT axis_score
-                FROM character_axis_score
-                WHERE character_id = ? AND axis_id = ?
+                INSERT INTO event (world_id, event_type_id)
+                VALUES (?, ?)
                 """,
-                (character_id, axis_id),
+                (world_id, event_type_id),
             )
-            row = cursor.fetchone()
-            if row is None:
-                old_score = DEFAULT_AXIS_SCORE
+            event_id = cursor.lastrowid
+            if event_id is None:
+                raise ValueError("Failed to create event.")
+            event_id = int(event_id)
+
+            for axis_name, delta in deltas.items():
+                axis_id = _resolve_axis_id(cursor, world_id=world_id, axis_name=axis_name)
+                if axis_id is None:
+                    raise ValueError(f"Unknown axis '{axis_name}' for world '{world_id}'.")
+
                 cursor.execute(
                     """
-                    INSERT INTO character_axis_score
-                        (character_id, world_id, axis_id, axis_score)
-                    VALUES (?, ?, ?, ?)
+                    SELECT axis_score
+                    FROM character_axis_score
+                    WHERE character_id = ? AND axis_id = ?
                     """,
-                    (character_id, world_id, axis_id, old_score),
+                    (character_id, axis_id),
                 )
-            else:
-                old_score = float(row[0])
+                row = cursor.fetchone()
+                if row is None:
+                    old_score = DEFAULT_AXIS_SCORE
+                    cursor.execute(
+                        """
+                        INSERT INTO character_axis_score
+                            (character_id, world_id, axis_id, axis_score)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (character_id, world_id, axis_id, old_score),
+                    )
+                else:
+                    old_score = float(row[0])
 
-            new_score = old_score + float(delta)
+                new_score = old_score + float(delta)
 
-            cursor.execute(
-                """
-                UPDATE character_axis_score
-                SET axis_score = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE character_id = ? AND axis_id = ?
-                """,
-                (new_score, character_id, axis_id),
-            )
-
-            cursor.execute(
-                """
-                INSERT INTO event_entity_axis_delta
-                    (event_id, character_id, axis_id, old_score, new_score, delta)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (event_id, character_id, axis_id, old_score, new_score, float(delta)),
-            )
-
-        if metadata:
-            for key, value in metadata.items():
                 cursor.execute(
                     """
-                    INSERT INTO event_metadata (event_id, key, value)
-                    VALUES (?, ?, ?)
+                    UPDATE character_axis_score
+                    SET axis_score = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE character_id = ? AND axis_id = ?
                     """,
-                    (event_id, key, value),
+                    (new_score, character_id, axis_id),
                 )
 
-        database._refresh_character_current_snapshot(
-            cursor,
-            character_id=character_id,
-            world_id=world_id,
-        )
+                cursor.execute(
+                    """
+                    INSERT INTO event_entity_axis_delta
+                        (event_id, character_id, axis_id, old_score, new_score, delta)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (event_id, character_id, axis_id, old_score, new_score, float(delta)),
+                )
 
-        conn.commit()
-        return event_id
-    except Exception:
-        conn.rollback()
+            if metadata:
+                for key, value in metadata.items():
+                    cursor.execute(
+                        """
+                        INSERT INTO event_metadata (event_id, key, value)
+                        VALUES (?, ?, ?)
+                        """,
+                        (event_id, key, value),
+                    )
+
+            database._refresh_character_current_snapshot(
+                cursor,
+                character_id=character_id,
+                world_id=world_id,
+            )
+
+            return event_id
+    except ValueError:
+        # Unknown axis names and empty deltas are intentional domain validation failures.
         raise
-    finally:
-        conn.close()
+    except Exception as exc:
+        _raise_write_error(
+            "events.apply_axis_event",
+            exc,
+            details=(
+                f"world_id={world_id!r}, character_id={character_id}, "
+                f"event_type_name={event_type_name!r}"
+            ),
+        )
 
 
 def get_character_axis_events(character_id: int, *, limit: int = 50) -> list[dict[str, Any]]:
     """Return recent axis events with deltas and metadata for one character."""
-    conn = _get_connection()
-    cursor = conn.cursor()
+    try:
+        with connection_scope() as conn:
+            cursor = conn.cursor()
 
-    cursor.execute(
-        """
-        SELECT DISTINCT e.id
-        FROM event_entity_axis_delta d
-        JOIN event e ON e.id = d.event_id
-        WHERE d.character_id = ?
-        ORDER BY e.id DESC
-        LIMIT ?
-        """,
-        (character_id, limit),
-    )
-    event_ids = [row[0] for row in cursor.fetchall()]
-    if not event_ids:
-        conn.close()
-        return []
+            cursor.execute(
+                """
+                SELECT DISTINCT e.id
+                FROM event_entity_axis_delta d
+                JOIN event e ON e.id = d.event_id
+                WHERE d.character_id = ?
+                ORDER BY e.id DESC
+                LIMIT ?
+                """,
+                (character_id, limit),
+            )
+            event_ids = [row[0] for row in cursor.fetchall()]
+            if not event_ids:
+                return []
 
-    placeholders = ",".join(["?"] * len(event_ids))
-    events_query = f"""
-        SELECT e.id,
-               e.world_id,
-               e.timestamp,
-               et.name,
-               et.description,
-               a.name,
-               d.old_score,
-               d.new_score,
-               d.delta
-        FROM event_entity_axis_delta d
-        JOIN event e ON e.id = d.event_id
-        JOIN event_type et ON et.id = e.event_type_id
-        JOIN axis a ON a.id = d.axis_id
-        WHERE d.character_id = ?
-          AND e.id IN ({placeholders})
-        ORDER BY e.id DESC, a.name ASC
-        """  # nosec B608
-    cursor.execute(events_query, [character_id, *event_ids])
-    rows = cursor.fetchall()
+            placeholders = ",".join(["?"] * len(event_ids))
+            events_query = f"""
+                SELECT e.id,
+                       e.world_id,
+                       e.timestamp,
+                       et.name,
+                       et.description,
+                       a.name,
+                       d.old_score,
+                       d.new_score,
+                       d.delta
+                FROM event_entity_axis_delta d
+                JOIN event e ON e.id = d.event_id
+                JOIN event_type et ON et.id = e.event_type_id
+                JOIN axis a ON a.id = d.axis_id
+                WHERE d.character_id = ?
+                  AND e.id IN ({placeholders})
+                ORDER BY e.id DESC, a.name ASC
+                """  # nosec B608
+            cursor.execute(events_query, [character_id, *event_ids])
+            rows = cursor.fetchall()
 
-    metadata_query = f"""
-        SELECT event_id, key, value
-        FROM event_metadata
-        WHERE event_id IN ({placeholders})
-        """  # nosec B608
-    cursor.execute(metadata_query, event_ids)
-    metadata_rows = cursor.fetchall()
-    conn.close()
+            metadata_query = f"""
+                SELECT event_id, key, value
+                FROM event_metadata
+                WHERE event_id IN ({placeholders})
+                """  # nosec B608
+            cursor.execute(metadata_query, event_ids)
+            metadata_rows = cursor.fetchall()
 
-    metadata_map: dict[int, dict[str, str]] = {}
-    for event_id, key, value in metadata_rows:
-        event_id_int = int(event_id)
-        metadata_map.setdefault(event_id_int, {})[key] = value
+        metadata_map: dict[int, dict[str, str]] = {}
+        for event_id, key, value in metadata_rows:
+            event_id_int = int(event_id)
+            metadata_map.setdefault(event_id_int, {})[key] = value
 
-    events: dict[int, dict[str, Any]] = {}
-    for (
-        event_id,
-        world_id,
-        timestamp,
-        event_type_name,
-        event_type_description,
-        axis_name,
-        old_score,
-        new_score,
-        delta,
-    ) in rows:
-        event_id_int = int(event_id)
-        event = events.get(event_id_int)
-        if event is None:
-            event = {
-                "event_id": event_id_int,
-                "world_id": world_id,
-                "event_type": event_type_name,
-                "event_type_description": event_type_description,
-                "timestamp": timestamp,
-                "metadata": metadata_map.get(event_id_int, {}),
-                "deltas": [],
-            }
-            events[event_id_int] = event
-        event["deltas"].append(
-            {
-                "axis_name": axis_name,
-                "old_score": float(old_score),
-                "new_score": float(new_score),
-                "delta": float(delta),
-            }
+        events: dict[int, dict[str, Any]] = {}
+        for (
+            event_id,
+            world_id,
+            timestamp,
+            event_type_name,
+            event_type_description,
+            axis_name,
+            old_score,
+            new_score,
+            delta,
+        ) in rows:
+            event_id_int = int(event_id)
+            event = events.get(event_id_int)
+            if event is None:
+                event = {
+                    "event_id": event_id_int,
+                    "world_id": world_id,
+                    "event_type": event_type_name,
+                    "event_type_description": event_type_description,
+                    "timestamp": timestamp,
+                    "metadata": metadata_map.get(event_id_int, {}),
+                    "deltas": [],
+                }
+                events[event_id_int] = event
+            event["deltas"].append(
+                {
+                    "axis_name": axis_name,
+                    "old_score": float(old_score),
+                    "new_score": float(new_score),
+                    "delta": float(delta),
+                }
+            )
+
+        return [events[int(event_id)] for event_id in event_ids if int(event_id) in events]
+    except Exception as exc:
+        _raise_read_error(
+            "events.get_character_axis_events",
+            exc,
+            details=f"character_id={character_id}, limit={limit}",
         )
-
-    return [events[int(event_id)] for event_id in event_ids if int(event_id) in events]
