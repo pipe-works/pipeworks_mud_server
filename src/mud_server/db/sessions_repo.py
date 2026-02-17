@@ -357,31 +357,22 @@ def clear_all_sessions() -> int:
         _raise_write_error("sessions.clear_all_sessions", exc)
 
 
-def get_active_characters(*, world_id: str | None = None) -> list[str]:
-    """Return active character names for optional world scope."""
+def get_active_characters(*, world_id: str) -> list[str]:
+    """Return active character names for one explicit world scope."""
     try:
         with connection_scope() as conn:
             cursor = conn.cursor()
-            if world_id is None:
-                cursor.execute("""
-                    SELECT DISTINCT c.name
-                    FROM sessions s
-                    JOIN characters c ON c.id = s.character_id
-                    WHERE s.character_id IS NOT NULL
-                      AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
-                    """)
-            else:
-                cursor.execute(
-                    """
-                    SELECT DISTINCT c.name
-                    FROM sessions s
-                    JOIN characters c ON c.id = s.character_id
-                    WHERE s.character_id IS NOT NULL
-                      AND s.world_id = ?
-                      AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
-                    """,
-                    (world_id,),
-                )
+            cursor.execute(
+                """
+                SELECT DISTINCT c.name
+                FROM sessions s
+                JOIN characters c ON c.id = s.character_id
+                WHERE s.character_id IS NOT NULL
+                  AND s.world_id = ?
+                  AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
+                """,
+                (world_id,),
+            )
             rows = cursor.fetchall()
         return [row[0] for row in rows]
     except Exception as exc:

@@ -1169,13 +1169,13 @@ def clear_all_sessions() -> int:
     return clear_all_sessions_impl()
 
 
-def get_active_characters(*, world_id: str | None = None) -> list[str]:
+def get_active_characters(*, world_id: str) -> list[str]:
     """
     Return active in-world character names.
 
     Args:
-        world_id: Optional world scope. When provided, only sessions bound to
-            that world are included. Account-only sessions are excluded.
+        world_id: World scope. Only sessions bound to this world are included.
+            Account-only sessions are excluded.
     """
     from mud_server.db.sessions_repo import get_active_characters as get_active_characters_impl
 

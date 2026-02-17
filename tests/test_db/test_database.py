@@ -879,6 +879,15 @@ def test_create_character_for_user_missing_lastrowid_raises():
 
 @pytest.mark.unit
 @pytest.mark.db
+def test_create_character_for_user_requires_explicit_world_id():
+    """Character creation should fail fast when world scope is omitted."""
+    create_character_for_user = cast(Any, database.create_character_for_user)
+    with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'world_id'"):
+        create_character_for_user(1, "missing_world")
+
+
+@pytest.mark.unit
+@pytest.mark.db
 def test_create_default_character_missing_lastrowid_raises():
     fake_cursor = _FakeCursor(lastrowid=None)
 
@@ -903,6 +912,15 @@ def test_get_character_by_name_missing_returns_none(test_db, temp_db_path):
 def test_get_character_by_id_missing_returns_none(test_db, temp_db_path):
     with use_test_database(temp_db_path):
         assert database.get_character_by_id(9999) is None
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_user_characters_requires_explicit_world_id():
+    """Character listing should fail fast when world scope is omitted."""
+    get_user_characters = cast(Any, database.get_user_characters)
+    with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'world_id'"):
+        get_user_characters(1)
 
 
 @pytest.mark.unit
@@ -1475,10 +1493,19 @@ def test_get_active_players(test_db, temp_db_path, db_with_users):
             "session-2", admin_character["id"], world_id=database.DEFAULT_WORLD_ID
         )
 
-        active = database.get_active_characters()
+        active = database.get_active_characters(world_id=database.DEFAULT_WORLD_ID)
         assert len(active) == 2
         assert "testplayer_char" in active
         assert "testadmin_char" in active
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_active_characters_requires_explicit_world_id():
+    """Runtime active-character queries should require explicit world context."""
+    get_active_characters = cast(Any, database.get_active_characters)
+    with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'world_id'"):
+        get_active_characters()
 
 
 @pytest.mark.unit
@@ -1580,7 +1607,7 @@ def test_cleanup_expired_sessions_removes_old(test_db, temp_db_path, db_with_use
         assert removed == 1
 
         # Session should be gone
-        active = database.get_active_characters()
+        active = database.get_active_characters(world_id=database.DEFAULT_WORLD_ID)
         assert "testplayer_char" not in active
 
 
@@ -1602,7 +1629,7 @@ def test_cleanup_expired_sessions_keeps_active(test_db, temp_db_path, db_with_us
         assert removed == 0
 
         # Session should still exist
-        active = database.get_active_characters()
+        active = database.get_active_characters(world_id=database.DEFAULT_WORLD_ID)
         assert "testplayer_char" in active
 
 
@@ -1641,7 +1668,7 @@ def test_cleanup_expired_sessions_mixed(test_db, temp_db_path, db_with_users):
         assert removed == 1
 
         # Only testadmin should remain
-        active = database.get_active_characters()
+        active = database.get_active_characters(world_id=database.DEFAULT_WORLD_ID)
         assert "testplayer_char" not in active
         assert "testadmin_char" in active
 
@@ -1681,7 +1708,7 @@ def test_clear_all_sessions(test_db, temp_db_path, db_with_users):
         )
 
         # Verify sessions exist
-        assert len(database.get_active_characters()) == 3
+        assert len(database.get_active_characters(world_id=database.DEFAULT_WORLD_ID)) == 3
 
         # Clear all sessions
         removed = database.clear_all_sessions()
@@ -1689,7 +1716,7 @@ def test_clear_all_sessions(test_db, temp_db_path, db_with_users):
         assert removed == 3
 
         # All sessions should be gone
-        assert len(database.get_active_characters()) == 0
+        assert len(database.get_active_characters(world_id=database.DEFAULT_WORLD_ID)) == 0
 
 
 @pytest.mark.unit
