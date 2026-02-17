@@ -23,7 +23,7 @@ import pytest
 from mud_server.config import use_test_database
 from mud_server.db import connection as db_connection
 from mud_server.db import database
-from mud_server.db.errors import DatabaseWriteError
+from mud_server.db.errors import DatabaseReadError, DatabaseWriteError
 from tests.constants import TEST_PASSWORD
 
 
@@ -859,7 +859,7 @@ def test_create_user_with_password_missing_lastrowid_raises():
     fake_conn = _FakeConnection(fake_cursor)
 
     with patch.object(db_connection, "get_connection", return_value=fake_conn):
-        with pytest.raises(ValueError):
+        with pytest.raises(DatabaseWriteError):
             database.create_user_with_password("baduser", TEST_PASSWORD)
 
 
@@ -1057,19 +1057,25 @@ def test_init_database_superuser_bootstrap_does_not_require_character_lastrowid(
 
 @pytest.mark.unit
 @pytest.mark.db
-def test_database_helpers_return_false_on_db_error():
+def test_database_helpers_raise_typed_errors_on_db_error():
     """
-    Verify mixed failure contracts during the phase-4 transition.
-
-    Legacy user-account helpers still normalize database failures to ``False``
-    while refactored character/chat/session mutation helpers now raise typed
-    ``DatabaseWriteError`` exceptions.
+    Verify repository-backed helpers map DB failures to typed exceptions.
     """
     with patch.object(db_connection, "get_connection", side_effect=Exception("db error")):
-        assert database.set_user_role("testplayer", "admin") is False
-        assert database.deactivate_user("testplayer") is False
-        assert database.activate_user("testplayer") is False
-        assert database.change_password_for_user("testplayer", TEST_PASSWORD) is False
+        with pytest.raises(DatabaseWriteError):
+            database.set_user_role("testplayer", "admin")
+        with pytest.raises(DatabaseWriteError):
+            database.deactivate_user("testplayer")
+        with pytest.raises(DatabaseWriteError):
+            database.activate_user("testplayer")
+        with pytest.raises(DatabaseWriteError):
+            database.change_password_for_user("testplayer", TEST_PASSWORD)
+        with pytest.raises(DatabaseReadError):
+            database.user_exists("testplayer")
+        with pytest.raises(DatabaseReadError):
+            database.get_user_id("testplayer")
+        with pytest.raises(DatabaseReadError):
+            database.get_user_role("testplayer")
 
         with pytest.raises(DatabaseWriteError):
             database.set_character_room(
@@ -1104,16 +1110,17 @@ def test_database_helpers_return_false_on_db_error():
 
 @pytest.mark.unit
 @pytest.mark.db
-def test_delete_user_returns_false_on_db_error(test_db, temp_db_path):
+def test_delete_user_raises_typed_error_on_db_error(test_db, temp_db_path):
     with use_test_database(temp_db_path):
         database.create_user_with_password("todelete", TEST_PASSWORD)
         user_id = database.get_user_id("todelete")
         assert user_id is not None
         with (
-            patch.object(database, "get_user_id", return_value=user_id),
+            patch("mud_server.db.users_repo.get_user_id", return_value=user_id),
             patch.object(db_connection, "get_connection", side_effect=Exception("db error")),
         ):
-            assert database.delete_user("todelete") is False
+            with pytest.raises(DatabaseWriteError):
+                database.delete_user("todelete")
 
 
 @pytest.mark.unit

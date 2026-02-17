@@ -492,6 +492,30 @@ def test_register_guest_maps_database_error_to_500(test_client, test_db, temp_db
 
 
 @pytest.mark.api
+def test_register_maps_database_error_to_500(test_client, test_db, temp_db_path):
+    """Registration should map typed DB exceptions to a deterministic 500."""
+    with use_test_database(temp_db_path):
+        with patch.object(
+            database,
+            "user_exists",
+            side_effect=DatabaseReadError(
+                context=DatabaseOperationContext(operation="users.user_exists")
+            ),
+        ):
+            response = test_client.post(
+                "/register",
+                json={
+                    "username": "newuser",
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                },
+            )
+
+    assert response.status_code == 500
+    assert "account registration store failure" in response.json()["detail"].lower()
+
+
+@pytest.mark.api
 def test_register_guest_user_id_missing_rolls_back(test_client, test_db, temp_db_path):
     """Test guest registration rolls back when user id cannot be resolved."""
     with use_test_database(temp_db_path):
@@ -2586,6 +2610,37 @@ def test_change_password_policy_failure(test_client, test_db, temp_db_path, db_w
         )
 
         assert response.status_code == 400
+
+
+@pytest.mark.api
+def test_change_password_maps_database_error_to_500(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Change-password should map typed DB exceptions to HTTP 500."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        with patch.object(
+            database,
+            "verify_password_for_user",
+            side_effect=DatabaseReadError(
+                context=DatabaseOperationContext(operation="users.verify_password_for_user")
+            ),
+        ):
+            response = test_client.post(
+                "/change-password",
+                json={
+                    "session_id": session_id,
+                    "old_password": TEST_PASSWORD,
+                    "new_password": "VeryStrongPass!9",
+                },
+            )
+
+        assert response.status_code == 500
+        assert "password update unavailable" in response.json()["detail"].lower()
 
 
 # ============================================================================

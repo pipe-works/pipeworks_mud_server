@@ -17,7 +17,7 @@ import pytest
 
 from mud_server.config import use_test_database
 from mud_server.db import database
-from mud_server.db.errors import DatabaseOperationContext, DatabaseWriteError
+from mud_server.db.errors import DatabaseOperationContext, DatabaseReadError, DatabaseWriteError
 from tests.constants import TEST_PASSWORD
 
 CREATE_USER_PASSWORD = "R7$kM2%vH9!q"
@@ -299,6 +299,36 @@ def test_admin_view_connections_as_admin(test_client, test_db, temp_db_path, db_
         assert "connections" in response.json()
 
 
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_axis_events_maps_database_error_to_500(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Axis-events endpoint should map typed DB read errors to HTTP 500."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+        character = database.get_character_by_name("testplayer_char")
+        assert character is not None
+
+        with patch.object(
+            database,
+            "get_character_axis_events",
+            side_effect=DatabaseReadError(
+                context=DatabaseOperationContext(operation="events.get_character_axis_events")
+            ),
+        ):
+            response = test_client.get(
+                f"/admin/characters/{int(character['id'])}/axis-events",
+                params={"session_id": session_id},
+            )
+
+        assert response.status_code == 500
+        assert "character events unavailable" in response.json()["detail"].lower()
+
+
 # ============================================================================
 # ADMIN USER CREATION TESTS
 # ============================================================================
@@ -450,6 +480,40 @@ def test_create_user_rejects_duplicate_username(test_client, test_db, temp_db_pa
         )
 
         assert response.status_code == 400
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_create_user_maps_database_error_to_500(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Admin create-user endpoint should map typed DB failures to HTTP 500."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        with patch.object(
+            database,
+            "user_exists",
+            side_effect=DatabaseReadError(
+                context=DatabaseOperationContext(operation="users.user_exists")
+            ),
+        ):
+            response = test_client.post(
+                "/admin/user/create",
+                json={
+                    "session_id": session_id,
+                    "username": "newplayer",
+                    "password": CREATE_USER_PASSWORD,
+                    "password_confirm": CREATE_USER_PASSWORD,
+                    "role": "player",
+                },
+            )
+
+        assert response.status_code == 500
+        assert "user creation unavailable" in response.json()["detail"].lower()
 
 
 @pytest.mark.admin
@@ -675,6 +739,36 @@ def test_ban_user_maps_database_error_during_session_cleanup(
 
         assert response.status_code == 500
         assert "failed to ban user" in response.json()["detail"].lower()
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_manage_user_maps_database_error_to_500(test_client, test_db, temp_db_path, db_with_users):
+    """User-management endpoint should map typed DB errors to HTTP 500."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        with patch.object(
+            database,
+            "user_exists",
+            side_effect=DatabaseReadError(
+                context=DatabaseOperationContext(operation="users.user_exists")
+            ),
+        ):
+            response = test_client.post(
+                "/admin/user/manage",
+                json={
+                    "session_id": session_id,
+                    "action": "ban",
+                    "target_username": "testplayer",
+                },
+            )
+
+        assert response.status_code == 500
+        assert "user management unavailable" in response.json()["detail"].lower()
 
 
 @pytest.mark.admin

@@ -266,44 +266,51 @@ def router(engine: GameEngine) -> APIRouter:
         if not username or len(username) < 2 or len(username) > 20:
             raise HTTPException(status_code=400, detail="Username must be 2-20 characters")
 
-        # Check if username already exists
-        if database.user_exists(username):
-            raise HTTPException(status_code=400, detail="Username already taken")
+        try:
+            # Check if username already exists
+            if database.user_exists(username):
+                raise HTTPException(status_code=400, detail="Username already taken")
 
-        # Validate passwords match
-        if password != password_confirm:
-            raise HTTPException(status_code=400, detail="Passwords do not match")
+            # Validate passwords match
+            if password != password_confirm:
+                raise HTTPException(status_code=400, detail="Passwords do not match")
 
-        # Validate password strength against security policy
-        result = validate_password_strength(password, level=PolicyLevel.STANDARD)
-        if not result.is_valid:
-            error_detail = " ".join(result.errors)
-            raise HTTPException(status_code=400, detail=error_detail)
+            # Validate password strength against security policy
+            result = validate_password_strength(password, level=PolicyLevel.STANDARD)
+            if not result.is_valid:
+                error_detail = " ".join(result.errors)
+                raise HTTPException(status_code=400, detail=error_detail)
 
-        # Create visitor account (temporary; cleaned up automatically)
-        from datetime import UTC, datetime, timedelta
+            # Create visitor account (temporary; cleaned up automatically)
+            from datetime import UTC, datetime, timedelta
 
-        guest_expires_at = (datetime.now(UTC) + timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
-        if database.create_user_with_password(
-            username,
-            password,
-            role="player",
-            account_origin="visitor",
-            is_guest=True,
-            guest_expires_at=guest_expires_at,
-        ):
-            return RegisterResponse(
-                success=True,
-                message=(
-                    "Temporary account created successfully! "
-                    f"You can now login as {username}. "
-                    "Character creation is a separate step."
-                ),
+            guest_expires_at = (datetime.now(UTC) + timedelta(hours=24)).strftime(
+                "%Y-%m-%d %H:%M:%S"
             )
-        else:
+            if database.create_user_with_password(
+                username,
+                password,
+                role="player",
+                account_origin="visitor",
+                is_guest=True,
+                guest_expires_at=guest_expires_at,
+            ):
+                return RegisterResponse(
+                    success=True,
+                    message=(
+                        "Temporary account created successfully! "
+                        f"You can now login as {username}. "
+                        "Character creation is a separate step."
+                    ),
+                )
             raise HTTPException(
                 status_code=500, detail="Failed to create account. Please try again."
             )
+        except DatabaseError as exc:
+            logger.exception("Account registration failed due to database error for '%s'", username)
+            raise HTTPException(
+                status_code=500, detail="Account registration store failure."
+            ) from exc
 
     @api.post("/register-guest", response_model=RegisterGuestResponse)
     async def register_guest(request: RegisterGuestRequest):
@@ -596,26 +603,29 @@ def router(engine: GameEngine) -> APIRouter:
 
         _, username, _ = validate_session(request.session_id)
 
-        # Verify old password
-        if not database.verify_password_for_user(username, request.old_password):
-            raise HTTPException(status_code=401, detail="Current password is incorrect")
+        try:
+            # Verify old password
+            if not database.verify_password_for_user(username, request.old_password):
+                raise HTTPException(status_code=401, detail="Current password is incorrect")
 
-        # Check new password is different from old
-        if request.new_password == request.old_password:
-            raise HTTPException(
-                status_code=400, detail="New password must be different from current password"
-            )
+            # Check new password is different from old
+            if request.new_password == request.old_password:
+                raise HTTPException(
+                    status_code=400, detail="New password must be different from current password"
+                )
 
-        # Validate new password against security policy
-        result = validate_password_strength(request.new_password, level=PolicyLevel.STANDARD)
-        if not result.is_valid:
-            error_detail = " ".join(result.errors)
-            raise HTTPException(status_code=400, detail=error_detail)
+            # Validate new password against security policy
+            result = validate_password_strength(request.new_password, level=PolicyLevel.STANDARD)
+            if not result.is_valid:
+                error_detail = " ".join(result.errors)
+                raise HTTPException(status_code=400, detail=error_detail)
 
-        # Change password
-        if database.change_password_for_user(username, request.new_password):
-            return {"success": True, "message": "Password changed successfully!"}
-        else:
+            # Change password
+            if database.change_password_for_user(username, request.new_password):
+                return {"success": True, "message": "Password changed successfully!"}
             raise HTTPException(status_code=500, detail="Failed to change password")
+        except DatabaseError as exc:
+            logger.exception("Password change failed due to database error for '%s'", username)
+            raise HTTPException(status_code=500, detail="Password update unavailable.") from exc
 
     return api

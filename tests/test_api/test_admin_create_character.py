@@ -9,7 +9,7 @@ import pytest
 from mud_server.api.routes import admin
 from mud_server.config import use_test_database
 from mud_server.db import database
-from mud_server.db.errors import DatabaseOperationContext, DatabaseWriteError
+from mud_server.db.errors import DatabaseOperationContext, DatabaseReadError, DatabaseWriteError
 from mud_server.services import character_provisioning
 from mud_server.services.character_provisioning import CharacterProvisioningResult
 from tests.constants import TEST_PASSWORD
@@ -926,3 +926,37 @@ def test_manage_character_maps_database_error_to_500(
 
     assert response.status_code == 500
     assert "character management failed" in response.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_admin_create_character_maps_database_error_to_500(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Admin character provisioning should map typed DB exceptions to HTTP 500."""
+    with use_test_database(temp_db_path):
+        login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login.json()["session_id"]
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                database,
+                "user_exists",
+                Mock(
+                    side_effect=DatabaseReadError(
+                        context=DatabaseOperationContext(operation="users.user_exists")
+                    )
+                ),
+            )
+            response = test_client.post(
+                "/admin/user/create-character",
+                json={
+                    "session_id": session_id,
+                    "target_username": "testplayer",
+                    "world_id": "pipeworks_web",
+                },
+            )
+
+    assert response.status_code == 500
+    assert "character provisioning unavailable" in response.json()["detail"].lower()
