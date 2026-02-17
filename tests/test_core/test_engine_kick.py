@@ -34,7 +34,7 @@ def test_kick_character_disconnects_target_sessions(
         _bind_session_to_first_character("testadmin", "admin-session")
 
         success, message = mock_engine.kick_character(
-            "testadmin", "testplayer_char", world_id="pipeworks_web"
+            "testadmin_char", "testplayer_char", world_id="pipeworks_web"
         )
 
         assert success is True
@@ -51,7 +51,7 @@ def test_kick_character_reports_target_offline(mock_engine, test_db, temp_db_pat
         _bind_session_to_first_character("testadmin", "admin-session")
 
         success, message = mock_engine.kick_character(
-            "testadmin", "testplayer_char", world_id="pipeworks_web"
+            "testadmin_char", "testplayer_char", world_id="pipeworks_web"
         )
 
         assert success is False
@@ -66,7 +66,7 @@ def test_kick_character_rejects_self_kick(mock_engine, test_db, temp_db_path, db
         _bind_session_to_first_character("testadmin", "admin-session")
 
         success, message = mock_engine.kick_character(
-            "testadmin", "testadmin_char", world_id="pipeworks_web"
+            "testadmin_char", "testadmin_char", world_id="pipeworks_web"
         )
 
         assert success is False

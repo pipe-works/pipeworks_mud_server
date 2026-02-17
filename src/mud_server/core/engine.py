@@ -594,8 +594,8 @@ class GameEngine:
         indicate it's a private message and show the direction.
 
         Args:
-            username: Player sending the whisper
-            target: Username of player to whisper to (case-sensitive!)
+            username: Character sending the whisper
+            target: Character name to whisper to (case-sensitive)
             message: Private message text
 
         Returns:
@@ -616,8 +616,8 @@ class GameEngine:
             - Extensive logging for debugging whisper issues
 
         Security Note:
-            Target username is case-sensitive. Command parser preserves case
-            for arguments to ensure usernames like "Mendit" work correctly.
+            Character names are case-sensitive. Command parser preserves case
+            for arguments to ensure exact identity targeting.
 
         Example:
             >>> engine.whisper("player1", "Admin", "Help me please")
@@ -693,13 +693,11 @@ class GameEngine:
 
         Resolution behavior:
         1. Resolve ``target`` as a character name in the current world.
-        2. If no character matches, try resolving ``target`` as a username
-           mapped to that user's first character in the world.
-        3. Remove all sessions for the resolved character id.
+        2. Remove all sessions for the resolved character id.
 
         Args:
             actor_name: Character issuing the kick command.
-            target: Character name or username to disconnect.
+            target: Character name to disconnect.
             world_id: Active world context for resolution.
 
         Returns:

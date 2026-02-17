@@ -26,12 +26,12 @@ def test_create_character_for_user_round_trip(test_db, temp_db_path):
     assert characters_repo.get_character_room("repo_character", world_id="pipeworks_web") == "spawn"
 
 
-def test_resolve_character_name_keeps_username_compatibility(test_db, temp_db_path, db_with_users):
-    """Username fallback should resolve to the user's first character in a world."""
+def test_resolve_character_name_requires_character_identity(test_db, temp_db_path, db_with_users):
+    """Resolution should require explicit character names (no username fallback)."""
     resolved = characters_repo.resolve_character_name(
         "testplayer", world_id=database.DEFAULT_WORLD_ID
     )
-    assert resolved == "testplayer_char"
+    assert resolved is None
     assert (
         characters_repo.resolve_character_name(
             "testplayer_char", world_id=database.DEFAULT_WORLD_ID
@@ -42,9 +42,9 @@ def test_resolve_character_name_keeps_username_compatibility(test_db, temp_db_pa
 
 def test_set_and_get_character_inventory(test_db, temp_db_path, db_with_users):
     """Inventory updates should be persisted through the repo module."""
-    updated = characters_repo.set_character_inventory("testplayer", ["torch", "rope"])
+    updated = characters_repo.set_character_inventory("testplayer_char", ["torch", "rope"])
     assert updated is True
-    assert characters_repo.get_character_inventory("testplayer") == ["torch", "rope"]
+    assert characters_repo.get_character_inventory("testplayer_char") == ["torch", "rope"]
 
 
 def test_tombstone_character_unlinks_owner_and_renames(test_db, temp_db_path):

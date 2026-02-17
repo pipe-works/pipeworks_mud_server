@@ -16,7 +16,7 @@ def test_add_chat_message_and_query_by_world(test_db, temp_db_path, db_with_user
     )
 
     assert chat_repo.add_chat_message(
-        "testplayer", "Default world hello", "spawn", world_id="pipeworks_web"
+        "testplayer_char", "Default world hello", "spawn", world_id="pipeworks_web"
     )
     assert chat_repo.add_chat_message(
         "alt_world_talker",
@@ -34,13 +34,13 @@ def test_add_chat_message_and_query_by_world(test_db, temp_db_path, db_with_user
 
 def test_get_room_messages_whisper_visibility(test_db, temp_db_path, db_with_users):
     """Whispers should only be visible to sender and recipient in room history."""
-    assert chat_repo.add_chat_message("testplayer", "Public message", "spawn")
+    assert chat_repo.add_chat_message("testplayer_char", "Public message", "spawn")
     assert chat_repo.add_chat_message(
-        "testplayer", "Secret message", "spawn", recipient="testadmin"
+        "testplayer_char", "Secret message", "spawn", recipient="testadmin_char"
     )
 
-    admin_rows = chat_repo.get_room_messages("spawn", limit=10, username="testadmin")
-    super_rows = chat_repo.get_room_messages("spawn", limit=10, username="testsuperuser")
+    admin_rows = chat_repo.get_room_messages("spawn", limit=10, username="testadmin_char")
+    super_rows = chat_repo.get_room_messages("spawn", limit=10, username="testsuperuser_char")
 
     assert "Secret message" in [row["message"] for row in admin_rows]
     assert "Secret message" not in [row["message"] for row in super_rows]

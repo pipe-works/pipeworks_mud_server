@@ -182,11 +182,10 @@ def _seed_character_location(
 
 def _resolve_character_name(cursor: Any, name: str, *, world_id: str | None = None) -> str | None:
     """
-    Resolve a character name from either a character name or a username.
+    Resolve a character name strictly by explicit character identity.
 
-    This preserves compatibility with legacy callers that pass usernames
-    into character-facing functions by mapping them to the user's first
-    character (oldest by created_at).
+    This helper now returns a value only when ``name`` matches a character
+    record in the requested world.
     """
     from mud_server.db.characters_repo import (
         _resolve_character_name as resolve_character_name_impl,
@@ -197,10 +196,9 @@ def _resolve_character_name(cursor: Any, name: str, *, world_id: str | None = No
 
 def resolve_character_name(name: str, *, world_id: str | None = None) -> str | None:
     """
-    Public wrapper for resolving character names from usernames or character names.
+    Public wrapper for strict world-scoped character name resolution.
 
-    This preserves legacy call sites that still supply usernames while the
-    character model is being adopted across the codebase.
+    Callers must supply a character name; usernames are not mapped.
     """
     from mud_server.db.characters_repo import (
         resolve_character_name as resolve_character_name_impl,

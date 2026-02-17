@@ -35,13 +35,7 @@ def _count_user_characters_in_world(cursor: Any, *, user_id: int, world_id: str)
 
 
 def _resolve_character_name(cursor: Any, name: str, *, world_id: str | None = None) -> str | None:
-    """Resolve a character name from a direct character name or a username.
-
-    Compatibility behavior:
-    - If ``name`` matches a character in the requested world, return it.
-    - Otherwise, if ``name`` matches a username, return the oldest character
-      for that user in the requested world.
-    """
+    """Resolve a character name strictly by character identity in a world."""
     if world_id is None:
         world_id = DEFAULT_WORLD_ID
 
@@ -52,20 +46,7 @@ def _resolve_character_name(cursor: Any, name: str, *, world_id: str | None = No
     row = cursor.fetchone()
     if row:
         return cast(str, row[0])
-
-    cursor.execute("SELECT id FROM users WHERE username = ? LIMIT 1", (name,))
-    user_row = cursor.fetchone()
-    if not user_row:
-        return None
-
-    user_id = int(user_row[0])
-    cursor.execute(
-        "SELECT name FROM characters WHERE user_id = ? AND world_id = ? "
-        "ORDER BY created_at ASC LIMIT 1",
-        (user_id, world_id),
-    )
-    char_row = cursor.fetchone()
-    return cast(str, char_row[0]) if char_row else None
+    return None
 
 
 def _generate_default_character_name(cursor: Any, username: str) -> str:
@@ -117,7 +98,7 @@ def _seed_character_location(cursor: Any, character_id: int, *, world_id: str) -
 
 
 def resolve_character_name(name: str, *, world_id: str | None = None) -> str | None:
-    """Public wrapper that resolves a character name using compatibility rules."""
+    """Return a world-scoped character name for an exact character identity."""
     conn = _get_connection()
     cursor = conn.cursor()
     resolved = _resolve_character_name(cursor, name, world_id=world_id)
