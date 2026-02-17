@@ -314,23 +314,6 @@ def get_user_characters(user_id: int, *, world_id: str | None = None) -> list[di
     ]
 
 
-def get_user_character_world_ids(user_id: int) -> set[str]:
-    """Return the set of world ids in which a user owns characters."""
-    conn = _get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT DISTINCT world_id
-        FROM characters
-        WHERE user_id = ?
-        """,
-        (user_id,),
-    )
-    rows = cursor.fetchall()
-    conn.close()
-    return {row[0] for row in rows}
-
-
 def tombstone_character(character_id: int) -> bool:
     """Soft-delete a character by unlinking owner and renaming tombstone row."""
     conn = _get_connection()

@@ -48,9 +48,7 @@ def test_get_character_axis_state_returns_snapshot(temp_db_path, monkeypatch) ->
         world_id = "test_world"
         _seed_policy(world_id)
 
-        assert database.create_user_with_password(
-            "axis_state_user", TEST_PASSWORD, create_default_character=False
-        )
+        assert database.create_user_with_password("axis_state_user", TEST_PASSWORD)
         user_id = database.get_user_id("axis_state_user")
         assert user_id is not None
         assert database.create_character_for_user(user_id, "axis_state_char", world_id=world_id)

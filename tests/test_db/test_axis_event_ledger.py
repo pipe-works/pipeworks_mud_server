@@ -57,9 +57,7 @@ def test_apply_axis_event_updates_scores_and_snapshot(temp_db_path, monkeypatch)
         world_id = "test_world"
         _seed_policy(world_id)
 
-        assert database.create_user_with_password(
-            "event_user", TEST_PASSWORD, create_default_character=False
-        )
+        assert database.create_user_with_password("event_user", TEST_PASSWORD)
         user_id = database.get_user_id("event_user")
         assert user_id is not None
         assert database.create_character_for_user(user_id, "event_char", world_id=world_id)
@@ -149,9 +147,7 @@ def test_apply_axis_event_unknown_axis_raises_and_rolls_back(temp_db_path, monke
         world_id = "test_world"
         _seed_policy(world_id)
 
-        assert database.create_user_with_password(
-            "event_user", TEST_PASSWORD, create_default_character=False
-        )
+        assert database.create_user_with_password("event_user", TEST_PASSWORD)
         user_id = database.get_user_id("event_user")
         assert user_id is not None
         assert database.create_character_for_user(user_id, "event_char", world_id=world_id)
@@ -199,9 +195,7 @@ def test_get_character_axis_events_returns_event(temp_db_path, monkeypatch) -> N
         world_id = "test_world"
         _seed_policy(world_id)
 
-        assert database.create_user_with_password(
-            "event_query_user", TEST_PASSWORD, create_default_character=False
-        )
+        assert database.create_user_with_password("event_query_user", TEST_PASSWORD)
         user_id = database.get_user_id("event_query_user")
         assert user_id is not None
         assert database.create_character_for_user(user_id, "event_query_char", world_id=world_id)

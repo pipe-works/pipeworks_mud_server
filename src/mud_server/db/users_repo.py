@@ -30,8 +30,6 @@ def create_user_with_password(
     email_hash: str | None = None,
     is_guest: bool = False,
     guest_expires_at: str | None = None,
-    create_default_character: bool = False,
-    world_id: str | None = None,
 ) -> bool:
     """Create an account row without provisioning characters.
 
@@ -43,24 +41,12 @@ def create_user_with_password(
         email_hash: Optional hashed email value.
         is_guest: Whether the account is guest-scoped.
         guest_expires_at: Optional guest expiry timestamp.
-        create_default_character: Deprecated compatibility flag.
-        world_id: Deprecated compatibility argument (ignored).
 
     Returns:
         ``True`` when the account is created, otherwise ``False`` for
         uniqueness/integrity conflicts.
-
-    Raises:
-        ValueError: When deprecated auto-character creation is requested.
     """
     from mud_server.api.password import hash_password
-
-    if create_default_character:
-        raise ValueError(
-            "Automatic character creation is removed. "
-            "Call create_character_for_user() explicitly."
-        )
-    _ = world_id
 
     try:
         conn = _get_connection()
@@ -108,19 +94,6 @@ def user_exists(username: str) -> bool:
     result = cursor.fetchone()
     conn.close()
     return result is not None
-
-
-def player_exists(username: str) -> bool:
-    """Return ``True`` for non-tombstoned account rows matching username."""
-    conn = _get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id FROM users WHERE username = ? AND tombstoned_at IS NULL",
-        (username,),
-    )
-    row = cursor.fetchone()
-    conn.close()
-    return row is not None
 
 
 def get_user_id(username: str) -> int | None:
