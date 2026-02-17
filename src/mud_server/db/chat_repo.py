@@ -6,15 +6,35 @@ facade in ``mud_server.db.database``.
 
 from __future__ import annotations
 
-import sqlite3
-from typing import Any
+from typing import Any, NoReturn
+
+from mud_server.db.connection import connection_scope
+from mud_server.db.errors import (
+    DatabaseError,
+    DatabaseOperationContext,
+    DatabaseReadError,
+    DatabaseWriteError,
+)
 
 
-def _get_connection() -> sqlite3.Connection:
-    """Return a DB connection from the shared connection module."""
-    from mud_server.db.connection import get_connection as get_connection_impl
+def _raise_read_error(operation: str, exc: Exception, *, details: str | None = None) -> NoReturn:
+    """Raise a typed repository read error while preserving chained cause."""
+    if isinstance(exc, DatabaseError):
+        raise exc
+    raise DatabaseReadError(
+        context=DatabaseOperationContext(operation=operation, details=details),
+        cause=exc,
+    ) from exc
 
-    return get_connection_impl()
+
+def _raise_write_error(operation: str, exc: Exception, *, details: str | None = None) -> NoReturn:
+    """Raise a typed repository write error while preserving chained cause."""
+    if isinstance(exc, DatabaseError):
+        raise exc
+    raise DatabaseWriteError(
+        context=DatabaseOperationContext(operation=operation, details=details),
+        cause=exc,
+    ) from exc
 
 
 def _resolve_character_name(cursor: Any, name: str, *, world_id: str) -> str | None:
@@ -41,66 +61,66 @@ def add_chat_message(
     - Sender and recipient names require explicit character identities.
     """
     try:
-        conn = _get_connection()
-        cursor = conn.cursor()
+        with connection_scope(write=True) as conn:
+            cursor = conn.cursor()
 
-        resolved_sender = _resolve_character_name(cursor, character_name, world_id=world_id)
-        if not resolved_sender:
-            conn.close()
-            return False
-
-        cursor.execute(
-            "SELECT id, user_id FROM characters WHERE name = ? AND world_id = ?",
-            (resolved_sender, world_id),
-        )
-        sender_row = cursor.fetchone()
-        if not sender_row:
-            conn.close()
-            return False
-
-        sender_id = int(sender_row[0])
-        user_id = sender_row[1]
-
-        recipient_id: int | None = None
-        if recipient_character_name is None and recipient is not None:
-            recipient_character_name = recipient
-
-        if recipient_character_name:
-            resolved_recipient = _resolve_character_name(
-                cursor,
-                recipient_character_name,
-                world_id=world_id,
-            )
-            if resolved_recipient:
-                recipient_character_name = resolved_recipient
+            resolved_sender = _resolve_character_name(cursor, character_name, world_id=world_id)
+            if not resolved_sender:
+                return False
 
             cursor.execute(
-                "SELECT id FROM characters WHERE name = ? AND world_id = ?",
-                (recipient_character_name, world_id),
+                "SELECT id, user_id FROM characters WHERE name = ? AND world_id = ?",
+                (resolved_sender, world_id),
             )
-            recipient_row = cursor.fetchone()
-            if recipient_row:
-                recipient_id = int(recipient_row[0])
+            sender_row = cursor.fetchone()
+            if not sender_row:
+                return False
 
-        cursor.execute(
-            """
-            INSERT INTO chat_messages (
-                character_id,
-                user_id,
-                message,
-                world_id,
-                room,
-                recipient_character_id
+            sender_id = int(sender_row[0])
+            user_id = sender_row[1]
+
+            recipient_id: int | None = None
+            if recipient_character_name is None and recipient is not None:
+                recipient_character_name = recipient
+
+            if recipient_character_name:
+                resolved_recipient = _resolve_character_name(
+                    cursor,
+                    recipient_character_name,
+                    world_id=world_id,
+                )
+                if resolved_recipient:
+                    recipient_character_name = resolved_recipient
+
+                cursor.execute(
+                    "SELECT id FROM characters WHERE name = ? AND world_id = ?",
+                    (recipient_character_name, world_id),
+                )
+                recipient_row = cursor.fetchone()
+                if recipient_row:
+                    recipient_id = int(recipient_row[0])
+
+            cursor.execute(
+                """
+                INSERT INTO chat_messages (
+                    character_id,
+                    user_id,
+                    message,
+                    world_id,
+                    room,
+                    recipient_character_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (sender_id, user_id, message, world_id, room, recipient_id),
             )
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (sender_id, user_id, message, world_id, room, recipient_id),
+            return True
+    except Exception as exc:
+        _raise_write_error(
+            "chat.add_chat_message",
+            exc,
+            details=f"character_name={character_name!r}, world_id={world_id!r}, room={room!r}",
         )
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
 
 
 def get_room_messages(
@@ -118,62 +138,66 @@ def get_room_messages(
     - whispers to that character,
     - whispers sent by that character.
     """
-    conn = _get_connection()
-    cursor = conn.cursor()
+    try:
+        with connection_scope() as conn:
+            cursor = conn.cursor()
 
-    if character_name is None and username is not None:
-        character_name = username
+            if character_name is None and username is not None:
+                character_name = username
 
-    if character_name:
-        resolved_name = _resolve_character_name(cursor, character_name, world_id=world_id)
-        if resolved_name is None and username is not None:
-            resolved_name = _resolve_character_name(cursor, username, world_id=world_id)
-        if not resolved_name:
-            conn.close()
-            return []
+            if character_name:
+                resolved_name = _resolve_character_name(cursor, character_name, world_id=world_id)
+                if resolved_name is None and username is not None:
+                    resolved_name = _resolve_character_name(cursor, username, world_id=world_id)
+                if not resolved_name:
+                    return []
 
-        cursor.execute(
-            "SELECT id FROM characters WHERE name = ? AND world_id = ?",
-            (resolved_name, world_id),
+                cursor.execute(
+                    "SELECT id FROM characters WHERE name = ? AND world_id = ?",
+                    (resolved_name, world_id),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return []
+                character_id = int(row[0])
+
+                cursor.execute(
+                    """
+                    SELECT c.name, m.message, m.timestamp
+                    FROM chat_messages m
+                    JOIN characters c ON c.id = m.character_id
+                    WHERE m.world_id = ? AND m.room = ? AND (
+                        m.recipient_character_id IS NULL OR
+                        m.recipient_character_id = ? OR
+                        m.character_id = ?
+                    )
+                    ORDER BY m.timestamp DESC, m.id DESC
+                    LIMIT ?
+                    """,
+                    (world_id, room, character_id, character_id, limit),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT c.name, m.message, m.timestamp
+                    FROM chat_messages m
+                    JOIN characters c ON c.id = m.character_id
+                    WHERE m.world_id = ? AND m.room = ?
+                    ORDER BY m.timestamp DESC, m.id DESC
+                    LIMIT ?
+                    """,
+                    (world_id, room, limit),
+                )
+
+            rows = cursor.fetchall()
+
+        messages = []
+        for name, message, timestamp in reversed(rows):
+            messages.append({"username": name, "message": message, "timestamp": timestamp})
+        return messages
+    except Exception as exc:
+        _raise_read_error(
+            "chat.get_room_messages",
+            exc,
+            details=f"world_id={world_id!r}, room={room!r}, limit={limit}",
         )
-        row = cursor.fetchone()
-        if not row:
-            conn.close()
-            return []
-        character_id = int(row[0])
-
-        cursor.execute(
-            """
-            SELECT c.name, m.message, m.timestamp
-            FROM chat_messages m
-            JOIN characters c ON c.id = m.character_id
-            WHERE m.world_id = ? AND m.room = ? AND (
-                m.recipient_character_id IS NULL OR
-                m.recipient_character_id = ? OR
-                m.character_id = ?
-            )
-            ORDER BY m.timestamp DESC, m.id DESC
-            LIMIT ?
-            """,
-            (world_id, room, character_id, character_id, limit),
-        )
-    else:
-        cursor.execute(
-            """
-            SELECT c.name, m.message, m.timestamp
-            FROM chat_messages m
-            JOIN characters c ON c.id = m.character_id
-            WHERE m.world_id = ? AND m.room = ?
-            ORDER BY m.timestamp DESC, m.id DESC
-            LIMIT ?
-            """,
-            (world_id, room, limit),
-        )
-
-    rows = cursor.fetchall()
-    conn.close()
-
-    messages = []
-    for name, message, timestamp in reversed(rows):
-        messages.append({"username": name, "message": message, "timestamp": timestamp})
-    return messages

@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
+import pytest
+
 from mud_server.db import characters_repo, database
+from mud_server.db import connection as db_connection
+from mud_server.db.errors import DatabaseReadError, DatabaseWriteError
 
 
 def test_create_character_for_user_round_trip(test_db, temp_db_path):
@@ -73,3 +79,13 @@ def test_tombstone_character_unlinks_owner_and_renames(test_db, temp_db_path):
     assert updated is not None
     assert updated["user_id"] is None
     assert str(updated["name"]).startswith("tombstone_")
+
+
+def test_characters_repo_raises_typed_errors_on_connection_failure():
+    """Connection failures should surface as typed character repository errors."""
+    with patch.object(db_connection, "get_connection", side_effect=Exception("db boom")):
+        with pytest.raises(DatabaseWriteError):
+            characters_repo.set_character_room("testplayer_char", "spawn", world_id="pipeworks_web")
+
+        with pytest.raises(DatabaseReadError):
+            characters_repo.get_character_room("testplayer_char", world_id="pipeworks_web")

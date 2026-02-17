@@ -27,6 +27,7 @@ from mud_server.api.auth import (
 from mud_server.api.permissions import Permission
 from mud_server.config import config, use_test_database
 from mud_server.db import database
+from mud_server.db.errors import DatabaseOperationContext, DatabaseReadError, DatabaseWriteError
 
 
 @pytest.fixture
@@ -291,6 +292,27 @@ def test_validate_session_rejects_missing_role_lookup():
 
 @pytest.mark.unit
 @pytest.mark.auth
+def test_validate_session_maps_database_error_to_500():
+    """Session validation should map repository failures to a deterministic 500."""
+    with (
+        patch("mud_server.api.auth._get_valid_session", return_value={"user_id": 123}),
+        patch.object(
+            database,
+            "update_session_activity",
+            side_effect=DatabaseWriteError(
+                context=DatabaseOperationContext(operation="sessions.update_session_activity")
+            ),
+        ),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            validate_session("session")
+
+    assert exc_info.value.status_code == 500
+    assert "Session store unavailable" in str(exc_info.value.detail)
+
+
+@pytest.mark.unit
+@pytest.mark.auth
 def test_validate_session_for_game_requires_explicit_selection_single_character(
     test_db, db_with_users
 ):
@@ -387,6 +409,33 @@ def test_validate_session_for_game_missing_role(test_db, temp_db_path, db_with_u
                 validate_session_for_game(session_id)
 
     assert exc_info.value.status_code == 401
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+def test_validate_session_for_game_maps_database_error_to_500():
+    """Gameplay session validation should map repository failures to 500."""
+    with (
+        patch(
+            "mud_server.api.auth._get_valid_session",
+            return_value={"user_id": 123, "character_id": 1, "world_id": "pipeworks_web"},
+        ),
+        patch.object(database, "get_username_by_id", return_value="testplayer"),
+        patch.object(database, "get_user_role", return_value="player"),
+        patch.object(database, "get_character_name_by_id", return_value="testplayer_char"),
+        patch.object(
+            database,
+            "get_character_by_id",
+            side_effect=DatabaseReadError(
+                context=DatabaseOperationContext(operation="characters.get_character_by_id")
+            ),
+        ),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            validate_session_for_game("session")
+
+    assert exc_info.value.status_code == 500
+    assert "Session store unavailable" in str(exc_info.value.detail)
 
 
 # =========================================================================

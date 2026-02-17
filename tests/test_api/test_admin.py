@@ -17,6 +17,7 @@ import pytest
 
 from mud_server.config import use_test_database
 from mud_server.db import database
+from mud_server.db.errors import DatabaseOperationContext, DatabaseWriteError
 from tests.constants import TEST_PASSWORD
 
 CREATE_USER_PASSWORD = "R7$kM2%vH9!q"
@@ -495,6 +496,38 @@ def test_admin_can_kick_session(test_client, test_db, temp_db_path, db_with_user
 
         assert response.status_code == 200
         assert response.json()["success"] is True
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_kick_session_maps_database_error_to_500(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Kick-session endpoint should convert typed DB errors into HTTP 500."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        admin_session = admin_login.json()["session_id"]
+
+        with patch.object(
+            database,
+            "remove_session_by_id",
+            side_effect=DatabaseWriteError(
+                context=DatabaseOperationContext(operation="sessions.remove_session_by_id")
+            ),
+        ):
+            response = test_client.post(
+                "/admin/session/kick",
+                json={
+                    "session_id": admin_session,
+                    "target_session_id": "target-session",
+                    "reason": "test",
+                },
+            )
+
+        assert response.status_code == 500
+        assert "failed to kick session" in response.json()["detail"].lower()
 
 
 @pytest.mark.admin

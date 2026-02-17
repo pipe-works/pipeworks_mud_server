@@ -18,6 +18,7 @@ import pytest
 
 from mud_server.config import config, use_test_database
 from mud_server.db import database
+from mud_server.db.errors import DatabaseOperationContext, DatabaseReadError, DatabaseWriteError
 from tests.constants import TEST_PASSWORD
 
 
@@ -647,6 +648,25 @@ def test_login_create_session_failure(test_client, test_db, temp_db_path, db_wit
 
         assert response.status_code == 500
         assert "failed to create session" in response.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_login_maps_database_exception_to_500(test_client, test_db, temp_db_path, db_with_users):
+    """Login should map typed DB session errors to a deterministic 500."""
+    with use_test_database(temp_db_path):
+        with patch.object(
+            database,
+            "create_session",
+            side_effect=DatabaseWriteError(
+                context=DatabaseOperationContext(operation="sessions.create_session")
+            ),
+        ):
+            response = test_client.post(
+                "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+            )
+
+        assert response.status_code == 500
+        assert "authentication service unavailable" in response.json()["detail"].lower()
 
 
 @pytest.mark.api
@@ -1340,6 +1360,26 @@ def test_status_endpoint(authenticated_client, test_db, temp_db_path):
 
         # Status endpoint may or may not be implemented
         assert response.status_code in [200, 404]
+
+
+@pytest.mark.api
+def test_status_maps_database_exception_to_500(authenticated_client, test_db, temp_db_path):
+    """Status endpoint should map typed DB errors to HTTP 500."""
+    with use_test_database(temp_db_path):
+        session_id = authenticated_client["session_id"]
+        client = authenticated_client["client"]
+
+        with patch.object(
+            database,
+            "get_character_room",
+            side_effect=DatabaseReadError(
+                context=DatabaseOperationContext(operation="characters.get_character_room")
+            ),
+        ):
+            response = client.get(f"/status/{session_id}")
+
+        assert response.status_code == 500
+        assert "status query failed" in response.json()["detail"].lower()
 
 
 # ============================================================================

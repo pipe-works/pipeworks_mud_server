@@ -42,6 +42,7 @@ from mud_server.api.permissions import Permission, can_manage_role
 from mud_server.api.routes.utils import resolve_zone_id
 from mud_server.core.engine import GameEngine
 from mud_server.db import facade as database
+from mud_server.db.errors import DatabaseError
 from mud_server.services.character_provisioning import provision_generated_character_for_user
 
 
@@ -146,12 +147,15 @@ def router(engine: GameEngine) -> APIRouter:
     @api.post("/admin/session/kick", response_model=KickSessionResponse)
     async def kick_session(request: KickSessionRequest):
         """Force-disconnect an active session (Admin/Superuser only)."""
-        _, _, _ = validate_session_with_permission(request.session_id, Permission.KICK_USERS)
+        try:
+            _, _, _ = validate_session_with_permission(request.session_id, Permission.KICK_USERS)
 
-        removed = database.remove_session_by_id(request.target_session_id)
-        if removed:
-            return KickSessionResponse(success=True, message="Session disconnected")
-        return KickSessionResponse(success=False, message="Session not found")
+            removed = database.remove_session_by_id(request.target_session_id)
+            if removed:
+                return KickSessionResponse(success=True, message="Session disconnected")
+            return KickSessionResponse(success=False, message="Session not found")
+        except DatabaseError as exc:
+            raise HTTPException(status_code=500, detail="Failed to kick session") from exc
 
     @api.post("/admin/character/kick", response_model=KickCharacterResponse)
     async def kick_character(request: KickCharacterRequest):
@@ -161,24 +165,27 @@ def router(engine: GameEngine) -> APIRouter:
         This supports world-operations tooling where moderators target a
         character identity rather than a raw session id.
         """
-        _, _, _ = validate_session_with_permission(request.session_id, Permission.KICK_USERS)
+        try:
+            _, _, _ = validate_session_with_permission(request.session_id, Permission.KICK_USERS)
 
-        character = database.get_character_by_id(request.character_id)
-        if character is None:
-            raise HTTPException(status_code=404, detail="Character not found")
+            character = database.get_character_by_id(request.character_id)
+            if character is None:
+                raise HTTPException(status_code=404, detail="Character not found")
 
-        removed_count = database.remove_sessions_for_character_count(request.character_id)
-        if removed_count > 0:
+            removed_count = database.remove_sessions_for_character_count(request.character_id)
+            if removed_count > 0:
+                return KickCharacterResponse(
+                    success=True,
+                    message=f"Disconnected {removed_count} session(s) for {character['name']}.",
+                    removed_sessions=removed_count,
+                )
             return KickCharacterResponse(
-                success=True,
-                message=f"Disconnected {removed_count} session(s) for {character['name']}.",
-                removed_sessions=removed_count,
+                success=False,
+                message=f"No active sessions found for {character['name']}.",
+                removed_sessions=0,
             )
-        return KickCharacterResponse(
-            success=False,
-            message=f"No active sessions found for {character['name']}.",
-            removed_sessions=0,
-        )
+        except DatabaseError as exc:
+            raise HTTPException(status_code=500, detail="Failed to kick character") from exc
 
     @api.get("/admin/database/tables", response_model=DatabaseTablesResponse)
     async def get_database_tables(session_id: str):
@@ -309,7 +316,10 @@ def router(engine: GameEngine) -> APIRouter:
             if database.deactivate_user(target_username):
                 user_id = database.get_user_id(target_username)
                 if user_id:
-                    database.remove_sessions_for_user(user_id)
+                    try:
+                        database.remove_sessions_for_user(user_id)
+                    except DatabaseError as exc:
+                        raise HTTPException(status_code=500, detail="Failed to ban user") from exc
 
                 return UserManagementResponse(
                     success=True, message=f"Successfully banned {target_username}"
@@ -522,51 +532,54 @@ def router(engine: GameEngine) -> APIRouter:
         - ``tombstone`` preserves historical audit rows while detaching ownership.
         - ``delete`` permanently removes the character and cascades dependent rows.
         """
-        _, _actor_username, actor_role = validate_session_with_permission(
-            request.session_id,
-            Permission.MANAGE_USERS,
-        )
-        if actor_role != "superuser":
-            raise HTTPException(
-                status_code=403,
-                detail="Only superusers may remove characters.",
+        try:
+            _, _actor_username, actor_role = validate_session_with_permission(
+                request.session_id,
+                Permission.MANAGE_USERS,
             )
+            if actor_role != "superuser":
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only superusers may remove characters.",
+                )
 
-        action = request.action.strip().lower()
-        if action not in {"tombstone", "delete"}:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid action. Valid actions: tombstone, delete",
-            )
+            action = request.action.strip().lower()
+            if action not in {"tombstone", "delete"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid action. Valid actions: tombstone, delete",
+                )
 
-        character = database.get_character_by_id(request.character_id)
-        if character is None:
-            raise HTTPException(status_code=404, detail="Character not found")
+            character = database.get_character_by_id(request.character_id)
+            if character is None:
+                raise HTTPException(status_code=404, detail="Character not found")
 
-        # Ensure no in-world session remains attached to a soon-to-be removed
-        # character identity. This avoids stale gameplay sessions.
-        database.remove_sessions_for_character(request.character_id)
+            # Ensure no in-world session remains attached to a soon-to-be removed
+            # character identity. This avoids stale gameplay sessions.
+            database.remove_sessions_for_character(request.character_id)
 
-        if action == "tombstone":
-            if character.get("user_id") is None:
-                raise HTTPException(status_code=409, detail="Character is already tombstoned")
-            if not database.tombstone_character(request.character_id):
+            if action == "tombstone":
+                if character.get("user_id") is None:
+                    raise HTTPException(status_code=409, detail="Character is already tombstoned")
+                if not database.tombstone_character(request.character_id):
+                    raise HTTPException(status_code=404, detail="Character not found")
+                return ManageCharacterResponse(
+                    success=True,
+                    message=f"Character '{character['name']}' tombstoned.",
+                    character_id=request.character_id,
+                    action="tombstone",
+                )
+
+            if not database.delete_character(request.character_id):
                 raise HTTPException(status_code=404, detail="Character not found")
             return ManageCharacterResponse(
                 success=True,
-                message=f"Character '{character['name']}' tombstoned.",
+                message=f"Character '{character['name']}' permanently deleted.",
                 character_id=request.character_id,
-                action="tombstone",
+                action="delete",
             )
-
-        if not database.delete_character(request.character_id):
-            raise HTTPException(status_code=404, detail="Character not found")
-        return ManageCharacterResponse(
-            success=True,
-            message=f"Character '{character['name']}' permanently deleted.",
-            character_id=request.character_id,
-            action="delete",
-        )
+        except DatabaseError as exc:
+            raise HTTPException(status_code=500, detail="Character management failed") from exc
 
     @api.post("/admin/server/stop", response_model=ServerStopResponse)
     async def stop_server(request: ServerStopRequest):

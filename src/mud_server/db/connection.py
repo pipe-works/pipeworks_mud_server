@@ -7,6 +7,8 @@ repository code can stay focused on queries and transaction intent.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -35,3 +37,35 @@ def get_connection() -> sqlite3.Connection:
     """Create and configure a new SQLite connection."""
     connection = sqlite3.connect(str(get_db_path()))
     return configure_connection(connection)
+
+
+@contextmanager
+def connection_scope(*, write: bool = False) -> Iterator[sqlite3.Connection]:
+    """Yield a configured connection with guaranteed cleanup semantics.
+
+    Args:
+        write: When True, commit on success and rollback on exceptions.
+
+    Yields:
+        Configured SQLite connection ready for cursor operations.
+
+    Behavior:
+        - Always closes the connection in ``finally``.
+        - For write scopes, commits at the end of a successful block.
+        - For write scopes, attempts rollback before re-raising failures.
+    """
+    connection = get_connection()
+    try:
+        yield connection
+        if write:
+            connection.commit()
+    except Exception:
+        if write:
+            try:
+                connection.rollback()
+            except sqlite3.Error:
+                # Preserve the original exception while best-effort rolling back.
+                pass
+        raise
+    finally:
+        connection.close()
