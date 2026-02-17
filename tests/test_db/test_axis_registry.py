@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from mud_server.config import use_test_database
+from mud_server.db import connection as db_connection
 from mud_server.db import database
 
 
@@ -281,7 +282,7 @@ def test_seed_axis_registry_skips_missing_axis_row(monkeypatch) -> None:
         def close(self) -> None:
             return None
 
-    monkeypatch.setattr(database, "get_connection", lambda: _FakeConnection())
+    monkeypatch.setattr(db_connection, "get_connection", lambda: _FakeConnection())
 
     axes_payload: dict[str, Any] = {
         "axes": {

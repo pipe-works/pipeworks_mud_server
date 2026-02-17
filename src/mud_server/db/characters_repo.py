@@ -14,15 +14,10 @@ from mud_server.db.constants import DEFAULT_WORLD_ID
 
 
 def _get_connection() -> sqlite3.Connection:
-    """Return a DB connection via the compatibility facade.
+    """Return a DB connection from the shared connection module."""
+    from mud_server.db.connection import get_connection as get_connection_impl
 
-    Delegating through ``mud_server.db.database.get_connection`` preserves the
-    existing patch points used by tests while the DB layer is incrementally
-    split into focused repository modules.
-    """
-    from mud_server.db import database
-
-    return database.get_connection()
+    return get_connection_impl()
 
 
 def _count_user_characters_in_world(cursor: Any, *, user_id: int, world_id: str) -> int:

@@ -13,10 +13,10 @@ from mud_server.db.constants import DEFAULT_WORLD_ID
 
 
 def _get_connection() -> sqlite3.Connection:
-    """Return a DB connection via the compatibility facade."""
-    from mud_server.db import database
+    """Return a DB connection from the shared connection module."""
+    from mud_server.db.connection import get_connection as get_connection_impl
 
-    return database.get_connection()
+    return get_connection_impl()
 
 
 def _resolve_character_name(cursor: Any, name: str, *, world_id: str | None = None) -> str | None:

@@ -21,6 +21,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from mud_server.config import use_test_database
+from mud_server.db import connection as db_connection
 from mud_server.db import database
 from tests.constants import TEST_PASSWORD
 
@@ -645,7 +646,7 @@ def test_remove_sessions_for_character_returns_false_when_none_removed(
 @pytest.mark.db
 def test_remove_sessions_for_character_handles_database_error(monkeypatch):
     """Character session cleanup should return False when DB operations fail."""
-    monkeypatch.setattr(database, "get_connection", Mock(side_effect=sqlite3.Error("db boom")))
+    monkeypatch.setattr(db_connection, "get_connection", Mock(side_effect=sqlite3.Error("db boom")))
 
     assert database.remove_sessions_for_character(42) is False
 
@@ -768,7 +769,7 @@ def test_create_user_with_password_missing_lastrowid_raises():
     fake_cursor = _FakeCursor(lastrowid=None)
     fake_conn = _FakeConnection(fake_cursor)
 
-    with patch.object(database, "get_connection", return_value=fake_conn):
+    with patch.object(db_connection, "get_connection", return_value=fake_conn):
         with pytest.raises(ValueError):
             database.create_user_with_password("baduser", TEST_PASSWORD)
 
@@ -779,7 +780,7 @@ def test_create_character_for_user_missing_lastrowid_raises():
     fake_cursor = _FakeCursor(lastrowid=None)
     fake_conn = _FakeConnection(fake_cursor)
 
-    with patch.object(database, "get_connection", return_value=fake_conn):
+    with patch.object(db_connection, "get_connection", return_value=fake_conn):
         with pytest.raises(ValueError):
             database.create_character_for_user(1, "badchar")
 
@@ -949,7 +950,7 @@ def test_init_database_superuser_bootstrap_does_not_require_character_lastrowid(
 @pytest.mark.unit
 @pytest.mark.db
 def test_database_helpers_return_false_on_db_error():
-    with patch.object(database, "get_connection", side_effect=Exception("db error")):
+    with patch.object(db_connection, "get_connection", side_effect=Exception("db error")):
         assert database.set_user_role("testplayer", "admin") is False
         assert database.deactivate_user("testplayer") is False
         assert database.activate_user("testplayer") is False
@@ -975,7 +976,7 @@ def test_delete_user_returns_false_on_db_error(test_db, temp_db_path):
         assert user_id is not None
         with (
             patch.object(database, "get_user_id", return_value=user_id),
-            patch.object(database, "get_connection", side_effect=Exception("db error")),
+            patch.object(db_connection, "get_connection", side_effect=Exception("db error")),
         ):
             assert database.delete_user("todelete") is False
 

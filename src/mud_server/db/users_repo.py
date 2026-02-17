@@ -10,15 +10,10 @@ import sqlite3
 
 
 def _get_connection() -> sqlite3.Connection:
-    """Return a DB connection via the compatibility facade.
+    """Return a DB connection from the shared connection module."""
+    from mud_server.db.connection import get_connection as get_connection_impl
 
-    Using the facade preserves existing test patch points that monkeypatch
-    ``mud_server.db.database.get_connection`` while we incrementally split the
-    DB layer into dedicated modules.
-    """
-    from mud_server.db import database
-
-    return database.get_connection()
+    return get_connection_impl()
 
 
 def create_user_with_password(
