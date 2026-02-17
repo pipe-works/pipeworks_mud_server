@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from mud_server.config import WorldCharacterPolicy, config
 from mud_server.db import database, worlds_repo
 
 
@@ -57,3 +58,95 @@ def test_get_world_admin_rows_via_repo(db_with_users):
     assert any(
         entry["session_id"] == "repo-world-session" for entry in pipeworks["active_characters"]
     )
+
+
+def test_world_access_decision_branches_via_repo(db_with_users, monkeypatch):
+    """World access helper should return expected typed decisions across branches."""
+    player_id = database.get_user_id("testplayer")
+    assert player_id is not None
+
+    def _policy(_world_id: str) -> WorldCharacterPolicy:
+        return WorldCharacterPolicy(
+            creation_mode="invite",
+            naming_mode="generated",
+            slot_limit_per_account=1,
+        )
+
+    monkeypatch.setattr(config, "resolve_world_character_policy", _policy)
+
+    conn = database.get_connection()
+    cursor = conn.cursor()
+
+    # inactive branch
+    monkeypatch.setattr(worlds_repo, "_count_user_characters_in_world", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(worlds_repo, "_user_has_world_permission", lambda *_args, **_kwargs: False)
+    inactive_decision = worlds_repo._resolve_world_access_for_row(  # noqa: SLF001 - branch test
+        cursor,
+        user_id=player_id,
+        role="player",
+        world_row=("inactive_world", "Inactive", "", 0, "{}", None),
+    )
+    assert inactive_decision.reason == "world_inactive"
+    assert inactive_decision.can_access is False
+
+    # invite-required branch
+    invite_decision = worlds_repo._resolve_world_access_for_row(  # noqa: SLF001 - branch test
+        cursor,
+        user_id=player_id,
+        role="player",
+        world_row=("invite_world", "Invite", "", 1, "{}", None),
+    )
+    assert invite_decision.reason == "invite_required"
+    assert invite_decision.can_access is False
+
+    # slot-limit branch
+    monkeypatch.setattr(worlds_repo, "_count_user_characters_in_world", lambda *_args, **_kwargs: 1)
+    slot_decision = worlds_repo._resolve_world_access_for_row(  # noqa: SLF001 - branch test
+        cursor,
+        user_id=player_id,
+        role="player",
+        world_row=("slot_world", "Slot", "", 1, "{}", None),
+    )
+    assert slot_decision.reason == "slot_limit_reached"
+    assert slot_decision.can_access is True
+    assert slot_decision.can_create is False
+
+    # ok branch
+    monkeypatch.setattr(worlds_repo, "_count_user_characters_in_world", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(worlds_repo, "_user_has_world_permission", lambda *_args, **_kwargs: True)
+    ok_decision = worlds_repo._resolve_world_access_for_row(  # noqa: SLF001 - branch test
+        cursor,
+        user_id=player_id,
+        role="player",
+        world_row=("ok_world", "OK", "", 1, "{}", None),
+    )
+    assert ok_decision.reason == "ok"
+    assert ok_decision.can_access is True
+    assert ok_decision.can_create is True
+
+    conn.close()
+
+
+def test_get_world_access_decision_world_not_found_returns_typed_row(db_with_users, monkeypatch):
+    """Missing worlds should return a typed `world_not_found` decision."""
+    player_id = database.get_user_id("testplayer")
+    assert player_id is not None
+
+    monkeypatch.setattr(
+        config,
+        "resolve_world_character_policy",
+        lambda _world_id: WorldCharacterPolicy(
+            creation_mode="invite",
+            naming_mode="generated",
+            slot_limit_per_account=10,
+        ),
+    )
+
+    decision = worlds_repo.get_world_access_decision(
+        player_id,
+        "missing_world_for_repo_test",
+        role="player",
+    )
+    assert decision.reason == "world_not_found"
+    assert decision.can_access is False
+    assert decision.can_create is False

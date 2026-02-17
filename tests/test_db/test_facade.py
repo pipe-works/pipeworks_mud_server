@@ -48,3 +48,34 @@ def test_facade_patch_teardown_restores_database_attribute():
 
     assert database.get_players_in_room is original
     assert "get_players_in_room" not in facade.__dict__
+
+
+def test_facade_dir_exposes_forwarded_attributes():
+    """Facade ``dir()`` should include symbols from the backing DB module."""
+    names = dir(facade)
+    assert "user_exists" in names
+    assert "get_players_in_room" in names
+
+
+def test_facade_allows_local_attribute_set_and_delete_for_unknown_names():
+    """Unknown names should be stored and removed on facade-local module state."""
+    local_name = "_facade_local_attr_for_test"
+
+    setattr(facade, local_name, 42)
+    assert getattr(facade, local_name) == 42
+    assert local_name in facade.__dict__
+    assert not hasattr(database, local_name)
+
+    delattr(facade, local_name)
+    assert local_name not in facade.__dict__
+
+
+def test_facade_internal_dunder_attribute_set_and_delete():
+    """Dunder attributes should use the module's local setattr/delattr path."""
+    dunder_name = "__facade_dunder_attr_for_test__"
+
+    setattr(facade, dunder_name, "ok")
+    assert facade.__dict__[dunder_name] == "ok"
+
+    delattr(facade, dunder_name)
+    assert dunder_name not in facade.__dict__
