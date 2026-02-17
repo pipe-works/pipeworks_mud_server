@@ -185,8 +185,12 @@ def router(engine: GameEngine) -> APIRouter:
             if requested_world_id:
                 characters = database.get_user_characters(user_id, world_id=requested_world_id)
             else:
-                # Default to the configured world if no explicit world requested.
-                characters = database.get_user_characters(user_id)
+                # Default-world selection is explicit at the call site so DB
+                # helpers do not perform implicit world fallback.
+                characters = database.get_user_characters(
+                    user_id,
+                    world_id=database.DEFAULT_WORLD_ID,
+                )
             message = "Login successful. Select a character to enter the world."
 
             return LoginResponse(
@@ -382,6 +386,7 @@ def router(engine: GameEngine) -> APIRouter:
                 user_id,
                 character_name,
                 is_guest_created=True,
+                world_id=config.worlds.default_world_id,
             ):
                 database.delete_user(username)
                 raise HTTPException(status_code=400, detail="Character name already taken")
@@ -460,10 +465,10 @@ def router(engine: GameEngine) -> APIRouter:
         """
         try:
             user_id, username, role = validate_session(session_id)
-            if world_id:
-                if not database.can_user_access_world(user_id, world_id, role=role):
-                    raise HTTPException(status_code=403, detail="World access denied")
-            characters = database.get_user_characters(user_id, world_id=world_id)
+            effective_world_id = world_id or database.DEFAULT_WORLD_ID
+            if not database.can_user_access_world(user_id, effective_world_id, role=role):
+                raise HTTPException(status_code=403, detail="World access denied")
+            characters = database.get_user_characters(user_id, world_id=effective_world_id)
 
             if exclude_legacy_defaults and characters:
                 non_legacy_characters = [

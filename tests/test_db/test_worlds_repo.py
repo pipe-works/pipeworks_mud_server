@@ -43,7 +43,7 @@ def test_get_world_admin_rows_via_repo(db_with_users):
     """World repo admin rows should report online state from in-world sessions."""
     player_id = database.get_user_id("testplayer")
     assert player_id is not None
-    player_char = database.get_user_characters(player_id)[0]
+    player_char = database.get_user_characters(player_id, world_id=database.DEFAULT_WORLD_ID)[0]
     assert database.create_session(
         player_id,
         "repo-world-session",

@@ -98,8 +98,35 @@ def test_phase1_hot_path_indexes_exist(temp_db_path):
 
     assert "idx_sessions_user_activity" in sessions_indexes
     assert "idx_sessions_world_activity" in sessions_indexes
+    assert "idx_sessions_world_last_activity" in sessions_indexes
     assert "idx_sessions_user_id" in sessions_indexes
     assert "idx_sessions_character_id" in sessions_indexes
     assert "idx_sessions_world_id" in sessions_indexes
     assert "idx_characters_user_world" in characters_indexes
+    assert "idx_characters_user_world_created_at" in characters_indexes
     assert "idx_chat_messages_world_room_timestamp" in chat_indexes
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_schema_does_not_install_legacy_global_character_slot_triggers(temp_db_path):
+    """Initialization should not recreate removed global character slot triggers.
+
+    0.3.10 removes the legacy account-global slot trigger mechanism in favor of
+    explicit world-scoped policy resolution. This guard keeps the legacy trigger
+    names absent so the schema does not regress back to global slot enforcement.
+    """
+    database.init_database(skip_superuser=True)
+
+    conn = database.get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'trigger'
+        """)
+    trigger_names = {str(row[0]) for row in cursor.fetchall()}
+    conn.close()
+
+    assert "enforce_character_limit_insert" not in trigger_names
+    assert "enforce_character_limit_update" not in trigger_names

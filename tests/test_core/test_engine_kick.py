@@ -17,7 +17,7 @@ def _bind_session_to_first_character(username: str, session_id: str) -> None:
     """
     user_id = database.get_user_id(username)
     assert user_id is not None
-    characters = database.get_user_characters(user_id)
+    characters = database.get_user_characters(user_id, world_id=database.DEFAULT_WORLD_ID)
     assert characters
     assert database.create_session(user_id, session_id)
     assert database.set_session_character(

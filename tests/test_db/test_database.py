@@ -843,7 +843,9 @@ def test_create_character_for_user_success(test_db, temp_db_path):
         user_id = database.get_user_id("charuser")
         assert user_id is not None
 
-        result = database.create_character_for_user(user_id, "charuser_alt")
+        result = database.create_character_for_user(
+            user_id, "charuser_alt", world_id=database.DEFAULT_WORLD_ID
+        )
         assert result is True
         assert database.get_character_by_name("charuser_alt") is not None
         assert (
@@ -872,7 +874,7 @@ def test_create_character_for_user_missing_lastrowid_raises():
 
     with patch.object(db_connection, "get_connection", return_value=fake_conn):
         with pytest.raises(DatabaseWriteError):
-            database.create_character_for_user(1, "badchar")
+            database.create_character_for_user(1, "badchar", world_id=database.DEFAULT_WORLD_ID)
 
 
 @pytest.mark.unit
@@ -881,7 +883,12 @@ def test_create_default_character_missing_lastrowid_raises():
     fake_cursor = _FakeCursor(lastrowid=None)
 
     with pytest.raises(ValueError):
-        database._create_default_character(fake_cursor, 1, "badchar")
+        database._create_default_character(
+            fake_cursor,
+            1,
+            "badchar",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
 
 
 @pytest.mark.unit
@@ -966,7 +973,9 @@ def test_unlink_characters_for_user(test_db, temp_db_path):
         database.create_user_with_password("unlinker", TEST_PASSWORD)
         user_id = database.get_user_id("unlinker")
         assert user_id is not None
-        assert database.create_character_for_user(user_id, "unlinker_char")
+        assert database.create_character_for_user(
+            user_id, "unlinker_char", world_id=database.DEFAULT_WORLD_ID
+        )
 
         database.unlink_characters_for_user(user_id)
 
@@ -1175,7 +1184,9 @@ def test_cleanup_expired_guest_accounts_deletes_user(test_db, temp_db_path):
         )
         user_id = database.get_user_id("guest_user")
         assert user_id is not None
-        assert database.create_character_for_user(user_id, "guest_user_char")
+        assert database.create_character_for_user(
+            user_id, "guest_user_char", world_id=database.DEFAULT_WORLD_ID
+        )
 
         removed = database.cleanup_expired_guest_accounts()
         assert removed == 1
@@ -1222,8 +1233,18 @@ def test_world_scoped_character_slot_limit_enforced(temp_db_path):
             conn.commit()
             conn.close()
 
-            assert database.create_character_for_user(user_id, "pipeworks_slot_1") is True
-            assert database.create_character_for_user(user_id, "pipeworks_slot_2") is False
+            assert (
+                database.create_character_for_user(
+                    user_id, "pipeworks_slot_1", world_id=database.DEFAULT_WORLD_ID
+                )
+                is True
+            )
+            assert (
+                database.create_character_for_user(
+                    user_id, "pipeworks_slot_2", world_id=database.DEFAULT_WORLD_ID
+                )
+                is False
+            )
 
             assert (
                 database.create_character_for_user(

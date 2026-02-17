@@ -332,7 +332,7 @@ def test_validate_session_for_game_requires_explicit_selection_single_character(
 def test_validate_session_for_game_requires_selection_when_multiple(test_db, db_with_users):
     user_id = database.get_user_id("testplayer")
     assert user_id is not None
-    database.create_character_for_user(user_id, "altplayer")
+    database.create_character_for_user(user_id, "altplayer", world_id=database.DEFAULT_WORLD_ID)
 
     session_id = "multi-char-session"
     database.create_session("testplayer", session_id)
