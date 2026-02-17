@@ -577,6 +577,43 @@ def test_player_cannot_kick_character(test_client, test_db, temp_db_path, db_wit
         assert response.status_code == 403
 
 
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_kick_character_maps_database_error_to_500(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Kick-character endpoint should convert typed DB failures into HTTP 500."""
+    with use_test_database(temp_db_path):
+        admin_login = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        admin_session = admin_login.json()["session_id"]
+
+        target_character = database.get_character_by_name("testplayer_char")
+        assert target_character is not None
+
+        with patch.object(
+            database,
+            "remove_sessions_for_character_count",
+            side_effect=DatabaseWriteError(
+                context=DatabaseOperationContext(
+                    operation="sessions.remove_sessions_for_character_count"
+                )
+            ),
+        ):
+            response = test_client.post(
+                "/admin/character/kick",
+                json={
+                    "session_id": admin_session,
+                    "character_id": int(target_character["id"]),
+                    "reason": "test",
+                },
+            )
+
+        assert response.status_code == 500
+        assert "failed to kick character" in response.json()["detail"].lower()
+
+
 # ============================================================================
 # USER MANAGEMENT TESTS
 # ============================================================================
@@ -606,6 +643,38 @@ def test_superuser_can_change_user_role(test_client, test_db, temp_db_path, db_w
 
         # Should either work (200) or not be implemented (404)
         assert response.status_code in [200, 404]
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_ban_user_maps_database_error_during_session_cleanup(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Ban action should surface typed DB errors from session cleanup as HTTP 500."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        with patch.object(
+            database,
+            "remove_sessions_for_user",
+            side_effect=DatabaseWriteError(
+                context=DatabaseOperationContext(operation="sessions.remove_sessions_for_user")
+            ),
+        ):
+            response = test_client.post(
+                "/admin/user/manage",
+                json={
+                    "session_id": session_id,
+                    "action": "ban",
+                    "target_username": "testplayer",
+                },
+            )
+
+        assert response.status_code == 500
+        assert "failed to ban user" in response.json()["detail"].lower()
 
 
 @pytest.mark.admin

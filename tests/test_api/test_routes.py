@@ -468,6 +468,30 @@ def test_register_guest_create_user_failure(test_client, test_db, temp_db_path):
 
 
 @pytest.mark.api
+def test_register_guest_maps_database_error_to_500(test_client, test_db, temp_db_path):
+    """Guest registration should map typed DB exceptions to a deterministic 500."""
+    with use_test_database(temp_db_path):
+        with patch.object(
+            database,
+            "character_exists",
+            side_effect=DatabaseReadError(
+                context=DatabaseOperationContext(operation="characters.character_exists")
+            ),
+        ):
+            response = test_client.post(
+                "/register-guest",
+                json={
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                    "character_name": "Guest Mapper",
+                },
+            )
+
+    assert response.status_code == 500
+    assert "guest registration store failure" in response.json()["detail"].lower()
+
+
+@pytest.mark.api
 def test_register_guest_user_id_missing_rolls_back(test_client, test_db, temp_db_path):
     """Test guest registration rolls back when user id cannot be resolved."""
     with use_test_database(temp_db_path):
@@ -775,6 +799,30 @@ def test_list_characters_exclude_legacy_defaults_keeps_bootstrap_when_only_optio
 
 
 @pytest.mark.api
+def test_list_characters_maps_database_error_to_500(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Character list endpoint should map typed DB exceptions to HTTP 500."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        with patch.object(
+            database,
+            "get_user_characters",
+            side_effect=DatabaseReadError(
+                context=DatabaseOperationContext(operation="characters.get_user_characters")
+            ),
+        ):
+            response = test_client.get("/characters", params={"session_id": session_id})
+
+        assert response.status_code == 500
+        assert "character listing unavailable" in response.json()["detail"].lower()
+
+
+@pytest.mark.api
 def test_select_character_success(test_client, test_db, temp_db_path, db_with_users):
     """Test selecting a character for the session."""
     with use_test_database(temp_db_path):
@@ -840,6 +888,36 @@ def test_select_character_failure_sets_error(test_client, test_db, temp_db_path,
             )
 
         assert response.status_code == 500
+
+
+@pytest.mark.api
+def test_select_character_maps_database_error_to_500(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Character selection should map typed DB exceptions to HTTP 500."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+        character_id = database.get_user_characters(user_id)[0]["id"]
+
+        with patch.object(
+            database,
+            "set_session_character",
+            side_effect=DatabaseWriteError(
+                context=DatabaseOperationContext(operation="sessions.set_session_character")
+            ),
+        ):
+            response = test_client.post(
+                "/characters/select",
+                json={"session_id": session_id, "character_id": character_id},
+            )
+
+        assert response.status_code == 500
+        assert "character selection failed" in response.json()["detail"].lower()
 
 
 # ============================================================================
@@ -2351,6 +2429,33 @@ def test_create_character_for_session_disabled_by_policy(
             assert "disabled" in response.json()["detail"].lower()
     finally:
         config.character_creation.player_self_create_enabled = original_enabled
+
+
+@pytest.mark.api
+def test_create_character_for_session_maps_database_error_to_500(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Self-create endpoint should map typed DB exceptions to HTTP 500."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        with patch.object(
+            database,
+            "get_world_access_decision",
+            side_effect=DatabaseReadError(
+                context=DatabaseOperationContext(operation="worlds.get_world_access_decision")
+            ),
+        ):
+            response = test_client.post(
+                "/characters/create",
+                json={"session_id": session_id, "world_id": "pipeworks_web"},
+            )
+
+        assert response.status_code == 500
+        assert "character creation unavailable" in response.json()["detail"].lower()
 
 
 # ============================================================================
