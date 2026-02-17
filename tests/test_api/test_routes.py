@@ -84,7 +84,7 @@ def test_register_success(test_client, test_db, temp_db_path):
         data = response.json()
         assert data["success"] is True
         assert "created successfully" in data["message"].lower()
-        assert database.get_player_account_origin("newuser") == "visitor"
+        assert database.get_user_account_origin("newuser") == "visitor"
         # Account registration no longer auto-provisions a bootstrap character.
         assert database.get_character_by_name("newuser_char") is None
 
@@ -957,7 +957,7 @@ def test_command_recall(authenticated_client, test_db, temp_db_path):
         client = authenticated_client["client"]
 
         # Move player away from spawn first
-        database.set_player_room("testplayer", "forest")
+        database.set_character_room("testplayer", "forest")
 
         response = client.post("/command", json={"session_id": session_id, "command": "recall"})
 
@@ -965,7 +965,7 @@ def test_command_recall(authenticated_client, test_db, temp_db_path):
         data = response.json()
         assert data["success"] is True
         # Player should be back at spawn
-        assert database.get_player_room("testplayer") == "spawn"
+        assert database.get_character_room("testplayer") == "spawn"
 
 
 @pytest.mark.api
@@ -979,14 +979,14 @@ def test_command_flee_alias(authenticated_client, test_db, temp_db_path):
         client = authenticated_client["client"]
 
         # Move player away from spawn first
-        database.set_player_room("testplayer", "forest")
+        database.set_character_room("testplayer", "forest")
 
         response = client.post("/command", json={"session_id": session_id, "command": "flee"})
 
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert database.get_player_room("testplayer") == "spawn"
+        assert database.get_character_room("testplayer") == "spawn"
 
 
 @pytest.mark.api
@@ -1000,14 +1000,14 @@ def test_command_scurry_alias(authenticated_client, test_db, temp_db_path):
         client = authenticated_client["client"]
 
         # Move player away from spawn first
-        database.set_player_room("testplayer", "forest")
+        database.set_character_room("testplayer", "forest")
 
         response = client.post("/command", json={"session_id": session_id, "command": "scurry"})
 
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert database.get_player_room("testplayer") == "spawn"
+        assert database.get_character_room("testplayer") == "spawn"
 
 
 @pytest.mark.api

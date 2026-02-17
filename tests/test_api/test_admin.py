@@ -647,7 +647,8 @@ def test_superuser_can_delete_user(test_client, test_db, temp_db_path, db_with_u
 
         assert response.status_code == 200
         assert response.json()["success"] is True
-        assert database.player_exists("testplayer") is False
+        assert database.user_exists("testplayer") is True
+        assert database.is_user_active("testplayer") is False
 
 
 @pytest.mark.admin
@@ -944,7 +945,7 @@ def test_deactivated_user_cannot_login(test_client, test_db, temp_db_path, db_wi
     """Test that deactivated users cannot login."""
     with use_test_database(temp_db_path):
         # Deactivate player
-        database.deactivate_player("testplayer")
+        database.deactivate_user("testplayer")
 
         # Try to login
         response = test_client.post(
@@ -961,8 +962,8 @@ def test_reactivated_user_can_login(test_client, test_db, temp_db_path, db_with_
     """Test that reactivated users can login."""
     with use_test_database(temp_db_path):
         # Deactivate then reactivate
-        database.deactivate_player("testplayer")
-        database.activate_player("testplayer")
+        database.deactivate_user("testplayer")
+        database.activate_user("testplayer")
 
         # Try to login
         response = test_client.post(
@@ -979,11 +980,11 @@ def test_role_change_persists(test_client, test_db, temp_db_path, db_with_users)
     """Test that role changes are persisted to database."""
     with use_test_database(temp_db_path):
         # Change role
-        result = database.set_player_role("testplayer", "worldbuilder")
+        result = database.set_user_role("testplayer", "worldbuilder")
         assert result is True
 
         # Verify change persisted
-        role = database.get_player_role("testplayer")
+        role = database.get_user_role("testplayer")
         assert role == "worldbuilder"
 
         # Verify login returns new role

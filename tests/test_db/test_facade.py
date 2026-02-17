@@ -40,21 +40,21 @@ def test_facade_patch_teardown_restores_database_attribute():
     canonical module after test teardown.
     """
 
-    original = database.get_players_in_room
-    assert "get_players_in_room" not in facade.__dict__
+    original = database.get_characters_in_room
+    assert "get_characters_in_room" not in facade.__dict__
 
-    with patch("mud_server.db.facade.get_players_in_room", return_value=[]):
-        assert facade.get_players_in_room("spawn") == []
+    with patch("mud_server.db.facade.get_characters_in_room", return_value=[]):
+        assert facade.get_characters_in_room("spawn") == []
 
-    assert database.get_players_in_room is original
-    assert "get_players_in_room" not in facade.__dict__
+    assert database.get_characters_in_room is original
+    assert "get_characters_in_room" not in facade.__dict__
 
 
 def test_facade_dir_exposes_forwarded_attributes():
     """Facade ``dir()`` should include symbols from the backing DB module."""
     names = dir(facade)
     assert "user_exists" in names
-    assert "get_players_in_room" in names
+    assert "get_characters_in_room" in names
 
 
 def test_facade_allows_local_attribute_set_and_delete_for_unknown_names():
