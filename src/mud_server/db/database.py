@@ -117,19 +117,6 @@ def _ensure_character_state_columns(cursor: sqlite3.Cursor) -> None:
     ensure_character_state_columns(cursor)
 
 
-def _create_character_limit_triggers(conn: sqlite3.Connection, *, max_slots: int) -> None:
-    """
-    Create triggers that enforce the per-user character slot limit.
-
-    Note:
-        SQLite cannot read config at runtime inside a trigger. We bake the
-        configured limit into the trigger at init time.
-    """
-    from mud_server.db.schema import create_character_limit_triggers
-
-    create_character_limit_triggers(conn, max_slots=max_slots)
-
-
 def _create_session_invariant_triggers(conn: sqlite3.Connection) -> None:
     """
     Create triggers that enforce account-first session invariants.
@@ -577,8 +564,6 @@ def create_user_with_password(
     email_hash: str | None = None,
     is_guest: bool = False,
     guest_expires_at: str | None = None,
-    create_default_character: bool = False,
-    world_id: str = DEFAULT_WORLD_ID,
 ) -> bool:
     """
     Create a new user account only (character provisioning is explicit).
@@ -591,11 +576,6 @@ def create_user_with_password(
         email_hash: Hashed email value (nullable during development).
         is_guest: Whether this is a guest account.
         guest_expires_at: Expiration timestamp for guest accounts.
-        create_default_character: Deprecated compatibility flag. Automatic
-            character creation has been removed and this must remain False.
-        world_id: Deprecated compatibility argument retained for legacy call
-            signatures; ignored because account creation no longer provisions
-            characters.
 
     Returns:
         True if created successfully, False if username already exists.
@@ -610,8 +590,6 @@ def create_user_with_password(
         email_hash=email_hash,
         is_guest=is_guest,
         guest_expires_at=guest_expires_at,
-        create_default_character=create_default_character,
-        world_id=world_id,
     )
 
 
@@ -882,20 +860,6 @@ def get_user_characters(user_id: int, *, world_id: str | None = None) -> list[di
     from mud_server.db.characters_repo import get_user_characters as get_user_characters_impl
 
     return get_user_characters_impl(user_id, world_id=world_id)
-
-
-def get_user_character_world_ids(user_id: int) -> set[str]:
-    """
-    Return the set of world ids in which the user has characters.
-
-    This is used to enforce allow_multi_world_characters when creating
-    new characters.
-    """
-    from mud_server.db.characters_repo import (
-        get_user_character_world_ids as get_user_character_world_ids_impl,
-    )
-
-    return get_user_character_world_ids_impl(user_id)
 
 
 def tombstone_character(character_id: int) -> bool:

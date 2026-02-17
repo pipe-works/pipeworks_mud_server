@@ -351,7 +351,6 @@ def router(engine: GameEngine) -> APIRouter:
             account_origin="visitor",
             is_guest=True,
             guest_expires_at=guest_expires_at,
-            create_default_character=False,
         ):
             raise HTTPException(
                 status_code=500, detail="Failed to create guest account. Please try again."

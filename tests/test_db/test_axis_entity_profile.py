@@ -78,7 +78,6 @@ def test_apply_entity_state_to_character_writes_axis_event_and_updates_scores(te
         assert database.create_user_with_password(
             "entity_profile_user",
             TEST_PASSWORD,
-            create_default_character=False,
         )
         user_id = database.get_user_id("entity_profile_user")
         assert user_id is not None
@@ -123,7 +122,6 @@ def test_apply_entity_state_to_character_returns_none_when_no_axis_mappings(temp
         assert database.create_user_with_password(
             "entity_noop_user",
             TEST_PASSWORD,
-            create_default_character=False,
         )
         user_id = database.get_user_id("entity_noop_user")
         assert user_id is not None

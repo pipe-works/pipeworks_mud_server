@@ -15,6 +15,7 @@ All tests use temporary databases for isolation.
 """
 
 import sqlite3
+from typing import Any, cast
 from unittest.mock import Mock, patch
 
 import pytest
@@ -224,10 +225,11 @@ def test_create_player_with_password_does_not_auto_create_character(test_db, tem
 @pytest.mark.unit
 @pytest.mark.db
 def test_create_user_rejects_deprecated_auto_character_flag(test_db, temp_db_path):
-    """Legacy auto-character flag should fail fast under account-first model."""
+    """Legacy auto-character flag should fail with a strict signature error."""
     with use_test_database(temp_db_path):
-        with pytest.raises(ValueError, match="Automatic character creation is removed"):
-            database.create_user_with_password(
+        create_user_with_password = cast(Any, database.create_user_with_password)
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            create_user_with_password(
                 "legacy_user",
                 TEST_PASSWORD,
                 create_default_character=True,
@@ -810,9 +812,7 @@ def test_get_character_by_id_missing_returns_none(test_db, temp_db_path):
 def test_tombstone_character_success_detaches_owner_and_renames(test_db, temp_db_path):
     """Tombstoning should detach ownership while preserving row history."""
     with use_test_database(temp_db_path):
-        database.create_user_with_password(
-            "stone_user", TEST_PASSWORD, create_default_character=False
-        )
+        database.create_user_with_password("stone_user", TEST_PASSWORD)
         user_id = database.get_user_id("stone_user")
         assert user_id is not None
         assert (
@@ -851,9 +851,7 @@ def test_tombstone_character_missing_returns_false(test_db, temp_db_path):
 def test_delete_character_success_and_missing(test_db, temp_db_path):
     """Delete helper should remove existing rows and report missing rows."""
     with use_test_database(temp_db_path):
-        database.create_user_with_password(
-            "delete_user", TEST_PASSWORD, create_default_character=False
-        )
+        database.create_user_with_password("delete_user", TEST_PASSWORD)
         user_id = database.get_user_id("delete_user")
         assert user_id is not None
         assert (

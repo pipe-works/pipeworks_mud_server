@@ -18,9 +18,7 @@ def test_get_all_users_detailed_online_status(temp_db_path) -> None:
     with use_test_database(temp_db_path):
         database.init_database(skip_superuser=True)
 
-        assert database.create_user_with_password(
-            "online_user", TEST_PASSWORD, create_default_character=False
-        )
+        assert database.create_user_with_password("online_user", TEST_PASSWORD)
         user_id = database.get_user_id("online_user")
         assert user_id is not None
 
@@ -79,12 +77,8 @@ def test_get_all_users_detailed_excludes_tombstoned_accounts(temp_db_path) -> No
     with use_test_database(temp_db_path):
         database.init_database(skip_superuser=True)
 
-        assert database.create_user_with_password(
-            "active_account", TEST_PASSWORD, create_default_character=False
-        )
-        assert database.create_user_with_password(
-            "to_be_tombstoned", TEST_PASSWORD, create_default_character=False
-        )
+        assert database.create_user_with_password("active_account", TEST_PASSWORD)
+        assert database.create_user_with_password("to_be_tombstoned", TEST_PASSWORD)
 
         assert database.delete_user("to_be_tombstoned") is True
 
