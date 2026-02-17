@@ -196,7 +196,7 @@ class GameEngine:
                 "; ".join(report.missing_components),
             )
 
-    def _get_world(self, world_id: str | None) -> "World":
+    def _get_world(self, world_id: str) -> "World":
         """
         Resolve a world_id to a loaded World instance.
 
@@ -266,9 +266,7 @@ class GameEngine:
             return False
         return database.remove_sessions_for_user(user_id)
 
-    def move(
-        self, username: str, direction: str, *, world_id: str | None = None
-    ) -> tuple[bool, str]:
+    def move(self, username: str, direction: str, *, world_id: str) -> tuple[bool, str]:
         """
         Handle player movement between rooms.
 
@@ -397,7 +395,7 @@ class GameEngine:
 
         return True, message
 
-    def recall(self, username: str, *, world_id: str | None = None) -> tuple[bool, str]:
+    def recall(self, username: str, *, world_id: str) -> tuple[bool, str]:
         """
         Recall player to their current zone's spawn point.
 
@@ -464,7 +462,7 @@ class GameEngine:
 
         return True, message
 
-    def chat(self, username: str, message: str, *, world_id: str | None = None) -> tuple[bool, str]:
+    def chat(self, username: str, message: str, *, world_id: str) -> tuple[bool, str]:
         """
         Handle player chat messages within their current room.
 
@@ -507,7 +505,7 @@ class GameEngine:
 
         return True, f"You say: {safe_message}"
 
-    def yell(self, username: str, message: str, *, world_id: str | None = None) -> tuple[bool, str]:
+    def yell(self, username: str, message: str, *, world_id: str) -> tuple[bool, str]:
         """
         Yell a message to current room and all adjoining rooms.
 
@@ -576,7 +574,12 @@ class GameEngine:
         return True, f"You yell: {safe_message}"
 
     def whisper(
-        self, username: str, target: str, message: str, *, world_id: str | None = None
+        self,
+        username: str,
+        target: str,
+        message: str,
+        *,
+        world_id: str,
     ) -> tuple[bool, str]:
         """
         Send a private whisper to a specific player in the same room.
@@ -681,9 +684,7 @@ class GameEngine:
         logger.info(f"Whisper successful: {username} -> {target}: {safe_message}")
         return True, f"You whisper to {target}: {safe_message}"
 
-    def kick_character(
-        self, actor_name: str, target: str, *, world_id: str | None = None
-    ) -> tuple[bool, str]:
+    def kick_character(self, actor_name: str, target: str, *, world_id: str) -> tuple[bool, str]:
         """
         Disconnect all active sessions for a target character.
 
@@ -727,7 +728,7 @@ class GameEngine:
 
         return True, f"Kicked {resolved_target} ({removed_sessions} session(s) disconnected)."
 
-    def get_room_chat(self, username: str, limit: int = 20, *, world_id: str | None = None) -> str:
+    def get_room_chat(self, username: str, limit: int = 20, *, world_id: str) -> str:
         """
         Get recent chat messages from the player's current room.
 
@@ -770,7 +771,7 @@ class GameEngine:
             chat_text += f"{msg['username']}: {msg['message']}\n"
         return chat_text
 
-    def get_inventory(self, username: str, *, world_id: str | None = None) -> str:
+    def get_inventory(self, username: str, *, world_id: str) -> str:
         """
         Get formatted player inventory listing.
 
@@ -791,7 +792,7 @@ class GameEngine:
             >>> engine.get_inventory("new_player")
             "Your inventory is empty."
         """
-        inventory = database.get_character_inventory(username)
+        inventory = database.get_character_inventory(username, world_id=world_id)
         if not inventory:
             return "Your inventory is empty."
 
@@ -803,9 +804,7 @@ class GameEngine:
                 inv_text += f"  - {item.name}\n"
         return inv_text
 
-    def pickup_item(
-        self, username: str, item_name: str, *, world_id: str | None = None
-    ) -> tuple[bool, str]:
+    def pickup_item(self, username: str, item_name: str, *, world_id: str) -> tuple[bool, str]:
         """
         Pick up an item from the current room and add to inventory.
 
@@ -858,18 +857,16 @@ class GameEngine:
             return False, f"There is no '{item_name}' here."
 
         # Add to inventory
-        inventory = database.get_character_inventory(username)
+        inventory = database.get_character_inventory(username, world_id=world_id)
         if matching_item not in inventory:
             inventory.append(matching_item)
-            database.set_character_inventory(username, inventory)
+            database.set_character_inventory(username, inventory, world_id=world_id)
 
         item = world.get_item(matching_item)
         item_name_display = item.name if item else matching_item
         return True, f"You picked up the {item_name_display}."
 
-    def drop_item(
-        self, username: str, item_name: str, *, world_id: str | None = None
-    ) -> tuple[bool, str]:
+    def drop_item(self, username: str, item_name: str, *, world_id: str) -> tuple[bool, str]:
         """
         Drop an item from player's inventory.
 
@@ -899,7 +896,7 @@ class GameEngine:
             >>> engine.drop_item("player1", "sword")
             (False, "You don't have a 'sword'.")
         """
-        inventory = database.get_character_inventory(username)
+        inventory = database.get_character_inventory(username, world_id=world_id)
         world = self._get_world(world_id)
 
         # Find matching item in inventory
@@ -915,13 +912,13 @@ class GameEngine:
 
         # Remove from inventory
         inventory.remove(matching_item)
-        database.set_character_inventory(username, inventory)
+        database.set_character_inventory(username, inventory, world_id=world_id)
 
         item = world.get_item(matching_item)
         item_name_display = item.name if item else matching_item
         return True, f"You dropped the {item_name_display}."
 
-    def look(self, username: str, *, world_id: str | None = None) -> str:
+    def look(self, username: str, *, world_id: str) -> str:
         """
         Look around the current room to get a full description.
 
@@ -964,7 +961,7 @@ class GameEngine:
 
         return world.get_room_description(room_id, username, world_id=world_id)
 
-    def get_active_players(self, *, world_id: str | None = None) -> list[str]:
+    def get_active_players(self, *, world_id: str) -> list[str]:
         """
         Get list of all currently active (logged in) characters.
 
@@ -975,7 +972,7 @@ class GameEngine:
             List of character names for all active players
 
         Example:
-            >>> engine.get_active_players()
+            >>> engine.get_active_players(world_id="pipeworks_web")
             ['player1', 'Admin', 'Mendit']
         """
         return database.get_active_characters(world_id=world_id)

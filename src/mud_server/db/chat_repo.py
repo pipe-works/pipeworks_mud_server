@@ -9,8 +9,6 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from mud_server.db.constants import DEFAULT_WORLD_ID
-
 
 def _get_connection() -> sqlite3.Connection:
     """Return a DB connection from the shared connection module."""
@@ -19,8 +17,8 @@ def _get_connection() -> sqlite3.Connection:
     return get_connection_impl()
 
 
-def _resolve_character_name(cursor: Any, name: str, *, world_id: str | None = None) -> str | None:
-    """Resolve a character name using the shared compatibility rules."""
+def _resolve_character_name(cursor: Any, name: str, *, world_id: str) -> str | None:
+    """Resolve a character name using strict world-scoped character identity."""
     from mud_server.db.characters_repo import _resolve_character_name as resolve_character_name_impl
 
     return resolve_character_name_impl(cursor, name, world_id=world_id)
@@ -33,18 +31,15 @@ def add_chat_message(
     recipient_character_name: str | None = None,
     recipient: str | None = None,
     *,
-    world_id: str | None = None,
+    world_id: str,
 ) -> bool:
     """Insert a chat message row for room chat or whispers.
 
     Compatibility behavior:
-    - ``world_id`` defaults to ``DEFAULT_WORLD_ID``.
     - ``recipient`` alias is still accepted and mapped to
       ``recipient_character_name``.
-    - Sender and recipient names accept username fallback resolution.
+    - Sender and recipient names require explicit character identities.
     """
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
     try:
         conn = _get_connection()
         cursor = conn.cursor()
@@ -114,7 +109,7 @@ def get_room_messages(
     limit: int = 50,
     character_name: str | None = None,
     username: str | None = None,
-    world_id: str | None = None,
+    world_id: str,
 ) -> list[dict[str, Any]]:
     """Return recent room messages with whisper visibility filtering.
 
@@ -123,8 +118,6 @@ def get_room_messages(
     - whispers to that character,
     - whispers sent by that character.
     """
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
     conn = _get_connection()
     cursor = conn.cursor()
 

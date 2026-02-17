@@ -129,7 +129,11 @@ def test_get_world_admin_rows_reports_online_state_and_active_characters(db_with
     assert testplayer_characters
     assert database.create_session("testplayer", "player-session")
     # World online state tracks in-world sessions only; bind the character.
-    assert database.set_session_character("player-session", int(testplayer_characters[0]["id"]))
+    assert database.set_session_character(
+        "player-session",
+        int(testplayer_characters[0]["id"]),
+        world_id=database.DEFAULT_WORLD_ID,
+    )
 
     assert database.create_character_for_user(
         admin_id, "testadmin_daily", world_id="daily_undertaking"

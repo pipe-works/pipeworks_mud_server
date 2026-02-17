@@ -957,7 +957,7 @@ def test_command_recall(authenticated_client, test_db, temp_db_path):
         client = authenticated_client["client"]
 
         # Move player away from spawn first
-        database.set_character_room("testplayer_char", "forest")
+        database.set_character_room("testplayer_char", "forest", world_id=database.DEFAULT_WORLD_ID)
 
         response = client.post("/command", json={"session_id": session_id, "command": "recall"})
 
@@ -965,7 +965,10 @@ def test_command_recall(authenticated_client, test_db, temp_db_path):
         data = response.json()
         assert data["success"] is True
         # Player should be back at spawn
-        assert database.get_character_room("testplayer_char") == "spawn"
+        assert (
+            database.get_character_room("testplayer_char", world_id=database.DEFAULT_WORLD_ID)
+            == "spawn"
+        )
 
 
 @pytest.mark.api
@@ -979,14 +982,17 @@ def test_command_flee_alias(authenticated_client, test_db, temp_db_path):
         client = authenticated_client["client"]
 
         # Move player away from spawn first
-        database.set_character_room("testplayer_char", "forest")
+        database.set_character_room("testplayer_char", "forest", world_id=database.DEFAULT_WORLD_ID)
 
         response = client.post("/command", json={"session_id": session_id, "command": "flee"})
 
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert database.get_character_room("testplayer_char") == "spawn"
+        assert (
+            database.get_character_room("testplayer_char", world_id=database.DEFAULT_WORLD_ID)
+            == "spawn"
+        )
 
 
 @pytest.mark.api
@@ -1000,14 +1006,17 @@ def test_command_scurry_alias(authenticated_client, test_db, temp_db_path):
         client = authenticated_client["client"]
 
         # Move player away from spawn first
-        database.set_character_room("testplayer_char", "forest")
+        database.set_character_room("testplayer_char", "forest", world_id=database.DEFAULT_WORLD_ID)
 
         response = client.post("/command", json={"session_id": session_id, "command": "scurry"})
 
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert database.get_character_room("testplayer_char") == "spawn"
+        assert (
+            database.get_character_room("testplayer_char", world_id=database.DEFAULT_WORLD_ID)
+            == "spawn"
+        )
 
 
 @pytest.mark.api
@@ -1082,7 +1091,9 @@ def test_command_drop_requires_item(authenticated_client, test_db, temp_db_path)
 def test_command_drop_item(authenticated_client, test_db, temp_db_path):
     """Test /command drop with a valid item."""
     with use_test_database(temp_db_path):
-        database.set_character_inventory("testplayer_char", ["torch"])
+        database.set_character_inventory(
+            "testplayer_char", ["torch"], world_id=database.DEFAULT_WORLD_ID
+        )
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
@@ -1172,7 +1183,11 @@ def test_command_whisper_success(authenticated_client, test_db, temp_db_path, db
         database.create_session("testadmin", "admin-session")
         admin_char = database.get_character_by_name("testadmin_char")
         assert admin_char is not None
-        database.set_session_character("admin-session", admin_char["id"])
+        database.set_session_character(
+            "admin-session",
+            admin_char["id"],
+            world_id=database.DEFAULT_WORLD_ID,
+        )
 
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
@@ -1208,7 +1223,11 @@ def test_command_who_lists_players(authenticated_client, test_db, temp_db_path, 
         database.create_session("testadmin", "admin-session")
         admin_char = database.get_character_by_name("testadmin_char")
         assert admin_char is not None
-        database.set_session_character("admin-session", admin_char["id"])
+        database.set_session_character(
+            "admin-session",
+            admin_char["id"],
+            world_id=database.DEFAULT_WORLD_ID,
+        )
 
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]

@@ -34,11 +34,8 @@ def _count_user_characters_in_world(cursor: Any, *, user_id: int, world_id: str)
     return int(row[0]) if row else 0
 
 
-def _resolve_character_name(cursor: Any, name: str, *, world_id: str | None = None) -> str | None:
-    """Resolve a character name strictly by character identity in a world."""
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
-
+def _resolve_character_name(cursor: Any, name: str, *, world_id: str) -> str | None:
+    """Resolve a character name strictly by character identity in an explicit world."""
     cursor.execute(
         "SELECT name FROM characters WHERE name = ? AND world_id = ? LIMIT 1",
         (name, world_id),
@@ -97,7 +94,7 @@ def _seed_character_location(cursor: Any, character_id: int, *, world_id: str) -
     )
 
 
-def resolve_character_name(name: str, *, world_id: str | None = None) -> str | None:
+def resolve_character_name(name: str, *, world_id: str) -> str | None:
     """Return a world-scoped character name for an exact character identity."""
     conn = _get_connection()
     cursor = conn.cursor()
@@ -328,10 +325,8 @@ def delete_character(character_id: int) -> bool:
     return deleted
 
 
-def get_character_room(name: str, *, world_id: str | None = None) -> str | None:
+def get_character_room(name: str, *, world_id: str) -> str | None:
     """Return the character's current room in the requested world."""
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
     conn = _get_connection()
     cursor = conn.cursor()
     resolved_name = _resolve_character_name(cursor, name, world_id=world_id)
@@ -355,10 +350,8 @@ def get_character_room(name: str, *, world_id: str | None = None) -> str | None:
     return row[0] if row else None
 
 
-def set_character_room(name: str, room: str, *, world_id: str | None = None) -> bool:
+def set_character_room(name: str, room: str, *, world_id: str) -> bool:
     """Set the character room for a world-scoped character identity."""
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
     try:
         conn = _get_connection()
         cursor = conn.cursor()
@@ -392,10 +385,8 @@ def set_character_room(name: str, room: str, *, world_id: str | None = None) -> 
         return False
 
 
-def get_characters_in_room(room: str, *, world_id: str | None = None) -> list[str]:
+def get_characters_in_room(room: str, *, world_id: str) -> list[str]:
     """Return active character names in a room for the selected world."""
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
     conn = _get_connection()
     cursor = conn.cursor()
     cursor.execute(
@@ -416,11 +407,11 @@ def get_characters_in_room(room: str, *, world_id: str | None = None) -> list[st
     return [row[0] for row in rows]
 
 
-def get_character_inventory(name: str) -> list[str]:
-    """Return character inventory as a JSON-decoded list."""
+def get_character_inventory(name: str, *, world_id: str) -> list[str]:
+    """Return character inventory as a JSON-decoded list for an explicit world."""
     conn = _get_connection()
     cursor = conn.cursor()
-    resolved_name = _resolve_character_name(cursor, name)
+    resolved_name = _resolve_character_name(cursor, name, world_id=world_id)
     if not resolved_name:
         conn.close()
         return []
@@ -434,12 +425,12 @@ def get_character_inventory(name: str) -> list[str]:
     return inventory
 
 
-def set_character_inventory(name: str, inventory: list[str]) -> bool:
-    """Persist character inventory as JSON for the resolved character name."""
+def set_character_inventory(name: str, inventory: list[str], *, world_id: str) -> bool:
+    """Persist character inventory as JSON for a world-scoped character identity."""
     try:
         conn = _get_connection()
         cursor = conn.cursor()
-        resolved_name = _resolve_character_name(cursor, name)
+        resolved_name = _resolve_character_name(cursor, name, world_id=world_id)
         if not resolved_name:
             conn.close()
             return False
