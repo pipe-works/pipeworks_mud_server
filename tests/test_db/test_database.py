@@ -719,10 +719,11 @@ def test_remove_sessions_for_character_returns_false_when_none_removed(
 @pytest.mark.unit
 @pytest.mark.db
 def test_remove_sessions_for_character_handles_database_error(monkeypatch):
-    """Character session cleanup should return False when DB operations fail."""
+    """Character session cleanup should raise typed write errors on DB failures."""
     monkeypatch.setattr(db_connection, "get_connection", Mock(side_effect=sqlite3.Error("db boom")))
 
-    assert database.remove_sessions_for_character(42) is False
+    with pytest.raises(DatabaseWriteError):
+        database.remove_sessions_for_character(42)
 
 
 @pytest.mark.unit
@@ -865,11 +866,12 @@ def test_create_user_with_password_missing_lastrowid_raises():
 @pytest.mark.unit
 @pytest.mark.db
 def test_create_character_for_user_missing_lastrowid_raises():
+    """Character creation should map low-level write failures to typed DB errors."""
     fake_cursor = _FakeCursor(lastrowid=None)
     fake_conn = _FakeConnection(fake_cursor)
 
     with patch.object(db_connection, "get_connection", return_value=fake_conn):
-        with pytest.raises(ValueError):
+        with pytest.raises(DatabaseWriteError):
             database.create_character_for_user(1, "badchar")
 
 
