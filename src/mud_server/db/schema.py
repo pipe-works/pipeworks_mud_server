@@ -17,9 +17,14 @@ from mud_server.db.constants import DEFAULT_WORLD_ID
 # 1. sessions user/world activity predicates are used repeatedly for auth,
 #    online-status, admin dashboards, and cleanup operations.
 # 2. character ownership counts are user+world scoped for slot checks.
-# 3. room chat history is always world+room scoped and frequently ordered by time.
+# 3. character list and session dashboards sort by activity/created-at often.
+# 4. room chat history is always world+room scoped and frequently ordered by time.
 HOT_PATH_INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_characters_user_world ON characters(user_id, world_id)",
+    (
+        "CREATE INDEX IF NOT EXISTS idx_characters_user_world_created_at "
+        "ON characters(user_id, world_id, created_at)"
+    ),
     "CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_character_id ON sessions(character_id)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_world_id ON sessions(world_id)",
@@ -30,6 +35,10 @@ HOT_PATH_INDEX_STATEMENTS = (
     (
         "CREATE INDEX IF NOT EXISTS idx_sessions_world_activity "
         "ON sessions(world_id, character_id, expires_at, last_activity)"
+    ),
+    (
+        "CREATE INDEX IF NOT EXISTS idx_sessions_world_last_activity "
+        "ON sessions(world_id, last_activity DESC)"
     ),
     (
         "CREATE INDEX IF NOT EXISTS idx_chat_messages_world_room_timestamp "
@@ -63,44 +72,6 @@ def ensure_character_state_columns(cursor: sqlite3.Cursor) -> None:
 
     # Keep null safety for legacy rows that pre-date state snapshot seeding.
     cursor.execute("UPDATE characters SET state_seed = 0 WHERE state_seed IS NULL")
-
-
-def create_character_limit_triggers(conn: sqlite3.Connection, *, max_slots: int) -> None:
-    """Create legacy global per-user character slot triggers.
-
-    This trigger path is retained only for transitional compatibility with tests
-    and direct helper calls. Runtime enforcement has moved to world-scoped
-    application logic and world policy resolution.
-    """
-    cursor = conn.cursor()
-    cursor.execute("DROP TRIGGER IF EXISTS enforce_character_limit_insert")
-    cursor.execute("DROP TRIGGER IF EXISTS enforce_character_limit_update")
-
-    cursor.execute(f"""
-        CREATE TRIGGER enforce_character_limit_insert
-        BEFORE INSERT ON characters
-        WHEN NEW.user_id IS NOT NULL
-        BEGIN
-            SELECT
-                CASE
-                    WHEN (SELECT COUNT(*) FROM characters WHERE user_id = NEW.user_id) >= {int(max_slots)}
-                    THEN RAISE(ABORT, 'character limit exceeded')
-                END;
-        END;
-        """)  # nosec B608 - limit is validated and interpolated into DDL
-
-    cursor.execute(f"""
-        CREATE TRIGGER enforce_character_limit_update
-        BEFORE UPDATE OF user_id ON characters
-        WHEN NEW.user_id IS NOT NULL
-        BEGIN
-            SELECT
-                CASE
-                    WHEN (SELECT COUNT(*) FROM characters WHERE user_id = NEW.user_id) >= {int(max_slots)}
-                    THEN RAISE(ABORT, 'character limit exceeded')
-                END;
-        END;
-        """)  # nosec B608 - limit is validated and interpolated into DDL
 
 
 def create_session_invariant_triggers(conn: sqlite3.Connection) -> None:

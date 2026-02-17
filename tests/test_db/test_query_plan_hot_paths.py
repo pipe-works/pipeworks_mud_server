@@ -49,7 +49,7 @@ def _seed_world_scoped_activity() -> tuple[int, int]:
 @pytest.mark.unit
 @pytest.mark.db
 def test_hot_path_character_lookup_uses_world_scoped_character_index(test_db, temp_db_path):
-    """Character-by-user+world query should use ``idx_characters_user_world``."""
+    """Character list query should use composite world-scoped created-at index."""
     with use_test_database(temp_db_path):
         user_id, _character_id = _seed_world_scoped_activity()
         conn = database.get_connection()
@@ -66,7 +66,8 @@ def test_hot_path_character_lookup_uses_world_scoped_character_index(test_db, te
         )
         conn.close()
 
-        assert any("idx_characters_user_world" in detail for detail in details)
+        assert any("idx_characters_user_world_created_at" in detail for detail in details)
+        assert not any("USE TEMP B-TREE FOR ORDER BY" in detail for detail in details)
 
 
 @pytest.mark.unit
@@ -95,7 +96,7 @@ def test_hot_path_chat_history_uses_world_room_timestamp_index(test_db, temp_db_
 @pytest.mark.unit
 @pytest.mark.db
 def test_hot_path_active_connections_uses_sessions_world_index(test_db, temp_db_path):
-    """Active-connection world filter should use ``idx_sessions_world_id``."""
+    """Active-connection query should use world+last_activity index without temp sort."""
     with use_test_database(temp_db_path):
         _seed_world_scoped_activity()
         conn = database.get_connection()
@@ -114,7 +115,8 @@ def test_hot_path_active_connections_uses_sessions_world_index(test_db, temp_db_
         )
         conn.close()
 
-        assert any("idx_sessions_world_id" in detail for detail in details)
+        assert any("idx_sessions_world_last_activity" in detail for detail in details)
+        assert not any("USE TEMP B-TREE FOR ORDER BY" in detail for detail in details)
 
 
 @pytest.mark.unit

@@ -400,7 +400,12 @@ def test_register_guest_character_name_taken(test_client, test_db, temp_db_path,
     with use_test_database(temp_db_path):
         user_id = database.get_user_id("testplayer")
         assert user_id is not None
-        assert database.create_character_for_user(user_id, "TakenName") is True
+        assert (
+            database.create_character_for_user(
+                user_id, "TakenName", world_id=database.DEFAULT_WORLD_ID
+            )
+            is True
+        )
 
         response = test_client.post(
             "/register-guest",
@@ -771,7 +776,9 @@ def test_list_characters_excludes_legacy_defaults_when_real_character_exists(
     with use_test_database(temp_db_path):
         user_id = database.get_user_id("testplayer")
         assert user_id is not None
-        assert database.create_character_for_user(user_id, "Named Adventurer")
+        assert database.create_character_for_user(
+            user_id, "Named Adventurer", world_id=database.DEFAULT_WORLD_ID
+        )
 
         login_response = test_client.post(
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
@@ -856,7 +863,7 @@ def test_select_character_success(test_client, test_db, temp_db_path, db_with_us
         session_id = login_response.json()["session_id"]
         user_id = database.get_user_id("testplayer")
         assert user_id is not None
-        characters = database.get_user_characters(user_id)
+        characters = database.get_user_characters(user_id, world_id=database.DEFAULT_WORLD_ID)
         character_id = characters[0]["id"]
 
         response = test_client.post(
@@ -877,8 +884,12 @@ def test_select_character_not_owned(test_client, test_db, temp_db_path, db_with_
         database.create_user_with_password("otheruser", TEST_PASSWORD)
         other_id = database.get_user_id("otheruser")
         assert other_id is not None
-        assert database.create_character_for_user(other_id, "otheruser_char")
-        other_character = database.get_user_characters(other_id)[0]
+        assert database.create_character_for_user(
+            other_id, "otheruser_char", world_id=database.DEFAULT_WORLD_ID
+        )
+        other_character = database.get_user_characters(
+            other_id, world_id=database.DEFAULT_WORLD_ID
+        )[0]
 
         login_response = test_client.post(
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
@@ -903,7 +914,9 @@ def test_select_character_failure_sets_error(test_client, test_db, temp_db_path,
         session_id = login_response.json()["session_id"]
         user_id = database.get_user_id("testplayer")
         assert user_id is not None
-        character_id = database.get_user_characters(user_id)[0]["id"]
+        character_id = database.get_user_characters(user_id, world_id=database.DEFAULT_WORLD_ID)[0][
+            "id"
+        ]
 
         with patch.object(database, "set_session_character", return_value=False):
             response = test_client.post(
@@ -926,7 +939,9 @@ def test_select_character_maps_database_error_to_500(
         session_id = login_response.json()["session_id"]
         user_id = database.get_user_id("testplayer")
         assert user_id is not None
-        character_id = database.get_user_characters(user_id)[0]["id"]
+        character_id = database.get_user_characters(user_id, world_id=database.DEFAULT_WORLD_ID)[0][
+            "id"
+        ]
 
         with patch.object(
             database,
@@ -1528,7 +1543,9 @@ def test_full_user_flow(test_client, test_db, temp_db_path):
             # 2. Character provisioning is a separate lifecycle step.
             flow_user_id = database.get_user_id("flowuser")
             assert flow_user_id is not None
-            assert database.create_character_for_user(flow_user_id, "Flow Runner")
+            assert database.create_character_for_user(
+                flow_user_id, "Flow Runner", world_id=database.DEFAULT_WORLD_ID
+            )
 
             # 3. Login
             login_response = test_client.post(
@@ -1789,7 +1806,9 @@ def test_select_character_world_mismatch(test_client, test_db, temp_db_path, db_
             "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
         )
         session_id = login_response.json()["session_id"]
-        character_id = database.get_user_characters(user_id)[0]["id"]
+        character_id = database.get_user_characters(user_id, world_id=database.DEFAULT_WORLD_ID)[0][
+            "id"
+        ]
 
         response = test_client.post(
             "/characters/select",
@@ -1818,7 +1837,9 @@ def test_admin_sessions_fallback_without_character(
         # endpoints do not depend on gameplay selection state.
         admin_id = database.get_user_id("testadmin")
         assert admin_id is not None
-        database.create_character_for_user(admin_id, "admin_alt")
+        database.create_character_for_user(
+            admin_id, "admin_alt", world_id=database.DEFAULT_WORLD_ID
+        )
 
         response = test_client.get(
             "/admin/database/sessions",
@@ -1839,7 +1860,9 @@ def test_admin_database_endpoints_with_character_selected(
         session_id = admin_login.json()["session_id"]
         admin_id = database.get_user_id("testadmin")
         assert admin_id is not None
-        character_id = database.get_user_characters(admin_id)[0]["id"]
+        character_id = database.get_user_characters(admin_id, world_id=database.DEFAULT_WORLD_ID)[
+            0
+        ]["id"]
 
         select_resp = test_client.post(
             "/characters/select",
@@ -1901,7 +1924,9 @@ def test_admin_character_axis_state_endpoint(test_client, test_db, temp_db_path,
         admin_id = database.get_user_id("testadmin")
         assert admin_id is not None
 
-        assert database.create_character_for_user(admin_id, "axis_admin_char")
+        assert database.create_character_for_user(
+            admin_id, "axis_admin_char", world_id=database.DEFAULT_WORLD_ID
+        )
         character = database.get_character_by_name("axis_admin_char")
         assert character is not None
 
@@ -1950,7 +1975,9 @@ def test_admin_character_axis_events_endpoint(test_client, test_db, temp_db_path
         admin_id = database.get_user_id("testadmin")
         assert admin_id is not None
 
-        assert database.create_character_for_user(admin_id, "axis_event_char")
+        assert database.create_character_for_user(
+            admin_id, "axis_event_char", world_id=database.DEFAULT_WORLD_ID
+        )
         character = database.get_character_by_name("axis_event_char")
         assert character is not None
 

@@ -22,8 +22,12 @@ def test_get_all_users_detailed_online_status(temp_db_path) -> None:
         user_id = database.get_user_id("online_user")
         assert user_id is not None
 
-        assert database.create_character_for_user(user_id, "online_char_a")
-        assert database.create_character_for_user(user_id, "online_char_b")
+        assert database.create_character_for_user(
+            user_id, "online_char_a", world_id=database.DEFAULT_WORLD_ID
+        )
+        assert database.create_character_for_user(
+            user_id, "online_char_b", world_id=database.DEFAULT_WORLD_ID
+        )
 
         # Account-level login should remain character-less until explicit selection.
         assert database.create_session(user_id, "session-account-only")

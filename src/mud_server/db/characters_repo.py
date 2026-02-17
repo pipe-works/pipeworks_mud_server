@@ -11,7 +11,6 @@ import sqlite3
 from typing import Any, NoReturn, cast
 
 from mud_server.db.connection import connection_scope
-from mud_server.db.constants import DEFAULT_WORLD_ID
 from mud_server.db.errors import (
     DatabaseError,
     DatabaseOperationContext,
@@ -135,7 +134,7 @@ def create_character_for_user(
     *,
     is_guest_created: bool = False,
     room_id: str = "spawn",
-    world_id: str = DEFAULT_WORLD_ID,
+    world_id: str,
     state_seed: int | None = None,
 ) -> bool:
     """Create a character for an existing account.
@@ -301,10 +300,8 @@ def get_character_name_by_id(character_id: int) -> str | None:
         )
 
 
-def get_user_characters(user_id: int, *, world_id: str | None = None) -> list[dict[str, Any]]:
-    """Return ordered character rows owned by a user in a specific world."""
-    if world_id is None:
-        world_id = DEFAULT_WORLD_ID
+def get_user_characters(user_id: int, *, world_id: str) -> list[dict[str, Any]]:
+    """Return ordered character rows owned by a user in one explicit world."""
     try:
         with connection_scope() as conn:
             cursor = conn.cursor()

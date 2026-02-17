@@ -125,7 +125,9 @@ def test_get_world_admin_rows_reports_online_state_and_active_characters(db_with
 
     testplayer_id = database.get_user_id("testplayer")
     assert testplayer_id is not None
-    testplayer_characters = database.get_user_characters(testplayer_id)
+    testplayer_characters = database.get_user_characters(
+        testplayer_id, world_id=database.DEFAULT_WORLD_ID
+    )
     assert testplayer_characters
     assert database.create_session("testplayer", "player-session")
     # World online state tracks in-world sessions only; bind the character.

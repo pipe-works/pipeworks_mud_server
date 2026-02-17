@@ -26,7 +26,9 @@ def test_get_all_users_detailed_reports_online_worlds(test_db, db_with_users):
     """Detailed users query should report online account and in-world flags."""
     testplayer_id = database.get_user_id("testplayer")
     assert testplayer_id is not None
-    testplayer_character = database.get_user_characters(testplayer_id)[0]
+    testplayer_character = database.get_user_characters(
+        testplayer_id, world_id=database.DEFAULT_WORLD_ID
+    )[0]
 
     assert database.create_session(
         testplayer_id,
@@ -48,7 +50,9 @@ def test_get_active_connections_world_filter(test_db, db_with_users):
     """Active connections should support world-scoped filtering."""
     testplayer_id = database.get_user_id("testplayer")
     assert testplayer_id is not None
-    testplayer_character = database.get_user_characters(testplayer_id)[0]
+    testplayer_character = database.get_user_characters(
+        testplayer_id, world_id=database.DEFAULT_WORLD_ID
+    )[0]
 
     assert database.create_character_for_user(
         testplayer_id,

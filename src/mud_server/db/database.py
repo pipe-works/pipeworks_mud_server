@@ -35,16 +35,18 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from mud_server.db.constants import DEFAULT_AXIS_SCORE, DEFAULT_WORLD_ID
+from mud_server.db.constants import DEFAULT_AXIS_SCORE
+from mud_server.db.constants import DEFAULT_WORLD_ID as _DEFAULT_WORLD_ID
 from mud_server.db.types import AxisRegistrySeedStats, WorldAccessDecision
 
 # ==========================================================================
 # CONFIGURATION
 # ==========================================================================
 
-# Default world identifier used for legacy code paths that do not yet provide
-# an explicit world_id. This keeps the server functional during migration and
-# will be replaced by config-driven defaults in a later phase.
+# Re-export constant for app/test callers using ``mud_server.db.database`` as
+# the facade import path. Runtime APIs now require explicit ``world_id`` where
+# world context matters; this constant remains for callers to pass explicitly.
+DEFAULT_WORLD_ID = _DEFAULT_WORLD_ID
 
 
 def _generate_state_seed() -> int:
@@ -153,9 +155,7 @@ def _generate_default_character_name(cursor: Any, username: str) -> str:
     return generate_default_character_name_impl(cursor, username)
 
 
-def _create_default_character(
-    cursor: Any, user_id: int, username: str, *, world_id: str = DEFAULT_WORLD_ID
-) -> int:
+def _create_default_character(cursor: Any, user_id: int, username: str, *, world_id: str) -> int:
     """
     Create a default character for a user during bootstrap flows.
 
@@ -169,9 +169,7 @@ def _create_default_character(
     return create_default_character_impl(cursor, user_id, username, world_id=world_id)
 
 
-def _seed_character_location(
-    cursor: Any, character_id: int, *, world_id: str = DEFAULT_WORLD_ID
-) -> None:
+def _seed_character_location(cursor: Any, character_id: int, *, world_id: str) -> None:
     """Seed a new character's location to the spawn room for the given world."""
     from mud_server.db.characters_repo import (
         _seed_character_location as seed_character_location_impl,
@@ -597,7 +595,7 @@ def create_character_for_user(
     *,
     is_guest_created: bool = False,
     room_id: str = "spawn",
-    world_id: str = DEFAULT_WORLD_ID,
+    world_id: str,
     state_seed: int | None = None,
 ) -> bool:
     """
@@ -848,12 +846,9 @@ def get_character_name_by_id(character_id: int) -> str | None:
     return get_character_name_by_id_impl(character_id)
 
 
-def get_user_characters(user_id: int, *, world_id: str | None = None) -> list[dict[str, Any]]:
+def get_user_characters(user_id: int, *, world_id: str) -> list[dict[str, Any]]:
     """
-    Return all characters owned by the given user for a world.
-
-    When world_id is omitted, the default world is used to keep legacy code
-    paths functional during the migration.
+    Return all characters owned by the given user for one explicit world.
     """
     from mud_server.db.characters_repo import get_user_characters as get_user_characters_impl
 
