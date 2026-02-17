@@ -42,9 +42,16 @@ def test_resolve_character_name_requires_character_identity(test_db, temp_db_pat
 
 def test_set_and_get_character_inventory(test_db, temp_db_path, db_with_users):
     """Inventory updates should be persisted through the repo module."""
-    updated = characters_repo.set_character_inventory("testplayer_char", ["torch", "rope"])
+    updated = characters_repo.set_character_inventory(
+        "testplayer_char",
+        ["torch", "rope"],
+        world_id=database.DEFAULT_WORLD_ID,
+    )
     assert updated is True
-    assert characters_repo.get_character_inventory("testplayer_char") == ["torch", "rope"]
+    assert characters_repo.get_character_inventory(
+        "testplayer_char",
+        world_id=database.DEFAULT_WORLD_ID,
+    ) == ["torch", "rope"]
 
 
 def test_tombstone_character_unlinks_owner_and_renames(test_db, temp_db_path):

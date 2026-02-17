@@ -424,7 +424,10 @@ def test_change_password(test_db, temp_db_path, db_with_users):
 def test_get_player_room_default(test_db, temp_db_path, db_with_users):
     """Test getting player room returns spawn by default."""
     with use_test_database(temp_db_path):
-        assert database.get_character_room("testplayer_char") == "spawn"
+        assert (
+            database.get_character_room("testplayer_char", world_id=database.DEFAULT_WORLD_ID)
+            == "spawn"
+        )
 
 
 @pytest.mark.unit
@@ -432,9 +435,14 @@ def test_get_player_room_default(test_db, temp_db_path, db_with_users):
 def test_set_player_room(test_db, temp_db_path, db_with_users):
     """Test setting player room."""
     with use_test_database(temp_db_path):
-        result = database.set_character_room("testplayer_char", "forest")
+        result = database.set_character_room(
+            "testplayer_char", "forest", world_id=database.DEFAULT_WORLD_ID
+        )
         assert result is True
-        assert database.get_character_room("testplayer_char") == "forest"
+        assert (
+            database.get_character_room("testplayer_char", world_id=database.DEFAULT_WORLD_ID)
+            == "forest"
+        )
 
 
 @pytest.mark.unit
@@ -442,7 +450,9 @@ def test_set_player_room(test_db, temp_db_path, db_with_users):
 def test_get_player_room_nonexistent(test_db, temp_db_path):
     """Test getting room for non-existent player."""
     with use_test_database(temp_db_path):
-        assert database.get_character_room("nonexistent") is None
+        assert (
+            database.get_character_room("nonexistent", world_id=database.DEFAULT_WORLD_ID) is None
+        )
 
 
 # ============================================================================
@@ -455,7 +465,9 @@ def test_get_player_room_nonexistent(test_db, temp_db_path):
 def test_get_player_inventory_default(test_db, temp_db_path, db_with_users):
     """Test that new players have empty inventory."""
     with use_test_database(temp_db_path):
-        inventory = database.get_character_inventory("testplayer_char")
+        inventory = database.get_character_inventory(
+            "testplayer_char", world_id=database.DEFAULT_WORLD_ID
+        )
         assert inventory == []
 
 
@@ -465,10 +477,14 @@ def test_set_player_inventory(test_db, temp_db_path, db_with_users):
     """Test setting player inventory."""
     with use_test_database(temp_db_path):
         inventory = ["torch", "rope", "sword"]
-        result = database.set_character_inventory("testplayer_char", inventory)
+        result = database.set_character_inventory(
+            "testplayer_char", inventory, world_id=database.DEFAULT_WORLD_ID
+        )
         assert result is True
 
-        retrieved = database.get_character_inventory("testplayer_char")
+        retrieved = database.get_character_inventory(
+            "testplayer_char", world_id=database.DEFAULT_WORLD_ID
+        )
         assert retrieved == inventory
 
 
@@ -477,7 +493,9 @@ def test_set_player_inventory(test_db, temp_db_path, db_with_users):
 def test_get_player_inventory_nonexistent(test_db, temp_db_path):
     """Test getting inventory for non-existent player."""
     with use_test_database(temp_db_path):
-        inventory = database.get_character_inventory("nonexistent")
+        inventory = database.get_character_inventory(
+            "nonexistent", world_id=database.DEFAULT_WORLD_ID
+        )
         assert inventory == []
 
 
@@ -491,7 +509,12 @@ def test_get_player_inventory_nonexistent(test_db, temp_db_path):
 def test_add_chat_message(test_db, temp_db_path, db_with_users):
     """Test adding a chat message."""
     with use_test_database(temp_db_path):
-        result = database.add_chat_message("testplayer_char", "Hello world", "spawn")
+        result = database.add_chat_message(
+            "testplayer_char",
+            "Hello world",
+            "spawn",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
         assert result is True
 
 
@@ -501,7 +524,11 @@ def test_add_chat_message_with_recipient(test_db, temp_db_path, db_with_users):
     """Test adding a whisper message with recipient."""
     with use_test_database(temp_db_path):
         result = database.add_chat_message(
-            "testplayer_char", "[WHISPER] Secret message", "spawn", recipient="testadmin_char"
+            "testplayer_char",
+            "[WHISPER] Secret message",
+            "spawn",
+            recipient="testadmin_char",
+            world_id=database.DEFAULT_WORLD_ID,
         )
         assert result is True
 
@@ -512,12 +539,31 @@ def test_get_room_messages(test_db, temp_db_path, db_with_users):
     """Test retrieving room messages."""
     with use_test_database(temp_db_path):
         # Add some messages
-        database.add_chat_message("testplayer_char", "Message 1", "spawn")
-        database.add_chat_message("testadmin_char", "Message 2", "spawn")
-        database.add_chat_message("testplayer_char", "Message 3", "forest")
+        database.add_chat_message(
+            "testplayer_char",
+            "Message 1",
+            "spawn",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
+        database.add_chat_message(
+            "testadmin_char",
+            "Message 2",
+            "spawn",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
+        database.add_chat_message(
+            "testplayer_char",
+            "Message 3",
+            "forest",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
 
         # Get spawn messages
-        messages = database.get_room_messages("spawn", limit=10)
+        messages = database.get_room_messages(
+            "spawn",
+            limit=10,
+            world_id=database.DEFAULT_WORLD_ID,
+        )
         assert len(messages) == 2
         assert messages[0]["message"] == "Message 1"
         assert messages[1]["message"] == "Message 2"
@@ -567,19 +613,38 @@ def test_get_room_messages_with_whisper_filtering(test_db, temp_db_path, db_with
     """Test that whispers are filtered per user."""
     with use_test_database(temp_db_path):
         # Public message
-        database.add_chat_message("testplayer_char", "Public message", "spawn")
+        database.add_chat_message(
+            "testplayer_char",
+            "Public message",
+            "spawn",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
 
         # Whisper to testadmin
         database.add_chat_message(
-            "testplayer_char", "[WHISPER] Secret", "spawn", recipient="testadmin_char"
+            "testplayer_char",
+            "[WHISPER] Secret",
+            "spawn",
+            recipient="testadmin_char",
+            world_id=database.DEFAULT_WORLD_ID,
         )
 
         # Get messages as testadmin (should see whisper)
-        messages = database.get_room_messages("spawn", limit=10, username="testadmin_char")
+        messages = database.get_room_messages(
+            "spawn",
+            limit=10,
+            username="testadmin_char",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
         assert len(messages) == 2
 
         # Get messages as testsuperuser (should NOT see whisper)
-        messages = database.get_room_messages("spawn", limit=10, username="testsuperuser_char")
+        messages = database.get_room_messages(
+            "spawn",
+            limit=10,
+            username="testsuperuser_char",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
         assert len(messages) == 1
         assert messages[0]["message"] == "Public message"
 
@@ -625,7 +690,11 @@ def test_remove_sessions_for_character(test_db, temp_db_path, db_with_users):
         assert database.create_session("testplayer", "session-char")
         player_character = database.get_character_by_name("testplayer_char")
         assert player_character is not None
-        assert database.set_session_character("session-char", int(player_character["id"]))
+        assert database.set_session_character(
+            "session-char",
+            int(player_character["id"]),
+            world_id=database.DEFAULT_WORLD_ID,
+        )
         session = database.get_session_by_id("session-char")
         assert session is not None
         assert session["character_id"] is not None
@@ -661,8 +730,19 @@ def test_delete_player_removes_related_data(test_db, temp_db_path, db_with_users
     """Test delete_player tombstones user and unlinks characters."""
     with use_test_database(temp_db_path):
         database.create_session("testplayer", "session-999")
-        database.add_chat_message("testplayer_char", "Hello", "spawn")
-        database.add_chat_message("testadmin_char", "Whisper", "spawn", recipient="testplayer_char")
+        database.add_chat_message(
+            "testplayer_char",
+            "Hello",
+            "spawn",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
+        database.add_chat_message(
+            "testadmin_char",
+            "Whisper",
+            "spawn",
+            recipient="testplayer_char",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
 
         conn = database.get_connection()
         cursor = conn.cursor()
@@ -764,7 +844,10 @@ def test_create_character_for_user_success(test_db, temp_db_path):
         result = database.create_character_for_user(user_id, "charuser_alt")
         assert result is True
         assert database.get_character_by_name("charuser_alt") is not None
-        assert database.get_character_room("charuser_alt") == "spawn"
+        assert (
+            database.get_character_room("charuser_alt", world_id=database.DEFAULT_WORLD_ID)
+            == "spawn"
+        )
 
 
 @pytest.mark.unit
@@ -897,21 +980,39 @@ def test_unlink_characters_for_user(test_db, temp_db_path):
 @pytest.mark.db
 def test_set_character_room_missing_character_returns_false(test_db, temp_db_path):
     with use_test_database(temp_db_path):
-        assert database.set_character_room("missing", "spawn") is False
+        assert (
+            database.set_character_room("missing", "spawn", world_id=database.DEFAULT_WORLD_ID)
+            is False
+        )
 
 
 @pytest.mark.unit
 @pytest.mark.db
 def test_add_chat_message_missing_sender_returns_false(test_db, temp_db_path):
     with use_test_database(temp_db_path):
-        assert database.add_chat_message("ghost", "boo", "spawn") is False
+        assert (
+            database.add_chat_message(
+                "ghost",
+                "boo",
+                "spawn",
+                world_id=database.DEFAULT_WORLD_ID,
+            )
+            is False
+        )
 
 
 @pytest.mark.unit
 @pytest.mark.db
 def test_get_room_messages_unknown_character_returns_empty(test_db, temp_db_path):
     with use_test_database(temp_db_path):
-        assert database.get_room_messages("spawn", character_name="ghost") == []
+        assert (
+            database.get_room_messages(
+                "spawn",
+                character_name="ghost",
+                world_id=database.DEFAULT_WORLD_ID,
+            )
+            == []
+        )
 
 
 @pytest.mark.unit
@@ -959,11 +1060,32 @@ def test_database_helpers_return_false_on_db_error():
         assert database.deactivate_user("testplayer") is False
         assert database.activate_user("testplayer") is False
         assert database.change_password_for_user("testplayer", TEST_PASSWORD) is False
-        assert database.set_character_room("testplayer_char", "spawn") is False
-        assert database.set_character_inventory("testplayer_char", []) is False
-        assert database.add_chat_message("testplayer_char", "hi", "spawn") is False
+        assert (
+            database.set_character_room(
+                "testplayer_char", "spawn", world_id=database.DEFAULT_WORLD_ID
+            )
+            is False
+        )
+        assert (
+            database.set_character_inventory(
+                "testplayer_char", [], world_id=database.DEFAULT_WORLD_ID
+            )
+            is False
+        )
+        assert (
+            database.add_chat_message(
+                "testplayer_char",
+                "hi",
+                "spawn",
+                world_id=database.DEFAULT_WORLD_ID,
+            )
+            is False
+        )
         assert database.create_session("testplayer", "session-x") is False
-        assert database.set_session_character("session-x", 1) is False
+        assert (
+            database.set_session_character("session-x", 1, world_id=database.DEFAULT_WORLD_ID)
+            is False
+        )
         assert database.remove_session_by_id("session-x") is False
         assert database.remove_sessions_for_user(1) is False
         assert database.update_session_activity("session-x") is False
@@ -1309,8 +1431,12 @@ def test_get_active_players(test_db, temp_db_path, db_with_users):
         admin_character = database.get_character_by_name("testadmin_char")
         assert player_character is not None
         assert admin_character is not None
-        database.set_session_character("session-1", player_character["id"])
-        database.set_session_character("session-2", admin_character["id"])
+        database.set_session_character(
+            "session-1", player_character["id"], world_id=database.DEFAULT_WORLD_ID
+        )
+        database.set_session_character(
+            "session-2", admin_character["id"], world_id=database.DEFAULT_WORLD_ID
+        )
 
         active = database.get_active_characters()
         assert len(active) == 2
@@ -1330,19 +1456,29 @@ def test_get_players_in_room(test_db, temp_db_path, db_with_users):
         admin_character = database.get_character_by_name("testadmin_char")
         assert player_character is not None
         assert admin_character is not None
-        database.set_session_character("session-1", player_character["id"])
-        database.set_session_character("session-2", admin_character["id"])
+        database.set_session_character(
+            "session-1", player_character["id"], world_id=database.DEFAULT_WORLD_ID
+        )
+        database.set_session_character(
+            "session-2", admin_character["id"], world_id=database.DEFAULT_WORLD_ID
+        )
 
         # Move testadmin to forest
-        database.set_character_room("testadmin_char", "forest")
+        database.set_character_room("testadmin_char", "forest", world_id=database.DEFAULT_WORLD_ID)
 
         # Get players in spawn
-        players_in_spawn = database.get_characters_in_room("spawn")
+        players_in_spawn = database.get_characters_in_room(
+            "spawn",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
         assert len(players_in_spawn) == 1
         assert "testplayer_char" in players_in_spawn
 
         # Get players in forest
-        players_in_forest = database.get_characters_in_room("forest")
+        players_in_forest = database.get_characters_in_room(
+            "forest",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
         assert len(players_in_forest) == 1
         assert "testadmin_char" in players_in_forest
 
@@ -1352,7 +1488,7 @@ def test_get_players_in_room(test_db, temp_db_path, db_with_users):
 def test_get_character_locations(test_db, temp_db_path, db_with_users):
     """Test fetching player location rows with usernames."""
     with use_test_database(temp_db_path):
-        database.set_character_room("testplayer_char", "forest")
+        database.set_character_room("testplayer_char", "forest", world_id=database.DEFAULT_WORLD_ID)
 
         locations = database.get_character_locations()
         by_username = {loc["character_name"]: loc for loc in locations}
@@ -1387,7 +1523,9 @@ def test_cleanup_expired_sessions_removes_old(test_db, temp_db_path, db_with_use
         database.create_session("testplayer", session_id)
         player_character = database.get_character_by_name("testplayer_char")
         assert player_character is not None
-        database.set_session_character(session_id, player_character["id"])
+        database.set_session_character(
+            session_id, player_character["id"], world_id=database.DEFAULT_WORLD_ID
+        )
 
         # Expire the session.
         conn = database.get_connection()
@@ -1418,7 +1556,9 @@ def test_cleanup_expired_sessions_keeps_active(test_db, temp_db_path, db_with_us
         database.create_session("testplayer", "session-123")
         player_character = database.get_character_by_name("testplayer_char")
         assert player_character is not None
-        database.set_session_character("session-123", player_character["id"])
+        database.set_session_character(
+            "session-123", player_character["id"], world_id=database.DEFAULT_WORLD_ID
+        )
 
         removed = database.cleanup_expired_sessions()
 
@@ -1441,8 +1581,12 @@ def test_cleanup_expired_sessions_mixed(test_db, temp_db_path, db_with_users):
         admin_character = database.get_character_by_name("testadmin_char")
         assert player_character is not None
         assert admin_character is not None
-        database.set_session_character("session-1", player_character["id"])
-        database.set_session_character("session-2", admin_character["id"])
+        database.set_session_character(
+            "session-1", player_character["id"], world_id=database.DEFAULT_WORLD_ID
+        )
+        database.set_session_character(
+            "session-2", admin_character["id"], world_id=database.DEFAULT_WORLD_ID
+        )
 
         # Expire testplayer's session.
         conn = database.get_connection()
@@ -1489,9 +1633,15 @@ def test_clear_all_sessions(test_db, temp_db_path, db_with_users):
         assert player_character is not None
         assert admin_character is not None
         assert super_character is not None
-        database.set_session_character("session-1", player_character["id"])
-        database.set_session_character("session-2", admin_character["id"])
-        database.set_session_character("session-3", super_character["id"])
+        database.set_session_character(
+            "session-1", player_character["id"], world_id=database.DEFAULT_WORLD_ID
+        )
+        database.set_session_character(
+            "session-2", admin_character["id"], world_id=database.DEFAULT_WORLD_ID
+        )
+        database.set_session_character(
+            "session-3", super_character["id"], world_id=database.DEFAULT_WORLD_ID
+        )
 
         # Verify sessions exist
         assert len(database.get_active_characters()) == 3
@@ -1583,9 +1733,24 @@ def test_get_all_sessions(test_db, temp_db_path, db_with_users):
 def test_get_all_chat_messages(test_db, temp_db_path, db_with_users):
     """Test getting all chat messages across rooms."""
     with use_test_database(temp_db_path):
-        database.add_chat_message("testplayer_char", "Message 1", "spawn")
-        database.add_chat_message("testadmin_char", "Message 2", "forest")
-        database.add_chat_message("testplayer_char", "Message 3", "spawn")
+        database.add_chat_message(
+            "testplayer_char",
+            "Message 1",
+            "spawn",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
+        database.add_chat_message(
+            "testadmin_char",
+            "Message 2",
+            "forest",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
+        database.add_chat_message(
+            "testplayer_char",
+            "Message 3",
+            "spawn",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
 
         messages = database.get_all_chat_messages(limit=100)
         assert len(messages) == 3

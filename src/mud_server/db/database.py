@@ -180,7 +180,7 @@ def _seed_character_location(
     seed_character_location_impl(cursor, character_id, world_id=world_id)
 
 
-def _resolve_character_name(cursor: Any, name: str, *, world_id: str | None = None) -> str | None:
+def _resolve_character_name(cursor: Any, name: str, *, world_id: str) -> str | None:
     """
     Resolve a character name strictly by explicit character identity.
 
@@ -194,7 +194,7 @@ def _resolve_character_name(cursor: Any, name: str, *, world_id: str | None = No
     return resolve_character_name_impl(cursor, name, world_id=world_id)
 
 
-def resolve_character_name(name: str, *, world_id: str | None = None) -> str | None:
+def resolve_character_name(name: str, *, world_id: str) -> str | None:
     """
     Public wrapper for strict world-scoped character name resolution.
 
@@ -913,21 +913,21 @@ def unlink_characters_for_user(user_id: int) -> None:
 # ==========================================================================
 
 
-def get_character_room(name: str, *, world_id: str | None = None) -> str | None:
+def get_character_room(name: str, *, world_id: str) -> str | None:
     """Return the current room for a character by name within a world."""
     from mud_server.db.characters_repo import get_character_room as get_character_room_impl
 
     return get_character_room_impl(name, world_id=world_id)
 
 
-def set_character_room(name: str, room: str, *, world_id: str | None = None) -> bool:
+def set_character_room(name: str, room: str, *, world_id: str) -> bool:
     """Set the current room for a character by name within a world."""
     from mud_server.db.characters_repo import set_character_room as set_character_room_impl
 
     return set_character_room_impl(name, room, world_id=world_id)
 
 
-def get_characters_in_room(room: str, *, world_id: str | None = None) -> list[str]:
+def get_characters_in_room(room: str, *, world_id: str) -> list[str]:
     """Return character names in a room with active sessions for a world."""
     from mud_server.db.characters_repo import (
         get_characters_in_room as get_characters_in_room_impl,
@@ -941,22 +941,22 @@ def get_characters_in_room(room: str, *, world_id: str | None = None) -> list[st
 # ==========================================================================
 
 
-def get_character_inventory(name: str) -> list[str]:
-    """Return the character inventory as a list of item ids."""
+def get_character_inventory(name: str, *, world_id: str) -> list[str]:
+    """Return the character inventory as a list of item ids for a world."""
     from mud_server.db.characters_repo import (
         get_character_inventory as get_character_inventory_impl,
     )
 
-    return get_character_inventory_impl(name)
+    return get_character_inventory_impl(name, world_id=world_id)
 
 
-def set_character_inventory(name: str, inventory: list[str]) -> bool:
-    """Set the character inventory."""
+def set_character_inventory(name: str, inventory: list[str], *, world_id: str) -> bool:
+    """Set the character inventory for a world-scoped character identity."""
     from mud_server.db.characters_repo import (
         set_character_inventory as set_character_inventory_impl,
     )
 
-    return set_character_inventory_impl(name, inventory)
+    return set_character_inventory_impl(name, inventory, world_id=world_id)
 
 
 # ==========================================================================
@@ -971,13 +971,12 @@ def add_chat_message(
     recipient_character_name: str | None = None,
     recipient: str | None = None,
     *,
-    world_id: str | None = None,
+    world_id: str,
 ) -> bool:
     """
     Add a chat message for a character.
 
-    Supports optional whisper recipient and uses world scoping. If world_id
-    is omitted, the default world is used during migration.
+    Supports optional whisper recipient and uses explicit world scoping.
     """
     from mud_server.db.chat_repo import add_chat_message as add_chat_message_impl
 
@@ -997,13 +996,12 @@ def get_room_messages(
     limit: int = 50,
     character_name: str | None = None,
     username: str | None = None,
-    world_id: str | None = None,
+    world_id: str,
 ) -> list[dict[str, Any]]:
     """
     Get recent messages from a room. Filters whispers based on character.
 
-    Messages are scoped to the provided world_id; default world is used when
-    omitted to preserve legacy code paths during migration.
+    Messages are scoped to the provided explicit ``world_id``.
     """
     from mud_server.db.chat_repo import get_room_messages as get_room_messages_impl
 
@@ -1058,23 +1056,20 @@ def create_session(
     )
 
 
-def set_session_character(
-    session_id: str, character_id: int, *, world_id: str | None = None
-) -> bool:
+def set_session_character(session_id: str, character_id: int, *, world_id: str) -> bool:
     """
     Attach a character + world to an existing account session.
 
     Args:
         session_id: Existing session identifier.
         character_id: Character id to bind.
-        world_id: Optional world id override.
+        world_id: Explicit world id for the bound character session.
 
     Returns:
         True when the session update succeeds; otherwise False.
 
     Behavior:
-      - When ``world_id`` is omitted, we resolve it from the character row.
-      - We do not assume a default world for character binding.
+      - ``world_id`` must be supplied explicitly by the caller.
     """
     from mud_server.db.sessions_repo import set_session_character as set_session_character_impl
 

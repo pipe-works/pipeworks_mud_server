@@ -135,17 +135,9 @@ def create_session(
         return False
 
 
-def set_session_character(
-    session_id: str, character_id: int, *, world_id: str | None = None
-) -> bool:
-    """Bind character and world to an existing session row."""
+def set_session_character(session_id: str, character_id: int, *, world_id: str) -> bool:
+    """Bind character and explicit world to an existing session row."""
     try:
-        if world_id is None:
-            character_world_id = _get_character_world_id(character_id)
-            if not character_world_id:
-                return False
-            world_id = character_world_id
-
         conn = _get_connection()
         cursor = conn.cursor()
         cursor.execute(

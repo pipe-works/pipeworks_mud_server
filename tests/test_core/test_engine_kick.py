@@ -20,7 +20,11 @@ def _bind_session_to_first_character(username: str, session_id: str) -> None:
     characters = database.get_user_characters(user_id)
     assert characters
     assert database.create_session(user_id, session_id)
-    assert database.set_session_character(session_id, int(characters[0]["id"]))
+    assert database.set_session_character(
+        session_id,
+        int(characters[0]["id"]),
+        world_id=database.DEFAULT_WORLD_ID,
+    )
 
 
 @pytest.mark.unit

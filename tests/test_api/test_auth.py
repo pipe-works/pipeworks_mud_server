@@ -330,7 +330,14 @@ def test_validate_session_for_game_missing_character_row(test_db, db_with_users)
 
     player_character = database.get_character_by_name("testplayer_char")
     assert player_character is not None
-    assert database.set_session_character(session_id, int(player_character["id"])) is True
+    assert (
+        database.set_session_character(
+            session_id,
+            int(player_character["id"]),
+            world_id=database.DEFAULT_WORLD_ID,
+        )
+        is True
+    )
 
     # DB invariants now prevent dangling character_id references. Simulate the
     # lookup failure path by forcing name resolution to return None.
@@ -475,7 +482,14 @@ def test_validate_session_for_game_sets_world_id(test_db, db_with_users):
 
     player_character = database.get_character_by_name("testplayer_char")
     assert player_character is not None
-    assert database.set_session_character(session_id, int(player_character["id"])) is True
+    assert (
+        database.set_session_character(
+            session_id,
+            int(player_character["id"]),
+            world_id=database.DEFAULT_WORLD_ID,
+        )
+        is True
+    )
 
     _, _, _, character_id, _, world_id = validate_session_for_game(session_id)
     assert character_id is not None

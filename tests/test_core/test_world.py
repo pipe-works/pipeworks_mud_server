@@ -172,7 +172,7 @@ def test_can_move_from_nonexistent_room(mock_world):
 def test_get_room_description_basic(mock_world):
     """Test generating basic room description."""
     with patch("mud_server.core.world.database.get_characters_in_room", return_value=[]):
-        desc = mock_world.get_room_description("spawn", "testplayer")
+        desc = mock_world.get_room_description("spawn", "testplayer", world_id="pipeworks_web")
 
         # Check room name and description
         assert "Test Spawn" in desc
@@ -183,7 +183,7 @@ def test_get_room_description_basic(mock_world):
 def test_get_room_description_with_items(mock_world):
     """Test room description includes items."""
     with patch("mud_server.core.world.database.get_characters_in_room", return_value=[]):
-        desc = mock_world.get_room_description("spawn", "testplayer")
+        desc = mock_world.get_room_description("spawn", "testplayer", world_id="pipeworks_web")
 
         # Check items section
         assert "[Items here]:" in desc
@@ -195,7 +195,7 @@ def test_get_room_description_with_items(mock_world):
 def test_get_room_description_with_exits(mock_world):
     """Test room description includes exits."""
     with patch("mud_server.core.world.database.get_characters_in_room", return_value=[]):
-        desc = mock_world.get_room_description("spawn", "testplayer")
+        desc = mock_world.get_room_description("spawn", "testplayer", world_id="pipeworks_web")
 
         # Check exits section
         assert "[Exits]:" in desc
@@ -212,7 +212,7 @@ def test_get_room_description_with_other_players(mock_world):
         "mud_server.core.world.database.get_characters_in_room",
         return_value=["testplayer", "otherplayer", "admin"],
     ):
-        desc = mock_world.get_room_description("spawn", "testplayer")
+        desc = mock_world.get_room_description("spawn", "testplayer", world_id="pipeworks_web")
 
         # Check players section
         assert "[Players here]:" in desc
@@ -232,7 +232,7 @@ def test_get_room_description_no_other_players(mock_world):
         "mud_server.core.world.database.get_characters_in_room",
         return_value=["testplayer"],
     ):
-        desc = mock_world.get_room_description("spawn", "testplayer")
+        desc = mock_world.get_room_description("spawn", "testplayer", world_id="pipeworks_web")
 
         # Players section should not appear when alone
         assert "[Players here]:" not in desc
@@ -241,7 +241,7 @@ def test_get_room_description_no_other_players(mock_world):
 @pytest.mark.unit
 def test_get_room_description_nonexistent_room(mock_world):
     """Test room description for non-existent room."""
-    desc = mock_world.get_room_description("nonexistent", "testplayer")
+    desc = mock_world.get_room_description("nonexistent", "testplayer", world_id="pipeworks_web")
     assert desc == "Unknown room."
 
 
@@ -249,7 +249,7 @@ def test_get_room_description_nonexistent_room(mock_world):
 def test_get_room_description_no_items(mock_world):
     """Test room description for room without items."""
     with patch("mud_server.core.world.database.get_characters_in_room", return_value=[]):
-        desc = mock_world.get_room_description("forest", "testplayer")
+        desc = mock_world.get_room_description("forest", "testplayer", world_id="pipeworks_web")
 
         # Items section should not appear
         assert "[Items here]:" not in desc
@@ -414,7 +414,7 @@ def test_cross_zone_movement(tmp_path):
 
         # Test room description shows correct exit names
         with patch("mud_server.core.world.database.get_characters_in_room", return_value=[]):
-            desc = w.get_room_description("main_room", "testplayer")
+            desc = w.get_room_description("main_room", "testplayer", world_id="pipeworks_web")
             assert "East Pier" in desc  # Cross-zone exit shows destination room name
 
     finally:

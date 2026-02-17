@@ -444,9 +444,7 @@ class World:
         """
         return self.items.get(item_id)
 
-    def get_room_description(
-        self, room_id: str, username: str, *, world_id: str | None = None
-    ) -> str:
+    def get_room_description(self, room_id: str, username: str, *, world_id: str) -> str:
         """
         Generate a detailed, formatted description of a room.
 

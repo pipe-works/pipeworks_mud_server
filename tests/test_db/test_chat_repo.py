@@ -34,13 +34,32 @@ def test_add_chat_message_and_query_by_world(test_db, temp_db_path, db_with_user
 
 def test_get_room_messages_whisper_visibility(test_db, temp_db_path, db_with_users):
     """Whispers should only be visible to sender and recipient in room history."""
-    assert chat_repo.add_chat_message("testplayer_char", "Public message", "spawn")
     assert chat_repo.add_chat_message(
-        "testplayer_char", "Secret message", "spawn", recipient="testadmin_char"
+        "testplayer_char",
+        "Public message",
+        "spawn",
+        world_id="pipeworks_web",
+    )
+    assert chat_repo.add_chat_message(
+        "testplayer_char",
+        "Secret message",
+        "spawn",
+        recipient="testadmin_char",
+        world_id="pipeworks_web",
     )
 
-    admin_rows = chat_repo.get_room_messages("spawn", limit=10, username="testadmin_char")
-    super_rows = chat_repo.get_room_messages("spawn", limit=10, username="testsuperuser_char")
+    admin_rows = chat_repo.get_room_messages(
+        "spawn",
+        limit=10,
+        username="testadmin_char",
+        world_id="pipeworks_web",
+    )
+    super_rows = chat_repo.get_room_messages(
+        "spawn",
+        limit=10,
+        username="testsuperuser_char",
+        world_id="pipeworks_web",
+    )
 
     assert "Secret message" in [row["message"] for row in admin_rows]
     assert "Secret message" not in [row["message"] for row in super_rows]
@@ -48,9 +67,14 @@ def test_get_room_messages_whisper_visibility(test_db, temp_db_path, db_with_use
 
 def test_add_chat_message_missing_sender_returns_false(test_db, temp_db_path):
     """Unknown sender identities should not create chat rows."""
-    assert chat_repo.add_chat_message("missing_sender", "boo", "spawn") is False
+    assert (
+        chat_repo.add_chat_message("missing_sender", "boo", "spawn", world_id="pipeworks_web")
+        is False
+    )
 
 
 def test_get_room_messages_unknown_character_returns_empty(test_db, temp_db_path, db_with_users):
     """Unknown viewer character/username should produce an empty room feed."""
-    assert chat_repo.get_room_messages("spawn", character_name="ghost") == []
+    assert (
+        chat_repo.get_room_messages("spawn", character_name="ghost", world_id="pipeworks_web") == []
+    )
