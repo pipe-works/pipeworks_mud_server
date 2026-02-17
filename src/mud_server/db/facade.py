@@ -4,18 +4,17 @@ This module is the app-facing import surface for database operations.
 
 Design goals:
 1. Keep application layers importing a stable module path (``mud_server.db.facade``).
-2. Preserve existing test monkeypatch behavior that targets
+2. Preserve existing monkeypatch behavior that targets
    ``mud_server.db.database.<symbol>``.
-3. Avoid duplicating function wrappers while the refactor still routes through
-   the compatibility ``database`` module.
+3. Enforce an explicit facade API contract for the 0.3.10 refactor phase.
 
 Implementation notes:
-- Attribute access is forwarded dynamically via ``__getattr__``.
-- Because lookup is dynamic, monkeypatches applied to
-  ``mud_server.db.database`` are visible to callers that imported this module
-  as ``facade``.
+- ``_PUBLIC_API`` is intentionally explicit and versioned by source control.
+  New facade symbols must be added here deliberately.
+- ``_REMOVED_API`` lists legacy names removed during the refactor so callers
+  get a clear upgrade message instead of a generic attribute error.
 - Attribute writes/deletes are forwarded to ``mud_server.db.database`` via a
-  custom module type. This prevents test monkeypatch operations from leaving
+  custom module type. This keeps patch/monkeypatch flows consistent and avoids
   stale shadow attributes on the facade module itself.
 """
 
@@ -23,38 +22,157 @@ from __future__ import annotations
 
 import sys
 import types
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+from typing import Any as _Any
 
 from mud_server.db import database as _database
 
 if TYPE_CHECKING:
     # Type-checking view: expose database module symbols with precise types.
-    # Runtime forwarding still happens via __getattr__ below.
+    # Runtime forwarding still happens through ``__getattr__`` and module
+    # attribute forwarding below.
     from mud_server.db.database import *  # noqa: F401,F403
 
 
-def __getattr__(name: str) -> Any:
-    """
-    Forward unresolved attribute lookups to ``mud_server.db.database``.
+# Explicitly versioned public facade contract for app-layer imports.
+_PUBLIC_API: tuple[str, ...] = (
+    "DEFAULT_WORLD_ID",
+    "activate_user",
+    "add_chat_message",
+    "apply_axis_event",
+    "apply_entity_state_to_character",
+    "can_user_access_world",
+    "change_password_for_user",
+    "character_exists",
+    "cleanup_expired_guest_accounts",
+    "cleanup_expired_sessions",
+    "clear_all_sessions",
+    "create_character_for_user",
+    "create_session",
+    "create_user_with_password",
+    "deactivate_user",
+    "delete_character",
+    "delete_user",
+    "get_active_characters",
+    "get_active_connections",
+    "get_active_session_count",
+    "get_all_chat_messages",
+    "get_all_sessions",
+    "get_all_users",
+    "get_all_users_detailed",
+    "get_character_axis_events",
+    "get_character_axis_state",
+    "get_character_by_id",
+    "get_character_by_name",
+    "get_character_inventory",
+    "get_character_locations",
+    "get_character_name_by_id",
+    "get_character_room",
+    "get_characters_in_room",
+    "get_connection",
+    "get_room_messages",
+    "get_schema_map",
+    "get_session_by_id",
+    "get_table_names",
+    "get_table_rows",
+    "get_user_account_origin",
+    "get_user_character_count_for_world",
+    "get_user_characters",
+    "get_user_id",
+    "get_user_role",
+    "get_username_by_id",
+    "get_world_access_decision",
+    "get_world_admin_rows",
+    "get_world_by_id",
+    "init_database",
+    "is_user_active",
+    "list_tables",
+    "list_worlds",
+    "list_worlds_for_user",
+    "remove_session_by_id",
+    "remove_sessions_for_character",
+    "remove_sessions_for_character_count",
+    "remove_sessions_for_user",
+    "resolve_character_name",
+    "seed_axis_registry",
+    "set_character_inventory",
+    "set_character_room",
+    "set_session_character",
+    "set_user_role",
+    "tombstone_character",
+    "tombstone_user",
+    "unlink_characters_for_user",
+    "update_session_activity",
+    "user_exists",
+    "verify_password_for_user",
+)
 
-    This allows call sites to import ``mud_server.db.facade`` while tests can
-    still patch symbols on ``mud_server.db.database`` and have those patches
-    observed at call time.
+
+# Legacy aliases removed in the 0.3.10 breaking-change window.
+_REMOVED_API: tuple[str, ...] = (
+    "activate_player",
+    "cleanup_temporary_accounts",
+    "create_player_with_password",
+    "deactivate_player",
+    "delete_player",
+    "get_active_players",
+    "get_all_players",
+    "get_all_players_detailed",
+    "get_player_account_origin",
+    "get_player_inventory",
+    "get_player_locations",
+    "get_player_role",
+    "get_player_room",
+    "get_players_in_room",
+    "is_player_active",
+    "player_exists",
+    "remove_session",
+    "set_player_inventory",
+    "set_player_role",
+    "set_player_room",
+)
+
+
+def _resolve_public_attr(name: str) -> _Any:
+    """Resolve a facade attribute against the explicit public API contract."""
+    if name in _REMOVED_API:
+        raise AttributeError(
+            f"mud_server.db.facade.{name} was removed in 0.3.10; "
+            "use the canonical user/character/session API instead."
+        )
+    if name not in _PUBLIC_API:
+        raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+    try:
+        return getattr(_database, name)
+    except AttributeError as exc:
+        raise AttributeError(
+            f"mud_server.db.facade.{name} is declared public but missing from mud_server.db.database"
+        ) from exc
+
+
+def __getattr__(name: str) -> _Any:
     """
-    return getattr(_database, name)
+    Forward allowed facade lookups to ``mud_server.db.database`` at call time.
+
+    Runtime lookup keeps monkeypatch behavior stable for tests that patch
+    symbols on ``mud_server.db.database`` while app layers import
+    ``mud_server.db.facade``.
+    """
+    return _resolve_public_attr(name)
 
 
 def __dir__() -> list[str]:
     """
-    Return combined attribute names for introspection tools and shells.
+    Return combined facade module names and explicit public API names.
 
-    This keeps interactive discovery (``dir(facade)``) aligned with the
-    forwarded database module contents.
+    Using ``_PUBLIC_API`` instead of ``dir(_database)`` keeps shell
+    introspection aligned with the explicit contract and avoids leaking
+    implementation-only names.
     """
-    return sorted(set(globals()) | set(dir(_database)))
+    return sorted(set(globals()) | set(_PUBLIC_API))
 
 
-__all__ = [name for name in dir(_database) if not name.startswith("_")]
+__all__ = list(_PUBLIC_API)
 
 
 class _FacadeModule(types.ModuleType):
@@ -62,16 +180,18 @@ class _FacadeModule(types.ModuleType):
     Module type that forwards public attribute writes to ``db.database``.
 
     Why this exists:
-        ``pytest`` monkeypatch/patch utilities sometimes target attributes on
-        imported module objects (for example ``auth.database``). If those writes
-        land on the facade module, they can shadow ``__getattr__`` forwarding
-        and leak stale function objects between tests. Forwarding writes/deletes
-        to the backing ``db.database`` module keeps behavior consistent.
+        ``pytest`` patch utilities can target attributes on imported module
+        objects (for example ``auth.database``). If writes land on the facade
+        module directly, they can shadow ``__getattr__`` forwarding and leak
+        stale function objects between tests.
     """
 
     _INTERNAL_ATTRS = {
         "_database",
         "_FacadeModule",
+        "_PUBLIC_API",
+        "_REMOVED_API",
+        "_resolve_public_attr",
         "__all__",
         "__getattr__",
         "__dir__",
@@ -79,27 +199,31 @@ class _FacadeModule(types.ModuleType):
     }
     _FORWARDED_ATTRS = set(__all__)
 
-    def __setattr__(self, name: str, value: Any) -> None:
-        """Forward public attribute writes to the backing database module."""
+    def __setattr__(self, name: str, value: _Any) -> None:
+        """Forward public facade writes to the backing database module."""
         if name.startswith("__") or name in self._INTERNAL_ATTRS:
             super().__setattr__(name, value)
             return
-        # Forward known DB API symbols even if they were temporarily deleted by
-        # patch teardown flows. This prevents accidental local shadow attributes.
-        if name in self._FORWARDED_ATTRS or hasattr(_database, name):
+        if name in _REMOVED_API:
+            raise AttributeError(
+                f"mud_server.db.facade.{name} was removed in 0.3.10 and cannot be patched"
+            )
+        if name in self._FORWARDED_ATTRS:
             setattr(_database, name, value)
             return
         super().__setattr__(name, value)
 
     def __delattr__(self, name: str) -> None:
-        """Forward public attribute deletes to the backing database module."""
+        """Forward public facade deletes to the backing database module."""
         if name.startswith("__") or name in self._INTERNAL_ATTRS:
             super().__delattr__(name)
             return
-        if name in self._FORWARDED_ATTRS or hasattr(_database, name):
-            # ``unittest.mock.patch`` for proxy modules performs delete-then-set
-            # on exit. Deleting on the backing module is required so the
-            # subsequent restore set writes through to ``db.database``.
+        if name in _REMOVED_API:
+            raise AttributeError(
+                f"mud_server.db.facade.{name} was removed in 0.3.10 and cannot be patched"
+            )
+        if name in self._FORWARDED_ATTRS:
+            # ``unittest.mock.patch`` teardown performs delete-then-set.
             if hasattr(_database, name):
                 delattr(_database, name)
             return
