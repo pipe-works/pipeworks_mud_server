@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
-if TYPE_CHECKING:
-    from mud_server.db.database import WorldAccessDecision
+from mud_server.db.types import WorldAccessDecision
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -129,7 +128,6 @@ def _resolve_world_access_for_row(
 ) -> WorldAccessDecision:
     """Resolve effective access/create capabilities for one world row."""
     from mud_server.config import config
-    from mud_server.db import database
 
     world_id = str(world_row[0])
     is_active = bool(world_row[3])
@@ -149,7 +147,7 @@ def _resolve_world_access_for_row(
         )
 
     if not is_active:
-        return database.WorldAccessDecision(
+        return WorldAccessDecision(
             world_id=world_id,
             can_access=False,
             can_create=False,
@@ -163,7 +161,7 @@ def _resolve_world_access_for_row(
         )
 
     if not can_access:
-        return database.WorldAccessDecision(
+        return WorldAccessDecision(
             world_id=world_id,
             can_access=False,
             can_create=False,
@@ -178,7 +176,7 @@ def _resolve_world_access_for_row(
 
     slot_limit = max(0, int(world_policy.slot_limit_per_account))
     if current_count >= slot_limit:
-        return database.WorldAccessDecision(
+        return WorldAccessDecision(
             world_id=world_id,
             can_access=True,
             can_create=False,
@@ -191,7 +189,7 @@ def _resolve_world_access_for_row(
             reason="slot_limit_reached",
         )
 
-    return database.WorldAccessDecision(
+    return WorldAccessDecision(
         world_id=world_id,
         can_access=True,
         can_create=True,
@@ -213,7 +211,6 @@ def get_world_access_decision(
 ) -> WorldAccessDecision:
     """Resolve world access/create decision for one account and world."""
     from mud_server.config import config
-    from mud_server.db import database
 
     conn = _get_connection()
     cursor = conn.cursor()
@@ -230,7 +227,7 @@ def get_world_access_decision(
     if world_row is None:
         world_policy = config.resolve_world_character_policy(world_id)
         conn.close()
-        return database.WorldAccessDecision(
+        return WorldAccessDecision(
             world_id=world_id,
             can_access=False,
             can_create=False,

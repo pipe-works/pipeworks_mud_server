@@ -3,7 +3,7 @@
 from typing import Any
 
 from mud_server.core.engine import GameEngine
-from mud_server.db import database
+from mud_server.db import facade as database
 
 
 def get_available_worlds(user_id: int, role: str) -> list[dict[str, Any]]:
