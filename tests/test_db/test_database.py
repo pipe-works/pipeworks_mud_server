@@ -424,7 +424,7 @@ def test_change_password(test_db, temp_db_path, db_with_users):
 def test_get_player_room_default(test_db, temp_db_path, db_with_users):
     """Test getting player room returns spawn by default."""
     with use_test_database(temp_db_path):
-        assert database.get_character_room("testplayer") == "spawn"
+        assert database.get_character_room("testplayer_char") == "spawn"
 
 
 @pytest.mark.unit
@@ -432,9 +432,9 @@ def test_get_player_room_default(test_db, temp_db_path, db_with_users):
 def test_set_player_room(test_db, temp_db_path, db_with_users):
     """Test setting player room."""
     with use_test_database(temp_db_path):
-        result = database.set_character_room("testplayer", "forest")
+        result = database.set_character_room("testplayer_char", "forest")
         assert result is True
-        assert database.get_character_room("testplayer") == "forest"
+        assert database.get_character_room("testplayer_char") == "forest"
 
 
 @pytest.mark.unit
@@ -455,7 +455,7 @@ def test_get_player_room_nonexistent(test_db, temp_db_path):
 def test_get_player_inventory_default(test_db, temp_db_path, db_with_users):
     """Test that new players have empty inventory."""
     with use_test_database(temp_db_path):
-        inventory = database.get_character_inventory("testplayer")
+        inventory = database.get_character_inventory("testplayer_char")
         assert inventory == []
 
 
@@ -465,10 +465,10 @@ def test_set_player_inventory(test_db, temp_db_path, db_with_users):
     """Test setting player inventory."""
     with use_test_database(temp_db_path):
         inventory = ["torch", "rope", "sword"]
-        result = database.set_character_inventory("testplayer", inventory)
+        result = database.set_character_inventory("testplayer_char", inventory)
         assert result is True
 
-        retrieved = database.get_character_inventory("testplayer")
+        retrieved = database.get_character_inventory("testplayer_char")
         assert retrieved == inventory
 
 
@@ -491,7 +491,7 @@ def test_get_player_inventory_nonexistent(test_db, temp_db_path):
 def test_add_chat_message(test_db, temp_db_path, db_with_users):
     """Test adding a chat message."""
     with use_test_database(temp_db_path):
-        result = database.add_chat_message("testplayer", "Hello world", "spawn")
+        result = database.add_chat_message("testplayer_char", "Hello world", "spawn")
         assert result is True
 
 
@@ -501,7 +501,7 @@ def test_add_chat_message_with_recipient(test_db, temp_db_path, db_with_users):
     """Test adding a whisper message with recipient."""
     with use_test_database(temp_db_path):
         result = database.add_chat_message(
-            "testplayer", "[WHISPER] Secret message", "spawn", recipient="testadmin"
+            "testplayer_char", "[WHISPER] Secret message", "spawn", recipient="testadmin_char"
         )
         assert result is True
 
@@ -512,9 +512,9 @@ def test_get_room_messages(test_db, temp_db_path, db_with_users):
     """Test retrieving room messages."""
     with use_test_database(temp_db_path):
         # Add some messages
-        database.add_chat_message("testplayer", "Message 1", "spawn")
-        database.add_chat_message("testadmin", "Message 2", "spawn")
-        database.add_chat_message("testplayer", "Message 3", "forest")
+        database.add_chat_message("testplayer_char", "Message 1", "spawn")
+        database.add_chat_message("testadmin_char", "Message 2", "spawn")
+        database.add_chat_message("testplayer_char", "Message 3", "forest")
 
         # Get spawn messages
         messages = database.get_room_messages("spawn", limit=10)
@@ -547,7 +547,9 @@ def test_get_room_messages_world_isolation(test_db, temp_db_path, db_with_users)
             user_id, "alt_player", world_id="daily_undertaking"
         )
 
-        database.add_chat_message("testplayer", "Default world", "spawn", world_id="pipeworks_web")
+        database.add_chat_message(
+            "testplayer_char", "Default world", "spawn", world_id="pipeworks_web"
+        )
         database.add_chat_message("alt_player", "Alt world", "spawn", world_id="daily_undertaking")
 
         default_messages = database.get_room_messages("spawn", world_id="pipeworks_web", limit=10)
@@ -565,17 +567,19 @@ def test_get_room_messages_with_whisper_filtering(test_db, temp_db_path, db_with
     """Test that whispers are filtered per user."""
     with use_test_database(temp_db_path):
         # Public message
-        database.add_chat_message("testplayer", "Public message", "spawn")
+        database.add_chat_message("testplayer_char", "Public message", "spawn")
 
         # Whisper to testadmin
-        database.add_chat_message("testplayer", "[WHISPER] Secret", "spawn", recipient="testadmin")
+        database.add_chat_message(
+            "testplayer_char", "[WHISPER] Secret", "spawn", recipient="testadmin_char"
+        )
 
         # Get messages as testadmin (should see whisper)
-        messages = database.get_room_messages("spawn", limit=10, username="testadmin")
+        messages = database.get_room_messages("spawn", limit=10, username="testadmin_char")
         assert len(messages) == 2
 
         # Get messages as testsuperuser (should NOT see whisper)
-        messages = database.get_room_messages("spawn", limit=10, username="testsuperuser")
+        messages = database.get_room_messages("spawn", limit=10, username="testsuperuser_char")
         assert len(messages) == 1
         assert messages[0]["message"] == "Public message"
 
@@ -657,8 +661,8 @@ def test_delete_player_removes_related_data(test_db, temp_db_path, db_with_users
     """Test delete_player tombstones user and unlinks characters."""
     with use_test_database(temp_db_path):
         database.create_session("testplayer", "session-999")
-        database.add_chat_message("testplayer", "Hello", "spawn")
-        database.add_chat_message("testadmin", "Whisper", "spawn", recipient="testplayer")
+        database.add_chat_message("testplayer_char", "Hello", "spawn")
+        database.add_chat_message("testadmin_char", "Whisper", "spawn", recipient="testplayer_char")
 
         conn = database.get_connection()
         cursor = conn.cursor()
@@ -955,9 +959,9 @@ def test_database_helpers_return_false_on_db_error():
         assert database.deactivate_user("testplayer") is False
         assert database.activate_user("testplayer") is False
         assert database.change_password_for_user("testplayer", TEST_PASSWORD) is False
-        assert database.set_character_room("testplayer", "spawn") is False
-        assert database.set_character_inventory("testplayer", []) is False
-        assert database.add_chat_message("testplayer", "hi", "spawn") is False
+        assert database.set_character_room("testplayer_char", "spawn") is False
+        assert database.set_character_inventory("testplayer_char", []) is False
+        assert database.add_chat_message("testplayer_char", "hi", "spawn") is False
         assert database.create_session("testplayer", "session-x") is False
         assert database.set_session_character("session-x", 1) is False
         assert database.remove_session_by_id("session-x") is False
@@ -1330,7 +1334,7 @@ def test_get_players_in_room(test_db, temp_db_path, db_with_users):
         database.set_session_character("session-2", admin_character["id"])
 
         # Move testadmin to forest
-        database.set_character_room("testadmin", "forest")
+        database.set_character_room("testadmin_char", "forest")
 
         # Get players in spawn
         players_in_spawn = database.get_characters_in_room("spawn")
@@ -1348,7 +1352,7 @@ def test_get_players_in_room(test_db, temp_db_path, db_with_users):
 def test_get_character_locations(test_db, temp_db_path, db_with_users):
     """Test fetching player location rows with usernames."""
     with use_test_database(temp_db_path):
-        database.set_character_room("testplayer", "forest")
+        database.set_character_room("testplayer_char", "forest")
 
         locations = database.get_character_locations()
         by_username = {loc["character_name"]: loc for loc in locations}
@@ -1579,9 +1583,9 @@ def test_get_all_sessions(test_db, temp_db_path, db_with_users):
 def test_get_all_chat_messages(test_db, temp_db_path, db_with_users):
     """Test getting all chat messages across rooms."""
     with use_test_database(temp_db_path):
-        database.add_chat_message("testplayer", "Message 1", "spawn")
-        database.add_chat_message("testadmin", "Message 2", "forest")
-        database.add_chat_message("testplayer", "Message 3", "spawn")
+        database.add_chat_message("testplayer_char", "Message 1", "spawn")
+        database.add_chat_message("testadmin_char", "Message 2", "forest")
+        database.add_chat_message("testplayer_char", "Message 3", "spawn")
 
         messages = database.get_all_chat_messages(limit=100)
         assert len(messages) == 3
@@ -1612,7 +1616,9 @@ def test_get_all_chat_messages_world_filter(test_db, temp_db_path, db_with_users
             user_id, "alt_player", world_id="daily_undertaking"
         )
 
-        database.add_chat_message("testplayer", "Default world", "spawn", world_id="pipeworks_web")
+        database.add_chat_message(
+            "testplayer_char", "Default world", "spawn", world_id="pipeworks_web"
+        )
         database.add_chat_message("alt_player", "Alt world", "spawn", world_id="daily_undertaking")
 
         default_messages = database.get_all_chat_messages(limit=100, world_id="pipeworks_web")

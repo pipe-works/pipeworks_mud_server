@@ -957,7 +957,7 @@ def test_command_recall(authenticated_client, test_db, temp_db_path):
         client = authenticated_client["client"]
 
         # Move player away from spawn first
-        database.set_character_room("testplayer", "forest")
+        database.set_character_room("testplayer_char", "forest")
 
         response = client.post("/command", json={"session_id": session_id, "command": "recall"})
 
@@ -965,7 +965,7 @@ def test_command_recall(authenticated_client, test_db, temp_db_path):
         data = response.json()
         assert data["success"] is True
         # Player should be back at spawn
-        assert database.get_character_room("testplayer") == "spawn"
+        assert database.get_character_room("testplayer_char") == "spawn"
 
 
 @pytest.mark.api
@@ -979,14 +979,14 @@ def test_command_flee_alias(authenticated_client, test_db, temp_db_path):
         client = authenticated_client["client"]
 
         # Move player away from spawn first
-        database.set_character_room("testplayer", "forest")
+        database.set_character_room("testplayer_char", "forest")
 
         response = client.post("/command", json={"session_id": session_id, "command": "flee"})
 
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert database.get_character_room("testplayer") == "spawn"
+        assert database.get_character_room("testplayer_char") == "spawn"
 
 
 @pytest.mark.api
@@ -1000,14 +1000,14 @@ def test_command_scurry_alias(authenticated_client, test_db, temp_db_path):
         client = authenticated_client["client"]
 
         # Move player away from spawn first
-        database.set_character_room("testplayer", "forest")
+        database.set_character_room("testplayer_char", "forest")
 
         response = client.post("/command", json={"session_id": session_id, "command": "scurry"})
 
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert database.get_character_room("testplayer") == "spawn"
+        assert database.get_character_room("testplayer_char") == "spawn"
 
 
 @pytest.mark.api
@@ -1082,7 +1082,7 @@ def test_command_drop_requires_item(authenticated_client, test_db, temp_db_path)
 def test_command_drop_item(authenticated_client, test_db, temp_db_path):
     """Test /command drop with a valid item."""
     with use_test_database(temp_db_path):
-        database.set_character_inventory("testplayer", ["torch"])
+        database.set_character_inventory("testplayer_char", ["torch"])
         session_id = authenticated_client["session_id"]
         client = authenticated_client["client"]
 
@@ -1179,7 +1179,7 @@ def test_command_whisper_success(authenticated_client, test_db, temp_db_path, db
 
         response = client.post(
             "/command",
-            json={"session_id": session_id, "command": "whisper testadmin hello"},
+            json={"session_id": session_id, "command": "whisper testadmin_char hello"},
         )
 
         assert response.status_code == 200
