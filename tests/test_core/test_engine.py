@@ -188,7 +188,7 @@ def test_logout(mock_engine, test_db, temp_db_path, db_with_users):
         assert result is True
 
         # Session should be removed
-        active_players = database.get_active_characters()
+        active_players = database.get_active_characters(world_id=database.DEFAULT_WORLD_ID)
         assert "testplayer_char" not in active_players
 
 
