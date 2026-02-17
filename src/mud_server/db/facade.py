@@ -75,14 +75,18 @@ class _FacadeModule(types.ModuleType):
         "__all__",
         "__getattr__",
         "__dir__",
+        "_FORWARDED_ATTRS",
     }
+    _FORWARDED_ATTRS = set(__all__)
 
     def __setattr__(self, name: str, value: Any) -> None:
         """Forward public attribute writes to the backing database module."""
         if name.startswith("__") or name in self._INTERNAL_ATTRS:
             super().__setattr__(name, value)
             return
-        if hasattr(_database, name):
+        # Forward known DB API symbols even if they were temporarily deleted by
+        # patch teardown flows. This prevents accidental local shadow attributes.
+        if name in self._FORWARDED_ATTRS or hasattr(_database, name):
             setattr(_database, name, value)
             return
         super().__setattr__(name, value)
@@ -92,8 +96,12 @@ class _FacadeModule(types.ModuleType):
         if name.startswith("__") or name in self._INTERNAL_ATTRS:
             super().__delattr__(name)
             return
-        if hasattr(_database, name):
-            delattr(_database, name)
+        if name in self._FORWARDED_ATTRS or hasattr(_database, name):
+            # ``unittest.mock.patch`` for proxy modules performs delete-then-set
+            # on exit. Deleting on the backing module is required so the
+            # subsequent restore set writes through to ``db.database``.
+            if hasattr(_database, name):
+                delattr(_database, name)
             return
         super().__delattr__(name)
 

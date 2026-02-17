@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from mud_server.db import database, facade
 
 
@@ -26,3 +28,23 @@ def test_facade_reflects_runtime_monkeypatches(monkeypatch):
 
     monkeypatch.setattr(database, "user_exists", _always_true)
     assert facade.user_exists("any-user") is True
+
+
+def test_facade_patch_teardown_restores_database_attribute():
+    """
+    Proxy patching should restore symbols back onto ``db.database``.
+
+    ``unittest.mock.patch`` teardown performs ``delattr`` then ``setattr`` when
+    patching proxy objects. The facade module must keep this cycle routed to
+    ``mud_server.db.database`` so DB API symbols are never dropped from the
+    canonical module after test teardown.
+    """
+
+    original = database.get_players_in_room
+    assert "get_players_in_room" not in facade.__dict__
+
+    with patch("mud_server.db.facade.get_players_in_room", return_value=[]):
+        assert facade.get_players_in_room("spawn") == []
+
+    assert database.get_players_in_room is original
+    assert "get_players_in_room" not in facade.__dict__
