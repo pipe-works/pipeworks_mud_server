@@ -177,7 +177,7 @@ def test_cmd_create_superuser_user_exists():
 def test_cmd_create_superuser_short_password():
     """Test create-superuser fails with short password."""
     with patch("mud_server.db.database.init_database"):
-        with patch("mud_server.db.database.player_exists", return_value=False):
+        with patch("mud_server.db.database.user_exists", return_value=False):
             with patch.dict(
                 "os.environ", {"MUD_ADMIN_USER": "admin", "MUD_ADMIN_PASSWORD": "short"}
             ):
