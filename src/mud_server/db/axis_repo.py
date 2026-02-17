@@ -6,12 +6,10 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 from secrets import randbelow
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from mud_server.db.constants import DEFAULT_AXIS_SCORE
-
-if TYPE_CHECKING:
-    from mud_server.db.database import AxisRegistrySeedStats
+from mud_server.db.types import AxisRegistrySeedStats
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -46,8 +44,6 @@ def seed_axis_registry(
     thresholds_payload: dict[str, Any],
 ) -> AxisRegistrySeedStats:
     """Insert or update axis and axis-value rows from policy payloads."""
-    from mud_server.db import database
-
     axes_definitions = axes_payload.get("axes") or {}
     thresholds_definitions = thresholds_payload.get("axes") or {}
 
@@ -130,7 +126,7 @@ def seed_axis_registry(
     conn.commit()
     conn.close()
 
-    return database.AxisRegistrySeedStats(
+    return AxisRegistrySeedStats(
         axes_upserted=axes_upserted,
         axis_values_inserted=axis_values_inserted,
         axes_missing_thresholds=axes_missing_thresholds,

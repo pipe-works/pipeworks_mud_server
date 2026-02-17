@@ -41,7 +41,7 @@ from mud_server.api.models import (
 from mud_server.api.permissions import Permission, can_manage_role
 from mud_server.api.routes.utils import resolve_zone_id
 from mud_server.core.engine import GameEngine
-from mud_server.db import database
+from mud_server.db import facade as database
 from mud_server.services.character_provisioning import provision_generated_character_for_user
 
 

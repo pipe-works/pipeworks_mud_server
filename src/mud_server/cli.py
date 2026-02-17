@@ -144,7 +144,7 @@ def cmd_init_db(args: argparse.Namespace) -> int:
     from shutil import copy2
 
     from mud_server.config import config
-    from mud_server.db.database import init_database
+    from mud_server.db import facade as database
 
     try:
         db_path = config.database.absolute_path
@@ -184,7 +184,7 @@ def cmd_init_db(args: argparse.Namespace) -> int:
             finally:
                 sys.argv = original_argv
 
-        init_database()
+        database.init_database()
         print("Database initialized successfully.")
         return 0
     except Exception as e:
@@ -202,10 +202,10 @@ def cmd_create_superuser(args: argparse.Namespace) -> int:
     Returns:
         0 on success, 1 on error
     """
-    from mud_server.db.database import create_user_with_password, init_database, user_exists
+    from mud_server.db import facade as database
 
     # Ensure database exists (skip superuser creation - we'll do it ourselves)
-    init_database(skip_superuser=True)
+    database.init_database(skip_superuser=True)
 
     # Try environment variables first
     env_creds = get_superuser_credentials_from_env()
@@ -227,7 +227,7 @@ def cmd_create_superuser(args: argparse.Namespace) -> int:
         username, password = prompt_for_credentials()
 
     # Check if user already exists
-    if user_exists(username):
+    if database.user_exists(username):
         print(f"Error: User '{username}' already exists.", file=sys.stderr)
         return 1
 
@@ -245,7 +245,7 @@ def cmd_create_superuser(args: argparse.Namespace) -> int:
 
     # Create the superuser
     try:
-        success = create_user_with_password(
+        success = database.create_user_with_password(
             username, password, role="superuser", account_origin="superuser"
         )
         if success:
@@ -364,7 +364,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     """
     from mud_server.api.server import find_available_port as find_api_port
     from mud_server.config import config
-    from mud_server.db.database import init_database
+    from mud_server.db import facade as database
 
     # ========================================================================
     # DATABASE INITIALIZATION
@@ -374,7 +374,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     db_path = config.database.absolute_path
     if not db_path.exists():
         print("Database not found. Initializing...")
-        init_database()
+        database.init_database()
 
     # ========================================================================
     # CONFIGURATION EXTRACTION

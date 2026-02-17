@@ -6,7 +6,7 @@ from mud_server.api.auth import validate_session, validate_session_for_game
 from mud_server.api.models import CommandRequest, CommandResponse, StatusResponse
 from mud_server.api.permissions import Permission, has_permission
 from mud_server.core.engine import GameEngine
-from mud_server.db import database
+from mud_server.db import facade as database
 
 
 def router(engine: GameEngine) -> APIRouter:

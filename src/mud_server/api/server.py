@@ -32,7 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from mud_server.api.routes.register import register_routes
 from mud_server.config import config, print_config_summary
 from mud_server.core.engine import GameEngine
-from mud_server.db import database
+from mud_server.db import facade as database
 from mud_server.web.routes import ADMIN_ASSET_VERSION, register_web_routes
 
 # ============================================================================
