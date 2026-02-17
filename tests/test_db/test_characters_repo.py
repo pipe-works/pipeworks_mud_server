@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
+import sqlite3
+from unittest.mock import patch
+
+import pytest
+
 from mud_server.db import characters_repo, database
+from mud_server.db import connection as db_connection
+from mud_server.db.errors import (
+    DatabaseOperationContext,
+    DatabaseReadError,
+    DatabaseWriteError,
+)
 
 
 def test_create_character_for_user_round_trip(test_db, temp_db_path):
@@ -73,3 +84,65 @@ def test_tombstone_character_unlinks_owner_and_renames(test_db, temp_db_path):
     assert updated is not None
     assert updated["user_id"] is None
     assert str(updated["name"]).startswith("tombstone_")
+
+
+def test_characters_repo_raises_typed_errors_on_connection_failure():
+    """Connection failures should surface as typed character repository errors."""
+    with patch.object(db_connection, "get_connection", side_effect=Exception("db boom")):
+        with pytest.raises(DatabaseWriteError):
+            characters_repo.set_character_room("testplayer_char", "spawn", world_id="pipeworks_web")
+
+        with pytest.raises(DatabaseReadError):
+            characters_repo.get_character_room("testplayer_char", world_id="pipeworks_web")
+
+
+def test_characters_repo_raises_typed_errors_for_all_key_paths():
+    """Core read/write helpers should map connection errors to typed DB exceptions."""
+    with patch.object(db_connection, "get_connection", side_effect=Exception("db boom")):
+        with pytest.raises(DatabaseReadError):
+            characters_repo.resolve_character_name("testplayer_char", world_id="pipeworks_web")
+        with pytest.raises(DatabaseWriteError):
+            characters_repo.create_character_for_user(1, "broken", world_id="pipeworks_web")
+        with pytest.raises(DatabaseReadError):
+            characters_repo.character_exists("testplayer_char")
+        with pytest.raises(DatabaseReadError):
+            characters_repo.get_character_by_name("testplayer_char")
+        with pytest.raises(DatabaseReadError):
+            characters_repo.get_character_by_id(1)
+        with pytest.raises(DatabaseReadError):
+            characters_repo.get_character_name_by_id(1)
+        with pytest.raises(DatabaseReadError):
+            characters_repo.get_user_characters(1, world_id="pipeworks_web")
+        with pytest.raises(DatabaseWriteError):
+            characters_repo.tombstone_character(1)
+        with pytest.raises(DatabaseWriteError):
+            characters_repo.delete_character(1)
+        with pytest.raises(DatabaseReadError):
+            characters_repo.get_characters_in_room("spawn", world_id="pipeworks_web")
+        with pytest.raises(DatabaseReadError):
+            characters_repo.get_character_inventory("testplayer_char", world_id="pipeworks_web")
+        with pytest.raises(DatabaseWriteError):
+            characters_repo.set_character_inventory("testplayer_char", [], world_id="pipeworks_web")
+
+
+def test_create_character_for_user_returns_false_on_integrity_error():
+    """Integrity collisions should remain a domain-level False return contract."""
+    with patch.object(
+        db_connection, "get_connection", side_effect=sqlite3.IntegrityError("duplicate")
+    ):
+        assert (
+            characters_repo.create_character_for_user(1, "dupe", world_id="pipeworks_web") is False
+        )
+
+
+def test_characters_repo_internal_error_helpers_re_raise_database_errors():
+    """Internal helper guards should preserve pre-typed DatabaseError instances."""
+    read_exc = DatabaseReadError(context=DatabaseOperationContext(operation="characters.read"))
+    with pytest.raises(DatabaseReadError) as read_info:
+        characters_repo._raise_read_error("characters.read", read_exc)
+    assert read_info.value is read_exc
+
+    write_exc = DatabaseWriteError(context=DatabaseOperationContext(operation="characters.write"))
+    with pytest.raises(DatabaseWriteError) as write_info:
+        characters_repo._raise_write_error("characters.write", write_exc)
+    assert write_info.value is write_exc

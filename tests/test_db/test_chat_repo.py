@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
+import pytest
+
 from mud_server.db import chat_repo, database
+from mud_server.db import connection as db_connection
+from mud_server.db.errors import DatabaseReadError, DatabaseWriteError
 
 
 def test_add_chat_message_and_query_by_world(test_db, temp_db_path, db_with_users):
@@ -78,3 +84,15 @@ def test_get_room_messages_unknown_character_returns_empty(test_db, temp_db_path
     assert (
         chat_repo.get_room_messages("spawn", character_name="ghost", world_id="pipeworks_web") == []
     )
+
+
+def test_chat_repo_raises_typed_errors_on_connection_failure():
+    """Connection failures should surface as typed chat repository errors."""
+    with patch.object(db_connection, "get_connection", side_effect=Exception("db boom")):
+        with pytest.raises(DatabaseWriteError):
+            chat_repo.add_chat_message(
+                "testplayer_char", "hello", "spawn", world_id="pipeworks_web"
+            )
+
+        with pytest.raises(DatabaseReadError):
+            chat_repo.get_room_messages("spawn", world_id="pipeworks_web")

@@ -30,6 +30,7 @@ from mud_server.api.routes.utils import get_available_worlds
 from mud_server.config import config
 from mud_server.core.engine import GameEngine
 from mud_server.db import facade as database
+from mud_server.db.errors import DatabaseError
 from mud_server.services.character_provisioning import provision_generated_character_for_user
 
 logger = logging.getLogger(__name__)
@@ -149,52 +150,58 @@ def router(engine: GameEngine) -> APIRouter:
         password = request.password
         requested_world_id = request.world_id.strip() if request.world_id else None
 
-        if not username or len(username) < 2 or len(username) > 20:
-            raise HTTPException(status_code=400, detail="Username must be 2-20 characters")
+        try:
+            if not username or len(username) < 2 or len(username) > 20:
+                raise HTTPException(status_code=400, detail="Username must be 2-20 characters")
 
-        if not database.user_exists(username):
-            raise HTTPException(status_code=401, detail="Invalid username or password")
+            if not database.user_exists(username):
+                raise HTTPException(status_code=401, detail="Invalid username or password")
 
-        if not database.verify_password_for_user(username, password):
-            raise HTTPException(status_code=401, detail="Invalid username or password")
+            if not database.verify_password_for_user(username, password):
+                raise HTTPException(status_code=401, detail="Invalid username or password")
 
-        if not database.is_user_active(username):
-            raise HTTPException(status_code=401, detail="Account is deactivated")
+            if not database.is_user_active(username):
+                raise HTTPException(status_code=401, detail="Account is deactivated")
 
-        user_id = database.get_user_id(username)
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid user record")
+            user_id = database.get_user_id(username)
+            if not user_id:
+                raise HTTPException(status_code=401, detail="Invalid user record")
 
-        session_id = str(uuid.uuid4())
-        client_type = http_request.headers.get("X-Client-Type", "unknown").strip().lower()
-        if not client_type:
-            client_type = "unknown"
+            session_id = str(uuid.uuid4())
+            client_type = http_request.headers.get("X-Client-Type", "unknown").strip().lower()
+            if not client_type:
+                client_type = "unknown"
 
-        if not database.create_session(user_id, session_id, client_type=client_type):
-            raise HTTPException(status_code=500, detail="Failed to create session")
+            if not database.create_session(user_id, session_id, client_type=client_type):
+                raise HTTPException(status_code=500, detail="Failed to create session")
 
-        role = database.get_user_role(username)
-        if not role:
-            raise HTTPException(status_code=401, detail="Invalid user role")
+            role = database.get_user_role(username)
+            if not role:
+                raise HTTPException(status_code=401, detail="Invalid user role")
 
-        available_worlds = get_available_worlds(user_id, role)
+            available_worlds = get_available_worlds(user_id, role)
 
-        # Filter characters by requested world when provided.
-        if requested_world_id:
-            characters = database.get_user_characters(user_id, world_id=requested_world_id)
-        else:
-            # Default to the configured world if no explicit world requested.
-            characters = database.get_user_characters(user_id)
-        message = "Login successful. Select a character to enter the world."
+            # Filter characters by requested world when provided.
+            if requested_world_id:
+                characters = database.get_user_characters(user_id, world_id=requested_world_id)
+            else:
+                # Default to the configured world if no explicit world requested.
+                characters = database.get_user_characters(user_id)
+            message = "Login successful. Select a character to enter the world."
 
-        return LoginResponse(
-            success=True,
-            message=message,
-            session_id=session_id,
-            role=role,
-            characters=characters,
-            available_worlds=available_worlds,
-        )
+            return LoginResponse(
+                success=True,
+                message=message,
+                session_id=session_id,
+                role=role,
+                characters=characters,
+                available_worlds=available_worlds,
+            )
+        except DatabaseError as exc:
+            logger.exception("Login failed due to database error for username '%s'", username)
+            raise HTTPException(
+                status_code=500, detail="Authentication service unavailable."
+            ) from exc
 
     @api.post("/login-direct", response_model=LoginDirectResponse)
     async def login_direct(request: LoginDirectRequest, http_request: Request):
@@ -306,107 +313,120 @@ def router(engine: GameEngine) -> APIRouter:
 
         from mud_server.api.password_policy import PolicyLevel, validate_password_strength
 
-        if not config.registration.guest_registration_enabled:
-            raise HTTPException(
-                status_code=403,
-                detail="Guest registration is currently disabled.",
+        try:
+            if not config.registration.guest_registration_enabled:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Guest registration is currently disabled.",
+                )
+
+            password = request.password
+            password_confirm = request.password_confirm
+            character_name = request.character_name.strip()
+
+            if not character_name:
+                raise HTTPException(status_code=400, detail="Character name is required")
+
+            if database.character_exists(character_name):
+                raise HTTPException(status_code=400, detail="Character name already taken")
+
+            if password != password_confirm:
+                raise HTTPException(status_code=400, detail="Passwords do not match")
+
+            result = validate_password_strength(password, level=PolicyLevel.STANDARD)
+            if not result.is_valid:
+                error_detail = " ".join(result.errors)
+                raise HTTPException(status_code=400, detail=error_detail)
+
+            # Generate a short, unique guest username (fits 2-20 char constraint).
+            guest_prefix = "guest_"
+            max_attempts = 20
+            username = None
+            for _ in range(max_attempts):
+                candidate = f"{guest_prefix}{randbelow(100000):05d}"
+                if not database.user_exists(candidate):
+                    username = candidate
+                    break
+
+            if username is None:
+                raise HTTPException(status_code=500, detail="Failed to allocate a guest username")
+
+            guest_expires_at = (datetime.now(UTC) + timedelta(hours=24)).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+            if not database.create_user_with_password(
+                username,
+                password,
+                role="player",
+                account_origin="visitor",
+                is_guest=True,
+                guest_expires_at=guest_expires_at,
+            ):
+                raise HTTPException(
+                    status_code=500, detail="Failed to create guest account. Please try again."
+                )
+
+            user_id = database.get_user_id(username)
+            if user_id is None:
+                database.delete_user(username)
+                raise HTTPException(status_code=500, detail="Failed to finalize guest account")
+
+            if not database.create_character_for_user(
+                user_id,
+                character_name,
+                is_guest_created=True,
+            ):
+                database.delete_user(username)
+                raise HTTPException(status_code=400, detail="Character name already taken")
+
+            # Resolve the freshly-created character id so onboarding consumers can
+            # bind deterministic external entity-state generation to this character.
+            character = database.get_character_by_name(character_name)
+            if character is None:
+                database.delete_user(username)
+                raise HTTPException(status_code=500, detail="Failed to resolve created character")
+            character_id = int(character["id"])
+            world_id = str(character.get("world_id") or config.worlds.default_world_id)
+
+            # Prefer local snapshot state from the MUD DB so onboarding reflects
+            # the same canonical state used by gameplay mechanics.
+            entity_state, entity_state_error = _fetch_local_axis_snapshot_for_character(
+                character_id
             )
 
-        password = request.password
-        password_confirm = request.password_confirm
-        character_name = request.character_name.strip()
+            # Optional fallback: if local snapshot data is unavailable, attempt to
+            # fetch from the external entity integration when enabled.
+            if entity_state is None:
+                external_state, external_error = _fetch_entity_state_for_character(
+                    seed=character_id
+                )
+                if external_state is not None:
+                    entity_state = external_state
+                    entity_state_error = None
+                elif external_error:
+                    if entity_state_error:
+                        entity_state_error = f"{entity_state_error} {external_error}"
+                    else:
+                        entity_state_error = external_error
 
-        if not character_name:
-            raise HTTPException(status_code=400, detail="Character name is required")
-
-        if database.character_exists(character_name):
-            raise HTTPException(status_code=400, detail="Character name already taken")
-
-        if password != password_confirm:
-            raise HTTPException(status_code=400, detail="Passwords do not match")
-
-        result = validate_password_strength(password, level=PolicyLevel.STANDARD)
-        if not result.is_valid:
-            error_detail = " ".join(result.errors)
-            raise HTTPException(status_code=400, detail=error_detail)
-
-        # Generate a short, unique guest username (fits 2-20 char constraint).
-        guest_prefix = "guest_"
-        max_attempts = 20
-        username = None
-        for _ in range(max_attempts):
-            candidate = f"{guest_prefix}{randbelow(100000):05d}"
-            if not database.user_exists(candidate):
-                username = candidate
-                break
-
-        if username is None:
-            raise HTTPException(status_code=500, detail="Failed to allocate a guest username")
-
-        guest_expires_at = (datetime.now(UTC) + timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
-        if not database.create_user_with_password(
-            username,
-            password,
-            role="player",
-            account_origin="visitor",
-            is_guest=True,
-            guest_expires_at=guest_expires_at,
-        ):
-            raise HTTPException(
-                status_code=500, detail="Failed to create guest account. Please try again."
+            return RegisterGuestResponse(
+                success=True,
+                message=(
+                    "Temporary guest account created successfully! "
+                    f"You can now login as {username}."
+                ),
+                username=username,
+                character_id=character_id,
+                character_name=character_name,
+                world_id=world_id,
+                entity_state=entity_state,
+                entity_state_error=entity_state_error,
             )
-
-        user_id = database.get_user_id(username)
-        if user_id is None:
-            database.delete_user(username)
-            raise HTTPException(status_code=500, detail="Failed to finalize guest account")
-
-        if not database.create_character_for_user(
-            user_id,
-            character_name,
-            is_guest_created=True,
-        ):
-            database.delete_user(username)
-            raise HTTPException(status_code=400, detail="Character name already taken")
-
-        # Resolve the freshly-created character id so onboarding consumers can
-        # bind deterministic external entity-state generation to this character.
-        character = database.get_character_by_name(character_name)
-        if character is None:
-            database.delete_user(username)
-            raise HTTPException(status_code=500, detail="Failed to resolve created character")
-        character_id = int(character["id"])
-        world_id = str(character.get("world_id") or config.worlds.default_world_id)
-
-        # Prefer local snapshot state from the MUD DB so onboarding reflects
-        # the same canonical state used by gameplay mechanics.
-        entity_state, entity_state_error = _fetch_local_axis_snapshot_for_character(character_id)
-
-        # Optional fallback: if local snapshot data is unavailable, attempt to
-        # fetch from the external entity integration when enabled.
-        if entity_state is None:
-            external_state, external_error = _fetch_entity_state_for_character(seed=character_id)
-            if external_state is not None:
-                entity_state = external_state
-                entity_state_error = None
-            elif external_error:
-                if entity_state_error:
-                    entity_state_error = f"{entity_state_error} {external_error}"
-                else:
-                    entity_state_error = external_error
-
-        return RegisterGuestResponse(
-            success=True,
-            message=(
-                "Temporary guest account created successfully! " f"You can now login as {username}."
-            ),
-            username=username,
-            character_id=character_id,
-            character_name=character_name,
-            world_id=world_id,
-            entity_state=entity_state,
-            entity_state_error=entity_state_error,
-        )
+        except DatabaseError as exc:
+            logger.exception("Guest registration failed due to database error")
+            raise HTTPException(
+                status_code=500, detail="Guest registration store failure."
+            ) from exc
 
     @api.post("/logout")
     async def logout(request: LogoutRequest):
@@ -431,51 +451,62 @@ def router(engine: GameEngine) -> APIRouter:
                 ``<username>_char`` entries if at least one non-legacy
                 character exists in the result set.
         """
-        user_id, username, role = validate_session(session_id)
-        if world_id:
-            if not database.can_user_access_world(user_id, world_id, role=role):
-                raise HTTPException(status_code=403, detail="World access denied")
-        characters = database.get_user_characters(user_id, world_id=world_id)
+        try:
+            user_id, username, role = validate_session(session_id)
+            if world_id:
+                if not database.can_user_access_world(user_id, world_id, role=role):
+                    raise HTTPException(status_code=403, detail="World access denied")
+            characters = database.get_user_characters(user_id, world_id=world_id)
 
-        if exclude_legacy_defaults and characters:
-            non_legacy_characters = [
-                row
-                for row in characters
-                if not _is_legacy_default_character_name(username, str(row.get("name", "")))
-            ]
-            if non_legacy_characters:
-                characters = non_legacy_characters
+            if exclude_legacy_defaults and characters:
+                non_legacy_characters = [
+                    row
+                    for row in characters
+                    if not _is_legacy_default_character_name(username, str(row.get("name", "")))
+                ]
+                if non_legacy_characters:
+                    characters = non_legacy_characters
 
-        return CharactersResponse(characters=characters)
+            return CharactersResponse(characters=characters)
+        except DatabaseError as exc:
+            logger.exception("Character listing failed due to database error")
+            raise HTTPException(status_code=500, detail="Character listing unavailable.") from exc
 
     @api.post("/characters/select", response_model=SelectCharacterResponse)
     async def select_character(request: SelectCharacterRequest):
         """Select a character for the current session."""
-        user_id, _, role = validate_session(request.session_id)
-        character = database.get_character_by_id(request.character_id)
-        if not character or character.get("user_id") != user_id:
-            raise HTTPException(status_code=404, detail="Character not found for this user")
+        try:
+            user_id, _, role = validate_session(request.session_id)
+            character = database.get_character_by_id(request.character_id)
+            if not character or character.get("user_id") != user_id:
+                raise HTTPException(status_code=404, detail="Character not found for this user")
 
-        world_id = request.world_id or character.get("world_id")
-        if not world_id:
-            raise HTTPException(status_code=400, detail="World id required")
+            world_id = request.world_id or character.get("world_id")
+            if not world_id:
+                raise HTTPException(status_code=400, detail="World id required")
 
-        if not database.can_user_access_world(user_id, world_id, role=role):
-            raise HTTPException(status_code=403, detail="World access denied")
+            if not database.can_user_access_world(user_id, world_id, role=role):
+                raise HTTPException(status_code=403, detail="World access denied")
 
-        if character.get("world_id") != world_id:
-            raise HTTPException(status_code=409, detail="Character does not belong to world")
+            if character.get("world_id") != world_id:
+                raise HTTPException(status_code=409, detail="Character does not belong to world")
 
-        if not database.set_session_character(
-            request.session_id, request.character_id, world_id=world_id
-        ):
-            raise HTTPException(status_code=500, detail="Failed to select character")
+            if not database.set_session_character(
+                request.session_id, request.character_id, world_id=world_id
+            ):
+                raise HTTPException(status_code=500, detail="Failed to select character")
 
-        return SelectCharacterResponse(
-            success=True,
-            message="Character selected.",
-            character_name=character["name"],
-        )
+            return SelectCharacterResponse(
+                success=True,
+                message="Character selected.",
+                character_name=character["name"],
+            )
+        except DatabaseError as exc:
+            logger.exception(
+                "Character selection failed due to database error (character_id=%s)",
+                request.character_id,
+            )
+            raise HTTPException(status_code=500, detail="Character selection failed.") from exc
 
     @api.post("/characters/create", response_model=CreateCharacterResponse)
     async def create_character(request: PlayerCreateCharacterRequest):
@@ -488,68 +519,75 @@ def router(engine: GameEngine) -> APIRouter:
         - ``naming_mode=manual`` is intentionally restricted to admin/superuser
           operations in this phase.
         """
-        user_id, username, role = validate_session(request.session_id)
-        world_id = request.world_id.strip()
-        if not world_id:
-            raise HTTPException(status_code=400, detail="world_id is required")
+        try:
+            user_id, username, role = validate_session(request.session_id)
+            world_id = request.world_id.strip()
+            if not world_id:
+                raise HTTPException(status_code=400, detail="world_id is required")
 
-        if not config.character_creation.player_self_create_enabled:
-            raise HTTPException(
-                status_code=403,
-                detail="Player self-service character creation is disabled.",
+            if not config.character_creation.player_self_create_enabled:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Player self-service character creation is disabled.",
+                )
+
+            access = database.get_world_access_decision(user_id, world_id, role=role)
+            if access.reason == "world_not_found":
+                raise HTTPException(status_code=404, detail=f"World '{world_id}' not found")
+            if access.reason == "world_inactive":
+                raise HTTPException(status_code=409, detail=f"World '{world_id}' is inactive")
+            if not access.can_access:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"World '{world_id}' requires an invite. "
+                        "Ask an admin to grant world access."
+                    ),
+                )
+
+            # Temporary policy guardrail:
+            # manual naming remains an elevated/admin-only capability for now.
+            if access.naming_mode != "generated" and role not in {"admin", "superuser"}:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"World '{world_id}' currently requires admin-managed character naming."
+                    ),
+                )
+
+            if not access.can_create and access.reason == "slot_limit_reached":
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"No character slots remain in '{world_id}' for account '{username}'. "
+                        f"{access.current_character_count}/{access.slot_limit_per_account} used."
+                    ),
+                )
+
+            provisioning = provision_generated_character_for_user(
+                user_id=user_id,
+                world_id=world_id,
             )
-
-        access = database.get_world_access_decision(user_id, world_id, role=role)
-        if access.reason == "world_not_found":
-            raise HTTPException(status_code=404, detail=f"World '{world_id}' not found")
-        if access.reason == "world_inactive":
-            raise HTTPException(status_code=409, detail=f"World '{world_id}' is inactive")
-        if not access.can_access:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    f"World '{world_id}' requires an invite. " "Ask an admin to grant world access."
-                ),
-            )
-
-        # Temporary policy guardrail:
-        # manual naming remains an elevated/admin-only capability for now.
-        if access.naming_mode != "generated" and role not in {"admin", "superuser"}:
-            raise HTTPException(
-                status_code=403,
-                detail=(f"World '{world_id}' currently requires admin-managed character naming."),
-            )
-
-        if not access.can_create and access.reason == "slot_limit_reached":
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"No character slots remain in '{world_id}' for account '{username}'. "
-                    f"{access.current_character_count}/{access.slot_limit_per_account} used."
-                ),
-            )
-
-        provisioning = provision_generated_character_for_user(
-            user_id=user_id,
-            world_id=world_id,
-        )
-        if not provisioning.success:
-            if provisioning.reason == "slot_limit_reached":
+            if not provisioning.success:
+                if provisioning.reason == "slot_limit_reached":
+                    raise HTTPException(status_code=409, detail=provisioning.message)
+                if provisioning.reason == "name_generation_failed":
+                    raise HTTPException(status_code=502, detail=provisioning.message)
                 raise HTTPException(status_code=409, detail=provisioning.message)
-            if provisioning.reason == "name_generation_failed":
-                raise HTTPException(status_code=502, detail=provisioning.message)
-            raise HTTPException(status_code=409, detail=provisioning.message)
 
-        return CreateCharacterResponse(
-            success=True,
-            message=f"Character '{provisioning.character_name}' created for '{username}'.",
-            character_id=provisioning.character_id,
-            character_name=provisioning.character_name,
-            world_id=provisioning.world_id,
-            seed=provisioning.seed,
-            entity_state=provisioning.entity_state,
-            entity_state_error=provisioning.entity_state_error,
-        )
+            return CreateCharacterResponse(
+                success=True,
+                message=f"Character '{provisioning.character_name}' created for '{username}'.",
+                character_id=provisioning.character_id,
+                character_name=provisioning.character_name,
+                world_id=provisioning.world_id,
+                seed=provisioning.seed,
+                entity_state=provisioning.entity_state,
+                entity_state_error=provisioning.entity_state_error,
+            )
+        except DatabaseError as exc:
+            logger.exception("Player character creation failed due to database error")
+            raise HTTPException(status_code=500, detail="Character creation unavailable.") from exc
 
     @api.post("/change-password")
     async def change_password(request: ChangePasswordRequest):

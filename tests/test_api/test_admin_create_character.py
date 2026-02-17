@@ -9,6 +9,7 @@ import pytest
 from mud_server.api.routes import admin
 from mud_server.config import use_test_database
 from mud_server.db import database
+from mud_server.db.errors import DatabaseOperationContext, DatabaseWriteError
 from mud_server.services import character_provisioning
 from mud_server.services.character_provisioning import CharacterProvisioningResult
 from tests.constants import TEST_PASSWORD
@@ -881,3 +882,47 @@ def test_manage_character_handles_backend_not_found_on_tombstone(
             )
 
     assert response.status_code == 404
+
+
+@pytest.mark.api
+def test_manage_character_maps_database_error_to_500(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Character management should map typed DB exceptions to HTTP 500."""
+    with use_test_database(temp_db_path):
+        login = test_client.post(
+            "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
+        )
+        session_id = login.json()["session_id"]
+
+        user_id = database.get_user_id("testplayer")
+        assert user_id is not None
+        assert database.create_character_for_user(
+            user_id, "Error Tombstone", world_id="pipeworks_web"
+        )
+        character = database.get_character_by_name("Error Tombstone")
+        assert character is not None
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                database,
+                "remove_sessions_for_character",
+                Mock(
+                    side_effect=DatabaseWriteError(
+                        context=DatabaseOperationContext(
+                            operation="sessions.remove_sessions_for_character"
+                        )
+                    )
+                ),
+            )
+            response = test_client.post(
+                "/admin/character/manage",
+                json={
+                    "session_id": session_id,
+                    "character_id": int(character["id"]),
+                    "action": "tombstone",
+                },
+            )
+
+    assert response.status_code == 500
+    assert "character management failed" in response.json()["detail"].lower()

@@ -23,6 +23,7 @@ import pytest
 from mud_server.config import use_test_database
 from mud_server.db import connection as db_connection
 from mud_server.db import database
+from mud_server.db.errors import DatabaseWriteError
 from tests.constants import TEST_PASSWORD
 
 
@@ -718,10 +719,11 @@ def test_remove_sessions_for_character_returns_false_when_none_removed(
 @pytest.mark.unit
 @pytest.mark.db
 def test_remove_sessions_for_character_handles_database_error(monkeypatch):
-    """Character session cleanup should return False when DB operations fail."""
+    """Character session cleanup should raise typed write errors on DB failures."""
     monkeypatch.setattr(db_connection, "get_connection", Mock(side_effect=sqlite3.Error("db boom")))
 
-    assert database.remove_sessions_for_character(42) is False
+    with pytest.raises(DatabaseWriteError):
+        database.remove_sessions_for_character(42)
 
 
 @pytest.mark.unit
@@ -864,11 +866,12 @@ def test_create_user_with_password_missing_lastrowid_raises():
 @pytest.mark.unit
 @pytest.mark.db
 def test_create_character_for_user_missing_lastrowid_raises():
+    """Character creation should map low-level write failures to typed DB errors."""
     fake_cursor = _FakeCursor(lastrowid=None)
     fake_conn = _FakeConnection(fake_cursor)
 
     with patch.object(db_connection, "get_connection", return_value=fake_conn):
-        with pytest.raises(ValueError):
+        with pytest.raises(DatabaseWriteError):
             database.create_character_for_user(1, "badchar")
 
 
@@ -1055,42 +1058,48 @@ def test_init_database_superuser_bootstrap_does_not_require_character_lastrowid(
 @pytest.mark.unit
 @pytest.mark.db
 def test_database_helpers_return_false_on_db_error():
+    """
+    Verify mixed failure contracts during the phase-4 transition.
+
+    Legacy user-account helpers still normalize database failures to ``False``
+    while refactored character/chat/session mutation helpers now raise typed
+    ``DatabaseWriteError`` exceptions.
+    """
     with patch.object(db_connection, "get_connection", side_effect=Exception("db error")):
         assert database.set_user_role("testplayer", "admin") is False
         assert database.deactivate_user("testplayer") is False
         assert database.activate_user("testplayer") is False
         assert database.change_password_for_user("testplayer", TEST_PASSWORD) is False
-        assert (
+
+        with pytest.raises(DatabaseWriteError):
             database.set_character_room(
                 "testplayer_char", "spawn", world_id=database.DEFAULT_WORLD_ID
             )
-            is False
-        )
-        assert (
+        with pytest.raises(DatabaseWriteError):
             database.set_character_inventory(
                 "testplayer_char", [], world_id=database.DEFAULT_WORLD_ID
             )
-            is False
-        )
-        assert (
+        with pytest.raises(DatabaseWriteError):
             database.add_chat_message(
                 "testplayer_char",
                 "hi",
                 "spawn",
                 world_id=database.DEFAULT_WORLD_ID,
             )
-            is False
-        )
-        assert database.create_session("testplayer", "session-x") is False
-        assert (
+        with pytest.raises(DatabaseWriteError):
+            database.create_session(1, "session-x")
+        with pytest.raises(DatabaseWriteError):
             database.set_session_character("session-x", 1, world_id=database.DEFAULT_WORLD_ID)
-            is False
-        )
-        assert database.remove_session_by_id("session-x") is False
-        assert database.remove_sessions_for_user(1) is False
-        assert database.update_session_activity("session-x") is False
-        assert database.cleanup_expired_sessions() == 0
-        assert database.clear_all_sessions() == 0
+        with pytest.raises(DatabaseWriteError):
+            database.remove_session_by_id("session-x")
+        with pytest.raises(DatabaseWriteError):
+            database.remove_sessions_for_user(1)
+        with pytest.raises(DatabaseWriteError):
+            database.update_session_activity("session-x")
+        with pytest.raises(DatabaseWriteError):
+            database.cleanup_expired_sessions()
+        with pytest.raises(DatabaseWriteError):
+            database.clear_all_sessions()
 
 
 @pytest.mark.unit

@@ -30,6 +30,7 @@ from fastapi import HTTPException
 
 from mud_server.api.permissions import Permission, has_permission
 from mud_server.db import facade as database
+from mud_server.db.errors import DatabaseError
 
 # ============================================================================
 # SESSION LIFECYCLE MANAGEMENT
@@ -138,22 +139,25 @@ def validate_session(session_id: str) -> tuple[int, str, str]:
     Raises:
         HTTPException(401): If session_id is invalid or expired
     """
-    session = _get_valid_session(session_id)
-    if not session:
-        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    try:
+        session = _get_valid_session(session_id)
+        if not session:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
 
-    database.update_session_activity(session_id)
+        database.update_session_activity(session_id)
 
-    user_id = int(session["user_id"])
-    username = database.get_username_by_id(user_id)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid session user")
+        user_id = int(session["user_id"])
+        username = database.get_username_by_id(user_id)
+        if not username:
+            raise HTTPException(status_code=401, detail="Invalid session user")
 
-    role = database.get_user_role(username)
-    if not role:
-        raise HTTPException(status_code=401, detail="Invalid session user")
+        role = database.get_user_role(username)
+        if not role:
+            raise HTTPException(status_code=401, detail="Invalid session user")
 
-    return user_id, username, role
+        return user_id, username, role
+    except DatabaseError as exc:
+        raise HTTPException(status_code=500, detail="Session store unavailable") from exc
 
 
 def validate_session_for_game(session_id: str) -> tuple[int, str, str, int, str, str]:
@@ -167,43 +171,46 @@ def validate_session_for_game(session_id: str) -> tuple[int, str, str, int, str,
         HTTPException(401): If session_id is invalid or expired
         HTTPException(409): If no character is selected for this session
     """
-    session = _get_valid_session(session_id)
-    if not session:
-        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    try:
+        session = _get_valid_session(session_id)
+        if not session:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
 
-    database.update_session_activity(session_id)
+        database.update_session_activity(session_id)
 
-    user_id = int(session["user_id"])
-    username = database.get_username_by_id(user_id)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid session user")
+        user_id = int(session["user_id"])
+        username = database.get_username_by_id(user_id)
+        if not username:
+            raise HTTPException(status_code=401, detail="Invalid session user")
 
-    role = database.get_user_role(username)
-    if not role:
-        raise HTTPException(status_code=401, detail="Invalid session user")
+        role = database.get_user_role(username)
+        if not role:
+            raise HTTPException(status_code=401, detail="Invalid session user")
 
-    # Account and character sessions are intentionally separate.
-    # Gameplay access requires an explicit prior character selection.
-    character_id = session.get("character_id")
-    if not character_id:
-        raise HTTPException(
-            status_code=409,
-            detail="No character selected for session. Select a character first.",
-        )
+        # Account and character sessions are intentionally separate.
+        # Gameplay access requires an explicit prior character selection.
+        character_id = session.get("character_id")
+        if not character_id:
+            raise HTTPException(
+                status_code=409,
+                detail="No character selected for session. Select a character first.",
+            )
 
-    character_name = database.get_character_name_by_id(int(character_id))
-    if not character_name:
-        raise HTTPException(status_code=409, detail="Selected character not found")
+        character_name = database.get_character_name_by_id(int(character_id))
+        if not character_name:
+            raise HTTPException(status_code=409, detail="Selected character not found")
 
-    character = database.get_character_by_id(int(character_id))
-    if not character or not character.get("world_id"):
-        raise HTTPException(status_code=409, detail="Character world not found")
+        character = database.get_character_by_id(int(character_id))
+        if not character or not character.get("world_id"):
+            raise HTTPException(status_code=409, detail="Character world not found")
 
-    world_id = character["world_id"]
-    if session.get("world_id") != world_id:
-        database.set_session_character(session_id, int(character_id), world_id=world_id)
+        world_id = character["world_id"]
+        if session.get("world_id") != world_id:
+            database.set_session_character(session_id, int(character_id), world_id=world_id)
 
-    return user_id, username, role, int(character_id), character_name, world_id
+        return user_id, username, role, int(character_id), character_name, world_id
+    except DatabaseError as exc:
+        raise HTTPException(status_code=500, detail="Session store unavailable") from exc
 
 
 def validate_session_with_permission(
