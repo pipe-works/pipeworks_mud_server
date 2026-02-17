@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from mud_server.db import database, facade
 
 
@@ -51,10 +53,24 @@ def test_facade_patch_teardown_restores_database_attribute():
 
 
 def test_facade_dir_exposes_forwarded_attributes():
-    """Facade ``dir()`` should include symbols from the backing DB module."""
+    """Facade ``dir()`` should include explicit public API symbols."""
     names = dir(facade)
     assert "user_exists" in names
     assert "get_characters_in_room" in names
+    assert "Any" not in names
+
+
+def test_facade_all_tracks_explicit_api_contract():
+    """Facade ``__all__`` should include public DB symbols and exclude removed aliases."""
+    assert "user_exists" in facade.__all__
+    assert "get_characters_in_room" in facade.__all__
+    assert "player_exists" not in facade.__all__
+
+
+def test_facade_removed_alias_raises_clear_error():
+    """Removed legacy aliases should raise a directed migration error."""
+    with pytest.raises(AttributeError, match="removed in 0.3.10"):
+        _ = facade.player_exists
 
 
 def test_facade_allows_local_attribute_set_and_delete_for_unknown_names():
