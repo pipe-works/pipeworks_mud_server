@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from mud_server.db import admin_repo, database
+from mud_server.db import connection as db_connection
+from mud_server.db.errors import DatabaseReadError
 
 
 def test_list_tables_returns_core_tables(test_db):
@@ -83,3 +87,28 @@ def test_get_active_connections_world_filter(test_db, db_with_users):
 
     assert any(row["session_id"] == "admin-repo-daily-session" for row in daily_rows)
     assert all(row["world_id"] == "daily_undertaking" for row in daily_rows)
+
+
+def test_admin_repo_read_paths_raise_typed_errors_on_connection_failure():
+    """Admin read helpers should map infrastructure failures to read errors."""
+    with patch.object(db_connection, "get_connection", side_effect=Exception("db boom")):
+        with pytest.raises(DatabaseReadError):
+            admin_repo.get_table_names()
+        with pytest.raises(DatabaseReadError):
+            admin_repo.list_tables()
+        with pytest.raises(DatabaseReadError):
+            admin_repo.get_schema_map()
+        with pytest.raises(DatabaseReadError):
+            admin_repo.get_table_rows("users")
+        with pytest.raises(DatabaseReadError):
+            admin_repo.get_all_users_detailed()
+        with pytest.raises(DatabaseReadError):
+            admin_repo.get_all_users()
+        with pytest.raises(DatabaseReadError):
+            admin_repo.get_character_locations()
+        with pytest.raises(DatabaseReadError):
+            admin_repo.get_all_sessions()
+        with pytest.raises(DatabaseReadError):
+            admin_repo.get_active_connections()
+        with pytest.raises(DatabaseReadError):
+            admin_repo.get_all_chat_messages()
