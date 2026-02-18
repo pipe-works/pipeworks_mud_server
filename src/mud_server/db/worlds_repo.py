@@ -3,74 +3,87 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
+from mud_server.db.connection import connection_scope
+from mud_server.db.errors import DatabaseError, DatabaseOperationContext, DatabaseReadError
 from mud_server.db.types import WorldAccessDecision
 
 
-def _get_connection() -> sqlite3.Connection:
-    """Return a DB connection from the shared connection module."""
-    from mud_server.db.connection import get_connection as get_connection_impl
-
-    return get_connection_impl()
+def _raise_read_error(operation: str, exc: Exception, *, details: str | None = None) -> NoReturn:
+    """Raise a typed repository read error while preserving chained cause."""
+    if isinstance(exc, DatabaseError):
+        raise exc
+    raise DatabaseReadError(
+        context=DatabaseOperationContext(operation=operation, details=details),
+        cause=exc,
+    ) from exc
 
 
 def get_world_by_id(world_id: str) -> dict[str, Any] | None:
     """Return one world catalog row by id."""
-    conn = _get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT id, name, description, is_active, config_json, created_at
-        FROM worlds
-        WHERE id = ?
-        """,
-        (world_id,),
-    )
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        return None
-    return {
-        "id": row[0],
-        "name": row[1],
-        "description": row[2],
-        "is_active": bool(row[3]),
-        "config_json": row[4],
-        "created_at": row[5],
-    }
+    try:
+        with connection_scope() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, name, description, is_active, config_json, created_at
+                FROM worlds
+                WHERE id = ?
+                """,
+                (world_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                "id": row[0],
+                "name": row[1],
+                "description": row[2],
+                "is_active": bool(row[3]),
+                "config_json": row[4],
+                "created_at": row[5],
+            }
+    except Exception as exc:
+        _raise_read_error("worlds.get_world_by_id", exc, details=f"world_id={world_id!r}")
 
 
 def list_worlds(*, include_inactive: bool = False) -> list[dict[str, Any]]:
     """Return world catalog rows, optionally including inactive worlds."""
-    conn = _get_connection()
-    cursor = conn.cursor()
-    if include_inactive:
-        cursor.execute("""
-            SELECT id, name, description, is_active, config_json, created_at
-            FROM worlds
-            ORDER BY id
-            """)
-    else:
-        cursor.execute("""
-            SELECT id, name, description, is_active, config_json, created_at
-            FROM worlds
-            WHERE is_active = 1
-            ORDER BY id
-            """)
-    rows = cursor.fetchall()
-    conn.close()
-    return [
-        {
-            "id": row[0],
-            "name": row[1],
-            "description": row[2],
-            "is_active": bool(row[3]),
-            "config_json": row[4],
-            "created_at": row[5],
-        }
-        for row in rows
-    ]
+    try:
+        with connection_scope() as conn:
+            cursor = conn.cursor()
+            if include_inactive:
+                cursor.execute("""
+                    SELECT id, name, description, is_active, config_json, created_at
+                    FROM worlds
+                    ORDER BY id
+                    """)
+            else:
+                cursor.execute("""
+                    SELECT id, name, description, is_active, config_json, created_at
+                    FROM worlds
+                    WHERE is_active = 1
+                    ORDER BY id
+                    """)
+            rows = cursor.fetchall()
+            return [
+                {
+                    "id": row[0],
+                    "name": row[1],
+                    "description": row[2],
+                    "is_active": bool(row[3]),
+                    "config_json": row[4],
+                    "created_at": row[5],
+                }
+                for row in rows
+            ]
+    except Exception as exc:
+        _raise_read_error(
+            "worlds.list_worlds",
+            exc,
+            details=f"include_inactive={include_inactive}",
+        )
 
 
 def _query_world_rows(cursor: sqlite3.Cursor, *, include_inactive: bool) -> list[tuple[Any, ...]]:
@@ -212,42 +225,46 @@ def get_world_access_decision(
     """Resolve world access/create decision for one account and world."""
     from mud_server.config import config
 
-    conn = _get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT id, name, description, is_active, config_json, created_at
-        FROM worlds
-        WHERE id = ?
-        LIMIT 1
-        """,
-        (world_id,),
-    )
-    world_row = cursor.fetchone()
-    if world_row is None:
-        world_policy = config.resolve_world_character_policy(world_id)
-        conn.close()
-        return WorldAccessDecision(
-            world_id=world_id,
-            can_access=False,
-            can_create=False,
-            access_mode=world_policy.creation_mode,
-            naming_mode=world_policy.naming_mode,
-            slot_limit_per_account=int(world_policy.slot_limit_per_account),
-            current_character_count=0,
-            has_permission_grant=False,
-            has_existing_character=False,
-            reason="world_not_found",
-        )
+    try:
+        with connection_scope() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, name, description, is_active, config_json, created_at
+                FROM worlds
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (world_id,),
+            )
+            world_row = cursor.fetchone()
+            if world_row is None:
+                world_policy = config.resolve_world_character_policy(world_id)
+                return WorldAccessDecision(
+                    world_id=world_id,
+                    can_access=False,
+                    can_create=False,
+                    access_mode=world_policy.creation_mode,
+                    naming_mode=world_policy.naming_mode,
+                    slot_limit_per_account=int(world_policy.slot_limit_per_account),
+                    current_character_count=0,
+                    has_permission_grant=False,
+                    has_existing_character=False,
+                    reason="world_not_found",
+                )
 
-    decision = _resolve_world_access_for_row(
-        cursor,
-        user_id=user_id,
-        role=role,
-        world_row=world_row,
-    )
-    conn.close()
-    return decision
+            return _resolve_world_access_for_row(
+                cursor,
+                user_id=user_id,
+                role=role,
+                world_row=world_row,
+            )
+    except Exception as exc:
+        _raise_read_error(
+            "worlds.get_world_access_decision",
+            exc,
+            details=f"user_id={user_id}, world_id={world_id!r}, role={role!r}",
+        )
 
 
 def can_user_access_world(user_id: int, world_id: str, *, role: str | None = None) -> bool:
@@ -257,41 +274,48 @@ def can_user_access_world(user_id: int, world_id: str, *, role: str | None = Non
 
 def get_user_character_count_for_world(user_id: int, world_id: str) -> int:
     """Return the number of characters the account owns in a world."""
-    conn = _get_connection()
-    cursor = conn.cursor()
-    count = _count_user_characters_in_world(cursor, user_id=user_id, world_id=world_id)
-    conn.close()
-    return count
+    try:
+        with connection_scope() as conn:
+            cursor = conn.cursor()
+            return _count_user_characters_in_world(cursor, user_id=user_id, world_id=world_id)
+    except Exception as exc:
+        _raise_read_error(
+            "worlds.get_user_character_count_for_world",
+            exc,
+            details=f"user_id={user_id}, world_id={world_id!r}",
+        )
 
 
 def get_world_admin_rows() -> list[dict[str, Any]]:
     """Return operational world rows for admin/superuser world monitoring."""
-    conn = _get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT w.id,
-               w.name,
-               w.description,
-               w.is_active,
-               w.config_json,
-               w.created_at,
-               s.session_id,
-               s.last_activity,
-               s.client_type,
-               c.id,
-               c.name,
-               u.username
-        FROM worlds w
-        LEFT JOIN sessions s
-               ON s.world_id = w.id
-              AND s.character_id IS NOT NULL
-              AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
-        LEFT JOIN characters c ON c.id = s.character_id
-        LEFT JOIN users u ON u.id = s.user_id
-        ORDER BY w.id ASC, datetime(s.last_activity) DESC
-        """)
-    rows = cursor.fetchall()
-    conn.close()
+    try:
+        with connection_scope() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT w.id,
+                       w.name,
+                       w.description,
+                       w.is_active,
+                       w.config_json,
+                       w.created_at,
+                       s.session_id,
+                       s.last_activity,
+                       s.client_type,
+                       c.id,
+                       c.name,
+                       u.username
+                FROM worlds w
+                LEFT JOIN sessions s
+                       ON s.world_id = w.id
+                      AND s.character_id IS NOT NULL
+                      AND (s.expires_at IS NULL OR datetime(s.expires_at) > datetime('now'))
+                LEFT JOIN characters c ON c.id = s.character_id
+                LEFT JOIN users u ON u.id = s.user_id
+                ORDER BY w.id ASC, datetime(s.last_activity) DESC
+                """)
+            rows = cursor.fetchall()
+    except Exception as exc:
+        _raise_read_error("worlds.get_world_admin_rows", exc)
 
     worlds_by_id: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -370,42 +394,50 @@ def list_worlds_for_user(
         if username:
             role = get_user_role(username)
 
-    conn = _get_connection()
-    cursor = conn.cursor()
+    try:
+        with connection_scope() as conn:
+            cursor = conn.cursor()
 
-    rows = _query_world_rows(cursor, include_inactive=include_inactive)
-    worlds: list[dict[str, Any]] = []
-    is_elevated = role in {"admin", "superuser"}
-    for row in rows:
-        decision = _resolve_world_access_for_row(
-            cursor,
-            user_id=user_id,
-            role=role,
-            world_row=row,
+            rows = _query_world_rows(cursor, include_inactive=include_inactive)
+            worlds: list[dict[str, Any]] = []
+            is_elevated = role in {"admin", "superuser"}
+            for row in rows:
+                decision = _resolve_world_access_for_row(
+                    cursor,
+                    user_id=user_id,
+                    role=role,
+                    world_row=row,
+                )
+                if not is_elevated and not include_invite_worlds and not decision.can_access:
+                    continue
+                worlds.append(
+                    {
+                        "id": row[0],
+                        "name": row[1],
+                        "description": row[2],
+                        "is_active": bool(row[3]),
+                        "config_json": row[4],
+                        "created_at": row[5],
+                        "can_access": decision.can_access,
+                        "can_create": decision.can_create,
+                        "access_mode": decision.access_mode,
+                        "naming_mode": decision.naming_mode,
+                        "slot_limit_per_account": decision.slot_limit_per_account,
+                        "current_character_count": decision.current_character_count,
+                        "has_permission_grant": decision.has_permission_grant,
+                        "has_existing_character": decision.has_existing_character,
+                        "is_invite_only": decision.access_mode == "invite",
+                        "is_locked": not decision.can_access,
+                        "access_reason": decision.reason,
+                    }
+                )
+            return worlds
+    except Exception as exc:
+        _raise_read_error(
+            "worlds.list_worlds_for_user",
+            exc,
+            details=(
+                f"user_id={user_id}, role={role!r}, include_inactive={include_inactive}, "
+                f"include_invite_worlds={include_invite_worlds}"
+            ),
         )
-        if not is_elevated and not include_invite_worlds and not decision.can_access:
-            continue
-        worlds.append(
-            {
-                "id": row[0],
-                "name": row[1],
-                "description": row[2],
-                "is_active": bool(row[3]),
-                "config_json": row[4],
-                "created_at": row[5],
-                "can_access": decision.can_access,
-                "can_create": decision.can_create,
-                "access_mode": decision.access_mode,
-                "naming_mode": decision.naming_mode,
-                "slot_limit_per_account": decision.slot_limit_per_account,
-                "current_character_count": decision.current_character_count,
-                "has_permission_grant": decision.has_permission_grant,
-                "has_existing_character": decision.has_existing_character,
-                "is_invite_only": decision.access_mode == "invite",
-                "is_locked": not decision.can_access,
-                "access_reason": decision.reason,
-            }
-        )
-
-    conn.close()
-    return worlds

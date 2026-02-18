@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
+import pytest
+
 from mud_server.config import WorldCharacterPolicy, config
+from mud_server.db import connection as db_connection
 from mud_server.db import database, worlds_repo
+from mud_server.db.errors import DatabaseReadError
 
 
 def _seed_world(cursor, world_id: str, *, is_active: int = 1) -> None:
@@ -164,3 +170,20 @@ def test_get_world_access_decision_world_not_found_returns_typed_row(db_with_use
     assert decision.reason == "world_not_found"
     assert decision.can_access is False
     assert decision.can_create is False
+
+
+def test_worlds_repo_read_paths_raise_typed_errors_on_connection_failure():
+    """World read helpers should map infrastructure failures to read errors."""
+    with patch.object(db_connection, "get_connection", side_effect=Exception("db boom")):
+        with pytest.raises(DatabaseReadError):
+            worlds_repo.get_world_by_id(database.DEFAULT_WORLD_ID)
+        with pytest.raises(DatabaseReadError):
+            worlds_repo.list_worlds()
+        with pytest.raises(DatabaseReadError):
+            worlds_repo.get_world_access_decision(1, database.DEFAULT_WORLD_ID, role="player")
+        with pytest.raises(DatabaseReadError):
+            worlds_repo.get_user_character_count_for_world(1, database.DEFAULT_WORLD_ID)
+        with pytest.raises(DatabaseReadError):
+            worlds_repo.get_world_admin_rows()
+        with pytest.raises(DatabaseReadError):
+            worlds_repo.list_worlds_for_user(1, role="player")
