@@ -161,6 +161,9 @@ Add API Endpoint
 Expose the repository function from ``mud_server.db.facade`` and use it from
 an API route module (for example ``src/mud_server/api/routes/game.py``):
 
+Do not add new runtime exports to ``mud_server.db.database``. That module exists
+only as a compatibility re-export surface for legacy imports and tests.
+
 .. code-block:: python
 
     @app.get("/api/achievements/{character_id}")
@@ -315,12 +318,17 @@ Keep code organized by feature::
     │   └── mechanics/        # Specific game mechanics
     ├── db/
     │   ├── facade.py         # App-facing DB contract
-    │   ├── database.py       # Compatibility re-export module
+    │   ├── database.py       # Compatibility re-export module only
     │   ├── schema.py         # DDL + invariant triggers
     │   ├── connection.py     # SQLite connection/transaction helpers
     │   ├── users_repo.py     # Account persistence
-    │   ├── characters_repo.py
-    │   ├── sessions_repo.py
+    │   ├── characters_repo.py # Character identity, inventory, room state
+    │   ├── sessions_repo.py  # Session lifecycle and world activity
+    │   ├── chat_repo.py      # Chat persistence
+    │   ├── worlds_repo.py    # World catalog, access decisions, online status
+    │   ├── axis_repo.py      # Axis policy/state registry and scoring helpers
+    │   ├── events_repo.py    # Event ledger persistence
+    │   ├── admin_repo.py     # Admin dashboard and inspector read paths
     │   └── ...
     ├── api/
     │   ├── server.py
@@ -338,11 +346,11 @@ Migration Strategy
 
 When adding new features:
 
-1. Keep existing features working
-2. Add new systems alongside old ones
-3. Use feature flags for testing
-4. Gradual rollout to users
-5. Preserve data - don't lose player progress
+1. Define compatibility policy first (breaking changes are acceptable only when explicitly versioned and documented)
+2. Change the app-facing contract in ``mud_server.db.facade`` and update call sites
+3. Keep repository responsibilities bounded (do not re-introduce monolithic DB helpers)
+4. Add/adjust tests for contract, repository behavior, and error mapping at API boundaries
+5. Preserve data and invariants with schema changes, indexes, and migration notes
 
 Contributing
 ------------

@@ -16,8 +16,8 @@ The ASCII diagram below reflects the current SQLite schema in ``data/mud.db``.
     | NN  password_hash      TEXT      |
     |     email_hash          TEXT     | UNIQUE
     | NN  role               TEXT      | DEFAULT 'player'
-    | NN  is_active          INTEGER   | DEFAULT 1
-    | NN  is_guest           INTEGER   | DEFAULT 0
+    | NN  is_active          INTEGER   | DEFAULT 1, CHECK IN (0, 1)
+    | NN  is_guest           INTEGER   | DEFAULT 0, CHECK IN (0, 1)
     |     guest_expires_at   TIMESTAMP |
     | NN  account_origin     TEXT      | DEFAULT 'legacy'
     |     created_at         TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
@@ -31,15 +31,15 @@ The ASCII diagram below reflects the current SQLite schema in ``data/mud.db``.
     +----------------------------------+
     | PK  id                 INTEGER   |
     |     user_id            INTEGER   | FK -> users.id (ON DELETE SET NULL)
-    | NN  name               TEXT      | UNIQUE
-    | NN  world_id           TEXT      |
+    | NN  name               TEXT      |
+    | NN  world_id           TEXT      | PART OF UNIQUE(world_id, name)
     | NN  inventory          TEXT      | DEFAULT '[]'
-    | NN  is_guest_created   INTEGER   | DEFAULT 0
+    | NN  is_guest_created   INTEGER   | DEFAULT 0, CHECK IN (0, 1)
     |     created_at         TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
     |     updated_at         TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
     |     base_state_json    TEXT      |
     |     current_state_json TEXT      |
-    |     state_seed         INTEGER   | DEFAULT 0
+    |     state_seed         INTEGER   | DEFAULT 0, CHECK >= 0
     |     state_version      TEXT      |
     |     state_updated_at   TIMESTAMP |
     +----------------------------------+
@@ -90,7 +90,7 @@ The ASCII diagram below reflects the current SQLite schema in ``data/mud.db``.
     | PK  id                 TEXT      |
     | NN  name               TEXT      |
     |     description        TEXT      |
-    | NN  is_active          INTEGER   | DEFAULT 1
+    | NN  is_active          INTEGER   | DEFAULT 1, CHECK IN (0, 1)
     | NN  config_json        TEXT      | DEFAULT '{}'
     |     created_at         TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
     +----------------------------------+
@@ -101,7 +101,7 @@ The ASCII diagram below reflects the current SQLite schema in ``data/mud.db``.
     +----------------------------------+
     | PK  user_id            INTEGER   | FK -> users.id (ON DELETE CASCADE)
     | PK  world_id           TEXT      | FK -> worlds.id (ON DELETE CASCADE)
-    | NN  can_access         INTEGER   | DEFAULT 1
+    | NN  can_access         INTEGER   | DEFAULT 1, CHECK IN (0, 1)
     |     created_at         TIMESTAMP | DEFAULT CURRENT_TIMESTAMP
     +----------------------------------+
 
@@ -192,8 +192,15 @@ Notes
   auto-purged; the user row is deleted and related characters are unlinked
   (``user_id`` set to NULL) rather than deleted.
 - ``characters.name`` is a plain TEXT field, so names with spaces (e.g., first + last)
-  are supported.
+  are supported; uniqueness is enforced per world by ``UNIQUE(world_id, name)``.
+- Session integrity is enforced by SQLite triggers:
+  account-only sessions must keep both ``character_id`` and ``world_id`` NULL;
+  in-world sessions must set both and match character ownership/world.
 - Axis state is tracked in **normalized tables** (``axis``, ``axis_value``,
   ``character_axis_score``) with an **event ledger** (``event*`` tables).
 - ``world_permissions`` stores invite-style access grants. Open-world access is
   policy-driven from config and may not require a row in this table.
+- Hot-path indexes are intentionally maintained for world-scoped session activity,
+  character ownership queries, and room chat history lookups.
+- Runtime code should import DB operations from ``mud_server.db.facade``;
+  ``mud_server.db.database`` is a compatibility re-export surface.
