@@ -125,7 +125,7 @@ Database Layer
 Located in ``src/mud_server/db/``:
 
 * ``facade.py`` - app-facing DB API contract (used by API/core/services/CLI)
-* ``database.py`` - compatibility re-export surface for DB symbols
+* ``database.py`` - legacy compatibility re-export surface (not for new runtime imports)
 * ``schema.py`` - schema bootstrap, indexes, and invariant triggers
 * ``*_repo.py`` modules - bounded-context repositories (users, characters, sessions, chat, worlds, axis/events, admin)
 
@@ -217,6 +217,20 @@ Repository Pattern
 * SQL implementation is split across repository modules by domain
 * ``database.py`` remains as a compatibility symbol surface only
 * Connection and transaction ownership lives in ``connection.py`` and repositories
+* Repository layers raise typed DB errors and API boundaries map them to HTTP responses
+
+Compatibility Test Layout
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Legacy ``mud_server.db.database`` contract coverage is split into focused suites:
+
+* ``tests/test_db/test_database_init_surface.py``
+* ``tests/test_db/test_database_users_surface.py``
+* ``tests/test_db/test_database_characters_surface.py``
+* ``tests/test_db/test_database_sessions_surface.py``
+* ``tests/test_db/test_database_chat_surface.py``
+* ``tests/test_db/test_database_admin_surface.py``
+* ``tests/test_db/test_database_error_surface.py``
 
 Database Schema
 ---------------
