@@ -6,17 +6,37 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 from secrets import randbelow
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
+from mud_server.db.connection import connection_scope
 from mud_server.db.constants import DEFAULT_AXIS_SCORE
+from mud_server.db.errors import (
+    DatabaseError,
+    DatabaseOperationContext,
+    DatabaseReadError,
+    DatabaseWriteError,
+)
 from mud_server.db.types import AxisRegistrySeedStats
 
 
-def _get_connection() -> sqlite3.Connection:
-    """Return a DB connection from the shared connection module."""
-    from mud_server.db.connection import get_connection as get_connection_impl
+def _raise_read_error(operation: str, exc: Exception, *, details: str | None = None) -> NoReturn:
+    """Raise a typed repository read error while preserving chained cause."""
+    if isinstance(exc, DatabaseError):
+        raise exc
+    raise DatabaseReadError(
+        context=DatabaseOperationContext(operation=operation, details=details),
+        cause=exc,
+    ) from exc
 
-    return get_connection_impl()
+
+def _raise_write_error(operation: str, exc: Exception, *, details: str | None = None) -> NoReturn:
+    """Raise a typed repository write error while preserving chained cause."""
+    if isinstance(exc, DatabaseError):
+        raise exc
+    raise DatabaseWriteError(
+        context=DatabaseOperationContext(operation=operation, details=details),
+        cause=exc,
+    ) from exc
 
 
 def _generate_state_seed() -> int:
@@ -52,79 +72,83 @@ def seed_axis_registry(
     axes_missing_thresholds = 0
     axis_values_skipped = 0
 
-    conn = _get_connection()
-    cursor = conn.cursor()
+    try:
+        with connection_scope(write=True) as conn:
+            cursor = conn.cursor()
 
-    for axis_name, axis_data in axes_definitions.items():
-        axis_data = axis_data or {}
-        ordering = axis_data.get("ordering")
-        ordering_json = json.dumps(ordering, sort_keys=True) if ordering else None
+            for axis_name, axis_data in axes_definitions.items():
+                axis_data = axis_data or {}
+                ordering = axis_data.get("ordering")
+                ordering_json = json.dumps(ordering, sort_keys=True) if ordering else None
 
-        cursor.execute(
-            """
-            INSERT INTO axis (world_id, name, description, ordering_json)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(world_id, name) DO UPDATE SET
-                description = excluded.description,
-                ordering_json = excluded.ordering_json
-            """,
-            (
-                world_id,
-                axis_name,
-                axis_data.get("description"),
-                ordering_json,
-            ),
+                cursor.execute(
+                    """
+                    INSERT INTO axis (world_id, name, description, ordering_json)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(world_id, name) DO UPDATE SET
+                        description = excluded.description,
+                        ordering_json = excluded.ordering_json
+                    """,
+                    (
+                        world_id,
+                        axis_name,
+                        axis_data.get("description"),
+                        ordering_json,
+                    ),
+                )
+                axes_upserted += 1
+
+                cursor.execute(
+                    "SELECT id FROM axis WHERE world_id = ? AND name = ? LIMIT 1",
+                    (world_id, axis_name),
+                )
+                axis_row = cursor.fetchone()
+                if not axis_row:
+                    axis_values_skipped += 1
+                    continue
+                axis_id = int(axis_row[0])
+
+                thresholds = thresholds_definitions.get(axis_name)
+                if not isinstance(thresholds, dict):
+                    axes_missing_thresholds += 1
+                    continue
+
+                values = thresholds.get("values") or {}
+                if not isinstance(values, dict):
+                    axis_values_skipped += 1
+                    continue
+
+                ordering_values = _extract_axis_ordering_values(axis_data)
+                ordinal_map = {value: index for index, value in enumerate(ordering_values)}
+
+                cursor.execute("DELETE FROM axis_value WHERE axis_id = ?", (axis_id,))
+                for value_name, value_bounds in values.items():
+                    value_bounds = value_bounds or {}
+                    min_score = value_bounds.get("min")
+                    max_score = value_bounds.get("max")
+                    min_score = float(min_score) if min_score is not None else None
+                    max_score = float(max_score) if max_score is not None else None
+
+                    cursor.execute(
+                        """
+                        INSERT INTO axis_value (axis_id, value, min_score, max_score, ordinal)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            axis_id,
+                            str(value_name),
+                            min_score,
+                            max_score,
+                            ordinal_map.get(str(value_name)),
+                        ),
+                    )
+                    axis_values_inserted += 1
+    except Exception as exc:
+        _raise_write_error(
+            "axis.seed_axis_registry",
+            exc,
+            details=f"world_id={world_id!r}",
         )
-        axes_upserted += 1
-
-        cursor.execute(
-            "SELECT id FROM axis WHERE world_id = ? AND name = ? LIMIT 1",
-            (world_id, axis_name),
-        )
-        axis_row = cursor.fetchone()
-        if not axis_row:
-            axis_values_skipped += 1
-            continue
-        axis_id = int(axis_row[0])
-
-        thresholds = thresholds_definitions.get(axis_name)
-        if not isinstance(thresholds, dict):
-            axes_missing_thresholds += 1
-            continue
-
-        values = thresholds.get("values") or {}
-        if not isinstance(values, dict):
-            axis_values_skipped += 1
-            continue
-
-        ordering_values = _extract_axis_ordering_values(axis_data)
-        ordinal_map = {value: index for index, value in enumerate(ordering_values)}
-
-        cursor.execute("DELETE FROM axis_value WHERE axis_id = ?", (axis_id,))
-        for value_name, value_bounds in values.items():
-            value_bounds = value_bounds or {}
-            min_score = value_bounds.get("min")
-            max_score = value_bounds.get("max")
-            min_score = float(min_score) if min_score is not None else None
-            max_score = float(max_score) if max_score is not None else None
-
-            cursor.execute(
-                """
-                INSERT INTO axis_value (axis_id, value, min_score, max_score, ordinal)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    axis_id,
-                    str(value_name),
-                    min_score,
-                    max_score,
-                    ordinal_map.get(str(value_name)),
-                ),
-            )
-            axis_values_inserted += 1
-
-    conn.commit()
-    conn.close()
 
     return AxisRegistrySeedStats(
         axes_upserted=axes_upserted,
@@ -239,30 +263,34 @@ def apply_entity_state_to_character(
     if not axis_labels:
         return None
 
-    conn = _get_connection()
-    cursor = conn.cursor()
     try:
-        current_scores = {
-            row["axis_name"]: float(row["axis_score"])
-            for row in _fetch_character_axis_scores(cursor, character_id, world_id)
-        }
-        deltas: dict[str, float] = {}
-        for axis_name, axis_label in axis_labels.items():
-            target_score = _resolve_axis_score_for_label(
-                cursor,
-                world_id=world_id,
-                axis_name=axis_name,
-                axis_label=axis_label,
-            )
-            if target_score is None:
-                continue
-            old_score = current_scores.get(axis_name, DEFAULT_AXIS_SCORE)
-            delta = target_score - old_score
-            if abs(delta) < 1e-9:
-                continue
-            deltas[axis_name] = delta
-    finally:
-        conn.close()
+        with connection_scope() as conn:
+            cursor = conn.cursor()
+            current_scores = {
+                row["axis_name"]: float(row["axis_score"])
+                for row in _fetch_character_axis_scores(cursor, character_id, world_id)
+            }
+            deltas: dict[str, float] = {}
+            for axis_name, axis_label in axis_labels.items():
+                target_score = _resolve_axis_score_for_label(
+                    cursor,
+                    world_id=world_id,
+                    axis_name=axis_name,
+                    axis_label=axis_label,
+                )
+                if target_score is None:
+                    continue
+                old_score = current_scores.get(axis_name, DEFAULT_AXIS_SCORE)
+                delta = target_score - old_score
+                if abs(delta) < 1e-9:
+                    continue
+                deltas[axis_name] = delta
+    except Exception as exc:
+        _raise_read_error(
+            "axis.apply_entity_state_to_character",
+            exc,
+            details=f"character_id={character_id}, world_id={world_id!r}",
+        )
 
     if not deltas:
         return None
@@ -463,62 +491,69 @@ def _refresh_character_current_snapshot(
 
 def get_character_axis_state(character_id: int) -> dict[str, Any] | None:
     """Return axis score + snapshot payload for one character."""
-    conn = _get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT id,
-               world_id,
-               base_state_json,
-               current_state_json,
-               state_seed,
-               state_version,
-               state_updated_at
-        FROM characters
-        WHERE id = ?
-        """,
-        (character_id,),
-    )
-    row = cursor.fetchone()
-    if not row:
-        conn.close()
-        return None
+    try:
+        with connection_scope() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id,
+                       world_id,
+                       base_state_json,
+                       current_state_json,
+                       state_seed,
+                       state_version,
+                       state_updated_at
+                FROM characters
+                WHERE id = ?
+                """,
+                (character_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
 
-    world_id = row[1]
-    base_state_json = row[2]
-    current_state_json = row[3]
-    state_seed = row[4]
-    state_version = row[5]
-    state_updated_at = row[6]
+            world_id = row[1]
+            base_state_json = row[2]
+            current_state_json = row[3]
+            state_seed = row[4]
+            state_version = row[5]
+            state_updated_at = row[6]
 
-    def _safe_load(payload: str | None) -> dict[str, Any] | None:
-        if not payload:
-            return None
-        try:
-            return cast(dict[str, Any], json.loads(payload))
-        except json.JSONDecodeError:
-            return None
+            def _safe_load(payload: str | None) -> dict[str, Any] | None:
+                if not payload:
+                    return None
+                try:
+                    return cast(dict[str, Any], json.loads(payload))
+                except json.JSONDecodeError:
+                    return None
 
-    axes = []
-    for axis_row in _fetch_character_axis_scores(cursor, character_id, world_id):
-        label = _resolve_axis_label_for_score(cursor, axis_row["axis_id"], axis_row["axis_score"])
-        axes.append(
-            {
-                "axis_id": axis_row["axis_id"],
-                "axis_name": axis_row["axis_name"],
-                "axis_score": axis_row["axis_score"],
-                "axis_label": label,
+            axes = []
+            for axis_row in _fetch_character_axis_scores(cursor, character_id, world_id):
+                label = _resolve_axis_label_for_score(
+                    cursor, axis_row["axis_id"], axis_row["axis_score"]
+                )
+                axes.append(
+                    {
+                        "axis_id": axis_row["axis_id"],
+                        "axis_name": axis_row["axis_name"],
+                        "axis_score": axis_row["axis_score"],
+                        "axis_label": label,
+                    }
+                )
+
+            return {
+                "character_id": int(row[0]),
+                "world_id": world_id,
+                "state_seed": state_seed,
+                "state_version": state_version,
+                "state_updated_at": state_updated_at,
+                "base_state": _safe_load(base_state_json),
+                "current_state": _safe_load(current_state_json),
+                "axes": axes,
             }
+    except Exception as exc:
+        _raise_read_error(
+            "axis.get_character_axis_state",
+            exc,
+            details=f"character_id={character_id}",
         )
-
-    conn.close()
-    return {
-        "character_id": int(row[0]),
-        "world_id": world_id,
-        "state_seed": state_seed,
-        "state_version": state_version,
-        "state_updated_at": state_updated_at,
-        "base_state": _safe_load(base_state_json),
-        "current_state": _safe_load(current_state_json),
-        "axes": axes,
-    }
