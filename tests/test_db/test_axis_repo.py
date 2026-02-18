@@ -3,8 +3,17 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import patch
+
+import pytest
 
 from mud_server.db import axis_repo, database
+from mud_server.db import connection as db_connection
+from mud_server.db.errors import (
+    DatabaseOperationContext,
+    DatabaseReadError,
+    DatabaseWriteError,
+)
 
 
 def _seed_default_axis_registry(world_id: str) -> None:
@@ -87,3 +96,36 @@ def test_flatten_entity_axis_labels_via_repo():
     labels = axis_repo._flatten_entity_axis_labels(payload)
     assert labels["wealth"] == "well-kept"
     assert labels["status"] == "respected"
+
+
+def test_axis_repo_public_paths_raise_typed_errors_on_connection_failure():
+    """Axis repository public paths should map infra failures to typed DB errors."""
+    with patch.object(db_connection, "get_connection", side_effect=Exception("db boom")):
+        with pytest.raises(DatabaseWriteError):
+            axis_repo.seed_axis_registry(
+                world_id=database.DEFAULT_WORLD_ID,
+                axes_payload={"axes": {}},
+                thresholds_payload={"axes": {}},
+            )
+        with pytest.raises(DatabaseReadError):
+            axis_repo.apply_entity_state_to_character(
+                character_id=1,
+                world_id=database.DEFAULT_WORLD_ID,
+                entity_state={"character": {"wealth": "wealthy"}},
+            )
+        with pytest.raises(DatabaseReadError):
+            axis_repo.get_character_axis_state(1)
+
+
+def test_axis_repo_read_error_helper_re_raises_database_error():
+    """Read helper should preserve pre-typed ``DatabaseReadError`` instances."""
+    read_exc = DatabaseReadError(context=DatabaseOperationContext(operation="axis.read"))
+    with pytest.raises(DatabaseReadError):
+        axis_repo._raise_read_error("axis.read", read_exc)  # noqa: SLF001 - branch coverage
+
+
+def test_axis_repo_write_error_helper_re_raises_database_error():
+    """Write helper should preserve pre-typed ``DatabaseWriteError`` instances."""
+    write_exc = DatabaseWriteError(context=DatabaseOperationContext(operation="axis.write"))
+    with pytest.raises(DatabaseWriteError):
+        axis_repo._raise_write_error("axis.write", write_exc)  # noqa: SLF001 - branch coverage
