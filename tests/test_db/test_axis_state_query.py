@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from mud_server.config import use_test_database
-from mud_server.db import database
+from mud_server.db import axis_repo, database
 from tests.constants import TEST_PASSWORD
 
 
@@ -43,7 +43,7 @@ def test_get_character_axis_state_returns_snapshot(temp_db_path, monkeypatch) ->
     """Axis state query should include snapshot data and labeled scores."""
     with use_test_database(temp_db_path):
         database.init_database(skip_superuser=True)
-        monkeypatch.setattr(database, "_get_axis_policy_hash", lambda _world_id: "policyhash")
+        monkeypatch.setattr(axis_repo, "_get_axis_policy_hash", lambda _world_id: "policyhash")
 
         world_id = "test_world"
         _seed_policy(world_id)

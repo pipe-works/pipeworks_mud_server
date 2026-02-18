@@ -37,6 +37,40 @@ def test_create_character_for_user_round_trip(test_db, temp_db_path):
     assert characters_repo.get_character_room("repo_character", world_id="pipeworks_web") == "spawn"
 
 
+def test_create_default_character_seeds_axis_and_snapshot_via_axis_repo(test_db):
+    """Default-character helper should seed axis/snapshot rows through axis_repo."""
+    created_user = database.create_user_with_password("default_repo_user", "SecureTest#123")
+    assert created_user is True
+    user_id = database.get_user_id("default_repo_user")
+    assert user_id is not None
+
+    conn = database.get_connection()
+    cursor = conn.cursor()
+    character_id = (
+        characters_repo._create_default_character(  # noqa: SLF001 - intentional helper test
+            cursor,
+            user_id,
+            "default_repo_user",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
+    )
+    conn.commit()
+
+    cursor.execute(
+        """
+        SELECT current_state_json
+        FROM characters
+        WHERE id = ?
+        """,
+        (character_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row[0] is not None
+
+
 def test_resolve_character_name_requires_character_identity(test_db, temp_db_path, db_with_users):
     """Resolution should require explicit character names (no username fallback)."""
     resolved = characters_repo.resolve_character_name(

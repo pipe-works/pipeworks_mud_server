@@ -43,7 +43,7 @@ def test_apply_axis_event_and_query_via_repo(test_db, monkeypatch):
     """Events repo should write ledger rows and query them back."""
     world_id = database.DEFAULT_WORLD_ID
     _seed_default_axis_registry(world_id)
-    monkeypatch.setattr(database, "_get_axis_policy_hash", lambda _world_id: "policyhash")
+    monkeypatch.setattr(axis_repo, "_get_axis_policy_hash", lambda _world_id: "policyhash")
 
     assert database.create_user_with_password("events_repo_user", "SecureTest#123")
     user_id = database.get_user_id("events_repo_user")
@@ -86,7 +86,7 @@ def test_apply_axis_event_preserves_domain_validation_errors(test_db, monkeypatc
     """Domain-level validation failures should continue to raise ValueError."""
     world_id = database.DEFAULT_WORLD_ID
     _seed_default_axis_registry(world_id)
-    monkeypatch.setattr(database, "_get_axis_policy_hash", lambda _world_id: "policyhash")
+    monkeypatch.setattr(axis_repo, "_get_axis_policy_hash", lambda _world_id: "policyhash")
 
     assert database.create_user_with_password("events_value_user", "SecureTest#123")
     user_id = database.get_user_id("events_value_user")

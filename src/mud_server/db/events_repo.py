@@ -84,7 +84,7 @@ def apply_axis_event(
     event_type_description: str | None = None,
 ) -> int:
     """Apply axis deltas and persist a full event-ledger mutation atomically."""
-    from mud_server.db import database
+    from mud_server.db.axis_repo import _refresh_character_current_snapshot
 
     if not deltas:
         raise ValueError("Event deltas must not be empty.")
@@ -168,7 +168,7 @@ def apply_axis_event(
                         (event_id, key, value),
                     )
 
-            database._refresh_character_current_snapshot(
+            _refresh_character_current_snapshot(
                 cursor,
                 character_id=character_id,
                 world_id=world_id,

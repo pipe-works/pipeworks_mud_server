@@ -39,6 +39,20 @@ def test_list_worlds_for_user_via_repo(db_with_users):
     assert by_id["invite_only_world"]["is_locked"] is True
 
 
+def test_list_worlds_for_user_resolves_role_from_user_repo(db_with_users):
+    """World listing should resolve role when caller omits explicit role."""
+    player_id = database.get_user_id("testplayer")
+    assert player_id is not None
+
+    rows = worlds_repo.list_worlds_for_user(
+        player_id,
+        include_invite_worlds=True,
+    )
+
+    assert rows
+    assert any(row["id"] == database.DEFAULT_WORLD_ID for row in rows)
+
+
 def test_get_world_admin_rows_via_repo(db_with_users):
     """World repo admin rows should report online state from in-world sessions."""
     player_id = database.get_user_id("testplayer")

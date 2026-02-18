@@ -233,7 +233,7 @@ def apply_entity_state_to_character(
     event_type_name: str = "entity_profile_seeded",
 ) -> int | None:
     """Apply entity-state labels as score deltas through the event ledger."""
-    from mud_server.db import database
+    from mud_server.db.events_repo import apply_axis_event
 
     axis_labels = _flatten_entity_axis_labels(entity_state)
     if not axis_labels:
@@ -274,7 +274,7 @@ def apply_entity_state_to_character(
     if seed is not None:
         metadata["seed"] = str(seed)
 
-    return database.apply_axis_event(
+    return apply_axis_event(
         world_id=world_id,
         character_id=character_id,
         event_type_name=event_type_name,
@@ -373,8 +373,6 @@ def _seed_character_state_snapshot(
     seed: int | None = None,
 ) -> None:
     """Seed base/current state snapshots for a newly created character."""
-    from mud_server.db import database
-
     cursor.execute("SELECT state_seed FROM characters WHERE id = ?", (character_id,))
     row = cursor.fetchone()
     existing_seed = int(row[0]) if row and row[0] is not None else 0
@@ -383,9 +381,9 @@ def _seed_character_state_snapshot(
     elif seed is not None:
         effective_seed = seed
     else:
-        effective_seed = database._generate_state_seed()
+        effective_seed = _generate_state_seed()
 
-    policy_hash = database._get_axis_policy_hash(world_id)
+    policy_hash = _get_axis_policy_hash(world_id)
     snapshot = _build_character_state_snapshot(
         cursor,
         character_id=character_id,
@@ -428,14 +426,12 @@ def _refresh_character_current_snapshot(
     seed_increment: int = 1,
 ) -> None:
     """Refresh current snapshot payload after axis score mutations."""
-    from mud_server.db import database
-
     cursor.execute("SELECT state_seed FROM characters WHERE id = ?", (character_id,))
     row = cursor.fetchone()
     current_seed = int(row[0]) if row and row[0] is not None else 0
     new_seed = current_seed + seed_increment
 
-    policy_hash = database._get_axis_policy_hash(world_id)
+    policy_hash = _get_axis_policy_hash(world_id)
     snapshot = _build_character_state_snapshot(
         cursor,
         character_id=character_id,
