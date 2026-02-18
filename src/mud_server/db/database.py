@@ -97,6 +97,7 @@ from mud_server.db.sessions_repo import (
     set_session_character,
     update_session_activity,
 )
+from mud_server.db.types import AxisRegistrySeedStats
 from mud_server.db.users_repo import (
     activate_user,
     change_password_for_user,
@@ -130,6 +131,7 @@ from mud_server.db.worlds_repo import (
 )
 
 __all__ = [
+    "AxisRegistrySeedStats",
     "DEFAULT_WORLD_ID",
     "_build_character_state_snapshot",
     "_count_user_characters_in_world",
