@@ -4,24 +4,22 @@ This module is the app-facing import surface for database operations.
 
 Design goals:
 1. Keep application layers importing a stable module path (``mud_server.db.facade``).
-2. Preserve existing monkeypatch behavior that targets
+2. Enforce an explicit facade API contract for the 0.3.10 refactor phase.
+3. Keep runtime call forwarding compatible with tests that monkeypatch
    ``mud_server.db.database.<symbol>``.
-3. Enforce an explicit facade API contract for the 0.3.10 refactor phase.
 
 Implementation notes:
 - ``_PUBLIC_API`` is intentionally explicit and versioned by source control.
   New facade symbols must be added here deliberately.
 - ``_REMOVED_API`` lists legacy names removed during the refactor so callers
   get a clear upgrade message instead of a generic attribute error.
-- Attribute writes/deletes are forwarded to ``mud_server.db.database`` via a
-  custom module type. This keeps patch/monkeypatch flows consistent and avoids
-  stale shadow attributes on the facade module itself.
+- Public callables are exposed as lightweight forwarding wrappers that resolve
+  the current backing attribute at call time. This avoids dynamic module-class
+  mutation while preserving monkeypatch compatibility for call sites.
 """
 
 from __future__ import annotations
 
-import sys
-import types
 from typing import TYPE_CHECKING
 from typing import Any as _Any
 
@@ -150,15 +148,46 @@ def _resolve_public_attr(name: str) -> _Any:
         ) from exc
 
 
-def __getattr__(name: str) -> _Any:
-    """
-    Forward allowed facade lookups to ``mud_server.db.database`` at call time.
+def _build_callable_forwarder(name: str):
+    """Create a forwarding callable that resolves the current DB symbol on call."""
 
-    Runtime lookup keeps monkeypatch behavior stable for tests that patch
-    symbols on ``mud_server.db.database`` while app layers import
-    ``mud_server.db.facade``.
-    """
-    return _resolve_public_attr(name)
+    def _forwarder(*args: _Any, **kwargs: _Any) -> _Any:
+        target = _resolve_public_attr(name)
+        if not callable(target):
+            raise TypeError(
+                f"mud_server.db.facade.{name} is not callable in mud_server.db.database"
+            )
+        return target(*args, **kwargs)
+
+    _forwarder.__name__ = name
+    _forwarder.__qualname__ = name
+    _forwarder.__doc__ = (
+        f"Forward to ``mud_server.db.database.{name}`` using runtime attribute lookup."
+    )
+    return _forwarder
+
+
+def _materialize_public_api() -> None:
+    """Populate module globals for the explicit facade contract."""
+    for name in _PUBLIC_API:
+        target = _resolve_public_attr(name)
+        if callable(target):
+            globals()[name] = _build_callable_forwarder(name)
+            continue
+        globals()[name] = target
+
+
+_materialize_public_api()
+
+
+def __getattr__(name: str) -> _Any:
+    """Provide directed migration errors for removed legacy facade symbols."""
+    if name in _REMOVED_API:
+        raise AttributeError(
+            f"mud_server.db.facade.{name} was removed in 0.3.10; "
+            "use the canonical user/character/session API instead."
+        )
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 
 def __dir__() -> list[str]:
@@ -173,62 +202,3 @@ def __dir__() -> list[str]:
 
 
 __all__ = list(_PUBLIC_API)
-
-
-class _FacadeModule(types.ModuleType):
-    """
-    Module type that forwards public attribute writes to ``db.database``.
-
-    Why this exists:
-        ``pytest`` patch utilities can target attributes on imported module
-        objects (for example ``auth.database``). If writes land on the facade
-        module directly, they can shadow ``__getattr__`` forwarding and leak
-        stale function objects between tests.
-    """
-
-    _INTERNAL_ATTRS = {
-        "_database",
-        "_FacadeModule",
-        "_PUBLIC_API",
-        "_REMOVED_API",
-        "_resolve_public_attr",
-        "__all__",
-        "__getattr__",
-        "__dir__",
-        "_FORWARDED_ATTRS",
-    }
-    _FORWARDED_ATTRS = set(__all__)
-
-    def __setattr__(self, name: str, value: _Any) -> None:
-        """Forward public facade writes to the backing database module."""
-        if name.startswith("__") or name in self._INTERNAL_ATTRS:
-            super().__setattr__(name, value)
-            return
-        if name in _REMOVED_API:
-            raise AttributeError(
-                f"mud_server.db.facade.{name} was removed in 0.3.10 and cannot be patched"
-            )
-        if name in self._FORWARDED_ATTRS:
-            setattr(_database, name, value)
-            return
-        super().__setattr__(name, value)
-
-    def __delattr__(self, name: str) -> None:
-        """Forward public facade deletes to the backing database module."""
-        if name.startswith("__") or name in self._INTERNAL_ATTRS:
-            super().__delattr__(name)
-            return
-        if name in _REMOVED_API:
-            raise AttributeError(
-                f"mud_server.db.facade.{name} was removed in 0.3.10 and cannot be patched"
-            )
-        if name in self._FORWARDED_ATTRS:
-            # ``unittest.mock.patch`` teardown performs delete-then-set.
-            if hasattr(_database, name):
-                delattr(_database, name)
-            return
-        super().__delattr__(name)
-
-
-# Replace module runtime behavior so patch/monkeypatch writes flow through.
-sys.modules[__name__].__class__ = _FacadeModule

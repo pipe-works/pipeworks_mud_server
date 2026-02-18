@@ -124,7 +124,10 @@ Database Layer
 
 Located in ``src/mud_server/db/``:
 
-* ``database.py`` - SQLite operations, schema, CRUD
+* ``facade.py`` - app-facing DB API contract (used by API/core/services/CLI)
+* ``database.py`` - compatibility re-export surface for DB symbols
+* ``schema.py`` - schema bootstrap, indexes, and invariant triggers
+* ``*_repo.py`` modules - bounded-context repositories (users, characters, sessions, chat, worlds, axis/events, admin)
 
 Data Flow
 ---------
@@ -210,10 +213,10 @@ Command Pattern
 Repository Pattern
 ~~~~~~~~~~~~~~~~~~
 
-* Database layer isolated in ``database.py``
-* CRUD operations as separate functions
-* JSON serialization for complex types
-* Connection management via context managers
+* App layer imports DB operations through ``mud_server.db.facade``
+* SQL implementation is split across repository modules by domain
+* ``database.py`` remains as a compatibility symbol surface only
+* Connection and transaction ownership lives in ``connection.py`` and repositories
 
 Database Schema
 ---------------
@@ -239,7 +242,9 @@ Characters Table
 
 * ``id`` (INTEGER, PRIMARY KEY)
 * ``user_id`` (INTEGER, NULLABLE)
-* ``name`` (TEXT, UNIQUE)
+* ``name`` (TEXT, NOT NULL)
+* ``world_id`` (TEXT, NOT NULL)
+* ``UNIQUE(world_id, name)`` - character names are world-scoped
 * ``inventory`` (TEXT) - JSON array of item IDs
 * ``is_guest_created`` (INTEGER)
 * ``created_at`` (TIMESTAMP)
@@ -258,6 +263,7 @@ Sessions Table
 * ``session_id`` (TEXT, UNIQUE) - UUID
 * ``user_id`` (INTEGER)
 * ``character_id`` (INTEGER, NULLABLE)
+* ``world_id`` (TEXT, NULLABLE) - required when ``character_id`` is set
 * ``created_at`` (TIMESTAMP)
 * ``last_activity`` (TIMESTAMP)
 * ``expires_at`` (TIMESTAMP, NULLABLE)
@@ -270,6 +276,7 @@ Chat Messages Table
 * ``character_id`` (INTEGER, NULLABLE)
 * ``user_id`` (INTEGER, NULLABLE)
 * ``message`` (TEXT)
+* ``world_id`` (TEXT)
 * ``room`` (TEXT)
 * ``recipient_character_id`` (INTEGER, NULLABLE)
 * ``timestamp`` (TIMESTAMP)
