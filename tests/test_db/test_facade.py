@@ -34,22 +34,25 @@ def test_facade_reflects_runtime_monkeypatches(monkeypatch):
 
 def test_facade_patch_teardown_restores_database_attribute():
     """
-    Proxy patching should restore symbols back onto ``db.database``.
+    Facade patching should not mutate canonical symbols on ``db.database``.
 
-    ``unittest.mock.patch`` teardown performs ``delattr`` then ``setattr`` when
-    patching proxy objects. The facade module must keep this cycle routed to
-    ``mud_server.db.database`` so DB API symbols are never dropped from the
-    canonical module after test teardown.
+    Under the explicit-export model, ``mud_server.db.facade`` owns wrapper
+    callables while runtime dispatch still resolves targets from
+    ``mud_server.db.database``. Patching the facade symbol should therefore
+    patch and restore only the facade wrapper, leaving the canonical database
+    function unchanged throughout.
     """
 
     original = database.get_characters_in_room
-    assert "get_characters_in_room" not in facade.__dict__
+    facade_original = facade.get_characters_in_room
+    assert "get_characters_in_room" in facade.__dict__
 
     with patch("mud_server.db.facade.get_characters_in_room", return_value=[]):
-        assert facade.get_characters_in_room("spawn") == []
+        assert facade.get_characters_in_room("spawn", world_id=database.DEFAULT_WORLD_ID) == []
+        assert database.get_characters_in_room is original
 
     assert database.get_characters_in_room is original
-    assert "get_characters_in_room" not in facade.__dict__
+    assert facade.get_characters_in_room is facade_original
 
 
 def test_facade_dir_exposes_forwarded_attributes():
@@ -71,6 +74,64 @@ def test_facade_removed_alias_raises_clear_error():
     """Removed legacy aliases should raise a directed migration error."""
     with pytest.raises(AttributeError, match="removed in 0.3.10"):
         _ = facade.player_exists
+
+
+def test_facade_resolve_public_attr_rejects_removed_alias_directly():
+    """
+    Helper-level resolution should reject removed legacy aliases.
+
+    This covers direct helper usage so the explicit migration message remains
+    stable even when call sites invoke internal facade helpers in tests.
+    """
+
+    with pytest.raises(AttributeError, match="removed in 0.3.10"):
+        facade._resolve_public_attr("player_exists")  # noqa: SLF001 - branch coverage
+
+
+def test_facade_resolve_public_attr_rejects_unknown_symbol():
+    """
+    Helper-level resolution should reject symbols outside the public contract.
+
+    Unknown names must fail with a normal module-style attribute error rather
+    than silently delegating to the backing database module.
+    """
+
+    with pytest.raises(AttributeError, match="has no attribute"):
+        facade._resolve_public_attr("not_a_real_symbol")  # noqa: SLF001 - branch coverage
+
+
+def test_facade_resolve_public_attr_fails_when_public_symbol_missing(monkeypatch):
+    """
+    Declared public symbols should fail fast when missing in ``db.database``.
+
+    This protects against contract drift where ``_PUBLIC_API`` names diverge
+    from the canonical compatibility module exports.
+    """
+
+    monkeypatch.delattr(database, "user_exists", raising=False)
+    with pytest.raises(AttributeError, match="declared public but missing"):
+        facade._resolve_public_attr("user_exists")  # noqa: SLF001 - branch coverage
+
+
+def test_facade_forwarder_raises_when_backing_symbol_is_not_callable(monkeypatch):
+    """
+    Forwarders should enforce callability of runtime-resolved DB symbols.
+
+    If a test patch accidentally replaces a callable DB function with a
+    non-callable sentinel, the facade should fail with an explicit ``TypeError``
+    instead of producing a confusing ``'object is not callable'`` traceback.
+    """
+
+    monkeypatch.setattr(database, "user_exists", 1)
+    forwarder = facade._build_callable_forwarder("user_exists")  # noqa: SLF001 - branch coverage
+    with pytest.raises(TypeError, match="is not callable"):
+        forwarder("alice")
+
+
+def test_facade_getattr_unknown_symbol_raises_standard_error():
+    """Unknown names should raise a standard module attribute error message."""
+    with pytest.raises(AttributeError, match="has no attribute"):
+        facade.__getattr__("nope")  # noqa: SLF001 - direct branch coverage
 
 
 def test_facade_allows_local_attribute_set_and_delete_for_unknown_names():

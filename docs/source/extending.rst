@@ -113,13 +113,12 @@ To add a new table (e.g., for achievements):
 Define Schema
 ~~~~~~~~~~~~~
 
-In ``src/mud_server/db/database.py``:
+In ``src/mud_server/db/schema.py`` inside ``init_database``:
 
 .. code-block:: python
 
-    def init_db():
-        # ... existing code ...
-
+    def init_database(*, skip_superuser: bool = False) -> None:
+        # ... existing schema statements ...
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS achievements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,21 +132,22 @@ In ``src/mud_server/db/database.py``:
 Add CRUD Functions
 ~~~~~~~~~~~~~~~~~~
 
+Create a repository module (for example ``src/mud_server/db/achievements_repo.py``):
+
 .. code-block:: python
 
     def add_achievement(character_id: int, achievement_id: str):
         """Record an achievement for a character."""
-        with get_db() as conn:
+        with connection_scope(write=True) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT INTO achievements (character_id, achievement_id) VALUES (?, ?)",
                 (character_id, achievement_id)
             )
-            conn.commit()
 
     def get_achievements(character_id: int) -> list[dict]:
         """Get all achievements for a character."""
-        with get_db() as conn:
+        with connection_scope() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT * FROM achievements WHERE character_id = ?",
@@ -158,7 +158,8 @@ Add CRUD Functions
 Add API Endpoint
 ~~~~~~~~~~~~~~~~
 
-In ``src/mud_server/api/routes.py``:
+Expose the repository function from ``mud_server.db.facade`` and use it from
+an API route module (for example ``src/mud_server/api/routes/game.py``):
 
 .. code-block:: python
 
@@ -313,8 +314,14 @@ Keep code organized by feature::
     │   ├── world.py          # World data structures
     │   └── mechanics/        # Specific game mechanics
     ├── db/
-    │   ├── database.py       # Core database operations
-    │   └── migrations/       # Schema migrations
+    │   ├── facade.py         # App-facing DB contract
+    │   ├── database.py       # Compatibility re-export module
+    │   ├── schema.py         # DDL + invariant triggers
+    │   ├── connection.py     # SQLite connection/transaction helpers
+    │   ├── users_repo.py     # Account persistence
+    │   ├── characters_repo.py
+    │   ├── sessions_repo.py
+    │   └── ...
     ├── api/
     │   ├── server.py
     │   ├── routes.py
