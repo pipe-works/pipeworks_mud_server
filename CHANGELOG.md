@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.3.10](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.9...mud_server-v0.3.10) (2026-02-18)
+
+
+### Features
+
+* **db:** complete phase 4 typed errors and hot-path plan guards ([#119](https://github.com/pipe-works/pipeworks_mud_server/issues/119)) ([8f6b13c](https://github.com/pipe-works/pipeworks_mud_server/commit/8f6b13c1f599481d3154f6fc953e6c5910214026))
+* **db:** drop create-user compat args and dead helpers ([2575dcf](https://github.com/pipe-works/pipeworks_mud_server/commit/2575dcfa1214a379001db8141fad30590695785f))
+* **db:** enforce strict character identity resolution ([7786dbb](https://github.com/pipe-works/pipeworks_mud_server/commit/7786dbba6e4e842dcfbf3132019f82f96efdfefa))
+* **db:** enforce strict character identity resolution ([9f272d3](https://github.com/pipe-works/pipeworks_mud_server/commit/9f272d35604ac9635bf2b3e3de2d7dd219273696))
+* **db:** extract admin axis and events repositories ([7b2ec57](https://github.com/pipe-works/pipeworks_mud_server/commit/7b2ec57383909060a5327d59dd94ebd8ec78cae4))
+* **db:** extract admin axis and events repositories ([ca7608d](https://github.com/pipe-works/pipeworks_mud_server/commit/ca7608dd7bcf4e4a0a996c5c84cd34cc220a2808))
+* **db:** extract characters chat and worlds repositories ([8ea0ed6](https://github.com/pipe-works/pipeworks_mud_server/commit/8ea0ed6a9447089aa98a86520b94131f38d07c74))
+* **db:** extract characters chat and worlds repositories ([bdfaac8](https://github.com/pipe-works/pipeworks_mud_server/commit/bdfaac8ae729fe797234de12dfb07f964ce4a8bb))
+* **db:** extract connection and schema foundations ([0d5a2e5](https://github.com/pipe-works/pipeworks_mud_server/commit/0d5a2e5a87c849537ff0a8e3178d367dfdcb51b6))
+* **db:** extract connection and schema foundations ([d4a9e51](https://github.com/pipe-works/pipeworks_mud_server/commit/d4a9e514ff46ed9ae1886fad9ddbc6fe6505e2ff))
+* **db:** extract users and sessions repositories ([e0a9686](https://github.com/pipe-works/pipeworks_mud_server/commit/e0a9686a0d6e16bc4df554e084f446294a2f8745))
+* **db:** extract users and sessions repositories ([414d51b](https://github.com/pipe-works/pipeworks_mud_server/commit/414d51be0dab37582145382122069213d6492427))
+* **db:** harden facade with explicit public API contract ([b588583](https://github.com/pipe-works/pipeworks_mud_server/commit/b588583e8833afe02a5b12bda427ffb37e3941a4))
+* **db:** harden facade with explicit public API contract ([7695373](https://github.com/pipe-works/pipeworks_mud_server/commit/7695373d8aba3244cfeb3dc0373fb5f97062f41e))
+* **db:** phase 4 typed repository errors and API boundary mapping ([#118](https://github.com/pipe-works/pipeworks_mud_server/issues/118)) ([fdef70b](https://github.com/pipe-works/pipeworks_mud_server/commit/fdef70b33c664752e46caea240bcd30ae490cfde))
+* **db:** remove account-create compat args and prune dead DB helpers ([919fb9d](https://github.com/pipe-works/pipeworks_mud_server/commit/919fb9da347399c551cad987fcf2ff26685e291b))
+* **db:** remove legacy player shim API surface ([5fdc622](https://github.com/pipe-works/pipeworks_mud_server/commit/5fdc6223359be856d1f038c812776eaa8845d1c2))
+* **db:** remove legacy player shim API surface ([d5c0475](https://github.com/pipe-works/pipeworks_mud_server/commit/d5c0475d7e1259ec5599321bf6692abbc3e10da9))
+* **db:** require explicit world ids for character paths ([2abec9f](https://github.com/pipe-works/pipeworks_mud_server/commit/2abec9ff0ef34c2df0dd805488300397299d7b42))
+* **db:** require explicit world ids for character paths ([6e353ed](https://github.com/pipe-works/pipeworks_mud_server/commit/6e353ed4212483ba5ff3cd6ee8984337bda6ef75))
+* **db:** require explicit world ids for runtime state paths ([f9df116](https://github.com/pipe-works/pipeworks_mud_server/commit/f9df116b518f960fbd8728fea5f06ba10f696f6f))
+* **db:** require explicit world ids for runtime state paths ([a9de263](https://github.com/pipe-works/pipeworks_mud_server/commit/a9de2634e4fae1b072d8b9b0dd3b53c8121c19ce))
+* **db:** require explicit world scope for active character queries ([be6eeb0](https://github.com/pipe-works/pipeworks_mud_server/commit/be6eeb0d1131e7cbb5ef8c781f833fd501db1a0b))
+* **db:** require explicit world scope for active character queries ([293999d](https://github.com/pipe-works/pipeworks_mud_server/commit/293999d345ab2167f731c447cf39287ca23f7690))
+* **db:** stabilize facade import path and shared db types ([09fddb9](https://github.com/pipe-works/pipeworks_mud_server/commit/09fddb91642ee834190d45c4a140fc7af353eda2))
+* **db:** stabilize facade imports and shared db types ([dd9661d](https://github.com/pipe-works/pipeworks_mud_server/commit/dd9661dd8062a7cb5fdfc67790f6bf8cc1179459))
+
+
+### Bug Fixes
+
+* **db:** forward facade monkeypatch writes to database module ([ba3d1ba](https://github.com/pipe-works/pipeworks_mud_server/commit/ba3d1ba2a932cd6aabbecfee792409744fb17a9f))
+* **db:** preserve facade patch teardown semantics ([dec987e](https://github.com/pipe-works/pipeworks_mud_server/commit/dec987e8a6185fb1fe8afa42cca5cbf1c8f5cd39))
+* **db:** re-export axis registry seed stats from compatibility module ([bc794ff](https://github.com/pipe-works/pipeworks_mud_server/commit/bc794ffe9f0154863bf490fa5e7e814f43441579))
+* **db:** restore database import path for app entry points ([adf2193](https://github.com/pipe-works/pipeworks_mud_server/commit/adf219353c3e114c36179953a5787c3f76e21b3a))
+
+
+### Documentation
+
+* **db:** align refactor architecture and schema docs ([#131](https://github.com/pipe-works/pipeworks_mud_server/issues/131)) ([c13e5ba](https://github.com/pipe-works/pipeworks_mud_server/commit/c13e5baea53f52f4a72a9e639063bbd4e9ba3ccf))
+
 ## [0.3.9](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.8...mud_server-v0.3.9) (2026-02-16)
 
 
