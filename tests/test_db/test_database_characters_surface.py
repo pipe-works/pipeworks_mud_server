@@ -5,11 +5,14 @@ decomposing the historical monolithic DB compatibility test module.
 """
 
 from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
 
 from mud_server.config import use_test_database
+from mud_server.db import connection as db_connection
 from mud_server.db import database
+from mud_server.db.errors import DatabaseWriteError
 from tests.constants import TEST_PASSWORD
 
 
@@ -247,3 +250,140 @@ def test_get_character_locations(test_db, temp_db_path, db_with_users):
 
         assert "testplayer_char" in by_username
         assert by_username["testplayer_char"]["room_id"] == "forest"
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_player_room_default(test_db, temp_db_path, db_with_users):
+    """Default room lookup should resolve to ``spawn`` for seeded characters."""
+    with use_test_database(temp_db_path):
+        assert (
+            database.get_character_room("testplayer_char", world_id=database.DEFAULT_WORLD_ID)
+            == "spawn"
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_set_player_room(test_db, temp_db_path, db_with_users):
+    """Room updates should persist for existing characters."""
+    with use_test_database(temp_db_path):
+        result = database.set_character_room(
+            "testplayer_char", "forest", world_id=database.DEFAULT_WORLD_ID
+        )
+        assert result is True
+        assert (
+            database.get_character_room("testplayer_char", world_id=database.DEFAULT_WORLD_ID)
+            == "forest"
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_player_room_nonexistent(test_db, temp_db_path):
+    """Room lookup should return ``None`` for unknown character names."""
+    with use_test_database(temp_db_path):
+        assert (
+            database.get_character_room("nonexistent", world_id=database.DEFAULT_WORLD_ID) is None
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_player_inventory_default(test_db, temp_db_path, db_with_users):
+    """Seeded characters should start with empty inventory."""
+    with use_test_database(temp_db_path):
+        inventory = database.get_character_inventory(
+            "testplayer_char", world_id=database.DEFAULT_WORLD_ID
+        )
+        assert inventory == []
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_set_player_inventory(test_db, temp_db_path, db_with_users):
+    """Inventory updates should round-trip through persistence."""
+    with use_test_database(temp_db_path):
+        inventory = ["torch", "rope", "sword"]
+        result = database.set_character_inventory(
+            "testplayer_char", inventory, world_id=database.DEFAULT_WORLD_ID
+        )
+        assert result is True
+
+        retrieved = database.get_character_inventory(
+            "testplayer_char", world_id=database.DEFAULT_WORLD_ID
+        )
+        assert retrieved == inventory
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_get_player_inventory_nonexistent(test_db, temp_db_path):
+    """Inventory lookup should return an empty list for unknown characters."""
+    with use_test_database(temp_db_path):
+        inventory = database.get_character_inventory(
+            "nonexistent", world_id=database.DEFAULT_WORLD_ID
+        )
+        assert inventory == []
+
+
+class _FakeCursor:
+    """Minimal fake cursor for character write-failure compatibility tests."""
+
+    def __init__(self, *, lastrowid=None, fetchone=None):
+        self.lastrowid = lastrowid
+        self._fetchone = fetchone
+        self.rowcount = 0
+
+    def execute(self, _sql, _params=None):  # noqa: D401 - minimal fake
+        return None
+
+    def fetchone(self):
+        return self._fetchone
+
+
+class _FakeConnection:
+    """Minimal fake connection wrapper exposing a controlled fake cursor."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self):
+        return self._cursor
+
+    def execute(self, sql, params=None):
+        """Mirror sqlite3.Connection.execute for compatibility fakes."""
+        return self._cursor.execute(sql, params)
+
+    def commit(self):
+        return None
+
+    def close(self):
+        return None
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_create_character_for_user_missing_lastrowid_raises():
+    """Character creation should map low-level write failures to typed DB errors."""
+    fake_cursor = _FakeCursor(lastrowid=None)
+    fake_conn = _FakeConnection(fake_cursor)
+
+    with patch.object(db_connection, "get_connection", return_value=fake_conn):
+        with pytest.raises(DatabaseWriteError):
+            database.create_character_for_user(1, "badchar", world_id=database.DEFAULT_WORLD_ID)
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_create_default_character_missing_lastrowid_raises():
+    """Default character helper should reject missing insert metadata."""
+    fake_cursor = _FakeCursor(lastrowid=None)
+
+    with pytest.raises(ValueError):
+        database._create_default_character(
+            fake_cursor,
+            1,
+            "badchar",
+            world_id=database.DEFAULT_WORLD_ID,
+        )
