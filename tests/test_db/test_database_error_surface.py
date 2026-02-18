@@ -1,8 +1,8 @@
-"""Residual compatibility tests for ``mud_server.db.database``.
+"""Compatibility-surface tests for cross-domain typed DB error mapping.
 
-The main compatibility surface has been decomposed into dedicated
-``test_database_*_surface.py`` modules; this file retains mixed-surface
-guards that still intentionally exercise cross-domain behavior.
+This module retains the mixed-surface guard that validates the historical
+``mud_server.db.database`` import path still maps infrastructure failures to
+typed read/write exceptions across user, character, chat, and session helpers.
 """
 
 from unittest.mock import patch
@@ -18,9 +18,7 @@ from tests.constants import TEST_PASSWORD
 @pytest.mark.unit
 @pytest.mark.db
 def test_database_helpers_raise_typed_errors_on_db_error():
-    """
-    Verify repository-backed helpers map DB failures to typed exceptions.
-    """
+    """Repository-backed helpers should map DB failures to typed exceptions."""
     with patch.object(db_connection, "get_connection", side_effect=Exception("db error")):
         with pytest.raises(DatabaseWriteError):
             database.set_user_role("testplayer", "admin")
