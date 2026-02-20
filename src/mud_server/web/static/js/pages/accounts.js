@@ -84,8 +84,8 @@ function buildStatusPills(account) {
   const worldClass = account.is_online_in_world ? 'is-online' : 'is-offline';
   return `
     <div class="status-stack">
-      <span class="status-pill ${accountClass}">Account</span>
-      <span class="status-pill ${worldClass}">In-world</span>
+      <span class="badge ${accountClass === 'is-online' ? 'badge--active' : 'badge--muted'}">Account</span>
+      <span class="badge ${worldClass === 'is-online' ? 'badge--active' : 'badge--muted'}">In-world</span>
     </div>
   `;
 }
@@ -159,7 +159,7 @@ function buildAccountDetails(account, accountCharacters, worldNameById, worldAcc
     return `
       <div class="detail-card dashboard-detail-card">
         <h3>Account Details</h3>
-        <p class="muted">Select an account to inspect details.</p>
+        <p class="u-muted">Select an account to inspect details.</p>
       </div>
     `;
   }
@@ -171,7 +171,7 @@ function buildAccountDetails(account, accountCharacters, worldNameById, worldAcc
           return `<span class="tag">${escapeHtml(worldName)}</span>`;
         })
         .join('')
-    : '<p class="muted">No world access rows recorded.</p>';
+    : '<p class="u-muted">No world access rows recorded.</p>';
 
   const characterRows = accountCharacters.length
     ? accountCharacters
@@ -189,7 +189,7 @@ function buildAccountDetails(account, accountCharacters, worldNameById, worldAcc
           `;
         })
         .join('')
-    : '<p class="muted">No linked characters.</p>';
+    : '<p class="u-muted">No linked characters.</p>';
 
   return `
     <div class="detail-card dashboard-detail-card">
@@ -219,9 +219,9 @@ function buildAccountDetails(account, accountCharacters, worldNameById, worldAcc
  */
 async function renderAccountsDashboard(root, { api, session }) {
   root.innerHTML = `
-    <div class="panel wide">
+    <div class="auth-panel wide">
       <h1>Accounts</h1>
-      <p class="muted">Loading account dashboard...</p>
+      <p class="u-muted">Loading account dashboard...</p>
     </div>
   `;
 
@@ -322,10 +322,10 @@ async function renderAccountsDashboard(root, { api, session }) {
         <div class="page-header">
           <div>
             <h2>Account Dashboard</h2>
-            <p class="muted">${filteredAccounts.length} of ${allAccounts.length} accounts shown.</p>
+            <p class="u-muted">${filteredAccounts.length} of ${allAccounts.length} accounts shown.</p>
           </div>
           <div class="actions">
-            <button type="button" data-accounts-refresh>Refresh</button>
+            <button class="btn btn--secondary" type="button" data-accounts-refresh>Refresh</button>
           </div>
         </div>
         <div class="split-layout dashboard-split">
@@ -335,13 +335,13 @@ async function renderAccountsDashboard(root, { api, session }) {
               <div class="table-toolbar dashboard-toolbar">
                 <label class="table-search">
                   <span>Search</span>
-                  <input type="search" value="${escapeHtml(
+                  <input class="input" type="search" value="${escapeHtml(
                     searchTerm
                   )}" placeholder="username, role, origin" data-accounts-search />
                 </label>
                 <label class="detail-form dashboard-select-inline">
                   Role
-                  <select data-accounts-role>
+                  <select class="select" data-accounts-role>
                     <option value="all" ${roleFilter === 'all' ? 'selected' : ''}>All</option>
                     ${roles
                       .map(
@@ -418,7 +418,7 @@ async function renderAccountsDashboard(root, { api, session }) {
     render();
   } catch (error) {
     root.innerHTML = `
-      <div class="panel wide">
+      <div class="auth-panel wide">
         <h1>Accounts</h1>
         <p class="error">${
           error instanceof Error ? escapeHtml(error.message) : 'Failed to load account dashboard.'

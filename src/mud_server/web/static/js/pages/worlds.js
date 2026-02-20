@@ -35,13 +35,13 @@ function formatTimestamp(value) {
 }
 
 function buildStatusPill(label, isOnline) {
-  const stateClass = isOnline ? 'is-online' : 'is-offline';
-  return `<span class="status-pill ${stateClass}">${escapeHtml(label)}</span>`;
+  return `<span class="badge ${isOnline ? 'badge--active' : 'badge--muted'}">${escapeHtml(label)}</span>`;
 }
 
 function buildKickButton(characterId, characterName) {
   return `
     <button
+      class="btn btn--secondary btn--sm"
       data-kick-character="${characterId}"
       data-kick-name="${escapeHtml(characterName)}"
     >
@@ -71,9 +71,9 @@ function flattenActiveCharacters(worlds) {
 
 async function renderWorlds(root, { api, session }) {
   root.innerHTML = `
-    <div class="panel wide">
+    <div class="auth-panel wide">
       <h1>Worlds</h1>
-      <p class="muted">Loading world operations...</p>
+      <p class="u-muted">Loading world operations...</p>
     </div>
   `;
 
@@ -117,24 +117,24 @@ async function renderWorlds(root, { api, session }) {
 
     const activeCharactersHtml = characterRows.length
       ? renderTable(characterHeaders, characterRows)
-      : '<p class="muted">No active in-world characters.</p>';
+      : '<p class="u-muted">No active in-world characters.</p>';
 
     root.innerHTML = `
       <div class="page">
         <div class="page-header">
           <div>
             <h2>World Operations</h2>
-            <p class="muted">${worldRows.length} worlds tracked · ${activeCharacters.length} active characters.</p>
+            <p class="u-muted">${worldRows.length} worlds tracked · ${activeCharacters.length} active characters.</p>
           </div>
         </div>
         <div class="card table-card">
           <h3>World Status</h3>
-          <p class="muted">Live status rows used for moderation and operational checks.</p>
+          <p class="u-muted">Live status rows used for moderation and operational checks.</p>
           ${renderTable(worldHeaders, worldRows)}
         </div>
         <div class="card table-card">
           <h3>Active Characters</h3>
-          <p class="muted">Kick disconnects all active sessions bound to a character.</p>
+          <p class="u-muted">Kick disconnects all active sessions bound to a character.</p>
           ${activeCharactersHtml}
         </div>
       </div>
@@ -183,7 +183,7 @@ async function renderWorlds(root, { api, session }) {
     }, AUTO_REFRESH_INTERVAL_MS);
   } catch (err) {
     root.innerHTML = `
-      <div class="panel wide">
+      <div class="auth-panel wide">
         <h1>Worlds</h1>
         <p class="error">${err instanceof Error ? err.message : 'Failed to load world operations.'}</p>
       </div>

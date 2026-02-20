@@ -111,9 +111,9 @@ function isTombstonedCharacter(character) {
  */
 async function renderTombstonesDashboard(root, { api, session }) {
   root.innerHTML = `
-    <div class="panel wide">
+    <div class="auth-panel wide">
       <h1>Tombstones</h1>
-      <p class="muted">Loading tombstone dashboard...</p>
+      <p class="u-muted">Loading tombstone dashboard...</p>
     </div>
   `;
 
@@ -174,26 +174,26 @@ async function renderTombstonesDashboard(root, { api, session }) {
           ['ID', 'Username', 'Role', 'Tombstoned', 'Last Login'],
           buildTombstonedUserRows(filteredUsers)
         )
-      : '<p class="muted">No tombstoned account rows match this filter.</p>';
+      : '<p class="u-muted">No tombstoned account rows match this filter.</p>';
 
     const characterTable = filteredCharacters.length
       ? renderTable(
           ['ID', 'Character', 'World', 'Updated'],
           buildTombstonedCharacterRows(filteredCharacters, worldNameById)
         )
-      : '<p class="muted">No tombstoned character rows match this filter.</p>';
+      : '<p class="u-muted">No tombstoned character rows match this filter.</p>';
 
     root.innerHTML = `
       <div class="page">
         <div class="page-header">
           <div>
             <h2>Tombstone Dashboard</h2>
-            <p class="muted">
+            <p class="u-muted">
               ${filteredUsers.length} tombstoned accounts • ${filteredCharacters.length} tombstoned characters
             </p>
           </div>
           <div class="actions">
-            <button type="button" data-tombstones-refresh>Refresh</button>
+            <button class="btn btn--secondary" type="button" data-tombstones-refresh>Refresh</button>
           </div>
         </div>
         <div class="card table-card">
@@ -201,6 +201,7 @@ async function renderTombstonesDashboard(root, { api, session }) {
             <label class="table-search">
               <span>Search</span>
               <input
+                class="input"
                 type="search"
                 value="${escapeHtml(searchTerm)}"
                 placeholder="username, role, character, world"
@@ -245,7 +246,7 @@ async function renderTombstonesDashboard(root, { api, session }) {
     render();
   } catch (error) {
     root.innerHTML = `
-      <div class="panel wide">
+      <div class="auth-panel wide">
         <h1>Tombstones</h1>
         <p class="error">${
           error instanceof Error ? escapeHtml(error.message) : 'Failed to load tombstone dashboard.'

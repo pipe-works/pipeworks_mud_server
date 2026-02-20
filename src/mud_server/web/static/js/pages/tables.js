@@ -9,9 +9,9 @@ import { showToast } from '../ui/toasts.js';
 
 async function renderTables(root, { api, session }) {
   root.innerHTML = `
-    <div class="panel wide">
+    <div class="auth-panel wide">
       <h1>Tables</h1>
-      <p class="muted">Loading tables...</p>
+      <p class="u-muted">Loading tables...</p>
     </div>
   `;
 
@@ -31,7 +31,7 @@ async function renderTables(root, { api, session }) {
         <div class="page-header">
           <div>
             <h2>Tables</h2>
-            <p class="muted">${rows.length} tables found.</p>
+            <p class="u-muted">${rows.length} tables found.</p>
           </div>
         </div>
         <div class="card table-card">
@@ -42,7 +42,7 @@ async function renderTables(root, { api, session }) {
   } catch (err) {
     showToast(err instanceof Error ? err.message : 'Failed to load tables.', 'error');
     root.innerHTML = `
-      <div class="panel wide">
+      <div class="auth-panel wide">
         <h1>Tables</h1>
         <p class="error">Failed to load tables.</p>
       </div>

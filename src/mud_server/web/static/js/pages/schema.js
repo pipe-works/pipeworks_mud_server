@@ -23,7 +23,7 @@ function buildRelationsList(tables) {
   });
 
   if (!relations.length) {
-    return '<p class="muted">No foreign keys found.</p>';
+    return '<p class="u-muted">No foreign keys found.</p>';
   }
 
   return `
@@ -51,7 +51,7 @@ function buildRelationsList(tables) {
  */
 function buildSchemaMap(tables) {
   if (!tables.length) {
-    return '<p class="muted">No tables found.</p>';
+    return '<p class="u-muted">No tables found.</p>';
   }
 
   const cols = 2;
@@ -133,9 +133,9 @@ function buildSchemaMap(tables) {
  */
 async function renderSchema(root, { api, session }) {
   root.innerHTML = `
-    <div class="panel wide">
+    <div class="auth-panel wide">
       <h1>Schema</h1>
-      <p class="muted">Loading schema...</p>
+      <p class="u-muted">Loading schema...</p>
     </div>
   `;
 
@@ -148,7 +148,7 @@ async function renderSchema(root, { api, session }) {
         <div class="page-header">
           <div>
             <h2>Schema</h2>
-            <p class="muted">${tables.length} tables mapped.</p>
+            <p class="u-muted">${tables.length} tables mapped.</p>
           </div>
         </div>
         <div class="schema-layout">
@@ -163,7 +163,7 @@ async function renderSchema(root, { api, session }) {
   } catch (err) {
     showToast(err instanceof Error ? err.message : 'Failed to load schema.', 'error');
     root.innerHTML = `
-      <div class="panel wide">
+      <div class="auth-panel wide">
         <h1>Schema</h1>
         <p class="error">${err instanceof Error ? err.message : 'Failed to load schema.'}</p>
       </div>

@@ -9,9 +9,9 @@ import { showToast } from '../ui/toasts.js';
 
 async function renderChat(root, { api, session }) {
   root.innerHTML = `
-    <div class="panel wide">
+    <div class="auth-panel wide">
       <h1>Chat</h1>
-      <p class="muted">Loading chat messages...</p>
+      <p class="u-muted">Loading chat messages...</p>
     </div>
   `;
 
@@ -30,7 +30,7 @@ async function renderChat(root, { api, session }) {
         <div class="page-header">
           <div>
             <h2>Chat</h2>
-            <p class="muted">${rows.length} messages loaded.</p>
+            <p class="u-muted">${rows.length} messages loaded.</p>
           </div>
         </div>
         <div class="card table-card">
@@ -41,7 +41,7 @@ async function renderChat(root, { api, session }) {
   } catch (err) {
     showToast(err instanceof Error ? err.message : 'Failed to load chat.', 'error');
     root.innerHTML = `
-      <div class="panel wide">
+      <div class="auth-panel wide">
         <h1>Chat</h1>
         <p class="error">Failed to load chat.</p>
       </div>

@@ -217,7 +217,7 @@ function buildCharactersTable(
  */
 function buildAxisEvents(events) {
   if (!events || events.length === 0) {
-    return '<p class="muted">No axis events recorded.</p>';
+    return '<p class="u-muted">No axis events recorded.</p>';
   }
 
   return events
@@ -236,7 +236,7 @@ function buildAxisEvents(events) {
               .join('')}
           </div>
         `
-        : '<p class="muted">No metadata.</p>';
+        : '<p class="u-muted">No metadata.</p>';
 
       const deltas = Array.isArray(event.deltas) ? event.deltas : [];
       const deltaHtml = deltas.length
@@ -253,7 +253,7 @@ function buildAxisEvents(events) {
               `
             )
             .join('')
-        : '<p class="muted">No deltas.</p>';
+        : '<p class="u-muted">No deltas.</p>';
 
       return `
         <div class="axis-event">
@@ -301,7 +301,7 @@ function buildCharacterDetails(
     return `
       <div class="detail-card dashboard-detail-card">
         <h3>Character Details</h3>
-        <p class="muted">Select a character to inspect details.</p>
+        <p class="u-muted">Select a character to inspect details.</p>
       </div>
     `;
   }
@@ -323,7 +323,7 @@ function buildCharacterDetails(
             `
           )
           .join('')
-      : '<p class="muted">No axis scores available.</p>';
+      : '<p class="u-muted">No axis scores available.</p>';
 
   return `
     <div class="detail-card dashboard-detail-card">
@@ -342,7 +342,7 @@ function buildCharacterDetails(
       <h4>Axis State</h4>
       ${
         axisLoading
-          ? '<p class="muted">Loading axis state...</p>'
+          ? '<p class="u-muted">Loading axis state...</p>'
           : axisError
             ? `<p class="error">${escapeHtml(axisError)}</p>`
             : `<dl class="detail-list axis-score-list">${axisScoreRows}</dl>`
@@ -358,9 +358,9 @@ function buildCharacterDetails(
  */
 async function renderCharactersDashboard(root, { api, session }) {
   root.innerHTML = `
-    <div class="panel wide">
+    <div class="auth-panel wide">
       <h1>Characters</h1>
-      <p class="muted">Loading character dashboard...</p>
+      <p class="u-muted">Loading character dashboard...</p>
     </div>
   `;
 
@@ -477,10 +477,10 @@ async function renderCharactersDashboard(root, { api, session }) {
         <div class="page-header">
           <div>
             <h2>Character Dashboard</h2>
-            <p class="muted">${filteredCharacters.length} of ${allCharacters.length} characters shown.</p>
+            <p class="u-muted">${filteredCharacters.length} of ${allCharacters.length} characters shown.</p>
           </div>
           <div class="actions">
-            <button type="button" data-characters-refresh>Refresh</button>
+            <button class="btn btn--secondary" type="button" data-characters-refresh>Refresh</button>
           </div>
         </div>
         <div class="split-layout dashboard-split">
@@ -491,6 +491,7 @@ async function renderCharactersDashboard(root, { api, session }) {
                 <label class="table-search">
                   <span>Search</span>
                   <input
+                    class="input"
                     type="search"
                     placeholder="character, owner, world"
                     value="${escapeHtml(searchTerm)}"
@@ -499,7 +500,7 @@ async function renderCharactersDashboard(root, { api, session }) {
                 </label>
                 <label class="detail-form dashboard-select-inline">
                   World
-                  <select data-characters-world>
+                  <select class="select" data-characters-world>
                     <option value="all" ${worldFilter === 'all' ? 'selected' : ''}>All</option>
                     ${worldIds
                       .map((worldId) => {
@@ -590,7 +591,7 @@ async function renderCharactersDashboard(root, { api, session }) {
     render();
   } catch (error) {
     root.innerHTML = `
-      <div class="panel wide">
+      <div class="auth-panel wide">
         <h1>Characters</h1>
         <p class="error">${
           error instanceof Error ? escapeHtml(error.message) : 'Failed to load character dashboard.'

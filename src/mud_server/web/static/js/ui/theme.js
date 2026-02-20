@@ -26,8 +26,8 @@ function initThemeToggle({ button }) {
   }
 
   button.addEventListener('click', () => {
-    const current = document.documentElement.dataset.theme || 'light';
-    const next = current === 'dark' ? 'light' : 'dark';
+    const current = document.documentElement.dataset.theme || 'dark';
+    const next = current === 'light' ? 'dark' : 'light';
     applyTheme(next);
   });
 }
