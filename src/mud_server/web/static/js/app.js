@@ -67,8 +67,8 @@ function buildShell() {
             <span data-header-subtitle>Overview</span>
           </div>
           <div class="actions">
-            <button class="theme-toggle" type="button" data-theme-toggle>Toggle Theme</button>
-            <button class="logout" type="button" data-logout>Logout</button>
+            <button class="btn btn--secondary" type="button" data-theme-toggle>Toggle Theme</button>
+            <button class="btn btn--secondary" type="button" data-logout>Logout</button>
           </div>
         </header>
         <section class="content" data-content></section>

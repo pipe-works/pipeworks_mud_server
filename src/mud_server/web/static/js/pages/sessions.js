@@ -9,15 +9,15 @@ import { showToast } from '../ui/toasts.js';
 
 function buildKickButton(sessionId) {
   return `
-    <button data-action="kick" data-session="${sessionId}">Kick</button>
+    <button class="btn btn--secondary btn--sm" data-action="kick" data-session="${sessionId}">Kick</button>
   `;
 }
 
 async function renderSessions(root, { api, session }) {
   root.innerHTML = `
-    <div class="panel wide">
+    <div class="auth-panel wide">
       <h1>Sessions</h1>
-      <p class="muted">Loading sessions...</p>
+      <p class="u-muted">Loading sessions...</p>
     </div>
   `;
 
@@ -39,7 +39,7 @@ async function renderSessions(root, { api, session }) {
         <div class="page-header">
           <div>
             <h2>Sessions</h2>
-            <p class="muted">${rows.length} sessions found.</p>
+            <p class="u-muted">${rows.length} sessions found.</p>
           </div>
         </div>
         <div class="card table-card">
@@ -73,7 +73,7 @@ async function renderSessions(root, { api, session }) {
     await load();
   } catch (err) {
     root.innerHTML = `
-      <div class="panel wide">
+      <div class="auth-panel wide">
         <h1>Sessions</h1>
         <p class="error">${err instanceof Error ? err.message : 'Failed to load sessions.'}</p>
       </div>

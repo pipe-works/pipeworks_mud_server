@@ -27,7 +27,7 @@ _TEMPLATES_DIR = _WEB_ROOT / "templates"
 _STATIC_DIR = _WEB_ROOT / "static"
 # Static asset version token for admin shell cache busting.
 # Bump this when frontend assets change and deployments should force refresh.
-ADMIN_ASSET_VERSION = "20260216a"
+ADMIN_ASSET_VERSION = "20260220b"
 # Static asset version token for play shell cache busting.
 # Keep separate from admin so play-shell rollouts can be versioned independently.
 PLAY_ASSET_VERSION = "20260216b"

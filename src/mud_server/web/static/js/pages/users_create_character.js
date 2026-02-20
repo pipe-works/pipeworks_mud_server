@@ -54,11 +54,11 @@ function buildWorldOptions(worlds, selectedWorldId) {
  */
 function buildCreateCharacterPanel({ user, worlds, selectedWorldId, isSubmitting }) {
   if (!user) {
-    return '<p class="muted">Select a user to provision a character.</p>';
+    return '<p class="u-muted">Select a user to provision a character.</p>';
   }
 
   if (!worlds.length) {
-    return '<p class="muted">No active worlds available for character provisioning.</p>';
+    return '<p class="u-muted">No active worlds available for character provisioning.</p>';
   }
 
   return `
@@ -71,15 +71,15 @@ function buildCreateCharacterPanel({ user, worlds, selectedWorldId, isSubmitting
       <form class="detail-form" data-create-character-form>
         <label>
           Account
-          <input type="text" value="${escapeHtml(user.username)}" readonly />
+          <input class="input" type="text" value="${escapeHtml(user.username)}" readonly />
         </label>
         <label>
           World
-          <select name="world_id" data-create-character-world required>
+          <select class="select" name="world_id" data-create-character-world required>
             ${buildWorldOptions(worlds, selectedWorldId)}
           </select>
         </label>
-        <button type="submit" ${isSubmitting ? 'disabled' : ''}>
+        <button class="btn btn--primary" type="submit" ${isSubmitting ? 'disabled' : ''}>
           ${isSubmitting ? 'Creating...' : 'Create character'}
         </button>
       </form>

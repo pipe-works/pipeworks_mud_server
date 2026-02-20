@@ -1,73 +1,429 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   admin.css
+   ─────────────────────────────────────────────────────────────────────────
+   Admin dashboard styles.  Imports AFTER pipe-works-base.css which provides
+   the design-token layer, reset, and shared component primitives.
+
+   This file contains ONLY admin-specific layout, components, and overrides.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ── Admin-specific tokens ────────────────────────────────────────────── */
+:root {
+  --layout-max: 1600px;
+  --layout-pad: 32px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   1. APP SHELL & LAYOUT
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.app-shell {
+  min-height: 100vh;
+  width: 100%;
+  display: block;
+  background: var(--col-bg);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  min-height: 100vh;
+  width: 100%;
+  background: var(--col-bg);
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────────── */
+
+.sidebar {
+  background: var(--col-surface);
+  border-right: 1px solid var(--col-border);
+  padding: var(--sp-6) var(--sp-4);
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  overflow-y: auto;
+}
+
+.brand {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-size: var(--text-lg);
+  color: var(--col-accent);
+}
+
+.nav {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.nav-group {
+  display: grid;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+
+.nav-group-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--col-text-muted);
+}
+
+.nav-link {
+  text-decoration: none;
+  color: var(--col-text);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.nav-link:hover {
+  background: color-mix(in srgb, var(--col-accent) 8%, transparent);
+}
+
+.nav-link.is-active {
+  background: var(--col-accent);
+  color: var(--col-button-text);
+}
+
+/* ── Main content area ────────────────────────────────────────────────── */
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--col-bg);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--layout-pad);
+  border-bottom: 1px solid var(--col-border);
+  background: var(--col-surface);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.header-title {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.header-title h1 {
+  margin: 0;
+  font-size: var(--text-xl);
+}
+
+.header-title span {
+  color: var(--col-text-muted);
+  font-size: var(--text-sm);
+}
+
+.content {
+  padding: var(--sp-6) var(--layout-pad) var(--sp-6);
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  display: grid;
+  gap: var(--sp-6);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   2. AUTH SHELL (login page)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.auth-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--sp-6);
+}
+
+.auth-panel {
+  padding: var(--sp-4) var(--sp-6);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--col-border);
+  background: var(--col-surface-2);
+  width: min(100%, 560px);
+}
+
+.auth-panel.wide {
+  width: 100%;
+  max-width: none;
+}
+
+.error {
+  margin-top: var(--sp-4);
+  color: var(--col-err);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   3. PAGE STRUCTURE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.page {
+  display: grid;
+  gap: var(--sp-6);
+  grid-template-columns: 1fr;
+  justify-items: stretch;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+
+.page-header h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+}
+
+.page-header p {
+  margin: var(--sp-1) 0 0;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
+  gap: var(--sp-2);
 }
 
-.app-shell {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) var(--color-bg);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   4. SPLIT LAYOUTS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.split-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2.8fr) minmax(300px, 1fr);
+  gap: var(--sp-6);
+  align-items: start;
 }
 
-.app-shell *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+.users-split {
+  grid-template-columns: minmax(0, 3.168fr) minmax(520px, 1.885fr);
 }
 
-.app-shell *::-webkit-scrollbar-track {
-  background: var(--color-bg);
+.users-split > * {
+  min-width: 0;
 }
 
-.app-shell *::-webkit-scrollbar-thumb {
-  background-color: var(--color-border);
-  border-radius: 999px;
-  border: 2px solid var(--color-bg);
+.users-split .detail-panel {
+  min-width: 0;
+  justify-self: stretch;
 }
 
-.app-shell *::-webkit-scrollbar-thumb:hover {
-  background-color: var(--color-muted);
+.users-left {
+  display: grid;
+  gap: var(--sp-4);
+  min-width: 0;
+  overflow-x: hidden;
 }
 
-.actions button,
-.actions a {
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text);
-  padding: 0.55rem 0.95rem;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
+.dashboard-split {
+  grid-template-columns: minmax(0, 2fr) minmax(380px, 1fr);
 }
 
-.actions a:hover,
-.actions button:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+.dashboard-left,
+.dashboard-right {
+  min-width: 0;
 }
+
+.users-bottom-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   5. CARDS & PANELS (admin overrides)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/*
+ * Override base CSS .card to tighten padding for admin dashboard use.
+ * Base .card provides border, radius-lg, surface-2 bg, and inset shadow.
+ */
+.card {
+  padding: var(--sp-4);
+}
+
+.card.table-card {
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.detail-panel {
+  display: grid;
+  gap: var(--sp-4);
+}
+
+.detail-card {
+  padding: var(--sp-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--col-border);
+  background: var(--col-surface);
+}
+
+.detail-card h3 {
+  margin: 0 0 var(--sp-3);
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sp-4);
+}
+
+.kpi-card {
+  padding: var(--sp-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--col-border);
+  background: var(--col-surface);
+}
+
+.stat-label {
+  color: var(--col-text-muted);
+  font-size: var(--text-sm);
+}
+
+.stat-value {
+  font-size: var(--text-xl);
+  font-weight: 700;
+}
+
+.users-placeholder-card {
+  min-height: 220px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   6. DETAIL VIEWS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.detail-form {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.detail-form label {
+  display: grid;
+  gap: var(--sp-1);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.detail-help {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--text-sm);
+}
+
+.detail-code {
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--col-border);
+  background: var(--col-code-bg);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.detail-list {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+}
+
+.detail-list div {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: var(--sp-2);
+}
+
+.detail-list dt {
+  color: var(--col-text-muted);
+  font-size: var(--text-sm);
+}
+
+.detail-list dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--col-border);
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-title {
+  font-weight: 600;
+}
+
+.detail-sub {
+  color: var(--col-text-muted);
+  font-size: var(--text-sm);
+}
+
+.detail-meta {
+  color: var(--col-text-muted);
+  font-size: var(--text-sm);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   7. TABLES
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 .table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  margin-top: 1.5rem;
-  font-size: 0.92rem;
+  margin-top: var(--sp-3);
+  font-size: var(--text-sm);
 }
 
 .table th,
 .table td {
   text-align: left;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--color-border);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--col-border);
 }
 
 .table thead th {
-  background: var(--color-surface);
-  color: var(--color-muted);
-  font-size: 0.72rem;
+  background: var(--col-surface);
+  color: var(--col-text-muted);
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   position: sticky;
@@ -81,21 +437,17 @@
 }
 
 .table th.sortable:hover {
-  color: var(--color-text);
+  color: var(--col-text);
 }
 
 .sort-indicator {
-  font-size: 0.75rem;
-  margin-left: 0.35rem;
+  font-size: var(--text-xs);
+  margin-left: var(--sp-1);
   opacity: 0.6;
 }
 
 .table tbody tr:nth-child(even) {
-  background: rgba(15, 23, 42, 0.03);
-}
-
-html[data-theme='dark'] .table tbody tr:nth-child(even) {
-  background: rgba(148, 163, 184, 0.08);
+  background: color-mix(in srgb, var(--col-text) 3%, transparent);
 }
 
 .table tbody tr.is-selectable {
@@ -103,36 +455,79 @@ html[data-theme='dark'] .table tbody tr:nth-child(even) {
 }
 
 .table tbody tr.is-selected {
-  background: rgba(37, 99, 235, 0.16);
-  box-shadow: inset 3px 0 0 var(--color-accent);
+  background: color-mix(in srgb, var(--col-accent) 16%, transparent);
+  box-shadow: inset 3px 0 0 var(--col-accent);
 }
 
 .table tbody tr:hover {
-  background: rgba(37, 99, 235, 0.08);
+  background: color-mix(in srgb, var(--col-accent) 8%, transparent);
 }
 
 .table tbody tr.is-in-world {
-  background: rgba(22, 163, 74, 0.09);
+  background: color-mix(in srgb, var(--col-ok) 9%, transparent);
 }
 
 .table tbody tr.is-selected:hover {
-  background: rgba(37, 99, 235, 0.2);
-}
-
-html[data-theme='dark'] .table tbody tr.is-in-world {
-  background: rgba(74, 222, 128, 0.14);
-}
-
-html[data-theme='dark'] .table tbody tr.is-selected {
-  background: rgba(106, 160, 255, 0.26);
+  background: color-mix(in srgb, var(--col-accent) 20%, transparent);
 }
 
 .table-wrap {
   width: 100%;
   overflow-x: auto;
-  border-radius: 14px;
-  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--col-border);
 }
+
+.table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-3);
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.table-search {
+  display: grid;
+  gap: var(--sp-1);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--col-text-muted);
+  min-width: 220px;
+}
+
+.table-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-sm);
+  color: var(--col-text-muted);
+}
+
+.table-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--col-accent);
+}
+
+.table-empty {
+  text-align: center;
+  color: var(--col-text-muted);
+  font-style: italic;
+  padding: var(--sp-3) var(--sp-2);
+}
+
+.table-refresh-note {
+  font-size: var(--text-xs);
+  color: var(--col-text-muted);
+  letter-spacing: 0.02em;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   8. USERS TABLE SPECIFICS
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 .users-table-card {
   display: flex;
@@ -151,7 +546,7 @@ html[data-theme='dark'] .table tbody tr.is-selected {
 }
 
 .users-table-card .table {
-  margin-top: 0.85rem;
+  margin-top: var(--sp-2);
   min-width: 100%;
   width: max-content;
 }
@@ -168,206 +563,6 @@ html[data-theme='dark'] .table tbody tr.is-selected {
 
 .users-tombstoned-card .table-wrap {
   max-height: 260px;
-  overflow: auto;
-}
-
-.users-split {
-  /*
-   * Wider two-column composition for high-resolution admin screens:
-   * - users table column: +20% from prior tuned width (2.64 -> 3.168)
-   * - details column: keep the current tuned width (1.885) and protect
-   *   against collapse with a minimum width so it does not become narrower.
-   * The global .split-layout gap remains unchanged, preserving spacing.
-   */
-  grid-template-columns: minmax(0, 3.168fr) minmax(520px, 1.885fr);
-}
-
-.users-split > * {
-  min-width: 0;
-}
-
-.users-split .detail-panel {
-  min-width: 0;
-  justify-self: stretch;
-}
-
-.users-left {
-  display: grid;
-  gap: 1.5rem;
-  min-width: 0;
-  overflow-x: hidden;
-}
-
-.dashboard-split {
-  grid-template-columns: minmax(0, 2fr) minmax(380px, 1fr);
-}
-
-.dashboard-left,
-.dashboard-right {
-  min-width: 0;
-}
-
-.dashboard-table-card {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  height: 730px;
-}
-
-.dashboard-table-card .table-wrap {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-
-.dashboard-detail-card {
-  height: 730px;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  overflow: auto;
-}
-
-.dashboard-scroll-region {
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  padding: 0.25rem 0.9rem;
-  overflow: auto;
-}
-
-.dashboard-toolbar {
-  justify-content: flex-start;
-  gap: 0.9rem;
-}
-
-.dashboard-select-inline {
-  min-width: 170px;
-}
-
-/*
- * Admin runs comfortably on wider desktop layouts. Remove the generic content
- * max-width cap so the users split can consume available horizontal space.
- */
-.content {
-  max-width: none;
-}
-
-.users-bottom-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 1.5rem;
-  align-items: start;
-}
-
-.users-placeholder-card {
-  min-height: 220px;
-}
-
-.table-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.2rem;
-  padding-bottom: 1rem;
-  align-items: flex-end;
-  justify-content: space-between;
-}
-
-.table-search {
-  display: grid;
-  gap: 0.35rem;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-muted);
-  min-width: 220px;
-}
-
-.table-search input {
-  padding: 0.55rem 0.75rem;
-  border-radius: 10px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-}
-
-.table-search input:focus {
-  outline: 2px solid rgba(37, 99, 235, 0.25);
-  border-color: var(--color-accent);
-}
-
-.table-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--color-muted);
-}
-
-.table-toggle input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--color-accent);
-}
-
-.table-empty {
-  text-align: center;
-  color: var(--color-muted);
-  font-style: italic;
-  padding: 1.2rem 0.75rem;
-}
-
-.tab-card {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.tab-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.tab-header h3 {
-  margin: 0;
-}
-
-.tab-buttons {
-  display: inline-flex;
-  gap: 0.35rem;
-  flex-wrap: nowrap;
-}
-
-.tab-button {
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-muted);
-  padding: 0.35rem 0.6rem;
-  border-radius: 999px;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-}
-
-.tab-button.is-active {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  background: rgba(37, 99, 235, 0.12);
-}
-
-.tab-panel h4 {
-  margin: 0 0 0.75rem;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-muted);
-}
-
-.tab-panel {
-  flex: 1;
   overflow: auto;
 }
 
@@ -394,13 +589,171 @@ html[data-theme='dark'] .table tbody tr.is-selected {
   overflow-wrap: anywhere;
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   9. DASHBOARD SPECIFICS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.dashboard-table-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 730px;
+}
+
+.dashboard-table-card .table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.dashboard-detail-card {
+  height: 730px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  overflow: auto;
+}
+
+.dashboard-scroll-region {
+  border: 1px solid var(--col-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-1) var(--sp-3);
+  overflow: auto;
+}
+
+.dashboard-toolbar {
+  justify-content: flex-start;
+  gap: var(--sp-3);
+}
+
+.dashboard-select-inline {
+  min-width: 170px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   10. TABS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.tab-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.tab-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.tab-header h3 {
+  margin: 0;
+}
+
+.tab-buttons {
+  display: inline-flex;
+  gap: var(--sp-1);
+  flex-wrap: nowrap;
+}
+
+.tab-button {
+  border: 1px solid var(--col-border);
+  background: transparent;
+  color: var(--col-text-muted);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast),
+              background var(--transition-fast);
+}
+
+.tab-button.is-active {
+  border-color: var(--col-accent);
+  color: var(--col-accent);
+  background: var(--col-accent-glow);
+}
+
+.tab-panel h4 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--col-text-muted);
+}
+
+.tab-panel {
+  flex: 1;
+  overflow: auto;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   11. TAGS & STATUS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.tag {
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--col-border);
+  background: var(--col-surface-2);
+  font-size: var(--text-xs);
+}
+
+.status-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.status-world-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.status-world-chip {
+  padding: 1px var(--sp-1);
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--col-border);
+  background: var(--col-surface-2);
+  color: var(--col-text-muted);
+  font-size: var(--text-xs);
+  line-height: 1;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   12. CHARACTER MANAGEMENT
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.character-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  justify-content: flex-end;
+}
+
 .create-character-panel {
   display: grid;
-  gap: 0.9rem;
+  gap: var(--sp-3);
 }
 
 .create-character-panel .detail-form {
-  margin-top: 0.2rem;
+  margin-top: var(--sp-1);
 }
 
 .create-character-panel input[readonly] {
@@ -413,43 +766,260 @@ html[data-theme='dark'] .table tbody tr.is-selected {
 }
 
 .detail-row-character .detail-meta {
-  margin-top: 0.4rem;
+  margin-top: var(--sp-1);
 }
 
-.character-actions {
-  display: inline-flex;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   13. AXIS STATE & EVENTS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.axis-state-select select {
+  width: 100%;
+}
+
+/* Force readable text inside native <option> elements in dark mode.
+   Browsers often ignore inherited color on option elements. */
+.select option {
+  background: var(--col-surface-2);
+  color: var(--col-text);
+}
+
+.axis-score-list {
+  margin-bottom: var(--sp-2);
+}
+
+.axis-event-list {
+  display: grid;
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
+}
+
+.axis-event {
+  padding: var(--sp-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--col-border);
+  background: var(--col-surface-2);
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.axis-event-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+
+.axis-event-title {
+  font-weight: 600;
+}
+
+.axis-event-kind {
+  margin-top: 1px;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--col-text-muted);
+}
+
+.axis-event-summary {
+  margin-top: var(--sp-1);
+  font-size: var(--text-sm);
+  color: var(--col-text);
+}
+
+.axis-event-sub {
+  font-size: var(--text-sm);
+  color: var(--col-text-muted);
+}
+
+.axis-event-world {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--col-text-muted);
+}
+
+.axis-event-deltas {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.axis-event-delta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  font-size: var(--text-sm);
+}
+
+.axis-event-axis {
+  font-weight: 600;
+}
+
+.axis-event-values {
+  color: var(--col-text-muted);
+}
+
+.axis-event-change {
+  font-weight: 600;
+}
+
+.axis-event-tags {
+  margin-top: var(--sp-1);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   14. SCHEMA VISUALIZATION
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.schema-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+  gap: var(--sp-6);
+  align-items: start;
+}
+
+.schema-map {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--col-border);
+  background: var(--col-surface);
+  padding: var(--sp-3);
+  overflow: auto;
+}
+
+.schema-svg {
+  width: 100%;
+  min-height: 320px;
+}
+
+.schema-link {
+  stroke: var(--col-accent);
+  stroke-width: 2;
+  fill: none;
+  opacity: 0.5;
+}
+
+.schema-node rect {
+  fill: var(--col-surface-2);
+  stroke: var(--col-border);
+  stroke-width: 1.5;
+}
+
+.schema-node-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  fill: var(--col-text);
+}
+
+.schema-node-meta {
+  font-size: var(--text-xs);
+  fill: var(--col-text-muted);
+}
+
+.schema-relations {
+  list-style: none;
+  padding: 0;
+  margin: var(--sp-3) 0 0;
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.schema-relations li {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--col-border);
+  background: var(--col-surface-2);
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.relation-main {
+  display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  justify-content: flex-end;
+  gap: var(--sp-1);
+  align-items: center;
 }
 
-.character-actions button {
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text);
-  padding: 0.45rem 0.7rem;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 0.78rem;
+.relation-source,
+.relation-target {
+  font-weight: 600;
 }
 
-.character-actions button:hover:not(:disabled) {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+.relation-arrow {
+  color: var(--col-text-muted);
 }
 
-.character-actions button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+.relation-meta {
+  color: var(--col-text-muted);
+  font-size: var(--text-sm);
 }
 
-.table-refresh-note {
-  font-size: 0.72rem;
-  color: var(--color-muted);
-  letter-spacing: 0.02em;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   15. TOAST NOTIFICATIONS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.toast-container {
+  position: fixed;
+  right: var(--sp-4);
+  top: var(--sp-4);
+  display: grid;
+  gap: var(--sp-2);
+  z-index: 1000;
 }
+
+.toast {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  background: var(--col-surface);
+  color: var(--col-text);
+  border: 1px solid var(--col-border);
+  transition: opacity var(--transition-med), transform var(--transition-med);
+}
+
+.toast-info {
+  border-left: 4px solid var(--col-accent);
+}
+
+.toast-success {
+  border-left: 4px solid var(--col-ok);
+}
+
+.toast-error {
+  border-left: 4px solid var(--col-err);
+}
+
+.toast-hide {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   16. UTILITIES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.noscript {
+  padding: var(--sp-6);
+  text-align: center;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   17. RESPONSIVE
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 @media (max-width: 1100px) {
+  .split-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .schema-layout {
+    grid-template-columns: 1fr;
+  }
+
   .users-table-card {
     height: auto;
   }
@@ -482,5 +1052,23 @@ html[data-theme='dark'] .table tbody tr.is-selected {
   .dashboard-table-card,
   .dashboard-detail-card {
     height: auto;
+  }
+}
+
+@media (max-width: 1080px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--col-border);
+    height: auto;
+    position: relative;
+  }
+
+  .content {
+    padding: var(--sp-4) var(--sp-3) var(--sp-6);
+    max-width: none;
   }
 }

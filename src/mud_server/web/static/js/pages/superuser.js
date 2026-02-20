@@ -12,13 +12,13 @@ function renderSuperuser(root, { api, session }) {
       <div class="page-header">
         <div>
           <h2>Superuser</h2>
-          <p class="muted">Danger zone actions for superusers.</p>
+          <p class="u-muted">Danger zone actions for superusers.</p>
         </div>
       </div>
       <div class="card">
         <div class="actions">
-          <button data-action="stop">Stop server</button>
-          <button data-action="export">Export worlds table (JSON)</button>
+          <button class="btn btn--secondary" data-action="stop">Stop server</button>
+          <button class="btn btn--secondary" data-action="export">Export worlds table (JSON)</button>
         </div>
       </div>
     </div>

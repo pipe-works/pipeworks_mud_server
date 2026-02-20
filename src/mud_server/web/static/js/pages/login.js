@@ -14,19 +14,19 @@ import { Session } from '../api.js';
  */
 function buildLoginMarkup() {
   return `
-    <div class="panel">
+    <div class="auth-panel">
       <h1>Admin Login</h1>
-      <p class="muted">Enter your admin or superuser credentials.</p>
-      <form id="login-form" class="form">
+      <p class="u-muted">Enter your admin or superuser credentials.</p>
+      <form id="login-form" class="detail-form">
         <label>
           Username
-          <input type="text" name="username" required />
+          <input class="input" type="text" name="username" required />
         </label>
         <label>
           Password
-          <input type="password" name="password" required />
+          <input class="input" type="password" name="password" required />
         </label>
-        <button type="submit">Sign in</button>
+        <button class="btn btn--primary btn--full" type="submit">Sign in</button>
       </form>
       <div id="login-error" class="error" role="alert"></div>
     </div>

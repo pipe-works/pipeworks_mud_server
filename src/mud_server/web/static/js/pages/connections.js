@@ -9,9 +9,9 @@ import { showToast } from '../ui/toasts.js';
 
 async function renderConnections(root, { api, session }) {
   root.innerHTML = `
-    <div class="panel wide">
+    <div class="auth-panel wide">
       <h1>Connections</h1>
-      <p class="muted">Loading connections...</p>
+      <p class="u-muted">Loading connections...</p>
     </div>
   `;
 
@@ -30,7 +30,7 @@ async function renderConnections(root, { api, session }) {
         <div class="page-header">
           <div>
             <h2>Connections</h2>
-            <p class="muted">${rows.length} connections found.</p>
+            <p class="u-muted">${rows.length} connections found.</p>
           </div>
         </div>
         <div class="card table-card">
@@ -41,7 +41,7 @@ async function renderConnections(root, { api, session }) {
   } catch (err) {
     showToast(err instanceof Error ? err.message : 'Failed to load connections.', 'error');
     root.innerHTML = `
-      <div class="panel wide">
+      <div class="auth-panel wide">
         <h1>Connections</h1>
         <p class="error">Failed to load connections.</p>
       </div>

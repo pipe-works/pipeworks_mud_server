@@ -30,8 +30,8 @@ function buildOnlineStatus(user) {
     : '';
   return `
     <div class="status-stack">
-      <span class="status-pill ${accountClass}">Account</span>
-      <span class="status-pill ${worldClass}">
+      <span class="badge ${accountClass === 'is-online' ? 'badge--active' : 'badge--muted'}">Account</span>
+      <span class="badge ${worldClass === 'is-online' ? 'badge--active' : 'badge--muted'}">
         In-world${activeWorldIds.length ? ` (${activeWorldIds.length})` : ''}
       </span>
       ${worldChips}
@@ -42,11 +42,11 @@ function buildOnlineStatus(user) {
 function buildActionButtons(username) {
   return `
     <div class="actions" data-user-actions="${username}">
-      <button data-action="change_role">Change role</button>
-      <button data-action="ban">Ban</button>
-      <button data-action="unban">Unban</button>
-      <button data-action="delete">Delete</button>
-      <button data-action="change_password">Change password</button>
+      <button class="btn btn--secondary" data-action="change_role">Change role</button>
+      <button class="btn btn--secondary" data-action="ban">Ban</button>
+      <button class="btn btn--secondary" data-action="unban">Unban</button>
+      <button class="btn btn--secondary" data-action="delete">Delete</button>
+      <button class="btn btn--secondary" data-action="change_password">Change password</button>
     </div>
   `;
 }
@@ -67,6 +67,7 @@ function buildCharacterActionButtons(characterId, characterName, role, pendingAc
   return `
     <div class="character-actions">
       <button
+        class="btn btn--secondary btn--sm"
         data-character-action="tombstone"
         data-character-id="${characterId}"
         data-character-name="${escapeHtml(characterName)}"
@@ -75,6 +76,7 @@ function buildCharacterActionButtons(characterId, characterName, role, pendingAc
         ${pendingActionKey === tombstoneKey ? 'Tombstoning...' : 'Tombstone'}
       </button>
       <button
+        class="btn btn--secondary btn--sm"
         data-character-action="delete"
         data-character-id="${characterId}"
         data-character-name="${escapeHtml(characterName)}"
@@ -402,7 +404,7 @@ function buildAxisStatePanel({
   eventsError,
 }) {
   if (!characters.length) {
-    return '<p class="muted">No characters available for axis state.</p>';
+    return '<p class="u-muted">No characters available for axis state.</p>';
   }
 
   const optionsHtml = characters
@@ -419,7 +421,7 @@ function buildAxisStatePanel({
       <div class="axis-state">
         <label class="detail-form axis-state-select">
           Character
-          <select data-axis-character>${optionsHtml}</select>
+          <select class="select" data-axis-character>${optionsHtml}</select>
         </label>
         <p class="error">${escapeHtml(error)}</p>
       </div>
@@ -431,9 +433,9 @@ function buildAxisStatePanel({
       <div class="axis-state">
         <label class="detail-form axis-state-select">
           Character
-          <select data-axis-character>${optionsHtml}</select>
+          <select class="select" data-axis-character>${optionsHtml}</select>
         </label>
-        <p class="muted">Loading axis state...</p>
+        <p class="u-muted">Loading axis state...</p>
       </div>
     `;
   }
@@ -451,7 +453,7 @@ function buildAxisStatePanel({
           `
         )
         .join('')
-    : '<p class="muted">No axis scores recorded.</p>';
+    : '<p class="u-muted">No axis scores recorded.</p>';
 
   const snapshot =
     axisState.current_state && Object.keys(axisState.current_state).length
@@ -463,10 +465,10 @@ function buildAxisStatePanel({
       return `<p class="error">${escapeHtml(eventsError)}</p>`;
     }
     if (eventsLoading) {
-      return '<p class="muted">Loading events...</p>';
+      return '<p class="u-muted">Loading events...</p>';
     }
     if (!axisEvents || axisEvents.length === 0) {
-      return '<p class="muted">No axis events recorded.</p>';
+      return '<p class="u-muted">No axis events recorded.</p>';
     }
 
     return axisEvents
@@ -485,7 +487,7 @@ function buildAxisStatePanel({
                 .join('')}
             </div>
           `
-          : '<p class="muted">No metadata.</p>';
+          : '<p class="u-muted">No metadata.</p>';
 
         const deltaHtml = event.deltas
           .map(
@@ -526,7 +528,7 @@ function buildAxisStatePanel({
     <div class="axis-state">
       <label class="detail-form axis-state-select">
         Character
-        <select data-axis-character>${optionsHtml}</select>
+        <select class="select" data-axis-character>${optionsHtml}</select>
       </label>
       <dl class="detail-list axis-state-summary">
         <div><dt>World</dt><dd>${escapeHtml(axisState.world_id)}</dd></div>
@@ -540,7 +542,7 @@ function buildAxisStatePanel({
       ${
         snapshot
           ? `<pre class="detail-code">${escapeHtml(snapshot)}</pre>`
-          : '<p class="muted">No snapshot data available.</p>'
+          : '<p class="u-muted">No snapshot data available.</p>'
       }
       <h5>Recent Axis Events</h5>
       <div class="axis-event-list">
@@ -577,7 +579,7 @@ function buildUserDetails({
     return `
       <div class="detail-card tab-card">
         <h3>User Details</h3>
-        <p class="muted">Select a user to see account details.</p>
+        <p class="u-muted">Select a user to see account details.</p>
       </div>
     `;
   }
@@ -617,7 +619,7 @@ function buildUserDetails({
           `;
         })
         .join('')
-    : '<p class="muted">No characters found.</p>';
+    : '<p class="u-muted">No characters found.</p>';
 
   const worldsHtml = worldAccess.length
     ? worldAccess
@@ -626,7 +628,7 @@ function buildUserDetails({
           return `<span class="tag">${worldName}</span>`;
         })
         .join('')
-    : '<p class="muted">No world permissions recorded.</p>';
+    : '<p class="u-muted">No world permissions recorded.</p>';
 
   const tab = activeTab || 'account';
 
@@ -676,7 +678,7 @@ function buildUserDetails({
         <h4>Characters</h4>
         ${
           sessionRole === 'superuser'
-            ? '<p class="muted detail-help">Superusers may tombstone or permanently delete characters.</p>'
+            ? '<p class="u-muted detail-help">Superusers may tombstone or permanently delete characters.</p>'
             : ''
         }
         ${charactersHtml}
@@ -729,25 +731,25 @@ function buildCreateUserCard(role) {
       <form class="detail-form" data-create-user>
         <label>
           Username
-          <input type="text" name="username" required />
+          <input class="input" type="text" name="username" required />
         </label>
         <label>
           Role
-          <select name="role">
+          <select class="select" name="role">
             ${roleOptions.map((opt) => `<option value="${opt}">${opt}</option>`).join('')}
           </select>
         </label>
         <label>
           Password
-          <input type="password" name="password" required />
+          <input class="input" type="password" name="password" required />
         </label>
         <label>
           Confirm Password
-          <input type="password" name="password_confirm" required />
+          <input class="input" type="password" name="password_confirm" required />
         </label>
-        <button type="submit">Create account</button>
+        <button class="btn btn--primary" type="submit">Create account</button>
       </form>
-      <p class="muted detail-help">Admins can create players/worldbuilders. Superusers can create all roles.</p>
+      <p class="u-muted detail-help">Admins can create players/worldbuilders. Superusers can create all roles.</p>
     </div>
   `;
 }
@@ -776,7 +778,7 @@ function buildTombstonedCharactersCard(characters, worldsById) {
     return `
       <div class="detail-card users-tombstoned-card">
         <h3>Tombstoned Characters</h3>
-        <p class="muted">No tombstoned characters recorded.</p>
+        <p class="u-muted">No tombstoned characters recorded.</p>
       </div>
     `;
   }
@@ -795,7 +797,7 @@ function buildTombstonedCharactersCard(characters, worldsById) {
   return `
     <div class="detail-card users-tombstoned-card">
       <h3>Tombstoned Characters</h3>
-      <p class="muted">Most recent tombstoned character records for audit/recovery workflows.</p>
+      <p class="u-muted">Most recent tombstoned character records for audit/recovery workflows.</p>
       ${renderTable(headers, rows)}
     </div>
   `;
@@ -815,7 +817,7 @@ function buildUsersPageShell(role) {
       <div class="page-header">
         <div>
           <h2>Users</h2>
-          <p class="muted" data-users-count>Loading users...</p>
+          <p class="u-muted" data-users-count>Loading users...</p>
         </div>
       </div>
       <div class="split-layout users-split">
@@ -847,9 +849,9 @@ function rowsToObjects(columns, rows) {
 
 async function renderUsers(root, { api, session }) {
   root.innerHTML = `
-    <div class="panel wide">
+    <div class="auth-panel wide">
       <h1>Users</h1>
-      <p class="muted">Loading users...</p>
+      <p class="u-muted">Loading users...</p>
     </div>
   `;
 
@@ -895,7 +897,7 @@ async function renderUsers(root, { api, session }) {
   const createForm = root.querySelector('[data-create-user]');
   if (!tableRegion || !secondaryRegion || !detailRegion || !usersCountLabel || !createForm) {
     root.innerHTML = `
-      <div class="panel wide">
+      <div class="auth-panel wide">
         <h1>Users</h1>
         <p class="error">Failed to render users UI shell.</p>
       </div>
@@ -1351,7 +1353,7 @@ async function renderUsers(root, { api, session }) {
     startAutoRefresh();
   } catch (err) {
     root.innerHTML = `
-      <div class="panel wide">
+      <div class="auth-panel wide">
         <h1>Users</h1>
         <p class="error">${err instanceof Error ? err.message : 'Failed to load users.'}</p>
       </div>

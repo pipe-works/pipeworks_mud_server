@@ -6,9 +6,9 @@
 
 async function renderDashboard(root, { api, session }) {
   root.innerHTML = `
-    <div class="panel wide">
+    <div class="auth-panel wide">
       <h1>Admin Dashboard</h1>
-      <p class="muted">Loading summary...</p>
+      <p class="u-muted">Loading summary...</p>
     </div>
   `;
 
@@ -26,7 +26,7 @@ async function renderDashboard(root, { api, session }) {
         <div class="page-header">
           <div>
             <h2>Admin Overview</h2>
-            <p class="muted">Snapshot of active users, sessions, and worlds.</p>
+            <p class="u-muted">Snapshot of active users, sessions, and worlds.</p>
           </div>
         </div>
         <div class="kpi-grid">
@@ -49,21 +49,21 @@ async function renderDashboard(root, { api, session }) {
         </div>
         <div class="card">
           <h3>Quick Actions</h3>
-          <p class="muted">Jump straight to high-impact views.</p>
+          <p class="u-muted">Jump straight to high-impact views.</p>
           <div class="actions">
-            <a href="/admin/users">Manage users</a>
-            <a href="/admin/accounts">Account dashboard</a>
-            <a href="/admin/characters">Character dashboard</a>
-            <a href="/admin/tombstones">Tombstone dashboard</a>
-            <a href="/admin/sessions">Active sessions</a>
-            <a href="/admin/tables">Database tables</a>
+            <a class="btn btn--secondary" href="/admin/users">Manage users</a>
+            <a class="btn btn--secondary" href="/admin/accounts">Account dashboard</a>
+            <a class="btn btn--secondary" href="/admin/characters">Character dashboard</a>
+            <a class="btn btn--secondary" href="/admin/tombstones">Tombstone dashboard</a>
+            <a class="btn btn--secondary" href="/admin/sessions">Active sessions</a>
+            <a class="btn btn--secondary" href="/admin/tables">Database tables</a>
           </div>
         </div>
       </div>
     `;
   } catch (err) {
     root.innerHTML = `
-      <div class="panel wide">
+      <div class="auth-panel wide">
         <h1>Admin Dashboard</h1>
         <p class="error">${err instanceof Error ? err.message : 'Failed to load data.'}</p>
       </div>
