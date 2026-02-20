@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.11](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.10...mud_server-v0.3.11) (2026-02-20)
+
+
+### Features
+
+* **web:** migrate admin CSS to pipe-works-base design system ([bf663e6](https://github.com/pipe-works/pipeworks_mud_server/commit/bf663e656642fd4787a4973b642176b73f5f0340))
+* **web:** migrate admin CSS to pipe-works-base design system ([d54a9b4](https://github.com/pipe-works/pipeworks_mud_server/commit/d54a9b4f9c9599fc9e6521b7ec6451ca370769e2))
+
 ## [0.3.10](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.9...mud_server-v0.3.10) (2026-02-18)
 
 
