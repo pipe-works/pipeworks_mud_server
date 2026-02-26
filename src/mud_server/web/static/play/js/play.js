@@ -17,7 +17,8 @@ const FLASH_KEY = 'pipeworks_play_flash';
 // Game-session state: reset on each world entry, cleared on logout.
 /** @type {ReturnType<typeof setInterval>|null} */
 let _chatPollInterval = null;
-let _lastChatLineCount = 0;
+/** @type {string[]} Lines seen in the previous chat poll, used to detect new arrivals. */
+let _prevChatLines = [];
 
 /**
  * Read world id from the server-rendered body dataset.
@@ -896,6 +897,26 @@ function stopChatPolling() {
 }
 
 /**
+ * Decode HTML entities in a string without introducing XSS risk.
+ *
+ * The server stores chat messages as HTML-encoded text (e.g. &#x27; for
+ * apostrophes) to protect contexts that render via innerHTML.  Before
+ * setting textContent we must decode those entities so they display as
+ * their intended characters rather than as raw entity strings.
+ *
+ * Using a detached textarea is the standard safe technique: the browser
+ * parses the entities without executing any scripts.
+ *
+ * @param {string} str
+ * @returns {string}
+ */
+function decodeHtmlEntities(str) {
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = str;
+  return textarea.value;
+}
+
+/**
  * Append a line of text to the game output window and scroll to the bottom.
  *
  * @param {string} text
@@ -907,7 +928,7 @@ function appendToOutput(text, cssClass = 'output-text') {
   if (!output) return;
   const entry = document.createElement('div');
   entry.className = cssClass;
-  entry.textContent = text;
+  entry.textContent = decodeHtmlEntities(text);
   output.appendChild(entry);
   output.scrollTop = output.scrollHeight;
 }
@@ -951,18 +972,29 @@ async function pollChat(sessionId) {
     if (!chatStr) return;
     // Filter out the "[Recent messages]:" header and blank lines.
     const lines = chatStr.split('\n').filter((l) => l.trim() && !l.startsWith('['));
-    if (lines.length > _lastChatLineCount) {
-      // Append only the messages that arrived since the last poll.
-      for (const msg of lines.slice(_lastChatLineCount)) {
-        appendToOutput(msg, 'output-chat');
-      }
-    } else if (lines.length < _lastChatLineCount) {
-      // Window rolled over — display all current messages fresh.
-      for (const msg of lines) {
-        appendToOutput(msg, 'output-chat');
+    if (lines.length === 0) {
+      _prevChatLines = [];
+      return;
+    }
+
+    // Find the newest previously-seen message that still appears in the
+    // current list.  Everything after it is new.  Messages roll off the
+    // front of the server's fixed-size window when full, so new messages
+    // always appear at the tail — this handles both the under-limit case
+    // (count grows) and the at-limit case (count stays the same but the
+    // tail advances).
+    let newStart = 0; // default: show all (first load or full rollover)
+    for (let i = _prevChatLines.length - 1; i >= 0; i--) {
+      const idx = lines.lastIndexOf(_prevChatLines[i]);
+      if (idx !== -1) {
+        newStart = idx + 1;
+        break;
       }
     }
-    _lastChatLineCount = lines.length;
+    for (const msg of lines.slice(newStart)) {
+      appendToOutput(msg, 'output-chat');
+    }
+    _prevChatLines = lines;
   } catch (_err) {
     // Don't disrupt gameplay on transient chat poll failures.
   }
@@ -1003,19 +1035,19 @@ function bindCommandInput(sessionId) {
 async function startGameSession(_worldId, sessionId) {
   const output = document.getElementById('gameOutput');
   if (output) output.innerHTML = '';
-  _lastChatLineCount = 0;
+  _prevChatLines = [];
 
   bindCommandInput(sessionId);
 
   // Fire an initial look to populate the output window on entry.
   await submitCommand(sessionId, 'look');
 
-  // Seed the current chat line count so we don't replay existing history.
+  // Seed the chat baseline so we don't replay existing history on first poll.
   try {
     const data = await apiCall(`/chat/${sessionId}`, { method: 'GET' });
     const chatStr = typeof data?.chat === 'string' ? data.chat : '';
     const lines = chatStr.split('\n').filter((l) => l.trim() && !l.startsWith('['));
-    _lastChatLineCount = lines.length;
+    _prevChatLines = lines;
   } catch (_err) {
     // ignore — polling will recover on the first tick
   }

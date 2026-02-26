@@ -14,5 +14,16 @@
     "shematica_01",
     "the_north_gardens"
   ],
-  "global_items": {}
+  "global_items": {},
+  "translation_layer": {
+    "enabled": false,
+    "model": "gemma2:2b",
+    "ollama_base_url": "http://localhost:11434",
+    "timeout_seconds": 10.0,
+    "strict_mode": true,
+    "max_output_chars": 280,
+    "prompt_template_path": "policies/ic_prompt.txt",
+    "active_axes": ["demeanor", "health", "physique", "wealth", "facial_signal"],
+    "deterministic": false
+  }
 }

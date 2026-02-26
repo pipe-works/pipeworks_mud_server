@@ -250,6 +250,54 @@ def get_character_by_name(name: str) -> dict[str, Any] | None:
         _raise_read_error("characters.get_character_by_name", exc, details=f"name={name!r}")
 
 
+def get_character_by_name_in_world(name: str, world_id: str) -> dict[str, Any] | None:
+    """Return a character row by name scoped to a specific world, or ``None`` when missing.
+
+    This is the preferred lookup for the translation layer and any system that
+    must avoid cross-world name collisions.  Two characters in different worlds
+    may share the same name; a bare ``get_character_by_name`` lookup would
+    return whichever row the DB engine happens to surface first, which is a
+    silent correctness bug in multi-world contexts.
+
+    Args:
+        name:     Character name to search for.
+        world_id: World that the character must belong to.
+
+    Returns:
+        Character dict if a match is found, ``None`` otherwise.
+    """
+    try:
+        with connection_scope() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, user_id, name, world_id, inventory, is_guest_created, created_at, updated_at
+                FROM characters
+                WHERE name = ? AND world_id = ?
+                """,
+                (name, world_id),
+            )
+            row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": int(row[0]),
+            "user_id": row[1],
+            "name": row[2],
+            "world_id": row[3],
+            "inventory": row[4],
+            "is_guest_created": bool(row[5]),
+            "created_at": row[6],
+            "updated_at": row[7],
+        }
+    except Exception as exc:
+        _raise_read_error(
+            "characters.get_character_by_name_in_world",
+            exc,
+            details=f"name={name!r} world_id={world_id!r}",
+        )
+
+
 def get_character_by_id(character_id: int) -> dict[str, Any] | None:
     """Return a character row by id, or ``None`` when missing."""
     try:

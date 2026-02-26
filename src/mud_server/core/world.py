@@ -219,6 +219,17 @@ class World:
         self.world_name: str = "Unknown World"
         self.default_spawn: tuple[str, str] = ("", "spawn")  # (zone_id, room_id)
 
+        # The world_id is the name of the world package directory.
+        # When world_root is None (legacy single-file mode) we have no
+        # directory-derived ID; the translation layer will be disabled.
+        self.world_id: str = world_root.name if world_root is not None else ""
+
+        # Translation layer — initialised to None here; populated by
+        # _load_from_zones once it has parsed world.json.
+        # The type annotation uses a string forward-reference to avoid a
+        # circular import at module level; no runtime import is needed here.
+        self._translation_service = None  # type: OOCToICTranslationService | None
+
         # Load world data from JSON files
         self._load_world()
 
@@ -294,6 +305,95 @@ class World:
             f"Loaded world '{self.world_name}': "
             f"{len(self.zones)} zones, {len(self.rooms)} rooms, {len(self.items)} items"
         )
+
+        # ── Translation layer ────────────────────────────────────────────────
+        # Parse the optional ``translation_layer`` block from world.json.
+        # If the block is absent or ``enabled`` is false, the service is
+        # left as ``None`` and the layer is inactive for this world.
+        #
+        # Configuration precedence (locked):
+        # 1. If server.ini ``ollama_translation.enabled = false`` → OFF globally.
+        #    (Enforced here by checking config before instantiating.)
+        # 2. Else if world.json ``translation_layer.enabled = true`` → ON.
+        # 3. Otherwise → OFF.
+        self._init_translation_service(world_data)
+
+    def _init_translation_service(self, world_data: dict) -> None:
+        """Parse the translation_layer block and instantiate the service.
+
+        Called at the end of ``_load_from_zones`` once ``world.json`` is
+        fully loaded.  Any errors during service construction are caught and
+        logged rather than propagated, so a misconfigured translation block
+        never prevents the world from loading.
+
+        Args:
+            world_data: The parsed ``world.json`` dict.
+        """
+        from mud_server.config import config as server_config
+        from mud_server.translation.config import TranslationLayerConfig
+        from mud_server.translation.service import OOCToICTranslationService
+
+        # Master switch: server.ini [ollama_translation] enabled = false → OFF globally.
+        if not server_config.ollama_translation.enabled:
+            return
+
+        translation_data = world_data.get("translation_layer", {})
+
+        if not translation_data.get("enabled", False):
+            # No block, or explicitly disabled — leave service as None.
+            return
+
+        if not self.world_id:
+            # Legacy (no world_root) — cannot scope the service to a world_id.
+            logger.warning(
+                "Translation layer is enabled in world.json but world_id "
+                "could not be determined (no world_root).  Skipping."
+            )
+            return
+
+        if self._world_root is None:
+            logger.warning(
+                "Translation layer is enabled for world %r but world_root "
+                "is None.  Cannot load prompt template.  Skipping.",
+                self.world_id,
+            )
+            return
+
+        try:
+            cfg = TranslationLayerConfig.from_dict(translation_data, world_root=self._world_root)
+            self._translation_service = OOCToICTranslationService(
+                world_id=self.world_id,
+                config=cfg,
+                world_root=self._world_root,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Failed to initialise translation layer for world %r: %s.  "
+                "Translation will be disabled for this world.",
+                self.world_id,
+                exc,
+            )
+            self._translation_service = None
+
+    def get_translation_service(self):
+        """Return the OOCToICTranslationService for this world, or None.
+
+        Callers must check for ``None`` before use.  A ``None`` return means
+        the translation layer is either disabled in config, failed to
+        initialise, or this world has no ``translation_layer`` block.
+
+        Returns:
+            OOCToICTranslationService instance, or None.
+        """
+        return self._translation_service
+
+    def translation_layer_enabled(self) -> bool:
+        """Return True if the translation service is configured and active.
+
+        Returns:
+            True if a live OOCToICTranslationService is attached; False otherwise.
+        """
+        return self._translation_service is not None
 
     def _load_zone(self, zone_path: Path):
         """

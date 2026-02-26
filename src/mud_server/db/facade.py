@@ -62,6 +62,7 @@ _PUBLIC_API: tuple[str, ...] = (
     "get_character_axis_state",
     "get_character_by_id",
     "get_character_by_name",
+    "get_character_by_name_in_world",
     "get_character_inventory",
     "get_character_locations",
     "get_character_name_by_id",
