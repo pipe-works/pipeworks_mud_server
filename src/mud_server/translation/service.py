@@ -97,9 +97,7 @@ class OOCToICTranslationService:
                         ``CharacterProfileBuilder``).
         """
         if not world_id or not world_id.strip():
-            raise ValueError(
-                "OOCToICTranslationService requires an explicit world_id."
-            )
+            raise ValueError("OOCToICTranslationService requires an explicit world_id.")
 
         self._world_id = world_id
         self._config = config
@@ -120,8 +118,7 @@ class OOCToICTranslationService:
         self._prompt_template: str = self._load_prompt_template(world_root)
 
         logger.info(
-            "OOCToICTranslationService initialised for world %r "
-            "(model=%s, deterministic=%s)",
+            "OOCToICTranslationService initialised for world %r " "(model=%s, deterministic=%s)",
             world_id,
             config.model,
             config.deterministic,
@@ -192,8 +189,7 @@ class OOCToICTranslationService:
             seed_int = int(ipc_hash[:16], 16)
             self._renderer.set_deterministic(seed_int)
             logger.debug(
-                "OOCToICTranslationService: deterministic mode armed "
-                "(ipc_hash=%s..., seed=%d)",
+                "OOCToICTranslationService: deterministic mode armed " "(ipc_hash=%s..., seed=%d)",
                 ipc_hash[:8],
                 seed_int,
             )
