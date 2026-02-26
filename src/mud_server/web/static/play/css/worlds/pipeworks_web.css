@@ -563,6 +563,31 @@ body[data-play-shell="true"] {
   margin: 0;
 }
 
+/* ============================= */
+/* GAME OUTPUT LINE TYPES        */
+/* ============================= */
+
+.output-command {
+  margin-bottom: 4px;
+  font-family: var(--font-console);
+  font-size: 13px;
+  opacity: 0.55;
+}
+
+.output-error {
+  margin-bottom: 8px;
+  font-family: var(--font-console);
+  font-size: 13px;
+  color: var(--ink-red);
+}
+
+.output-chat {
+  margin-bottom: 4px;
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-newsprint-faded);
+}
+
 .item-modal {
   pointer-events: none;
 }

@@ -30,7 +30,7 @@ _STATIC_DIR = _WEB_ROOT / "static"
 ADMIN_ASSET_VERSION = "20260220b"
 # Static asset version token for play shell cache busting.
 # Keep separate from admin so play-shell rollouts can be versioned independently.
-PLAY_ASSET_VERSION = "20260216b"
+PLAY_ASSET_VERSION = "20260226a"
 
 
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))

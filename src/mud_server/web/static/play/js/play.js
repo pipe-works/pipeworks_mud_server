@@ -14,6 +14,11 @@
 const STORAGE_KEY = 'pipeworks_play_session';
 const FLASH_KEY = 'pipeworks_play_flash';
 
+// Game-session state: reset on each world entry, cleared on logout.
+/** @type {ReturnType<typeof setInterval>|null} */
+let _chatPollInterval = null;
+let _lastChatLineCount = 0;
+
 /**
  * Read world id from the server-rendered body dataset.
  *
@@ -690,6 +695,7 @@ async function handleLogin() {
  * @returns {Promise<void>}
  */
 async function handleLogout() {
+  stopChatPolling();
   const session = readSession();
   if (!session?.session_id) {
     clearSession();
@@ -878,6 +884,148 @@ function bindEvents() {
 }
 
 /**
+ * Stop the active chat polling loop if one is running.
+ *
+ * @returns {void}
+ */
+function stopChatPolling() {
+  if (_chatPollInterval !== null) {
+    clearInterval(_chatPollInterval);
+    _chatPollInterval = null;
+  }
+}
+
+/**
+ * Append a line of text to the game output window and scroll to the bottom.
+ *
+ * @param {string} text
+ * @param {string} [cssClass]
+ * @returns {void}
+ */
+function appendToOutput(text, cssClass = 'output-text') {
+  const output = document.getElementById('gameOutput');
+  if (!output) return;
+  const entry = document.createElement('div');
+  entry.className = cssClass;
+  entry.textContent = text;
+  output.appendChild(entry);
+  output.scrollTop = output.scrollHeight;
+}
+
+/**
+ * Send a command to POST /command and append the response to the output.
+ *
+ * @param {string} sessionId
+ * @param {string} command
+ * @returns {Promise<void>}
+ */
+async function submitCommand(sessionId, command) {
+  appendToOutput(`> ${command}`, 'output-command');
+  try {
+    const response = await apiCall('/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, command }),
+    });
+    if (response.message) {
+      appendToOutput(response.message, response.success ? 'output-text' : 'output-error');
+    }
+  } catch (err) {
+    appendToOutput(`Error: ${getErrorMessage(err)}`, 'output-error');
+  }
+}
+
+/**
+ * Poll GET /chat/{sessionId} and append any new messages to the output.
+ *
+ * Tracks the message count from the last poll to detect new arrivals. When
+ * the window rolls over (count drops), all current messages are re-displayed.
+ *
+ * @param {string} sessionId
+ * @returns {Promise<void>}
+ */
+async function pollChat(sessionId) {
+  try {
+    const data = await apiCall(`/chat/${sessionId}`, { method: 'GET' });
+    const chatStr = typeof data?.chat === 'string' ? data.chat : '';
+    if (!chatStr) return;
+    // Filter out the "[Recent messages]:" header and blank lines.
+    const lines = chatStr.split('\n').filter((l) => l.trim() && !l.startsWith('['));
+    if (lines.length > _lastChatLineCount) {
+      // Append only the messages that arrived since the last poll.
+      for (const msg of lines.slice(_lastChatLineCount)) {
+        appendToOutput(msg, 'output-chat');
+      }
+    } else if (lines.length < _lastChatLineCount) {
+      // Window rolled over — display all current messages fresh.
+      for (const msg of lines) {
+        appendToOutput(msg, 'output-chat');
+      }
+    }
+    _lastChatLineCount = lines.length;
+  } catch (_err) {
+    // Don't disrupt gameplay on transient chat poll failures.
+  }
+}
+
+/**
+ * Bind the Enter key on the command input to submit commands.
+ *
+ * Shift+Enter inserts a newline for multi-line command composition.
+ * Focus is moved to the input immediately on call.
+ *
+ * @param {string} sessionId
+ * @returns {void}
+ */
+function bindCommandInput(sessionId) {
+  const input = document.getElementById('commandInput');
+  if (!input) return;
+  input.addEventListener('keydown', async (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      const command = input.value.trim();
+      if (!command) return;
+      input.value = '';
+      await submitCommand(sessionId, command);
+    }
+  });
+  input.focus();
+}
+
+/**
+ * Start an in-world game session: clear the output, fire an initial look,
+ * seed the chat baseline, and begin polling for new messages.
+ *
+ * @param {string} _worldId  Reserved for future world-specific setup hooks.
+ * @param {string} sessionId
+ * @returns {Promise<void>}
+ */
+async function startGameSession(_worldId, sessionId) {
+  const output = document.getElementById('gameOutput');
+  if (output) output.innerHTML = '';
+  _lastChatLineCount = 0;
+
+  bindCommandInput(sessionId);
+
+  // Fire an initial look to populate the output window on entry.
+  await submitCommand(sessionId, 'look');
+
+  // Seed the current chat line count so we don't replay existing history.
+  try {
+    const data = await apiCall(`/chat/${sessionId}`, { method: 'GET' });
+    const chatStr = typeof data?.chat === 'string' ? data.chat : '';
+    const lines = chatStr.split('\n').filter((l) => l.trim() && !l.startsWith('['));
+    _lastChatLineCount = lines.length;
+  } catch (_err) {
+    // ignore — polling will recover on the first tick
+  }
+
+  // Start polling for new chat messages every 5 seconds.
+  stopChatPolling();
+  _chatPollInterval = setInterval(() => pollChat(sessionId), 5000);
+}
+
+/**
  * Restore account session for `/play` and repopulate world/character selectors.
  *
  * @returns {Promise<void>}
@@ -960,6 +1108,7 @@ async function hydrateWorldSession(worldId) {
     if (logoutButton) {
       logoutButton.hidden = false;
     }
+    await startGameSession(worldId, session.session_id);
   } catch (err) {
     writeFlashMessage(
       `Unable to enter ${worldId}: ${getErrorMessage(err)} Select a character and try again.`
