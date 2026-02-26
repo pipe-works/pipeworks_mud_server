@@ -1377,3 +1377,25 @@ def test_admin_chat_prune_invalid_age(test_client, test_db, temp_db_path, db_wit
         )
 
         assert response.status_code == 422
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_chat_prune_room_without_world_id_returns_422(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """POST /admin/chat/prune with room but no world_id should return 422."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
+        )
+        assert login_response.status_code == 200
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/chat/prune",
+            json={"session_id": session_id, "max_age_hours": 1, "room": "spawn"},
+        )
+
+        assert response.status_code == 422
+        assert "world_id" in response.json()["detail"].lower()

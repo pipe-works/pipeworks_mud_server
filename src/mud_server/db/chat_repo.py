@@ -170,8 +170,6 @@ def prune_chat_messages(
                 )
 
             return cursor.rowcount
-    except (ValueError, TypeError):
-        raise
     except Exception as exc:
         _raise_write_error(
             "chat.prune_chat_messages",

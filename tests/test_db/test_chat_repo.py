@@ -203,3 +203,10 @@ def test_prune_chat_messages_no_old_messages(test_db, temp_db_path, db_with_user
     deleted = chat_repo.prune_chat_messages(1)
 
     assert deleted == 0
+
+
+def test_prune_chat_messages_database_error_raises_write_error(test_db, temp_db_path):
+    """A database failure during prune should surface as DatabaseWriteError."""
+    with patch.object(db_connection, "get_connection", side_effect=Exception("db boom")):
+        with pytest.raises(DatabaseWriteError):
+            chat_repo.prune_chat_messages(1)
