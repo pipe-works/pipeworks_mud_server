@@ -500,8 +500,38 @@ class GameEngine:
         if not room:
             return False, "You are not in a valid room."
 
-        # Sanitize message to prevent XSS attacks
-        safe_message = sanitize_chat_message(message)
+        # ── OOC → IC translation ─────────────────────────────────────────────
+        # Attempt to translate the raw player message to in-character dialogue
+        # before it is sanitised and stored.  The translation layer is:
+        # - Non-authoritative: it cannot change axis scores or game state.
+        # - Gracefully degrading: any failure (Ollama unavailable, validation
+        #   error, missing character profile) returns None and we fall through
+        #   to the original message.
+        #
+        # IPC hash (FUTURE — axis engine integration):
+        # When the axis engine is integrated, pass the turn's ipc_hash here:
+        #   ic_text = service.translate(..., ipc_hash=ipc_hash)
+        # Until then ipc_hash is omitted and deterministic mode is skipped.
+        #
+        # FUTURE(ledger): the service will emit a ``chat.translation`` ledger
+        # event internally.  No changes needed here when that is added.
+        world = self._get_world(world_id)
+        translation_service = world.get_translation_service()
+        if translation_service is not None:
+            ic_text = translation_service.translate(
+                character_name=username,
+                ooc_message=message,
+                channel="say",
+            )
+            # Use IC output if translation succeeded; otherwise keep OOC.
+            final_message = ic_text if ic_text is not None else message
+        else:
+            final_message = message
+
+        # Sanitize the final message (IC or OOC) before storage.
+        # XSS escaping is applied *after* translation so that the IC output
+        # is cleaned by the same sanitiser as the OOC fallback.
+        safe_message = sanitize_chat_message(final_message)
 
         if not database.add_chat_message(username, safe_message, room, world_id=world_id):
             return False, "Failed to send message."
@@ -558,8 +588,24 @@ class GameEngine:
         if not current_room:
             return False, "Invalid room."
 
-        # Sanitize message to prevent XSS attacks
-        safe_message = sanitize_chat_message(message)
+        # ── OOC → IC translation ─────────────────────────────────────────────
+        # Translation occurs before the [YELL] prefix is applied so that the
+        # rendered IC dialogue is wrapped naturally rather than prefixing the
+        # raw OOC text.  Fallback behaviour and IPC/ledger notes are identical
+        # to GameEngine.chat — see that method for the full inline commentary.
+        translation_service = world.get_translation_service()
+        if translation_service is not None:
+            ic_text = translation_service.translate(
+                character_name=username,
+                ooc_message=message,
+                channel="yell",
+            )
+            final_message = ic_text if ic_text is not None else message
+        else:
+            final_message = message
+
+        # Sanitize the final message (IC or OOC) before storage.
+        safe_message = sanitize_chat_message(final_message)
 
         # Add [YELL] prefix to sanitized message
         yell_message = f"[YELL] {safe_message}"
@@ -670,8 +716,26 @@ class GameEngine:
             logger.warning(f"Whisper failed: {target} in {target_room}, sender in {sender_room}")
             return False, f"Player '{target}' is not in this room."
 
-        # Sanitize message to prevent XSS attacks
-        safe_message = sanitize_chat_message(message)
+        # ── OOC → IC translation ─────────────────────────────────────────────
+        # Translation occurs before the [WHISPER: ...] prefix is applied so
+        # that the IC dialogue is wrapped naturally.  Whispers are rendered
+        # with channel="whisper" so that the prompt template can lower the
+        # volume/intensity of the voice appropriately.
+        # Fallback and IPC/ledger notes are identical to GameEngine.chat.
+        world = self._get_world(world_id)
+        translation_service = world.get_translation_service()
+        if translation_service is not None:
+            ic_text = translation_service.translate(
+                character_name=sender_name,
+                ooc_message=message,
+                channel="whisper",
+            )
+            final_message = ic_text if ic_text is not None else message
+        else:
+            final_message = message
+
+        # Sanitize the final message (IC or OOC) before storage.
+        safe_message = sanitize_chat_message(final_message)
 
         # Add whisper message with recipient (include both sender and target for clarity)
         whisper_message = f"[WHISPER: {sender_name} → {target}] {safe_message}"
