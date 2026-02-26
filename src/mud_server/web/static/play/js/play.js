@@ -896,6 +896,26 @@ function stopChatPolling() {
 }
 
 /**
+ * Decode HTML entities in a string without introducing XSS risk.
+ *
+ * The server stores chat messages as HTML-encoded text (e.g. &#x27; for
+ * apostrophes) to protect contexts that render via innerHTML.  Before
+ * setting textContent we must decode those entities so they display as
+ * their intended characters rather than as raw entity strings.
+ *
+ * Using a detached textarea is the standard safe technique: the browser
+ * parses the entities without executing any scripts.
+ *
+ * @param {string} str
+ * @returns {string}
+ */
+function decodeHtmlEntities(str) {
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = str;
+  return textarea.value;
+}
+
+/**
  * Append a line of text to the game output window and scroll to the bottom.
  *
  * @param {string} text
@@ -907,7 +927,7 @@ function appendToOutput(text, cssClass = 'output-text') {
   if (!output) return;
   const entry = document.createElement('div');
   entry.className = cssClass;
-  entry.textContent = text;
+  entry.textContent = decodeHtmlEntities(text);
   output.appendChild(entry);
   output.scrollTop = output.scrollHeight;
 }
