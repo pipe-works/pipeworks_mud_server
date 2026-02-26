@@ -28,12 +28,15 @@ Architecture:
 """
 
 import html
+import logging
 
 from mud_server.core.bus import MudBus
 from mud_server.core.events import Events
 from mud_server.core.world import World
 from mud_server.core.world_registry import WorldRegistry
 from mud_server.db import facade as database
+
+logger = logging.getLogger(__name__)
 
 
 def _get_bus() -> MudBus:
@@ -567,11 +570,15 @@ class GameEngine:
         ):
             return False, "Failed to send message."
 
-        # Send to all adjoining rooms
+        # Send to all adjoining rooms; collect any failures for diagnostic note
+        failed_rooms: list[str] = []
         for _direction, room_id in current_room.exits.items():
-            database.add_chat_message(username, yell_message, room_id, world_id=world_id)
+            if not database.add_chat_message(username, yell_message, room_id, world_id=world_id):
+                logger.warning("yell: failed to insert into adjacent room %r", room_id)
+                failed_rooms.append(room_id)
 
-        return True, f"You yell: {safe_message}"
+        note = f" (failed to reach {len(failed_rooms)} room(s))" if failed_rooms else ""
+        return True, f"You yell: {safe_message}{note}"
 
     def whisper(
         self,

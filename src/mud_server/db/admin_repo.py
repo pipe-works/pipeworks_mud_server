@@ -487,7 +487,7 @@ def get_all_chat_messages(limit: int = 100, *, world_id: str | None = None) -> l
                         "username": row[1],
                         "message": row[2],
                         "world_id": row[3],
-                        "room": row[4],
+                        "room_id": row[4],
                         "timestamp": row[5],
                     }
                 )

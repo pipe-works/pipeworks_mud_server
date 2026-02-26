@@ -1077,6 +1077,33 @@ def test_recall_database_failure(test_db, temp_db_path, db_with_users):
 
 @pytest.mark.unit
 @pytest.mark.game
+def test_yell_logs_warning_on_adjacent_room_failure(
+    mock_engine, test_db, temp_db_path, db_with_users, caplog
+):
+    """yell() should log a warning for each failing adjacent-room insert and note the count."""
+    import logging
+
+    with use_test_database(temp_db_path):
+        database.set_character_room("testplayer_char", "spawn", world_id=database.DEFAULT_WORLD_ID)
+
+        def mock_add_chat(character_name, message, room, *args, **kwargs):
+            # Succeed for the current room, fail for adjacent rooms.
+            return room == "spawn"
+
+        with patch.object(database, "add_chat_message", side_effect=mock_add_chat):
+            with caplog.at_level(logging.WARNING, logger="mud_server.core.engine"):
+                success, message = mock_engine.yell(
+                    "testplayer_char", "Hello!", world_id="pipeworks_web"
+                )
+
+    assert success is True
+    assert "failed to reach 2 room(s)" in message
+    warning_texts = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("failed to insert into adjacent room" in w for w in warning_texts)
+
+
+@pytest.mark.unit
+@pytest.mark.game
 def test_opposite_direction():
     """Test the _opposite_direction static method."""
 
