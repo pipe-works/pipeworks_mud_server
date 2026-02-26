@@ -123,6 +123,63 @@ def add_chat_message(
         )
 
 
+def prune_chat_messages(
+    max_age_hours: int,
+    *,
+    world_id: str | None = None,
+    room: str | None = None,
+) -> int:
+    """Delete chat messages older than max_age_hours.
+
+    Args:
+        max_age_hours: Delete messages with timestamp older than this many hours.
+            Must be a positive integer (>= 1).
+        world_id: If provided, restrict deletion to this world only.
+        room: If provided (requires world_id), restrict to a single room.
+
+    Returns:
+        Number of rows deleted.
+
+    Raises:
+        ValueError: If max_age_hours < 1 or room is provided without world_id.
+        DatabaseWriteError: On SQLite failure.
+    """
+    if max_age_hours < 1:
+        raise ValueError("max_age_hours must be >= 1")
+    if room is not None and world_id is None:
+        raise ValueError("room filter requires world_id to be specified")
+
+    try:
+        with connection_scope(write=True) as conn:
+            cursor = conn.cursor()
+
+            if world_id is None:
+                cursor.execute(
+                    "DELETE FROM chat_messages WHERE datetime(timestamp) <= datetime('now', ? || ' hours')",
+                    (f"-{max_age_hours}",),
+                )
+            elif room is None:
+                cursor.execute(
+                    "DELETE FROM chat_messages WHERE datetime(timestamp) <= datetime('now', ? || ' hours') AND world_id = ?",
+                    (f"-{max_age_hours}", world_id),
+                )
+            else:
+                cursor.execute(
+                    "DELETE FROM chat_messages WHERE datetime(timestamp) <= datetime('now', ? || ' hours') AND world_id = ? AND room = ?",
+                    (f"-{max_age_hours}", world_id, room),
+                )
+
+            return cursor.rowcount
+    except (ValueError, TypeError):
+        raise
+    except Exception as exc:
+        _raise_write_error(
+            "chat.prune_chat_messages",
+            exc,
+            details=f"max_age_hours={max_age_hours!r}, world_id={world_id!r}, room={room!r}",
+        )
+
+
 def get_room_messages(
     room: str,
     *,

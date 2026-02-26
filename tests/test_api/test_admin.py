@@ -17,6 +17,7 @@ import pytest
 
 from mud_server.config import use_test_database
 from mud_server.db import database
+from mud_server.db.connection import connection_scope
 from mud_server.db.errors import DatabaseOperationContext, DatabaseReadError, DatabaseWriteError
 from tests.constants import TEST_PASSWORD
 
@@ -1190,3 +1191,189 @@ def test_role_change_persists(test_client, test_db, temp_db_path, db_with_users)
 
         assert response.status_code == 200
         assert response.json()["role"] == "worldbuilder"
+
+
+# ============================================================================
+# CHAT MESSAGES ENDPOINT TESTS
+# ============================================================================
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_chat_messages_explicit_world_filter(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """GET /admin/database/chat-messages?world_id=X should only return messages from world X."""
+    with use_test_database(temp_db_path):
+        # Create a character in a second world and insert one message per world.
+        player_id = database.get_user_id("testplayer")
+        assert player_id is not None
+        database.create_character_for_user(
+            player_id, "alt_world_char", world_id="daily_undertaking"
+        )
+
+        database.add_chat_message(
+            "testplayer_char", "web world hello", "spawn", world_id="pipeworks_web"
+        )
+        database.add_chat_message(
+            "alt_world_char", "alt world hello", "spawn", world_id="daily_undertaking"
+        )
+
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        assert login_response.status_code == 200
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(
+            "/admin/database/chat-messages",
+            params={"session_id": session_id, "world_id": "pipeworks_web"},
+        )
+        assert response.status_code == 200
+        messages = response.json()["messages"]
+        assert all(m["world_id"] == "pipeworks_web" for m in messages)
+        assert any(m["message"] == "web world hello" for m in messages)
+        assert not any(m["message"] == "alt world hello" for m in messages)
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_chat_messages_no_world_filter_returns_all(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """GET /admin/database/chat-messages without world_id should return messages from all worlds."""
+    with use_test_database(temp_db_path):
+        player_id = database.get_user_id("testplayer")
+        assert player_id is not None
+        database.create_character_for_user(
+            player_id, "alt_world_char2", world_id="daily_undertaking"
+        )
+
+        database.add_chat_message(
+            "testplayer_char", "web only msg", "spawn", world_id="pipeworks_web"
+        )
+        database.add_chat_message(
+            "alt_world_char2", "alt only msg", "spawn", world_id="daily_undertaking"
+        )
+
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        assert login_response.status_code == 200
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(
+            "/admin/database/chat-messages",
+            params={"session_id": session_id},
+        )
+        assert response.status_code == 200
+        messages = response.json()["messages"]
+        world_ids = {m["world_id"] for m in messages}
+        assert "pipeworks_web" in world_ids
+        assert "daily_undertaking" in world_ids
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_chat_messages_room_id_field_present(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """GET /admin/database/chat-messages response entries must include room_id, not room."""
+    with use_test_database(temp_db_path):
+        database.add_chat_message(
+            "testplayer_char", "check room_id", "spawn", world_id="pipeworks_web"
+        )
+
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        assert login_response.status_code == 200
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(
+            "/admin/database/chat-messages",
+            params={"session_id": session_id, "world_id": "pipeworks_web"},
+        )
+        assert response.status_code == 200
+        messages = response.json()["messages"]
+        assert messages, "Expected at least one message"
+        entry = messages[0]
+        assert "room_id" in entry, "Response must contain room_id key"
+        assert "room" not in entry, "Response must not contain legacy room key"
+
+
+# ============================================================================
+# CHAT PRUNE ENDPOINT TESTS
+# ============================================================================
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_chat_prune_success(test_client, test_db, temp_db_path, db_with_users):
+    """POST /admin/chat/prune should delete old messages and return pruned_count."""
+    with use_test_database(temp_db_path):
+        # Insert a message then age it directly.
+        database.add_chat_message(
+            "testplayer_char", "stale message", "spawn", world_id="pipeworks_web"
+        )
+        with connection_scope(write=True) as conn:
+            conn.execute(
+                "UPDATE chat_messages SET timestamp = datetime('now', '-100 hours') "
+                "WHERE message = 'stale message'"
+            )
+
+        login_response = test_client.post(
+            "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
+        )
+        assert login_response.status_code == 200
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/chat/prune",
+            json={"session_id": session_id, "max_age_hours": 1},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["pruned_count"] >= 1
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_chat_prune_requires_manage_users_permission(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """POST /admin/chat/prune must be forbidden for accounts without MANAGE_USERS."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testplayer", "password": TEST_PASSWORD}
+        )
+        assert login_response.status_code == 200
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/chat/prune",
+            json={"session_id": session_id, "max_age_hours": 1},
+        )
+
+        assert response.status_code == 403
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_chat_prune_invalid_age(test_client, test_db, temp_db_path, db_with_users):
+    """POST /admin/chat/prune with max_age_hours=0 should return 422."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testsuperuser", "password": TEST_PASSWORD}
+        )
+        assert login_response.status_code == 200
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.post(
+            "/admin/chat/prune",
+            json={"session_id": session_id, "max_age_hours": 0},
+        )
+
+        assert response.status_code == 422

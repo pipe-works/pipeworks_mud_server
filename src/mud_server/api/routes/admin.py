@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException
 from mud_server.api.auth import validate_session_for_game, validate_session_with_permission
 from mud_server.api.models import (
     CharacterAxisEvent,
+    ChatPruneRequest,
+    ChatPruneResponse,
     CreateCharacterRequest,
     CreateCharacterResponse,
     CreateUserRequest,
@@ -231,16 +233,47 @@ def router(engine: GameEngine) -> APIRouter:
         return DatabaseSessionsResponse(sessions=sessions)
 
     @api.get("/admin/database/chat-messages", response_model=DatabaseChatResponse)
-    async def get_database_chat_messages(session_id: str, limit: int = 100):
-        """Get recent chat messages from the database (Admin only)."""
-        _, _username, _role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
-        try:
-            _, _, _, _, _, world_id = validate_session_for_game(session_id)
-        except HTTPException:
-            world_id = None
+    async def get_database_chat_messages(
+        session_id: str,
+        limit: int = 100,
+        world_id: str | None = None,
+    ):
+        """Get recent chat messages from the database (Admin only).
 
+        Query params:
+            session_id: Active admin session.
+            limit: Max messages to return (default 100).
+            world_id: Optional world filter. When omitted, all worlds are returned.
+        """
+        _, _username, _role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
         messages = database.get_all_chat_messages(limit=limit, world_id=world_id)
         return DatabaseChatResponse(messages=messages)
+
+    @api.post("/admin/chat/prune", response_model=ChatPruneResponse)
+    async def prune_chat_messages(request: ChatPruneRequest):
+        """Prune chat messages older than max_age_hours (Admin only).
+
+        Requires MANAGE_USERS permission. This is a destructive operation.
+
+        Body:
+            ChatPruneRequest with session_id, max_age_hours, optional world_id/room.
+        """
+        validate_session_with_permission(request.session_id, Permission.MANAGE_USERS)
+        if request.max_age_hours < 1:
+            raise HTTPException(status_code=422, detail="max_age_hours must be >= 1")
+        try:
+            count = database.prune_chat_messages(
+                request.max_age_hours,
+                world_id=request.world_id,
+                room=request.room,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return ChatPruneResponse(
+            success=True,
+            message=f"Pruned {count} message(s) older than {request.max_age_hours}h.",
+            pruned_count=count,
+        )
 
     @api.post("/admin/user/manage", response_model=UserManagementResponse)
     async def manage_user(request: UserManagementRequest):

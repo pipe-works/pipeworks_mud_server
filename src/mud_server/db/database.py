@@ -68,7 +68,7 @@ from mud_server.db.characters_repo import (
     set_character_room,
     tombstone_character,
 )
-from mud_server.db.chat_repo import add_chat_message, get_room_messages
+from mud_server.db.chat_repo import add_chat_message, get_room_messages, prune_chat_messages
 from mud_server.db.connection import get_connection
 from mud_server.db.connection import get_db_path as _get_db_path
 from mud_server.db.constants import DEFAULT_WORLD_ID
@@ -210,6 +210,7 @@ __all__ = [
     "list_tables",
     "list_worlds",
     "list_worlds_for_user",
+    "prune_chat_messages",
     "remove_session_by_id",
     "remove_sessions_for_character",
     "remove_sessions_for_character_count",

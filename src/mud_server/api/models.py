@@ -271,20 +271,34 @@ class CommandRequest(BaseModel):
     command: str
 
 
-class ChatRequest(BaseModel):
-    """
-    Request to send a chat message.
-
-    Note: This model is defined but may not be actively used.
-    Chat is typically sent via CommandRequest with "/say" command.
+class ChatPruneRequest(BaseModel):
+    """Admin request to prune old chat messages.
 
     Attributes:
-        session_id: Active session ID for authentication
-        message: Chat message text
+        session_id: Active admin/superuser session id.
+        max_age_hours: Delete messages older than this many hours. Min: 1.
+        world_id: If provided, restrict pruning to this world.
+        room: If provided (requires world_id), restrict to a single room.
     """
 
     session_id: str
+    max_age_hours: int
+    world_id: str | None = None
+    room: str | None = None
+
+
+class ChatPruneResponse(BaseModel):
+    """Response to chat prune request.
+
+    Attributes:
+        success: True if pruning completed without error.
+        message: Human-readable result.
+        pruned_count: Number of rows deleted.
+    """
+
+    success: bool
     message: str
+    pruned_count: int
 
 
 # ============================================================================
@@ -816,7 +830,8 @@ class DatabaseChatResponse(BaseModel):
             - id: Database record ID
             - username: Message sender
             - message: Message text (includes [WHISPER], [YELL] prefixes)
-            - room: Room ID where message was sent
+            - world_id: World the message was sent in
+            - room_id: Room ID where message was sent
             - timestamp: Message timestamp
     """
 

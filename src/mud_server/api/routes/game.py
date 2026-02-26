@@ -155,7 +155,7 @@ Actions:
 Communication:
   /say <message> - Send a message to the current room
   /yell <message> - Yell to current room and adjoining rooms
-  /whisper <player> <message> - Send private message (only you and target see it)
+  /whisper <player> <message> - Send private message to a player in this room (same-room only)
 
 Other:
   /who - List active players

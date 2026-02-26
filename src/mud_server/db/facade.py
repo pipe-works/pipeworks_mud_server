@@ -87,6 +87,7 @@ _PUBLIC_API: tuple[str, ...] = (
     "list_tables",
     "list_worlds",
     "list_worlds_for_user",
+    "prune_chat_messages",
     "remove_session_by_id",
     "remove_sessions_for_character",
     "remove_sessions_for_character_count",
