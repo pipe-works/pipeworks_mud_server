@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.11](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.10...mud_server-v0.3.11) (2026-02-26)
+
+
+### Features
+
+* **play:** wire command input, output window, and chat polling ([#135](https://github.com/pipe-works/pipeworks_mud_server/issues/135)) ([688f6da](https://github.com/pipe-works/pipeworks_mud_server/commit/688f6daa92ea875fb315365d1f72dbb098c15150))
+* **translation:** add OOC→IC translation layer ([#136](https://github.com/pipe-works/pipeworks_mud_server/issues/136)) ([e7a263a](https://github.com/pipe-works/pipeworks_mud_server/commit/e7a263a5de1f583124bcffd6ff8ff325b4c6e360))
+* **web:** migrate admin CSS to pipe-works-base design system ([bf663e6](https://github.com/pipe-works/pipeworks_mud_server/commit/bf663e656642fd4787a4973b642176b73f5f0340))
+* **web:** migrate admin CSS to pipe-works-base design system ([d54a9b4](https://github.com/pipe-works/pipeworks_mud_server/commit/d54a9b4f9c9599fc9e6521b7ec6451ca370769e2))
+* **world:** enable OOC→IC translation layer for pipeworks_web ([#137](https://github.com/pipe-works/pipeworks_mud_server/issues/137)) ([40e5d99](https://github.com/pipe-works/pipeworks_mud_server/commit/40e5d992bf4ae1330c2c6e1586007602b056b694))
+
+
+### Bug Fixes
+
+* **chat:** address six chat system gaps ([#134](https://github.com/pipe-works/pipeworks_mud_server/issues/134)) ([723a3e6](https://github.com/pipe-works/pipeworks_mud_server/commit/723a3e657ee0ededee86be9e9a3939c8ff0c67cd))
+
 ## [0.3.10](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.9...mud_server-v0.3.10) (2026-02-18)
 
 
