@@ -68,9 +68,11 @@ class TestForbiddenPatterns:
     def test_strict_rejects_parenthetical_narration(self, strict_validator):
         assert strict_validator.validate("(Mira looks uncomfortable)") is None
 
-    def test_strict_rejects_fully_double_quoted_line(self, strict_validator):
-        # A line entirely wrapped in double quotes — the model added speech marks
-        assert strict_validator.validate('"Give me the ledger."') is None
+    def test_strict_accepts_fully_double_quoted_line_after_stripping(self, strict_validator):
+        # Quote stripping runs before forbidden-pattern check, so a model
+        # output like `"Give me the ledger."` is stripped to the bare
+        # dialogue and accepted rather than rejected.
+        assert strict_validator.validate('"Give me the ledger."') == "Give me the ledger."
 
     def test_strict_passes_normal_dialogue(self, strict_validator):
         result = strict_validator.validate("Give me the ledger.")
@@ -86,11 +88,9 @@ class TestForbiddenPatterns:
 
 class TestQuoteStripping:
     def test_strips_surrounding_double_quotes(self, strict_validator):
-        # The forbidden-pattern check for `^".*"$` applies first in strict mode
-        # and would reject a fully-quoted line.  Use a lenient validator here so
-        # we can test the stripping step in isolation.
-        lenient = OutputValidator(strict_mode=False, max_output_chars=280)
-        assert lenient.validate('"some dialogue"') == "some dialogue"
+        # Quote stripping runs before forbidden-pattern check, so strict mode
+        # also strips surrounding double quotes successfully.
+        assert strict_validator.validate('"some dialogue"') == "some dialogue"
 
     def test_strips_surrounding_single_quotes(self, strict_validator):
         # Single quotes are not in the forbidden-pattern list so strict also

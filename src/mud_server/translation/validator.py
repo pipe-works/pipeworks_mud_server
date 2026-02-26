@@ -13,12 +13,14 @@ Validation pipeline (applied in order)
    → ``None``.
 3. **Multi-line check** — strict mode rejects immediately; non-strict
    mode takes only the first non-empty line.
-4. **Forbidden pattern check** — strict mode only.  Rejects outputs that
-   look like emotes, stage directions, parenthetical narration, or
-   explicit quoted speech blocks.  These indicate the model has not
-   followed the "one line of raw dialogue" constraint.
-5. **Quote stripping** — some models wrap their output in ``"..."`` or
-   ``'...'``; these are stripped unconditionally.
+4. **Quote stripping** — some models (e.g. gemma2) consistently wrap
+   output in ``"..."`` or ``'...'``; these are stripped before the
+   forbidden-pattern check so that legitimate dialogue is not rejected
+   purely because of quoting style.
+5. **Forbidden pattern check** — strict mode only.  Rejects outputs that
+   look like emotes, stage directions, or parenthetical narration.  These
+   indicate the model has not followed the "one line of raw dialogue"
+   constraint.
 6. **Max-length enforcement** — strict mode rejects; non-strict truncates.
 7. **Final empty check** — returns ``None`` if cleaning left an empty
    string.
@@ -56,15 +58,14 @@ PASSTHROUGH_SENTINEL = "PASSTHROUGH"
 # ^\*.*\*$    — emote lines wrapped in asterisks (*waves hand*)
 # \[.*\]      — stage directions in square brackets [She turns away]
 # ^\(.*\)$    — parenthetical narration (Mira looks up)
-# ^".*"$      — a line that is fully wrapped in double-quote speech marks
 #
-# These patterns are intentionally conservative.  A single badly-quoted
-# word inside a longer sentence does NOT match ^".*"$ and will pass.
+# Note: the ^".*"$ (fully double-quoted line) pattern was removed.  Quote
+# stripping now runs before this check (step 4), so a model output like
+# `"Hello."` is stripped to `Hello.` before reaching here.
 _FORBIDDEN_PATTERNS: list[re.Pattern] = [
     re.compile(r"^\*.*\*$"),
     re.compile(r"\[.*\]"),
     re.compile(r"^\(.*\)$"),
-    re.compile(r'^".*"$'),
 ]
 
 
@@ -121,7 +122,14 @@ class OutputValidator:
                 return None
             text = first_line
 
-        # ── 4. Forbidden pattern check (strict mode only) ─────────────────────
+        # ── 4. Quote stripping ────────────────────────────────────────────────
+        # Some models (e.g. gemma2) consistently wrap output in quotation
+        # marks even when instructed not to.  Strip before the forbidden-
+        # pattern check so that `"Hello."` becomes `Hello.` and is not
+        # incorrectly rejected as a quoted speech block.
+        text = text.strip('"').strip("'").strip()
+
+        # ── 5. Forbidden pattern check (strict mode only) ─────────────────────
         if self._strict_mode:
             for pattern in _FORBIDDEN_PATTERNS:
                 if pattern.search(text):
@@ -131,11 +139,6 @@ class OutputValidator:
                         text[:60],
                     )
                     return None
-
-        # ── 5. Quote stripping ────────────────────────────────────────────────
-        # Some models consistently wrap output in quotation marks even when
-        # instructed not to.  Strip both double and single quotes.
-        text = text.strip('"').strip("'").strip()
 
         # ── 6. Max-length enforcement ─────────────────────────────────────────
         if len(text) > self._max_output_chars:
