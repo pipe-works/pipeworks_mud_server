@@ -11,7 +11,7 @@
   ],
   "global_items": {},
   "translation_layer": {
-    "enabled": false,
+    "enabled": true,
     "model": "gemma2:2b",
     "ollama_base_url": "http://localhost:11434",
     "timeout_seconds": 10.0,
