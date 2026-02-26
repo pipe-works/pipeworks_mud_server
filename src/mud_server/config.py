@@ -45,6 +45,9 @@ Environment Variable Mapping:
     MUD_CHAR_CREATE_DEFAULT_MODE    -> character_creation.default_creation_mode
     MUD_CHAR_CREATE_DEFAULT_NAMING  -> character_creation.default_naming_mode
     MUD_CHAR_CREATE_DEFAULT_SLOT_LIMIT -> character_creation.default_world_slot_limit
+    MUD_TRANSLATION_ENABLED         -> ollama_translation.enabled
+    MUD_TRANSLATION_OLLAMA_URL      -> ollama_translation.base_url
+    MUD_TRANSLATION_TIMEOUT         -> ollama_translation.timeout_seconds
 """
 
 import configparser
@@ -234,6 +237,20 @@ class IntegrationSettings:
 
 
 @dataclass
+class OllamaTranslationSettings:
+    """Server-level controls for the OOC→IC translation layer.
+
+    Acts as the master switch and provides server-wide defaults.  Per-world
+    config in ``world.json`` is checked second; both must be enabled for
+    translation to activate.
+    """
+
+    enabled: bool = True
+    base_url: str = "http://localhost:11434"
+    timeout_seconds: float = 10.0
+
+
+@dataclass
 class ServerConfig:
     """
     Complete server configuration.
@@ -254,6 +271,7 @@ class ServerConfig:
     features: FeatureSettings = field(default_factory=FeatureSettings)
     worlds: WorldSettings = field(default_factory=WorldSettings)
     integrations: IntegrationSettings = field(default_factory=IntegrationSettings)
+    ollama_translation: OllamaTranslationSettings = field(default_factory=OllamaTranslationSettings)
 
     @property
     def is_production(self) -> bool:
@@ -492,6 +510,19 @@ def _load_from_ini(parser: configparser.ConfigParser, cfg: ServerConfig) -> None
                 "integrations", "namegen_timeout_seconds"
             )
 
+    # Ollama translation section
+    if parser.has_section("ollama_translation"):
+        if parser.has_option("ollama_translation", "enabled"):
+            cfg.ollama_translation.enabled = _parse_bool(
+                parser.get("ollama_translation", "enabled")
+            )
+        if parser.has_option("ollama_translation", "base_url"):
+            cfg.ollama_translation.base_url = parser.get("ollama_translation", "base_url")
+        if parser.has_option("ollama_translation", "timeout_seconds"):
+            cfg.ollama_translation.timeout_seconds = parser.getfloat(
+                "ollama_translation", "timeout_seconds"
+            )
+
     # Per-world character policy sections:
     #   [world_policy.<world_id>]
     # This keeps deployment policy in config rather than requiring schema
@@ -616,6 +647,14 @@ def _apply_env_overrides(cfg: ServerConfig) -> None:
     if env_namegen_timeout := os.getenv("MUD_NAMEGEN_TIMEOUT_SECONDS"):
         cfg.integrations.namegen_timeout_seconds = float(env_namegen_timeout)
 
+    # Ollama translation settings
+    if env_translation_enabled := os.getenv("MUD_TRANSLATION_ENABLED"):
+        cfg.ollama_translation.enabled = _parse_bool(env_translation_enabled)
+    if env_translation_url := os.getenv("MUD_TRANSLATION_OLLAMA_URL"):
+        cfg.ollama_translation.base_url = env_translation_url
+    if env_translation_timeout := os.getenv("MUD_TRANSLATION_TIMEOUT"):
+        cfg.ollama_translation.timeout_seconds = float(env_translation_timeout)
+
 
 def load_config() -> ServerConfig:
     """
@@ -739,6 +778,11 @@ def print_config_summary() -> None:
         f"Name API:    enabled={config.integrations.namegen_enabled} "
         f"url={config.integrations.namegen_base_url} "
         f"timeout={config.integrations.namegen_timeout_seconds}s"
+    )
+    print(
+        f"Translation: enabled={config.ollama_translation.enabled} "
+        f"url={config.ollama_translation.base_url} "
+        f"timeout={config.ollama_translation.timeout_seconds}s"
     )
     print("=" * 60 + "\n")
 

@@ -306,3 +306,29 @@ class TestWorldTranslationEnabled:
         (tmp_path / "zones").mkdir()
         world = World(world_root=tmp_path)
         assert world.translation_layer_enabled() is False
+
+    def test_server_master_switch_blocks_world_translation(self, tmp_path, monkeypatch):
+        """server.ini [ollama_translation] enabled=false overrides world.json enabled=true."""
+        import json
+
+        import mud_server.config as config_module
+        from mud_server.core.world import World
+
+        world_json = tmp_path / "world.json"
+        world_json.write_text(
+            json.dumps(
+                {
+                    "name": "Test World",
+                    "default_spawn": {"zone": "test_zone", "room": "spawn"},
+                    "zones": [],
+                    "global_items": {},
+                    "translation_layer": {"enabled": True, "model": "gemma2:2b"},
+                }
+            )
+        )
+        (tmp_path / "zones").mkdir()
+
+        monkeypatch.setattr(config_module.config.ollama_translation, "enabled", False)
+        world = World(world_root=tmp_path)
+        assert world.translation_layer_enabled() is False
+        assert world.get_translation_service() is None

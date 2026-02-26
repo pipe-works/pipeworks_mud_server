@@ -316,11 +316,6 @@ class World:
         #    (Enforced here by checking config before instantiating.)
         # 2. Else if world.json ``translation_layer.enabled = true`` → ON.
         # 3. Otherwise → OFF.
-        #
-        # FUTURE(server-config): read the server-level master switch from
-        # ``mud_server.config.config.ollama_translation.enabled`` (to be
-        # added in a follow-up).  For now, only the world-level switch is
-        # checked so the layer can be exercised without a config change.
         self._init_translation_service(world_data)
 
     def _init_translation_service(self, world_data: dict) -> None:
@@ -334,8 +329,13 @@ class World:
         Args:
             world_data: The parsed ``world.json`` dict.
         """
+        from mud_server.config import config as server_config
         from mud_server.translation.config import TranslationLayerConfig
         from mud_server.translation.service import OOCToICTranslationService
+
+        # Master switch: server.ini [ollama_translation] enabled = false → OFF globally.
+        if not server_config.ollama_translation.enabled:
+            return
 
         translation_data = world_data.get("translation_layer", {})
 
