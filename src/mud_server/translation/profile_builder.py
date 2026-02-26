@@ -100,9 +100,7 @@ class CharacterProfileBuilder:
         # We MUST use the world-scoped lookup.  ``get_character_by_name`` (no
         # world filter) is not safe here because two worlds can have characters
         # with identical names.
-        character_row = database.get_character_by_name_in_world(
-            character_name, self._world_id
-        )
+        character_row = database.get_character_by_name_in_world(character_name, self._world_id)
         if character_row is None:
             logger.warning(
                 "CharacterProfileBuilder: character %r not found in world %r",

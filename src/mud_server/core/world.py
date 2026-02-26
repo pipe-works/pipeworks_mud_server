@@ -360,9 +360,7 @@ class World:
             return
 
         try:
-            cfg = TranslationLayerConfig.from_dict(
-                translation_data, world_root=self._world_root
-            )
+            cfg = TranslationLayerConfig.from_dict(translation_data, world_root=self._world_root)
             self._translation_service = OOCToICTranslationService(
                 world_id=self.world_id,
                 config=cfg,

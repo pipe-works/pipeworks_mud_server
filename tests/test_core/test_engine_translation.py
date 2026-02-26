@@ -71,7 +71,9 @@ class TestEngineChatTranslation:
             stored = []
             with patch("mud_server.core.engine.database") as mock_db:
                 mock_db.get_character_room.return_value = "spawn"
-                mock_db.add_chat_message.side_effect = lambda u, m, r, **kw: stored.append(m) or True
+                mock_db.add_chat_message.side_effect = (
+                    lambda u, m, r, **kw: stored.append(m) or True
+                )
                 engine.chat("Mira", "give me the ledger", world_id="daily_undertaking")
 
         # The stored message should be the IC text (sanitised), not the OOC input.
@@ -86,7 +88,9 @@ class TestEngineChatTranslation:
             stored = []
             with patch("mud_server.core.engine.database") as mock_db:
                 mock_db.get_character_room.return_value = "spawn"
-                mock_db.add_chat_message.side_effect = lambda u, m, r, **kw: stored.append(m) or True
+                mock_db.add_chat_message.side_effect = (
+                    lambda u, m, r, **kw: stored.append(m) or True
+                )
                 engine.chat("Mira", "give me the ledger", world_id="daily_undertaking")
 
         assert stored == ["give me the ledger"]
@@ -100,7 +104,9 @@ class TestEngineChatTranslation:
             stored = []
             with patch("mud_server.core.engine.database") as mock_db:
                 mock_db.get_character_room.return_value = "spawn"
-                mock_db.add_chat_message.side_effect = lambda u, m, r, **kw: stored.append(m) or True
+                mock_db.add_chat_message.side_effect = (
+                    lambda u, m, r, **kw: stored.append(m) or True
+                )
                 engine.chat("Mira", "hello", world_id="daily_undertaking")
 
         assert stored == ["hello"]
@@ -147,7 +153,9 @@ class TestEngineYellTranslation:
             stored = []
             with patch("mud_server.core.engine.database") as mock_db:
                 mock_db.get_character_room.return_value = "spawn"
-                mock_db.add_chat_message.side_effect = lambda u, m, r, **kw: stored.append(m) or True
+                mock_db.add_chat_message.side_effect = (
+                    lambda u, m, r, **kw: stored.append(m) or True
+                )
                 engine.yell("Mira", "can you hear me?!", world_id="daily_undertaking")
 
         # [YELL] prefix wraps the IC text (after sanitise)
@@ -162,7 +170,9 @@ class TestEngineYellTranslation:
             stored = []
             with patch("mud_server.core.engine.database") as mock_db:
                 mock_db.get_character_room.return_value = "spawn"
-                mock_db.add_chat_message.side_effect = lambda u, m, r, **kw: stored.append(m) or True
+                mock_db.add_chat_message.side_effect = (
+                    lambda u, m, r, **kw: stored.append(m) or True
+                )
                 engine.yell("Mira", "can you hear me?!", world_id="daily_undertaking")
 
         assert stored[0] == "[YELL] can you hear me?!"
@@ -206,7 +216,9 @@ class TestEngineWhisperTranslation:
             stored = []
             with patch("mud_server.core.engine.database") as mock_db:
                 self._patch_whisper_db(mock_db)
-                mock_db.add_chat_message.side_effect = lambda u, m, r, **kw: stored.append(m) or True
+                mock_db.add_chat_message.side_effect = (
+                    lambda u, m, r, **kw: stored.append(m) or True
+                )
                 engine.whisper("Mira", "Kael", "i have information", world_id="daily_undertaking")
 
         # Prefix uses resolved sender name and target
@@ -221,7 +233,9 @@ class TestEngineWhisperTranslation:
             stored = []
             with patch("mud_server.core.engine.database") as mock_db:
                 self._patch_whisper_db(mock_db)
-                mock_db.add_chat_message.side_effect = lambda u, m, r, **kw: stored.append(m) or True
+                mock_db.add_chat_message.side_effect = (
+                    lambda u, m, r, **kw: stored.append(m) or True
+                )
                 engine.whisper("Mira", "Kael", "i have information", world_id="daily_undertaking")
 
         assert stored[0] == "[WHISPER: Mira → Kael] i have information"
@@ -256,12 +270,16 @@ class TestWorldTranslationEnabled:
         from mud_server.core.world import World
 
         world_json = tmp_path / "world.json"
-        world_json.write_text(json.dumps({
-            "name": "Test World",
-            "default_spawn": {"zone": "test_zone", "room": "spawn"},
-            "zones": [],
-            "global_items": {},
-        }))
+        world_json.write_text(
+            json.dumps(
+                {
+                    "name": "Test World",
+                    "default_spawn": {"zone": "test_zone", "room": "spawn"},
+                    "zones": [],
+                    "global_items": {},
+                }
+            )
+        )
         (tmp_path / "zones").mkdir()
         world = World(world_root=tmp_path)
         assert world.translation_layer_enabled() is False
@@ -274,13 +292,17 @@ class TestWorldTranslationEnabled:
         from mud_server.core.world import World
 
         world_json = tmp_path / "world.json"
-        world_json.write_text(json.dumps({
-            "name": "Test World",
-            "default_spawn": {"zone": "test_zone", "room": "spawn"},
-            "zones": [],
-            "global_items": {},
-            "translation_layer": {"enabled": False},
-        }))
+        world_json.write_text(
+            json.dumps(
+                {
+                    "name": "Test World",
+                    "default_spawn": {"zone": "test_zone", "room": "spawn"},
+                    "zones": [],
+                    "global_items": {},
+                    "translation_layer": {"enabled": False},
+                }
+            )
+        )
         (tmp_path / "zones").mkdir()
         world = World(world_root=tmp_path)
         assert world.translation_layer_enabled() is False

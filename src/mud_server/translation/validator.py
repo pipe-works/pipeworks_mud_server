@@ -113,9 +113,7 @@ class OutputValidator:
         # ── 3. Multi-line check ───────────────────────────────────────────────
         if "\n" in text:
             if self._strict_mode:
-                logger.warning(
-                    "OutputValidator: strict_mode rejected multi-line output."
-                )
+                logger.warning("OutputValidator: strict_mode rejected multi-line output.")
                 return None
             # Non-strict: take only the first non-empty line.
             first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")

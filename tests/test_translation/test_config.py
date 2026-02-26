@@ -1,6 +1,5 @@
 """Unit tests for TranslationLayerConfig."""
 
-
 import pytest
 
 from mud_server.translation.config import TranslationLayerConfig

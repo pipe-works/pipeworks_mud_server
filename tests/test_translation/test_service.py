@@ -49,9 +49,15 @@ class TestTranslateSuccess:
     def test_returns_ic_text_on_success(self, tmp_path):
         svc = _make_service(tmp_path)
         with (
-            patch.object(svc._profile_builder, "build",
-                         return_value={"character_name": "Mira", "demeanor_label": "proud",
-                                       "demeanor_score": 0.87}),
+            patch.object(
+                svc._profile_builder,
+                "build",
+                return_value={
+                    "character_name": "Mira",
+                    "demeanor_label": "proud",
+                    "demeanor_score": 0.87,
+                },
+            ),
             patch.object(svc._renderer, "render", return_value="Hand over the ledger."),
         ):
             result = svc.translate("Mira", "give me the ledger")
@@ -66,8 +72,11 @@ class TestTranslateSuccess:
             return "IC text"
 
         with (
-            patch.object(svc._profile_builder, "build",
-                         return_value={"character_name": "Mira", "demeanor_label": "proud"}),
+            patch.object(
+                svc._profile_builder,
+                "build",
+                return_value={"character_name": "Mira", "demeanor_label": "proud"},
+            ),
             patch.object(svc._renderer, "render", side_effect=fake_render),
         ):
             svc.translate("Mira", "hello", channel="yell")
@@ -85,8 +94,11 @@ class TestTranslateFallback:
     def test_returns_none_when_renderer_fails(self, tmp_path):
         svc = _make_service(tmp_path)
         with (
-            patch.object(svc._profile_builder, "build",
-                         return_value={"character_name": "Mira", "demeanor_label": "proud"}),
+            patch.object(
+                svc._profile_builder,
+                "build",
+                return_value={"character_name": "Mira", "demeanor_label": "proud"},
+            ),
             patch.object(svc._renderer, "render", return_value=None),
         ):
             assert svc.translate("Mira", "hello") is None
@@ -94,8 +106,11 @@ class TestTranslateFallback:
     def test_returns_none_when_validation_fails(self, tmp_path):
         svc = _make_service(tmp_path)
         with (
-            patch.object(svc._profile_builder, "build",
-                         return_value={"character_name": "Mira", "demeanor_label": "proud"}),
+            patch.object(
+                svc._profile_builder,
+                "build",
+                return_value={"character_name": "Mira", "demeanor_label": "proud"},
+            ),
             patch.object(svc._renderer, "render", return_value="PASSTHROUGH"),
             patch.object(svc._validator, "validate", return_value=None),
         ):
@@ -121,8 +136,11 @@ class TestDeterministicMode:
     def test_deterministic_not_armed_when_ipc_hash_is_none(self, tmp_path):
         svc = _make_service(tmp_path, deterministic=True)
         with (
-            patch.object(svc._profile_builder, "build",
-                         return_value={"character_name": "Mira", "demeanor_label": "proud"}),
+            patch.object(
+                svc._profile_builder,
+                "build",
+                return_value={"character_name": "Mira", "demeanor_label": "proud"},
+            ),
             patch.object(svc._renderer, "render", return_value="IC text"),
             patch.object(svc._renderer, "set_deterministic") as mock_det,
         ):
@@ -135,8 +153,11 @@ class TestDeterministicMode:
         ipc_hash = "a3f91c9e4b12f2d8baf0000000000000"  # 32 hex chars
         expected_seed = int(ipc_hash[:16], 16)
         with (
-            patch.object(svc._profile_builder, "build",
-                         return_value={"character_name": "Mira", "demeanor_label": "proud"}),
+            patch.object(
+                svc._profile_builder,
+                "build",
+                return_value={"character_name": "Mira", "demeanor_label": "proud"},
+            ),
             patch.object(svc._renderer, "render", return_value="IC text"),
             patch.object(svc._renderer, "set_deterministic") as mock_det,
         ):
@@ -147,8 +168,11 @@ class TestDeterministicMode:
         """Config deterministic=False means ipc_hash is ignored even if provided."""
         svc = _make_service(tmp_path, deterministic=False)
         with (
-            patch.object(svc._profile_builder, "build",
-                         return_value={"character_name": "Mira", "demeanor_label": "proud"}),
+            patch.object(
+                svc._profile_builder,
+                "build",
+                return_value={"character_name": "Mira", "demeanor_label": "proud"},
+            ),
             patch.object(svc._renderer, "render", return_value="IC text"),
             patch.object(svc._renderer, "set_deterministic") as mock_det,
         ):

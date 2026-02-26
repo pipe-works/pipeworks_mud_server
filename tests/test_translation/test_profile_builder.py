@@ -46,10 +46,12 @@ class TestBuildSuccess:
         )
         monkeypatch.setattr(
             "mud_server.translation.profile_builder.database.get_character_axis_state",
-            lambda cid: _make_axis_state([
-                {"axis_name": "demeanor", "axis_score": 0.87, "axis_label": "proud"},
-                {"axis_name": "health", "axis_score": 0.72, "axis_label": "hale"},
-            ]),
+            lambda cid: _make_axis_state(
+                [
+                    {"axis_name": "demeanor", "axis_score": 0.87, "axis_label": "proud"},
+                    {"axis_name": "health", "axis_score": 0.72, "axis_label": "hale"},
+                ]
+            ),
         )
         profile = builder.build("Mira Voss")
         assert profile is not None
@@ -68,9 +70,11 @@ class TestBuildSuccess:
         # Only "demeanor" is present; "health" is missing from the axis state.
         monkeypatch.setattr(
             "mud_server.translation.profile_builder.database.get_character_axis_state",
-            lambda cid: _make_axis_state([
-                {"axis_name": "demeanor", "axis_score": 0.87, "axis_label": "proud"},
-            ]),
+            lambda cid: _make_axis_state(
+                [
+                    {"axis_name": "demeanor", "axis_score": 0.87, "axis_label": "proud"},
+                ]
+            ),
         )
         profile = builder.build("Mira Voss")
         assert profile["health_label"] == "unknown"
@@ -85,10 +89,12 @@ class TestBuildSuccess:
         )
         monkeypatch.setattr(
             "mud_server.translation.profile_builder.database.get_character_axis_state",
-            lambda cid: _make_axis_state([
-                {"axis_name": "demeanor", "axis_score": 0.5, "axis_label": "neutral"},
-                {"axis_name": "wealth", "axis_score": 0.1, "axis_label": "destitute"},
-            ]),
+            lambda cid: _make_axis_state(
+                [
+                    {"axis_name": "demeanor", "axis_score": 0.5, "axis_label": "neutral"},
+                    {"axis_name": "wealth", "axis_score": 0.1, "axis_label": "destitute"},
+                ]
+            ),
         )
         profile = all_axes_builder.build("Someone")
         assert "demeanor_label" in profile
