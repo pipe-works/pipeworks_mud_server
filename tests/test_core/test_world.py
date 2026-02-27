@@ -862,3 +862,213 @@ def test_get_room_description_passes_world_id(mock_world):
         mock_world.get_room_description("spawn", "testplayer", world_id="pipeworks_web")
 
     spy.assert_called_with("spawn", world_id="pipeworks_web")
+
+
+# ============================================================================
+# AXIS ENGINE INIT TESTS
+# ============================================================================
+
+
+def _make_bare_world(world_id: str = "test_world", world_root=None):
+    """Return a World instance with _load_world bypassed, attributes set manually."""
+
+    from mud_server.core.world import World
+
+    with patch.object(World, "_load_world", lambda self: None):
+        w = World()
+
+    w.world_id = world_id
+    w._world_root = world_root
+    w._axis_engine = None
+    w._translation_service = None
+    return w
+
+
+@pytest.mark.unit
+def test_init_axis_engine_disabled_by_default():
+    """No axis_engine block → engine stays None."""
+    w = _make_bare_world(world_id="test_world", world_root=__file__)
+    w._init_axis_engine({})
+    assert w._axis_engine is None
+
+
+@pytest.mark.unit
+def test_init_axis_engine_explicitly_disabled():
+    """axis_engine.enabled=false → engine stays None."""
+    w = _make_bare_world(world_id="test_world", world_root=__file__)
+    w._init_axis_engine({"axis_engine": {"enabled": False}})
+    assert w._axis_engine is None
+
+
+@pytest.mark.unit
+def test_init_axis_engine_no_world_id_skips(caplog):
+    """Empty world_id with enabled=true → skips with warning."""
+    import logging
+
+    w = _make_bare_world(world_id="", world_root=__file__)
+    with caplog.at_level(logging.WARNING):
+        w._init_axis_engine({"axis_engine": {"enabled": True}})
+    assert w._axis_engine is None
+    assert "world_id could not be determined" in caplog.text
+
+
+@pytest.mark.unit
+def test_init_axis_engine_no_world_root_skips(caplog):
+    """world_root=None with enabled=true → skips with warning."""
+    import logging
+
+    w = _make_bare_world(world_id="test_world", world_root=None)
+    with caplog.at_level(logging.WARNING):
+        w._init_axis_engine({"axis_engine": {"enabled": True}})
+    assert w._axis_engine is None
+    assert "world_root is None" in caplog.text
+
+
+@pytest.mark.unit
+def test_init_axis_engine_happy_path():
+    """enabled=true, valid grammar → AxisEngine is instantiated."""
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from mud_server.ledger.writer import LedgerVerifyResult
+
+    fake_grammar = MagicMock()
+    fake_grammar.version = "1.0"
+    fake_engine = MagicMock()
+
+    w = _make_bare_world(world_id="test_world", world_root=Path("/fake/world"))
+    with (
+        patch(
+            "mud_server.ledger.verify_world_ledger",
+            return_value=LedgerVerifyResult(status="empty", last_event_id=None, error_detail=None),
+        ),
+        patch(
+            "mud_server.axis.grammar.load_resolution_grammar",
+            return_value=fake_grammar,
+        ),
+        patch(
+            "mud_server.axis.engine.AxisEngine",
+            return_value=fake_engine,
+        ),
+    ):
+        w._init_axis_engine({"axis_engine": {"enabled": True}})
+
+    assert w._axis_engine is fake_engine
+
+
+@pytest.mark.unit
+def test_init_axis_engine_ledger_ok_logged(caplog):
+    """verify_world_ledger returns ok → INFO log written."""
+    import logging
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from mud_server.ledger.writer import LedgerVerifyResult
+
+    fake_grammar = MagicMock()
+    fake_grammar.version = "1.0"
+
+    w = _make_bare_world(world_id="test_world", world_root=Path("/fake/world"))
+    with (
+        patch(
+            "mud_server.ledger.verify_world_ledger",
+            return_value=LedgerVerifyResult(status="ok", last_event_id="abc123", error_detail=None),
+        ),
+        patch("mud_server.axis.grammar.load_resolution_grammar", return_value=fake_grammar),
+        patch("mud_server.axis.engine.AxisEngine", return_value=MagicMock()),
+        caplog.at_level(logging.INFO),
+    ):
+        w._init_axis_engine({"axis_engine": {"enabled": True}})
+
+    assert "Ledger integrity OK" in caplog.text
+
+
+@pytest.mark.unit
+def test_init_axis_engine_ledger_corrupt_logged(caplog):
+    """verify_world_ledger returns corrupt → CRITICAL log; engine still starts."""
+    import logging
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from mud_server.ledger.writer import LedgerVerifyResult
+
+    fake_grammar = MagicMock()
+    fake_grammar.version = "1.0"
+    fake_engine = MagicMock()
+
+    w = _make_bare_world(world_id="test_world", world_root=Path("/fake/world"))
+    with (
+        patch(
+            "mud_server.ledger.verify_world_ledger",
+            return_value=LedgerVerifyResult(
+                status="corrupt", last_event_id=None, error_detail="bad checksum"
+            ),
+        ),
+        patch("mud_server.axis.grammar.load_resolution_grammar", return_value=fake_grammar),
+        patch("mud_server.axis.engine.AxisEngine", return_value=fake_engine),
+        caplog.at_level(logging.CRITICAL),
+    ):
+        w._init_axis_engine({"axis_engine": {"enabled": True}})
+
+    assert "Ledger integrity check FAILED" in caplog.text
+    assert w._axis_engine is fake_engine
+
+
+@pytest.mark.unit
+def test_init_axis_engine_grammar_error_disables_engine(caplog):
+    """Grammar load raises → engine stays None, error logged."""
+    import logging
+    from pathlib import Path
+
+    from mud_server.ledger.writer import LedgerVerifyResult
+
+    w = _make_bare_world(world_id="test_world", world_root=Path("/fake/world"))
+    with (
+        patch(
+            "mud_server.ledger.verify_world_ledger",
+            return_value=LedgerVerifyResult(status="empty", last_event_id=None, error_detail=None),
+        ),
+        patch(
+            "mud_server.axis.grammar.load_resolution_grammar",
+            side_effect=FileNotFoundError("no grammar"),
+        ),
+        caplog.at_level(logging.ERROR),
+    ):
+        w._init_axis_engine({"axis_engine": {"enabled": True}})
+
+    assert w._axis_engine is None
+    assert "Failed to initialise axis engine" in caplog.text
+
+
+@pytest.mark.unit
+def test_get_axis_engine_returns_engine():
+    """get_axis_engine() returns whatever _axis_engine is set to."""
+    from unittest.mock import MagicMock
+
+    w = _make_bare_world()
+    fake = MagicMock()
+    w._axis_engine = fake
+    assert w.get_axis_engine() is fake
+
+
+@pytest.mark.unit
+def test_get_axis_engine_returns_none_when_disabled():
+    w = _make_bare_world()
+    w._axis_engine = None
+    assert w.get_axis_engine() is None
+
+
+@pytest.mark.unit
+def test_axis_resolution_enabled_true():
+    from unittest.mock import MagicMock
+
+    w = _make_bare_world()
+    w._axis_engine = MagicMock()
+    assert w.axis_resolution_enabled() is True
+
+
+@pytest.mark.unit
+def test_axis_resolution_enabled_false():
+    w = _make_bare_world()
+    w._axis_engine = None
+    assert w.axis_resolution_enabled() is False

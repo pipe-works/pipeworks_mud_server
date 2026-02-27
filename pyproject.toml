@@ -20,6 +20,10 @@ dependencies = [
     "passlib==1.7.4",
     "bcrypt==3.2.2",  # Must be 3.x for passlib 1.7.4 compatibility
     "PyYAML==6.0.2",
+    # Deterministic IPC/hash utilities — pinned to a specific release tag.
+    # Install: pip install -e ".[dev]"  (resolved automatically from GitHub)
+    # Local override: pip install -e /path/to/pipeworks_ipc  (takes precedence)
+    "pipeworks-ipc @ git+https://github.com/pipe-works/pipeworks_ipc.git@pipeworks-ipc-v0.1.1",
 ]
 
 [project.urls]
@@ -142,6 +146,7 @@ strict_equality = true
 module = [
     "passlib.*",
     "textual.*",
+    "pipeworks_ipc.*",
 ]
 ignore_missing_imports = true
 
