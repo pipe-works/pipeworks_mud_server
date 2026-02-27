@@ -25,5 +25,8 @@
     "prompt_template_path": "policies/ic_prompt.txt",
     "active_axes": ["demeanor", "health", "physique", "wealth", "facial_signal"],
     "deterministic": false
+  },
+  "axis_engine": {
+    "enabled": false
   }
 }

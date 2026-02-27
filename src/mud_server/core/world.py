@@ -230,6 +230,11 @@ class World:
         # circular import at module level; no runtime import is needed here.
         self._translation_service = None  # type: OOCToICTranslationService | None
 
+        # Axis resolution engine — initialised to None here; populated by
+        # _load_from_zones once it has parsed world.json and loaded the
+        # resolution grammar from policies/resolution.yaml.
+        self._axis_engine = None  # type: AxisEngine | None
+
         # Load world data from JSON files
         self._load_world()
 
@@ -318,6 +323,14 @@ class World:
         # 3. Otherwise → OFF.
         self._init_translation_service(world_data)
 
+        # ── Axis resolution engine ───────────────────────────────────────────
+        # Parse the optional ``axis_engine`` block from world.json.
+        # If the block is absent or ``enabled`` is false, the engine is left
+        # as ``None`` and axis resolution is inactive for this world.
+        # The grammar is loaded from policies/resolution.yaml; a missing file
+        # or validation error disables the engine (logged, not fatal).
+        self._init_axis_engine(world_data)
+
     def _init_translation_service(self, world_data: dict) -> None:
         """Parse the translation_layer block and instantiate the service.
 
@@ -394,6 +407,94 @@ class World:
             True if a live OOCToICTranslationService is attached; False otherwise.
         """
         return self._translation_service is not None
+
+    def _init_axis_engine(self, world_data: dict) -> None:
+        """Parse the axis_engine block and instantiate the AxisEngine.
+
+        Called at the end of ``_load_from_zones`` once ``world.json`` is
+        fully loaded.  Any errors during engine construction (missing grammar
+        file, validation failure) are caught and logged rather than
+        propagated, so a misconfigured axis_engine block never prevents the
+        world from loading.
+
+        Args:
+            world_data: The parsed ``world.json`` dict.
+        """
+        from mud_server.axis.engine import AxisEngine
+        from mud_server.axis.grammar import load_resolution_grammar
+        from mud_server.ledger import verify_world_ledger
+
+        axis_engine_data = world_data.get("axis_engine", {})
+        if not axis_engine_data.get("enabled", False):
+            return
+
+        if not self.world_id:
+            logger.warning(
+                "Axis engine is enabled in world.json but world_id could not "
+                "be determined (no world_root).  Skipping."
+            )
+            return
+
+        if self._world_root is None:
+            logger.warning(
+                "Axis engine is enabled for world %r but world_root is None.  "
+                "Cannot load resolution grammar.  Skipping.",
+                self.world_id,
+            )
+            return
+
+        # Startup integrity check — non-blocking diagnostic.
+        result = verify_world_ledger(self.world_id)
+        if result.status == "corrupt":
+            logger.critical(
+                "Ledger integrity check FAILED for world %r: %s.  "
+                "Axis engine will still start — manual inspection recommended.",
+                self.world_id,
+                result.error_detail,
+            )
+        elif result.status == "ok":
+            logger.info(
+                "Ledger integrity OK for world %r (last_event_id=%s).",
+                self.world_id,
+                result.last_event_id,
+            )
+
+        try:
+            grammar = load_resolution_grammar(self._world_root)
+            self._axis_engine = AxisEngine(world_id=self.world_id, grammar=grammar)
+            logger.info(
+                "Axis engine initialised for world %r (grammar v%s).",
+                self.world_id,
+                grammar.version,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Failed to initialise axis engine for world %r: %s.  "
+                "Axis resolution will be disabled for this world.",
+                self.world_id,
+                exc,
+            )
+            self._axis_engine = None
+
+    def get_axis_engine(self):
+        """Return the AxisEngine for this world, or None.
+
+        Callers must check for ``None`` before use.  A ``None`` return means
+        the axis engine is either disabled in world.json, failed to
+        initialise, or this world has no ``axis_engine`` block.
+
+        Returns:
+            AxisEngine instance, or None.
+        """
+        return self._axis_engine
+
+    def axis_resolution_enabled(self) -> bool:
+        """Return True if the axis engine is configured and active.
+
+        Returns:
+            True if a live AxisEngine is attached; False otherwise.
+        """
+        return self._axis_engine is not None
 
     def _load_zone(self, zone_path: Path):
         """
