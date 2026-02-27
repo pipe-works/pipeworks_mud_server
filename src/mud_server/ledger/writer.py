@@ -356,9 +356,7 @@ def verify_world_ledger(world_id: str) -> LedgerVerifyResult:
         return LedgerVerifyResult(
             status="corrupt",
             last_event_id=None,
-            error_detail=(
-                "Last line is missing or has a non-string '_checksum' field."
-            ),
+            error_detail=("Last line is missing or has a non-string '_checksum' field."),
         )
 
     # Reconstruct the body (sans _checksum) exactly as it was when the checksum

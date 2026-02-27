@@ -65,9 +65,7 @@ def _read_last_line(path: Path) -> dict:
 def _all_lines(path: Path) -> list[dict]:
     """Read and parse all non-empty lines of a JSONL file."""
     return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
 
 
@@ -381,7 +379,7 @@ class TestVerifyWorldLedger:
         """Returns status='corrupt' when the last line is a JSON array, not object."""
         ledger_dir = tmp_path / "ledger"
         ledger_dir.mkdir(parents=True)
-        (ledger_dir / "test_world.jsonl").write_text('[1, 2, 3]\n', encoding="utf-8")
+        (ledger_dir / "test_world.jsonl").write_text("[1, 2, 3]\n", encoding="utf-8")
 
         result = verify_world_ledger("test_world")
         assert result.status == "corrupt"
@@ -437,9 +435,7 @@ class TestEdgeCases:
 
     def test_null_ipc_hash_is_valid(self, tmp_path: Path) -> None:
         """ipc_hash=None is a valid, expected value for pre-axis-engine events."""
-        event_id = append_event(
-            "test_world", "chat.translation", data={}, ipc_hash=None
-        )
+        event_id = append_event("test_world", "chat.translation", data={}, ipc_hash=None)
         env = _read_last_line(_ledger_file("test_world", tmp_path))
         assert env["ipc_hash"] is None
         assert env["event_id"] == event_id
