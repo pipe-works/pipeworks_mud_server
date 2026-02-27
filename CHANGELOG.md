@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.4.0](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.11...mud_server-v0.4.0) (2026-02-27)
+
+
+### Features
+
+* **axis:** implement axis resolution engine (Phase 3) ([9e43b0e](https://github.com/pipe-works/pipeworks_mud_server/commit/9e43b0ef214e739aa49b9bbe2d66414e35c5fe71))
+* **axis:** implement axis resolution engine (Phase 3) ([3f66aa9](https://github.com/pipe-works/pipeworks_mud_server/commit/3f66aa9a858c217132c0a9e03c6f4ac64046ddd4))
+* **engine:** wire axis engine to chat/yell/whisper (Phase 4) ([#143](https://github.com/pipe-works/pipeworks_mud_server/issues/143)) ([ffd71bb](https://github.com/pipe-works/pipeworks_mud_server/commit/ffd71bb0282bb28062be634c1263e282a1c2647e))
+* **ledger:** add JSONL ledger writer and daily_undertaking resolution grammar ([308af12](https://github.com/pipe-works/pipeworks_mud_server/commit/308af129d8801fc12b7d3d6c7a52e6af65bad25d))
+* **ledger:** JSONL ledger writer + daily_undertaking resolution grammar ([9b36e6f](https://github.com/pipe-works/pipeworks_mud_server/commit/9b36e6f05e7ff1c8537274e9d9c34c7c0821d977))
+* **translation:** wire FUTURE(ledger) stubs to emit chat.translation events ([163101f](https://github.com/pipe-works/pipeworks_mud_server/commit/163101fb7ce6f56ca0b2a5fa1df0567405e78789))
+* **translation:** wire FUTURE(ledger) stubs to emit chat.translation events ([70e208a](https://github.com/pipe-works/pipeworks_mud_server/commit/70e208a9ed19c9edeaff9624dbf75ff562c6f1de))
+
+
+### Bug Fixes
+
+* **ledger:** resolve ruff lint errors in test_writer.py ([23156d5](https://github.com/pipe-works/pipeworks_mud_server/commit/23156d5dccaa5106c7f097b5be508348e040b430))
+* **world:** correct health and physique axis label orderings ([#138](https://github.com/pipe-works/pipeworks_mud_server/issues/138)) ([8fdc6c7](https://github.com/pipe-works/pipeworks_mud_server/commit/8fdc6c7e931e90a00e68a44bfbff77fa894cafd8))
+
+
+### Miscellaneous Chores
+
+* override release version to 0.4.0 ([#144](https://github.com/pipe-works/pipeworks_mud_server/issues/144)) ([b1bc648](https://github.com/pipe-works/pipeworks_mud_server/commit/b1bc648004cbc0c6c5ef164b1283208789782591))
+
 ## [0.3.11](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.10...mud_server-v0.3.11) (2026-02-26)
 
 
