@@ -289,9 +289,71 @@ All game logic should be:
 
 Store configuration in data files, not code:
 
-* World definitions (``data/world_data.json``)
+* World definitions (``data/worlds/<world_id>/world.json``)
+* Resolution grammar (``policies/resolution.yaml``)
+* Translation prompt (``policies/ic_prompt.txt``)
 * Environment variables for server config
 * Database for runtime state only
+
+Enabling Subsystems Per World
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Each world opts in to the axis engine and translation layer
+independently via ``world.json``:
+
+.. code-block:: json
+
+   {
+     "axis_engine":       {"enabled": true},
+     "translation_layer": {"enabled": true, "model": "gemma2:2b"}
+   }
+
+Both default to ``false``.  A world that enables ``axis_engine`` but
+not ``translation_layer`` will compute axis mutations without rendering
+IC dialogue (and vice versa).  The engine degrades gracefully in all
+combinations.
+
+Adding a New Resolver
+~~~~~~~~~~~~~~~~~~~~~
+
+To add a new resolver algorithm:
+
+1. Add a pure function to ``src/mud_server/axis/resolvers.py``
+   matching the resolver contract:
+
+   .. code-block:: python
+
+      def my_resolver(
+          speaker_score: float,
+          listener_score: float,
+          *,
+          base_magnitude: float,
+          multiplier: float,
+      ) -> tuple[float, float]:
+          """Return (speaker_delta, listener_delta).  Never raise; never clamp."""
+          ...
+
+2. Register it in ``_RESOLVER_REGISTRY`` in ``src/mud_server/axis/engine.py``:
+
+   .. code-block:: python
+
+      _RESOLVER_REGISTRY: dict[str, Callable] = {
+          "dominance_shift": dominance_shift,
+          "shared_drain":    shared_drain,
+          "no_effect":       no_effect,
+          "my_resolver":     my_resolver,   # ← add here
+      }
+
+3. Reference it from any world's ``policies/resolution.yaml``:
+
+   .. code-block:: yaml
+
+      axes:
+        some_axis:
+          resolver: my_resolver
+          base_magnitude: 0.05
+
+   No other code changes are required.
 
 4. API Stability
 ~~~~~~~~~~~~~~~~
@@ -313,9 +375,25 @@ Keep code organized by feature::
 
     src/mud_server/
     ├── core/
-    │   ├── engine.py         # Main game logic
-    │   ├── world.py          # World data structures
-    │   └── mechanics/        # Specific game mechanics
+    │   ├── engine.py         # GameEngine: chat calls axis engine then translation
+    │   ├── world.py          # World dataclass; loads axis engine + translation service
+    │   ├── bus.py            # Event bus
+    │   └── events.py         # Event type constants
+    ├── axis/                 # Axis resolution engine
+    │   ├── __init__.py       # Exports: AxisEngine, AxisResolutionResult
+    │   ├── types.py          # AxisDelta, EntityResolution, AxisResolutionResult
+    │   ├── grammar.py        # ResolutionGrammar loader (resolution.yaml)
+    │   ├── resolvers.py      # dominance_shift, shared_drain, no_effect
+    │   └── engine.py         # AxisEngine class
+    ├── ledger/               # JSONL audit ledger
+    │   ├── __init__.py       # Exports: append_event, verify_world_ledger
+    │   └── writer.py         # append_event, verify, checksum, POSIX file lock
+    ├── translation/          # OOC→IC translation layer
+    │   ├── config.py         # TranslationLayerConfig (frozen dataclass)
+    │   ├── profile_builder.py # CharacterProfileBuilder
+    │   ├── renderer.py       # OllamaRenderer
+    │   ├── validator.py      # OutputValidator (PASSTHROUGH sentinel)
+    │   └── service.py        # OOCToICTranslationService (orchestrator)
     ├── db/
     │   ├── facade.py         # App-facing DB contract
     │   ├── database.py       # Compatibility re-export module only
@@ -327,19 +405,17 @@ Keep code organized by feature::
     │   ├── chat_repo.py      # Chat persistence
     │   ├── worlds_repo.py    # World catalog, access decisions, online status
     │   ├── axis_repo.py      # Axis policy/state registry and scoring helpers
-    │   ├── events_repo.py    # Event ledger persistence
-    │   ├── admin_repo.py     # Admin dashboard and inspector read paths
-    │   └── ...
+    │   ├── events_repo.py    # Event ledger persistence (apply_axis_event)
+    │   └── admin_repo.py     # Admin dashboard and inspector read paths
     ├── api/
     │   ├── server.py
     │   ├── routes.py
     │   ├── models.py
     │   └── ...
-    └── client/
-        ├── app.py
-        ├── api/              # API client wrappers
-        ├── tabs/             # UI components
-        └── ui/               # Utilities
+    └── web/                  # Admin WebUI
+        ├── routes.py
+        ├── templates/
+        └── static/
 
 Migration Strategy
 ~~~~~~~~~~~~~~~~~~

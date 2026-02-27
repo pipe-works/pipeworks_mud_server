@@ -15,6 +15,8 @@ JSON-driven world data, and clean architecture.
    architecture
    database
    axis_state
+   ledger
+   translation_layer
    admin_axis_inspector
    security
    admin_web_ui_mtls
@@ -39,11 +41,18 @@ Key Features
 ------------
 
 * **Deterministic**: Same seed always produces same game state
-* **Data-driven**: JSON world definitions, no code changes needed
+* **Ledger-driven**: Every mechanical interaction is written to an
+  append-only JSONL audit log before the database is updated
+* **Axis resolution engine**: Grammar-driven mechanical resolution of
+  character state mutations across any number of axes
+* **OOC→IC translation**: Optional LLM-rendered in-character dialogue
+  via Ollama, linked to mechanical resolution via ``ipc_hash``
+* **Data-driven**: JSON world definitions, YAML grammars, no code changes
+  needed to add worlds or tune resolver parameters
 * **Modern stack**: FastAPI + WebUI + SQLite
 * **Secure**: CLI-based superuser management, bcrypt passwords
 * **Extensible**: Modular architecture, clean API
-* **Well-tested**: Comprehensive test suite with coverage
+* **Well-tested**: Comprehensive test suite with >80% coverage
 
 Quick Start
 -----------
@@ -121,15 +130,33 @@ PipeWorks MUD Server is suitable for:
 Design Philosophy
 -----------------
 
-**Programmatic Authority**
+**Programmatic = Authoritative**
 
-* All game logic and state is deterministic and code-driven
-* Game mechanics are reproducible and testable
-* No LLM involvement in authoritative systems (state, logic, resolution)
+* All game logic, axis resolution, and ledger writes are deterministic
+  and code-driven
+* Game mechanics are reproducible and testable from seed
+* No LLM involvement in authoritative systems (state, logic, resolution,
+  ledger records)
+
+**LLM = Non-Authoritative**
+
+* The translation layer renders flavour text only — IC dialogue is
+  cosmetic and never changes game state
+* Failure in the translation layer is always non-fatal
+* Deterministic rendering (``ipc_hash``-seeded Ollama) is optional
+
+**Ledger is Truth**
+
+* Immutable JSONL ledger records are written before DB updates
+* The database is a materialised view that can be reconstructed from
+  the ledger
+* Every interaction is traceable via ``ipc_hash`` linkage between the
+  mechanical resolution event and the translation event
 
 **Extensibility First**
 
-* World data is JSON-driven (swap worlds without code changes)
+* World data is JSON/YAML-driven (swap worlds or tune resolvers without
+  code changes)
 * Commands are extensible (add new actions without server rewrites)
 * Modular architecture supports plugins and custom mechanics
 

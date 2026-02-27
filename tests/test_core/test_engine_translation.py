@@ -31,10 +31,11 @@ def reset_bus():
     MudBus.reset_for_testing()
 
 
-def _make_world(translation_service=None):
-    """Build a minimal world stub with a controllable translation service."""
+def _make_world(translation_service=None, axis_engine=None):
+    """Build a minimal world stub with controllable translation and axis engine."""
     world = MagicMock()
     world.get_translation_service.return_value = translation_service
+    world.get_axis_engine.return_value = axis_engine
     world.get_room.return_value = SimpleNamespace(
         id="spawn",
         exits={"north": "forest"},
@@ -126,6 +127,7 @@ class TestEngineChatTranslation:
             character_name="Mira",
             ooc_message="hello",
             channel="say",
+            ipc_hash=None,
         )
 
     def test_returns_false_when_no_room(self, test_db, temp_db_path):
@@ -192,6 +194,7 @@ class TestEngineYellTranslation:
             character_name="Mira",
             ooc_message="hello",
             channel="yell",
+            ipc_hash=None,
         )
 
 
@@ -254,6 +257,7 @@ class TestEngineWhisperTranslation:
             character_name="Mira",
             ooc_message="hello",
             channel="whisper",
+            ipc_hash=None,
         )
 
 
@@ -332,3 +336,209 @@ class TestWorldTranslationEnabled:
         world = World(world_root=tmp_path)
         assert world.translation_layer_enabled() is False
         assert world.get_translation_service() is None
+
+
+# ── Axis engine wiring (Phase 4) ──────────────────────────────────────────────
+
+
+def _make_axis_engine(ipc_hash: str = "deadbeef00000000"):
+    """Build a mock AxisEngine that returns a fixed ipc_hash."""
+    axis_eng = MagicMock()
+    result = MagicMock()
+    result.ipc_hash = ipc_hash
+    axis_eng.resolve_chat_interaction.return_value = result
+    return axis_eng
+
+
+class TestEngineChatAxisEngine:
+    """Phase 4: axis engine called before translation; ipc_hash forwarded."""
+
+    def test_chat_calls_axis_engine_and_passes_ipc_hash(self, test_db, temp_db_path):
+        """Happy path: axis engine called, ipc_hash forwarded to translate()."""
+        axis_eng = _make_axis_engine("deadbeef00000000")
+        svc = _make_translation_service("Hand over the ledger.")
+        world = _make_world(svc, axis_engine=axis_eng)
+        engine = _make_engine(world)
+
+        with use_test_database(temp_db_path):
+            with patch("mud_server.core.engine.database") as mock_db:
+                mock_db.get_character_room.return_value = "spawn"
+                mock_db.get_characters_in_room.return_value = ["Mira", "Kael"]
+                mock_db.add_chat_message.return_value = True
+                engine.chat("Mira", "give me the ledger", world_id="daily_undertaking")
+
+        axis_eng.resolve_chat_interaction.assert_called_once_with(
+            speaker_name="Mira",
+            listener_name="Kael",
+            channel="say",
+            world_id="daily_undertaking",
+        )
+        svc.translate.assert_called_once_with(
+            character_name="Mira",
+            ooc_message="give me the ledger",
+            channel="say",
+            ipc_hash="deadbeef00000000",
+        )
+
+    def test_chat_skips_axis_resolution_when_no_co_present_character(self, test_db, temp_db_path):
+        """Solo room (speaker only) → axis engine not called; ipc_hash stays None."""
+        axis_eng = _make_axis_engine()
+        svc = _make_translation_service("IC text")
+        world = _make_world(svc, axis_engine=axis_eng)
+        engine = _make_engine(world)
+
+        with use_test_database(temp_db_path):
+            with patch("mud_server.core.engine.database") as mock_db:
+                mock_db.get_character_room.return_value = "spawn"
+                mock_db.get_characters_in_room.return_value = ["Mira"]  # speaker only
+                mock_db.add_chat_message.return_value = True
+                engine.chat("Mira", "hello", world_id="daily_undertaking")
+
+        axis_eng.resolve_chat_interaction.assert_not_called()
+        svc.translate.assert_called_once_with(
+            character_name="Mira",
+            ooc_message="hello",
+            channel="say",
+            ipc_hash=None,
+        )
+
+    def test_chat_axis_failure_is_non_fatal(self, test_db, temp_db_path):
+        """Axis engine raises → message still stored; ipc_hash falls back to None."""
+        axis_eng = MagicMock()
+        axis_eng.resolve_chat_interaction.side_effect = RuntimeError("db down")
+        svc = _make_translation_service("IC text")
+        world = _make_world(svc, axis_engine=axis_eng)
+        engine = _make_engine(world)
+
+        with use_test_database(temp_db_path):
+            stored = []
+            with patch("mud_server.core.engine.database") as mock_db:
+                mock_db.get_character_room.return_value = "spawn"
+                mock_db.get_characters_in_room.return_value = ["Mira", "Kael"]
+                mock_db.add_chat_message.side_effect = (
+                    lambda u, m, r, **kw: stored.append(m) or True
+                )
+                success, _ = engine.chat("Mira", "hello", world_id="daily_undertaking")
+
+        assert success is True
+        assert stored == ["IC text"]
+        svc.translate.assert_called_once_with(
+            character_name="Mira",
+            ooc_message="hello",
+            channel="say",
+            ipc_hash=None,
+        )
+
+    def test_yell_calls_axis_engine_and_passes_ipc_hash(self, test_db, temp_db_path):
+        """Yell: axis engine called with channel='yell'; ipc_hash forwarded to translate()."""
+        axis_eng = _make_axis_engine("beefdead00000000")
+        svc = _make_translation_service("Can you hear me?!")
+        world = _make_world(svc, axis_engine=axis_eng)
+        engine = _make_engine(world)
+
+        with use_test_database(temp_db_path):
+            with patch("mud_server.core.engine.database") as mock_db:
+                mock_db.get_character_room.return_value = "spawn"
+                mock_db.get_characters_in_room.return_value = ["Mira", "Kael"]
+                mock_db.add_chat_message.return_value = True
+                engine.yell("Mira", "can you hear me?!", world_id="daily_undertaking")
+
+        axis_eng.resolve_chat_interaction.assert_called_once_with(
+            speaker_name="Mira",
+            listener_name="Kael",
+            channel="yell",
+            world_id="daily_undertaking",
+        )
+        svc.translate.assert_called_once_with(
+            character_name="Mira",
+            ooc_message="can you hear me?!",
+            channel="yell",
+            ipc_hash="beefdead00000000",
+        )
+
+    def test_yell_axis_failure_is_non_fatal(self, test_db, temp_db_path):
+        """Yell axis engine raises → message still stored; ipc_hash is None."""
+        axis_eng = MagicMock()
+        axis_eng.resolve_chat_interaction.side_effect = RuntimeError("db down")
+        svc = _make_translation_service("IC yell")
+        world = _make_world(svc, axis_engine=axis_eng)
+        engine = _make_engine(world)
+
+        with use_test_database(temp_db_path):
+            stored = []
+            with patch("mud_server.core.engine.database") as mock_db:
+                mock_db.get_character_room.return_value = "spawn"
+                mock_db.get_characters_in_room.return_value = ["Mira", "Kael"]
+                mock_db.add_chat_message.side_effect = (
+                    lambda u, m, r, **kw: stored.append(m) or True
+                )
+                success, _ = engine.yell("Mira", "hello", world_id="daily_undertaking")
+
+        assert success is True
+        assert stored[0] == "[YELL] IC yell"
+        svc.translate.assert_called_once_with(
+            character_name="Mira",
+            ooc_message="hello",
+            channel="yell",
+            ipc_hash=None,
+        )
+
+    def test_whisper_axis_failure_is_non_fatal(self, test_db, temp_db_path):
+        """Whisper axis engine raises → message still delivered; ipc_hash is None."""
+        axis_eng = MagicMock()
+        axis_eng.resolve_chat_interaction.side_effect = RuntimeError("db down")
+        svc = _make_translation_service("I have information.")
+        world = _make_world(svc, axis_engine=axis_eng)
+        engine = _make_engine(world)
+
+        with use_test_database(temp_db_path):
+            stored = []
+            with patch("mud_server.core.engine.database") as mock_db:
+                mock_db.resolve_character_name.side_effect = lambda name, **kw: name
+                mock_db.get_character_room.side_effect = lambda name, **kw: "spawn"
+                mock_db.character_exists.return_value = True
+                mock_db.get_active_characters.return_value = ["Kael"]
+                mock_db.add_chat_message.side_effect = (
+                    lambda u, m, r, **kw: stored.append(m) or True
+                )
+                success, _ = engine.whisper(
+                    "Mira", "Kael", "i have information", world_id="daily_undertaking"
+                )
+
+        assert success is True
+        assert "[WHISPER: Mira → Kael] I have information." in stored
+        svc.translate.assert_called_once_with(
+            character_name="Mira",
+            ooc_message="i have information",
+            channel="whisper",
+            ipc_hash=None,
+        )
+
+    def test_whisper_passes_target_as_listener_and_ipc_hash(self, test_db, temp_db_path):
+        """Whisper: resolved_target used directly; ipc_hash flows to translate()."""
+        axis_eng = _make_axis_engine("cafebabe00000000")
+        svc = _make_translation_service("I have information.")
+        world = _make_world(svc, axis_engine=axis_eng)
+        engine = _make_engine(world)
+
+        with use_test_database(temp_db_path):
+            with patch("mud_server.core.engine.database") as mock_db:
+                mock_db.resolve_character_name.side_effect = lambda name, **kw: name
+                mock_db.get_character_room.side_effect = lambda name, **kw: "spawn"
+                mock_db.character_exists.return_value = True
+                mock_db.get_active_characters.return_value = ["Kael"]
+                mock_db.add_chat_message.return_value = True
+                engine.whisper("Mira", "Kael", "secret", world_id="daily_undertaking")
+
+        axis_eng.resolve_chat_interaction.assert_called_once_with(
+            speaker_name="Mira",
+            listener_name="Kael",
+            channel="whisper",
+            world_id="daily_undertaking",
+        )
+        svc.translate.assert_called_once_with(
+            character_name="Mira",
+            ooc_message="secret",
+            channel="whisper",
+            ipc_hash="cafebabe00000000",
+        )

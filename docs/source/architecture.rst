@@ -6,11 +6,23 @@ Technical architecture and system design of PipeWorks MUD Server.
 Overview
 --------
 
-PipeWorks MUD Server uses a modern three-tier architecture:
+PipeWorks MUD Server is built around a clear separation between
+**authoritative** and **non-authoritative** subsystems:
 
-* **FastAPI backend** - RESTful API server
-* **Admin WebUI** - Web-based administration dashboard
-* **SQLite database** - Persistent data storage
+* **Programmatic = Authoritative** — game logic, axis resolution, the
+  JSONL ledger, and DB materialization are deterministic and testable.
+* **LLM = Non-Authoritative** — OOC→IC translation is flavour text
+  rendered by a language model; it cannot mutate game state.
+
+The server uses a modern three-tier runtime backed by a pipeline of
+mechanics and translation services:
+
+* **FastAPI backend** — RESTful API server
+* **Admin WebUI** — Web-based administration dashboard
+* **SQLite database** — Persistent data storage (materialized view of ledger truth)
+* **JSONL ledger** — Append-only audit log (``data/ledger/<world_id>.jsonl``)
+* **Axis engine** — Mechanical resolution of character state mutations
+* **Translation layer** — OOC→IC text rendering via Ollama
 
 All components are written in Python 3.12+ using modern best practices.
 
@@ -34,14 +46,59 @@ Three-Tier Design
                              │
             ┌────────────────┴────────────────┐
             ▼                                 ▼
-    ┌──────────────────┐           ┌──────────────────┐
-    │  Game Engine     │           │  SQLite Database │
-    │  (Core Layer)    │◄──────────┤  (Persistence)   │
-    │                  │           │                  │
-    │ - World/Rooms    │           │ - Players        │
-    │ - Items          │           │ - Sessions       │
-    │ - Actions        │           │ - Chat Messages  │
-    └──────────────────┘           └──────────────────┘
+    ┌──────────────────┐           ┌──────────────────────────────┐
+    │  Game Engine     │           │  SQLite Database             │
+    │  (Core Layer)    │◄──────────┤  (Persistence / Mat. View)  │
+    │                  │           │                              │
+    │ - World/Rooms    │           │ - Players / Sessions         │
+    │ - Actions        │           │ - Chat Messages              │
+    │ - Axis Engine ──────────────►│ - Axis Scores                │
+    │ - Translation    │           │ - Event Ledger (DB)          │
+    └─────────┬────────┘           └──────────────────────────────┘
+              │
+              ▼
+    ┌──────────────────────────────────────────────────────────────┐
+    │  JSONL Ledger   data/ledger/<world_id>.jsonl                 │
+    │  (Authoritative record — written before DB materialization)  │
+    └──────────────────────────────────────────────────────────────┘
+
+Chat Interaction Data Flow
+--------------------------
+
+When a player says, yells, or whispers, the engine runs a pipeline
+before storing the message:
+
+::
+
+    Player sends "say <message>"
+          │
+          ▼
+    1. GameEngine.chat() — validate room
+          │
+          ▼
+    2. AxisEngine.resolve_chat_interaction()
+       ├── Read speaker + listener axis scores from DB
+       ├── Run resolvers (dominance_shift, shared_drain, no_effect)
+       ├── Compute ipc_hash (compute_payload_hash from pipeworks_ipc)
+       ├── Write chat.mechanical_resolution → JSONL ledger  ← authoritative
+       └── Materialise clamped deltas into character_axis_score  ← DB
+          │
+          ipc_hash
+          ▼
+    3. OOCToICTranslationService.translate()
+       ├── Build character axis profile
+       ├── Render system prompt from ic_prompt.txt template
+       ├── Call Ollama /api/chat
+       ├── Validate output (reject PASSTHROUGH, enforce max_chars)
+       └── Write chat.translation → JSONL ledger (carries same ipc_hash)
+          │
+          IC text (or OOC fallback)
+          ▼
+    4. Sanitize + store in chat_messages (SQLite)
+
+Both ledger events are fire-and-forget (non-fatal on failure).
+If the axis engine or translation layer is disabled for a world,
+the pipeline short-circuits gracefully and the OOC message is stored.
 
 WebUI Architecture
 ------------------
@@ -56,6 +113,92 @@ The admin WebUI is a lightweight static frontend served by FastAPI::
 The UI calls the FastAPI endpoints directly and enforces role checks
 client-side while the API enforces permissions server-side.
 
+Package Layout
+--------------
+
+::
+
+    src/mud_server/
+    ├── api/                    # FastAPI REST API
+    │   ├── server.py           # App init, CORS, uvicorn entry
+    │   ├── routes.py           # All endpoints, command parsing
+    │   ├── models.py           # Pydantic request/response schemas
+    │   ├── auth.py             # DB-backed sessions with TTL
+    │   ├── password.py         # bcrypt hashing via passlib
+    │   └── permissions.py      # RBAC: Role + Permission enums
+    ├── core/                   # Game engine
+    │   ├── engine.py           # GameEngine: movement, inventory, chat
+    │   │                       #   chat/yell/whisper call axis engine
+    │   │                       #   then translation before storing
+    │   ├── world.py            # World dataclass; loads axis engine +
+    │   │                       #   translation service at startup
+    │   ├── bus.py              # Event bus (publish-subscribe)
+    │   └── events.py           # Event type constants
+    ├── axis/                   # Axis resolution engine  ← NEW
+    │   ├── __init__.py         # Exports: AxisEngine, AxisResolutionResult
+    │   ├── types.py            # AxisDelta, EntityResolution, AxisResolutionResult
+    │   ├── grammar.py          # ResolutionGrammar loader (resolution.yaml)
+    │   ├── resolvers.py        # dominance_shift, shared_drain, no_effect
+    │   └── engine.py           # AxisEngine class
+    ├── ledger/                 # JSONL audit ledger  ← NEW
+    │   ├── __init__.py         # Exports: append_event, verify_world_ledger
+    │   └── writer.py           # append_event, verify, checksum, file lock
+    ├── translation/            # OOC→IC translation layer  ← NEW
+    │   ├── __init__.py
+    │   ├── config.py           # TranslationLayerConfig (frozen dataclass)
+    │   ├── profile_builder.py  # CharacterProfileBuilder (axis snapshot)
+    │   ├── renderer.py         # OllamaRenderer (sync requests)
+    │   ├── validator.py        # OutputValidator (PASSTHROUGH sentinel)
+    │   └── service.py          # OOCToICTranslationService (orchestrator)
+    ├── db/                     # Database layer
+    │   ├── facade.py           # App-facing DB API (used by all runtime code)
+    │   ├── database.py         # Compatibility re-export surface only
+    │   ├── schema.py           # DDL, indexes, invariant triggers
+    │   ├── connection.py       # SQLite connection / transaction scope
+    │   ├── users_repo.py
+    │   ├── characters_repo.py
+    │   ├── sessions_repo.py
+    │   ├── chat_repo.py
+    │   ├── worlds_repo.py
+    │   ├── axis_repo.py        # Axis policy registry + scoring helpers
+    │   ├── events_repo.py      # DB event ledger (apply_axis_event)
+    │   └── admin_repo.py       # Admin dashboard read paths
+    └── web/                    # Admin WebUI
+        ├── routes.py
+        ├── templates/
+        └── static/
+
+World Package Layout
+--------------------
+
+Each world is a self-contained directory under ``data/worlds/``::
+
+    data/worlds/<world_id>/
+    ├── world.json              # World metadata and enabled subsystems
+    ├── zones/                  # Zone definitions (rooms, items)
+    └── policies/
+        ├── axes.yaml           # Axis registry (names, labels, ordinals)
+        ├── thresholds.yaml     # Float-score → label mappings
+        ├── resolution.yaml     # Chat resolver grammar  ← NEW
+        └── ic_prompt.txt       # Translation system prompt template  ← NEW
+
+``world.json`` controls which subsystems are active for a world:
+
+.. code-block:: json
+
+   {
+     "translation_layer": {
+       "enabled": true,
+       "model": "gemma2:2b",
+       "ollama_base_url": "http://localhost:11434"
+     },
+     "axis_engine": {
+       "enabled": true
+     }
+   }
+
+Both subsystems default to **disabled** and must be explicitly opted in.
+
 System Components
 -----------------
 
@@ -64,22 +207,76 @@ Backend (FastAPI)
 
 Located in ``src/mud_server/api/``:
 
-* ``server.py`` - App initialization, CORS, routing
-* ``routes.py`` - All API endpoints
-* ``models.py`` - Pydantic request/response models
-* ``auth.py`` - Session management
-* ``password.py`` - Bcrypt password hashing
-* ``permissions.py`` - Role-based access control
+* ``server.py`` — App initialization, CORS, routing
+* ``routes.py`` — All API endpoints
+* ``models.py`` — Pydantic request/response models
+* ``auth.py`` — Session management
+* ``password.py`` — Bcrypt password hashing
+* ``permissions.py`` — Role-based access control
 
 Game Engine
 ~~~~~~~~~~~
 
 Located in ``src/mud_server/core/``:
 
-* ``engine.py`` - GameEngine class with all game logic
-* ``world.py`` - World, Room, Item dataclasses
-* ``bus.py`` - Event bus for game event handling
-* ``events.py`` - Event type constants
+* ``engine.py`` — GameEngine class; coordinates axis engine + translation
+  before storing chat messages
+* ``world.py`` — World dataclass; loads and caches the axis engine and
+  translation service at startup via ``_init_axis_engine`` and
+  ``_init_translation_service``
+* ``bus.py`` — Event bus for game event handling
+* ``events.py`` — Event type constants
+
+Axis Engine
+~~~~~~~~~~~
+
+Located in ``src/mud_server/axis/``:
+
+* ``engine.py`` — ``AxisEngine``: coordinates resolution for all axes
+  defined in the world grammar.  One instance per world, instantiated
+  at startup.
+* ``grammar.py`` — Loads and validates ``policies/resolution.yaml``.
+  The grammar is immutable after load; field values drive resolver
+  dispatch and parameter passing.
+* ``resolvers.py`` — Pure stateless functions:
+
+  * ``dominance_shift`` — winner gains, loser loses; zero below gap threshold
+  * ``shared_drain`` — both entities lose a fixed health cost
+  * ``no_effect`` — explicit no-op for axes not involved in an interaction
+
+* ``types.py`` — Frozen dataclasses: ``AxisDelta``, ``EntityResolution``,
+  ``AxisResolutionResult``
+
+JSONL Ledger
+~~~~~~~~~~~~
+
+Located in ``src/mud_server/ledger/``:
+
+* ``writer.py`` — ``append_event`` (SHA-256 checksum, POSIX
+  ``fcntl.flock``), ``verify_world_ledger`` (startup integrity check),
+  ``LedgerWriteError``, ``LedgerVerifyResult``
+
+Ledger files live at ``data/ledger/<world_id>.jsonl``.  They are
+**not** committed to version control (git-ignored, like ``data/*.db``).
+
+Translation Layer
+~~~~~~~~~~~~~~~~~
+
+Located in ``src/mud_server/translation/``:
+
+* ``service.py`` — ``OOCToICTranslationService``: orchestrates profile
+  building, Ollama rendering, output validation, and ledger emit.
+* ``profile_builder.py`` — ``CharacterProfileBuilder``: builds the flat
+  dict injected into the system prompt template.
+* ``renderer.py`` — ``OllamaRenderer``: synchronous HTTP call to
+  Ollama ``/api/chat``.
+* ``validator.py`` — ``OutputValidator``: rejects the PASSTHROUGH
+  sentinel, enforces ``max_output_chars``.
+* ``config.py`` — ``TranslationLayerConfig``: frozen dataclass loaded
+  from ``world.json``.
+
+See :doc:`translation_layer` for the full service contract and
+prompt template format.
 
 Event Bus Architecture
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -87,14 +284,14 @@ Event Bus Architecture
 The event bus provides publish-subscribe infrastructure for game events.
 It follows these key principles:
 
-**Synchronous Emit**: Events are committed to the log before handlers are notified.
-This ensures deterministic ordering via sequence numbers.
+**Synchronous Emit**: Events are committed to the log before handlers
+are notified. This ensures deterministic ordering via sequence numbers.
 
-**Immutable Events**: Once emitted, events cannot be changed. They represent
-facts about what happened (Ledger truth).
+**Immutable Events**: Once emitted, events cannot be changed. They
+represent facts about what happened (Ledger truth).
 
-**Plugin-Ready**: The bus is designed to support future plugin systems where
-plugins react to events but cannot intervene or block them.
+**Plugin-Ready**: The bus is designed to support future plugin systems
+where plugins react to events but cannot intervene or block them.
 
 ::
 
@@ -116,32 +313,44 @@ plugins react to events but cannot intervene or block them.
     │                                                                  │
     └─────────────────────────────────────────────────────────────────┘
 
-Event types follow "domain:action" format in past tense (e.g., ``player:moved``,
-``item:picked_up``) to emphasize they record facts, not requests.
+Event types follow ``"domain:action"`` format in past tense (e.g.,
+``player:moved``, ``item:picked_up``) to emphasize they record facts,
+not requests.
 
 Database Layer
 ~~~~~~~~~~~~~~
 
 Located in ``src/mud_server/db/``:
 
-* ``facade.py`` - app-facing DB API contract (used by API/core/services/CLI)
-* ``database.py`` - legacy compatibility re-export surface (not for new runtime imports)
-* ``schema.py`` - schema bootstrap, indexes, and invariant triggers
-* ``*_repo.py`` modules - bounded-context repositories (users, characters, sessions, chat, worlds, axis/events, admin)
+* ``facade.py`` — app-facing DB API contract (used by API/core/services/CLI)
+* ``database.py`` — legacy compatibility re-export surface (not for new
+  runtime imports)
+* ``schema.py`` — schema bootstrap, indexes, and invariant triggers
+* ``*_repo.py`` modules — bounded-context repositories (users, characters,
+  sessions, chat, worlds, axis/events, admin)
 
 Data Flow
 ---------
 
-Request Flow:
+Standard request flow (no mechanics):
 
-1. **Client** - User interacts with the Admin WebUI
-2. **API Call** - Client sends HTTP request to FastAPI
-3. **Session Validation** - Server validates session and permissions
-4. **Command Parsing** - Server parses command and arguments
-5. **Game Logic** - Engine executes command
-6. **Database** - Engine reads/writes to SQLite
-7. **Response** - Server returns result to client
-8. **Display** - Client updates interface
+1. **Client** — User interacts with the Admin WebUI
+2. **API Call** — Client sends HTTP request to FastAPI
+3. **Session Validation** — Server validates session and permissions
+4. **Command Parsing** — Server parses command and arguments
+5. **Game Logic** — Engine executes command
+6. **Database** — Engine reads/writes to SQLite
+7. **Response** — Server returns result to client
+8. **Display** — Client updates interface
+
+Chat interaction flow (with mechanics):
+
+1. Session validation and room check
+2. Axis engine: read scores → run resolvers → write JSONL ledger
+   → materialise to DB (steps 2–8 of the resolution sequence)
+3. Translation: profile build → Ollama render → validate → write
+   JSONL ledger (carrying the same ``ipc_hash``)
+4. Sanitize + store final message in ``chat_messages``
 
 Technology Stack
 ----------------
@@ -164,7 +373,16 @@ Technology Stack
      - ASGI server
    * - Database
      - SQLite 3
-     - Data persistence
+     - Data persistence (materialized view)
+   * - Ledger
+     - JSONL (append-only files)
+     - Authoritative audit log
+   * - Axis IPC
+     - pipeworks-ipc (GitHub)
+     - Deterministic interaction hash (``compute_payload_hash``)
+   * - Translation
+     - Ollama (local LLM)
+     - OOC→IC text rendering
    * - Auth
      - Passlib + Bcrypt
      - Password hashing
@@ -175,7 +393,7 @@ Technology Stack
      - Ruff 0.8+
      - Code quality
    * - Formatting
-     - Black 24.10+
+     - Black 26.1.0
      - Code style
    * - Type Checking
      - Mypy 1.13+
@@ -197,10 +415,10 @@ Role-Based Access Control
 
 Four roles with hierarchical permissions:
 
-* **Player** - Basic gameplay
-* **WorldBuilder** - Player + content creation
-* **Admin** - WorldBuilder + user management
-* **Superuser** - Admin + role management, full access
+* **Player** — Basic gameplay
+* **WorldBuilder** — Player + content creation
+* **Admin** — WorldBuilder + user management
+* **Superuser** — Admin + role management, full access
 
 Command Pattern
 ~~~~~~~~~~~~~~~
@@ -216,118 +434,34 @@ Repository Pattern
 * App layer imports DB operations through ``mud_server.db.facade``
 * SQL implementation is split across repository modules by domain
 * ``database.py`` remains as a compatibility symbol surface only
-* Connection and transaction ownership lives in ``connection.py`` and repositories
-* Repository layers raise typed DB errors and API boundaries map them to HTTP responses
+* Connection and transaction ownership lives in ``connection.py`` and
+  repositories
+* Repository layers raise typed DB errors and API boundaries map them
+  to HTTP responses
 
-Compatibility Test Layout
-~~~~~~~~~~~~~~~~~~~~~~~~~
+Ledger-First Authority
+~~~~~~~~~~~~~~~~~~~~~~
 
-Legacy ``mud_server.db.database`` contract coverage is split into focused suites:
+Axis mutations follow a strict write order:
 
-* ``tests/test_db/test_database_init_surface.py``
-* ``tests/test_db/test_database_users_surface.py``
-* ``tests/test_db/test_database_characters_surface.py``
-* ``tests/test_db/test_database_sessions_surface.py``
-* ``tests/test_db/test_database_chat_surface.py``
-* ``tests/test_db/test_database_admin_surface.py``
-* ``tests/test_db/test_database_error_surface.py``
+1. **Ledger write is the authoritative act** — the ``chat.mechanical_resolution``
+   JSONL event is written before any DB update.
+2. **DB write is materialisation** — ``apply_axis_event`` reflects the
+   already-committed ledger record into ``character_axis_score``.
+3. Both writes are **non-fatal** — a failure logs a WARNING/ERROR and
+   the interaction continues; the resolution result is still returned.
 
-Database Schema
----------------
-
-Users Table
-~~~~~~~~~~~
-
-* ``id`` (INTEGER, PRIMARY KEY)
-* ``username`` (TEXT, UNIQUE)
-* ``password_hash`` (TEXT)
-* ``email_hash`` (TEXT, UNIQUE, NULLABLE) - placeholder for hashed emails
-* ``role`` (TEXT) - Player, WorldBuilder, Admin, Superuser
-* ``is_active`` (INTEGER)
-* ``is_guest`` (INTEGER)
-* ``guest_expires_at`` (TIMESTAMP, NULLABLE)
-* ``account_origin`` (TEXT) - e.g. legacy, visitor, admin
-* ``created_at`` (TIMESTAMP)
-* ``last_login`` (TIMESTAMP)
-* ``tombstoned_at`` (TIMESTAMP, NULLABLE) - set for deactivated users; guest accounts are deleted on expiry
-
-Characters Table
-~~~~~~~~~~~~~~~~
-
-* ``id`` (INTEGER, PRIMARY KEY)
-* ``user_id`` (INTEGER, NULLABLE)
-* ``name`` (TEXT, NOT NULL)
-* ``world_id`` (TEXT, NOT NULL)
-* ``UNIQUE(world_id, name)`` - character names are world-scoped
-* ``inventory`` (TEXT) - JSON array of item IDs
-* ``is_guest_created`` (INTEGER)
-* ``created_at`` (TIMESTAMP)
-* ``updated_at`` (TIMESTAMP)
-
-Character Locations Table
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-* ``character_id`` (INTEGER, PRIMARY KEY)
-* ``room_id`` (TEXT)
-* ``updated_at`` (TIMESTAMP)
-
-Sessions Table
-~~~~~~~~~~~~~~
-
-* ``session_id`` (TEXT, UNIQUE) - UUID
-* ``user_id`` (INTEGER)
-* ``character_id`` (INTEGER, NULLABLE)
-* ``world_id`` (TEXT, NULLABLE) - required when ``character_id`` is set
-* ``created_at`` (TIMESTAMP)
-* ``last_activity`` (TIMESTAMP)
-* ``expires_at`` (TIMESTAMP, NULLABLE)
-* ``client_type`` (TEXT)
-
-Chat Messages Table
-~~~~~~~~~~~~~~~~~~~
-
-* ``id`` (INTEGER, PRIMARY KEY)
-* ``character_id`` (INTEGER, NULLABLE)
-* ``user_id`` (INTEGER, NULLABLE)
-* ``message`` (TEXT)
-* ``world_id`` (TEXT)
-* ``room`` (TEXT)
-* ``recipient_character_id`` (INTEGER, NULLABLE)
-* ``timestamp`` (TIMESTAMP)
-
-Security Considerations
------------------------
-
-Authentication
-~~~~~~~~~~~~~~
-
-* **Password hashing**: Bcrypt via passlib (intentionally slow, ~100ms per hash)
-* **Password policy**: NIST SP 800-63B aligned with comprehensive validation
-* **Session IDs**: UUID v4 (cryptographically random, hard to guess)
-* **Session validation**: Every API call validates session and extracts role
-* **Role-based access**: Four-tier permission system (Player < WorldBuilder < Admin < Superuser)
-
-Password Policy
-~~~~~~~~~~~~~~~
-
-The STANDARD password policy enforces:
-
-* **Minimum 12 characters** (NIST recommended)
-* **Common password rejection** (150+ known weak passwords blocked)
-* **Leet-speak detection** (p@ssw0rd detected as "password" variant)
-* **Sequential character detection** (abc, 123, xyz patterns blocked)
-* **Repeated character detection** (aaa, 1111 patterns blocked)
-
-Three policy levels available: BASIC (8 chars), STANDARD (12 chars), STRICT (16 chars + complexity).
-
-See :doc:`security` for complete details.
+This ordering means the ledger is always ahead of (or equal to) the DB,
+never behind it.
 
 Known Limitations
 ~~~~~~~~~~~~~~~~~
 
 * SQLite concurrency limits for high-traffic deployments
-* No email verification (email hashes are placeholders for future use)
+* No email verification (email hashes are placeholders)
 * No two-factor authentication
+* Translation is synchronous (Ollama call blocks the request thread);
+  async upgrade path is documented in ``translation/renderer.py``
 
 Performance
 -----------
@@ -338,7 +472,7 @@ Current Capacity
 * ~50-100 concurrent players (SQLite limitation)
 * No caching (every request hits DB)
 * Synchronous DB operations
-* In-memory sessions (fast but not persistent)
+* Synchronous Ollama calls (blocks while model renders)
 
 Scaling Considerations
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -348,5 +482,5 @@ For larger deployments:
 * Migrate to PostgreSQL for concurrency
 * Add Redis for session storage
 * Implement caching layer
-* Use async database operations
+* Use async database and Ollama operations
 * Add load balancing
