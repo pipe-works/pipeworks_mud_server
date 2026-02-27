@@ -1,0 +1,153 @@
+# resolution.yaml — Axis interaction resolution rules for daily_undertaking
+# version: "1.0"
+#
+# ── Purpose ──────────────────────────────────────────────────────────────────
+# This file is the machine-readable definition of how stimuli produce axis
+# deltas for characters in the daily_undertaking world.  The axis engine reads
+# and interprets this file; no game logic lives here.
+#
+# ── Conventions ──────────────────────────────────────────────────────────────
+# * Higher float score = more of the axis quality:
+#     health:  0.0 = sickly (incapacitated)  →  1.0 = hale (robust)
+#     demeanor: 0.0 = timid                  →  1.0 = proud
+# * Resolver functions are named in mud_server/axis/resolvers.py.
+# * Labels in thresholds.yaml are display artefacts only; the engine
+#   operates entirely on float scores.
+#
+# ── Extensibility ────────────────────────────────────────────────────────────
+# New stimulus types: add a new top-level key under `interactions`.
+# New resolver algorithms: add a new named function to resolvers.py and
+#   reference the new name in this file.
+# Neither operation requires modifying any existing block.
+#
+# ── Design decisions baked in ────────────────────────────────────────────────
+# D4: Universal health cost.  Both entities lose health regardless of who
+#     dominates.  Social interaction imposes a physical cost on everyone,
+#     including the powerful.  If effortless dominance is desired, replace
+#     health.resolver with single_drain conditioned on loser_only — that is
+#     a YAML-only change, no code change required.
+#
+# D5: Health floor is 0.0.  A character at 0.0 is incapacitated.  The axis
+#     engine clamps scores to [0.0, 1.0] after every delta application.
+#     Health regenerates via the world tick system.
+#     TODO(tick-system): wire regen rate here when the tick system is built.
+
+version: "1.0"
+
+interactions:
+
+  chat:
+
+    # ── Channel multipliers ──────────────────────────────────────────────────
+    # All axis deltas for a chat interaction are scaled by the channel
+    # multiplier before being applied.
+    #
+    # say:     baseline social interaction, no amplification.
+    # yell:    louder, more forceful — greater dominance shift and more
+    #          physical cost.  Visibility is a future candidate axis for yell.
+    # whisper: quieter, lower stakes — reduced dominance and lower cost.
+    channel_multipliers:
+      say:     1.0
+      yell:    1.5
+      whisper: 0.5
+
+    # ── Minimum gap threshold ────────────────────────────────────────────────
+    # When two characters' demeanor scores are closer than this threshold,
+    # dominance_shift produces no delta — neither gains social ground over
+    # the other.
+    #
+    # Note: shared_drain (health) still applies even when the gap is below
+    # this threshold.  The conversation happened; both characters pay the
+    # physical cost regardless of whether anyone dominated.
+    min_gap_threshold: 0.05
+
+    # ── Per-axis rules ────────────────────────────────────────────────────────
+    # Each axis must have an entry.  Axes not involved in chat use no_effect
+    # rather than being silently omitted, so the resolver can assert that all
+    # registered axes are explicitly accounted for.
+    axes:
+
+      demeanor:
+        resolver: dominance_shift
+        base_magnitude: 0.03
+        # The entity with the higher demeanor score is the "winner".
+        #
+        # winner delta: +base_magnitude * channel_multiplier * score_gap
+        # loser  delta: -base_magnitude * channel_multiplier * score_gap
+        # score_gap    = abs(speaker.demeanor - listener.demeanor)
+        #
+        # No delta is applied when score_gap < min_gap_threshold.
+        #
+        # Example (say channel, score_gap = 0.36):
+        #   delta = 0.03 * 1.0 * 0.36 = 0.011
+        #   winner.demeanor += 0.011
+        #   loser.demeanor  -= 0.011
+        #
+        # Example (yell channel, same gap):
+        #   delta = 0.03 * 1.5 * 0.36 = 0.016
+        #
+        # Example (scores too close, gap = 0.03 < 0.05 threshold):
+        #   delta = 0.0  (no shift — equally matched)
+
+      health:
+        resolver: shared_drain
+        base_magnitude: 0.01
+        # Both speaker and listener lose base_magnitude * channel_multiplier
+        # per interaction.  Universal cost — dominance is not effortless.
+        #
+        # Example (say):    both lose 0.01 * 1.0 = 0.010
+        # Example (yell):   both lose 0.01 * 1.5 = 0.015
+        # Example (whisper): both lose 0.01 * 0.5 = 0.005
+        #
+        # Floor: health is clamped to 0.0 by the axis engine after each
+        # delta application.  A character at 0.0 is incapacitated.
+        #
+        # TODO(tick-system): health regenerates over time via the world tick
+        # rate.  The tick system is not yet implemented.  When it is, add a
+        # regen_per_tick field here.  Until then, health only recovers via
+        # admin axis override.
+
+      # ── Axes not involved in chat interactions ─────────────────────────────
+      # Explicitly listed with no_effect so the resolver can enforce that
+      # every registered axis is accounted for in the grammar.  Future
+      # stimulus types that affect these axes will add rules under their own
+      # top-level interaction block (e.g., interactions.environmental).
+
+      wealth:
+        resolver: no_effect
+        # Future: affected by economic outcomes (trade, debt resolution).
+
+      physique:
+        resolver: no_effect
+        # Future: affected by physical actions (exertion, injury, rest).
+
+      age:
+        resolver: no_effect
+        # Changes via time-passage only.  Effectively static in the PoC.
+
+      facial_signal:
+        resolver: no_effect
+        # Observational descriptor.  Not mechanically altered by chat.
+        # Candidate for social reputation events in future.
+
+      legitimacy:
+        resolver: no_effect
+        # Future: affected by public outcomes, formal rulings, confrontations.
+
+      visibility:
+        resolver: no_effect
+        # Strong candidate for the yell channel (yelling raises conspicuousness)
+        # but deferred — adds grammar complexity before the base loop is closed.
+        # Revisit after the first mechanical resolution test passes.
+
+      moral_load:
+        resolver: no_effect
+        # Future: affected by witness events and choices with moral weight.
+
+      dependency:
+        resolver: no_effect
+        # Future: affected by economic and social outcome events.
+
+      risk_exposure:
+        resolver: no_effect
+        # Future: affected by environmental and occupation events.
