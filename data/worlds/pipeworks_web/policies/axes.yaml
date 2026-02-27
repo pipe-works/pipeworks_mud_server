@@ -4,15 +4,15 @@ axes:
   physique:
     group: character
     values:
+    - frail
+    - hunched
     - skinny
     - wiry
-    - stocky
-    - hunched
-    - frail
     - broad
+    - stocky
     ordering:
       type: ordinal
-      values: [skinny, wiry, stocky, hunched, frail, broad]
+      values: [frail, hunched, skinny, wiry, broad, stocky]
   wealth:
     group: character
     values:
@@ -28,13 +28,13 @@ axes:
     group: character
     values:
     - sickly
-    - scarred
-    - weary
-    - hale
     - limping
+    - weary
+    - scarred
+    - hale
     ordering:
       type: ordinal
-      values: [sickly, scarred, weary, hale, limping]
+      values: [sickly, limping, weary, scarred, hale]
   demeanor:
     group: character
     values:

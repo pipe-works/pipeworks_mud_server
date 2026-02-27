@@ -49,7 +49,7 @@ class TestBuildSuccess:
             lambda cid: _make_axis_state(
                 [
                     {"axis_name": "demeanor", "axis_score": 0.87, "axis_label": "proud"},
-                    {"axis_name": "health", "axis_score": 0.72, "axis_label": "hale"},
+                    {"axis_name": "health", "axis_score": 0.85, "axis_label": "hale"},
                 ]
             ),
         )
@@ -59,7 +59,7 @@ class TestBuildSuccess:
         assert profile["demeanor_label"] == "proud"
         assert profile["demeanor_score"] == pytest.approx(0.87)
         assert profile["health_label"] == "hale"
-        assert profile["health_score"] == pytest.approx(0.72)
+        assert profile["health_score"] == pytest.approx(0.85)
 
     def test_missing_active_axis_defaults_to_unknown(self, builder, monkeypatch):
         """An axis in active_axes that has no DB score defaults to unknown/0.0."""
