@@ -219,6 +219,7 @@ __marimo__/
 # MUD Server specific
 data/*.db
 data/*.db-journal
+data/ledger/
 logs/*.log
 
 # Server configuration (contains deployment-specific settings)
