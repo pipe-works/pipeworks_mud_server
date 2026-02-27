@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.0...mud_server-v0.4.1) (2026-02-27)
+
+
+### Bug Fixes
+
+* **translation:** resolve {{profile_summary}} placeholder in OOC→IC pipeline ([#145](https://github.com/pipe-works/pipeworks_mud_server/issues/145)) ([ef0a37d](https://github.com/pipe-works/pipeworks_mud_server/commit/ef0a37d78026c5bd7e1d441b5f07c5f09324b0c9))
+
 ## [0.4.0](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.11...mud_server-v0.4.0) (2026-02-27)
 
 
