@@ -1015,3 +1015,125 @@ class ClearOllamaContextResponse(BaseModel):
 
     success: bool
     message: str
+
+
+# ── Lab endpoints (Axis Descriptor Lab integration) ───────────────────────────
+
+
+class LabAxisValue(BaseModel):
+    """A single axis value supplied by the Axis Descriptor Lab.
+
+    Attributes:
+        label: Human-readable threshold label (e.g. ``"timid"``).
+        score: Normalised axis score in the range ``[0.0, 1.0]``.
+    """
+
+    label: str
+    score: float
+
+
+class LabWorldConfig(BaseModel):
+    """Translation layer configuration for a world, as seen by the lab.
+
+    Returned by ``GET /api/lab/world-config/{world_id}`` and embedded in
+    every ``LabTranslateResponse`` so the lab always knows which settings
+    the server applied to produce a result.
+
+    Attributes:
+        world_id:           World identifier.
+        name:               Display name from ``world.json``.
+        model:              Ollama model tag (e.g. ``"gemma2:2b"``).
+        active_axes:        Axes the world is configured to include in the
+                            character profile sent to the LLM.
+        strict_mode:        Whether strict output validation is enabled.
+        max_output_chars:   Hard ceiling on IC output length.
+        timeout_seconds:    Ollama HTTP request timeout.
+        translation_enabled: ``True`` if the translation layer is active.
+    """
+
+    world_id: str
+    name: str
+    model: str
+    active_axes: list[str]
+    strict_mode: bool
+    max_output_chars: int
+    timeout_seconds: float
+    translation_enabled: bool
+
+
+class LabWorldSummary(BaseModel):
+    """Brief world descriptor for the lab world-selector dropdown.
+
+    Attributes:
+        world_id:            World identifier.
+        name:                Display name.
+        translation_enabled: ``True`` if the translation layer is active.
+    """
+
+    world_id: str
+    name: str
+    translation_enabled: bool
+
+
+class LabWorldsResponse(BaseModel):
+    """Response to ``GET /api/lab/worlds``.
+
+    Attributes:
+        worlds: List of worlds available to the authenticated lab user.
+    """
+
+    worlds: list[LabWorldSummary]
+
+
+class LabTranslateRequest(BaseModel):
+    """Request to ``POST /api/lab/translate``.
+
+    Carries raw axis values from the lab UI — no character DB lookup is
+    performed server-side.  The server filters ``axes`` to the world's
+    ``active_axes`` before building the profile.
+
+    Attributes:
+        session_id:     Active admin/superuser session.
+        world_id:       Target world (e.g. ``"pipeworks_web"``).
+        axes:           Dict of axis name → ``LabAxisValue``.  May include
+                        axes not in ``active_axes``; they are ignored.
+        channel:        Chat channel context.  One of ``"say"``,
+                        ``"yell"``, ``"whisper"``.
+        ooc_message:    Raw OOC message to translate.
+        character_name: Name used in the ``profile_summary`` first line.
+        seed:           Ollama seed for deterministic output.  ``-1`` means
+                        non-deterministic.
+        temperature:    Sampling temperature.  Ignored when seed is set.
+    """
+
+    session_id: str
+    world_id: str
+    axes: dict[str, LabAxisValue]
+    channel: str = "say"
+    ooc_message: str
+    character_name: str = "Lab Subject"
+    seed: int = -1
+    temperature: float = 0.7
+
+
+class LabTranslateResponse(BaseModel):
+    """Response from ``POST /api/lab/translate``.
+
+    Attributes:
+        ic_text:         Validated IC dialogue, or ``None`` on fallback.
+        status:          ``"success"``, ``"fallback.api_error"``, or
+                         ``"fallback.validation_failed"``.
+        profile_summary: The ``{{profile_summary}}`` block as the server
+                         formatted it (canonical format for the world).
+        rendered_prompt: The fully-rendered system prompt sent to Ollama,
+                         with all placeholders resolved.
+        model:           Ollama model tag used for this translation.
+        world_config:    World configuration that was applied.
+    """
+
+    ic_text: str | None
+    status: str
+    profile_summary: str
+    rendered_prompt: str
+    model: str
+    world_config: LabWorldConfig
