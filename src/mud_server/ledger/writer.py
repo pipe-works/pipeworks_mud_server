@@ -32,7 +32,7 @@ Envelope format
 ---------------
 Every line is a self-contained JSON object with the following fields:
 
-.. code-block:: json
+.. code-block:: text
 
     {
       "event_id":       "a3f91c9e2d4b5e6f...",
@@ -42,7 +42,7 @@ Every line is a self-contained JSON object with the following fields:
       "schema_version": "1.0",
       "ipc_hash":       null,
       "meta":           {"phase": "pre_axis_engine"},
-      "data":           { ... event-specific payload ... },
+      "data":           { "<event-specific payload>" },
       "_checksum":      "sha256:b94f3e..."
     }
 
