@@ -27,12 +27,10 @@ import pytest
 
 import mud_server.ledger.writer as _writer
 from mud_server.ledger import (
-    LedgerVerifyResult,
     LedgerWriteError,
     append_event,
     verify_world_ledger,
 )
-
 
 # ── Fixture ───────────────────────────────────────────────────────────────────
 
@@ -60,16 +58,16 @@ def _ledger_file(world_id: str, tmp_path: Path) -> Path:
 
 def _read_last_line(path: Path) -> dict:
     """Read and parse the last non-empty line of a JSONL file."""
-    lines = [l for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     return json.loads(lines[-1])
 
 
 def _all_lines(path: Path) -> list[dict]:
     """Read and parse all non-empty lines of a JSONL file."""
     return [
-        json.loads(l)
-        for l in path.read_text(encoding="utf-8").splitlines()
-        if l.strip()
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
     ]
 
 
@@ -120,7 +118,7 @@ class TestAppendEvent:
         for i in range(3):
             append_event("test_world", "chat.translation", data={"i": i})
 
-        lines = [l for l in path.read_text().splitlines() if l.strip()]
+        lines = [line for line in path.read_text().splitlines() if line.strip()]
         assert len(lines) == 3, f"Expected 3 lines, found {len(lines)}."
 
     def test_raises_value_error_on_empty_world_id(self, tmp_path: Path) -> None:
