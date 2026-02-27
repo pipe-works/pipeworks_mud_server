@@ -500,28 +500,54 @@ class GameEngine:
         if not room:
             return False, "You are not in a valid room."
 
-        # ── OOC → IC translation ─────────────────────────────────────────────
-        # Attempt to translate the raw player message to in-character dialogue
-        # before it is sanitised and stored.  The translation layer is:
-        # - Non-authoritative: it cannot change axis scores or game state.
-        # - Gracefully degrading: any failure (Ollama unavailable, validation
-        #   error, missing character profile) returns None and we fall through
-        #   to the original message.
-        #
-        # IPC hash (FUTURE — axis engine integration):
-        # When the axis engine is integrated, pass the turn's ipc_hash here:
-        #   ic_text = service.translate(..., ipc_hash=ipc_hash)
-        # Until then ipc_hash is omitted and deterministic mode is skipped.
-        #
-        # FUTURE(ledger): the service will emit a ``chat.translation`` ledger
-        # event internally.  No changes needed here when that is added.
         world = self._get_world(world_id)
+
+        # ── Axis resolution ───────────────────────────────────────────────────
+        # Compute demeanor/health deltas before translation so the ipc_hash
+        # produced here can be forwarded to the translation service (enabling
+        # deterministic rendering and ledger linkage).
+        #
+        # Listener selection for say: first co-present character who is not
+        # the speaker.  If the room is empty (solo), resolution is skipped.
+        # TODO(axis-engine): resolve against each listener individually once
+        # the tick system exists to batch multi-listener interactions.
+        ipc_hash: str | None = None
+        axis_engine = world.get_axis_engine()
+        if axis_engine is not None:
+            co_present = [
+                name
+                for name in database.get_characters_in_room(room, world_id=world_id)
+                if name != username
+            ]
+            if co_present:
+                try:
+                    resolution = axis_engine.resolve_chat_interaction(
+                        speaker_name=username,
+                        listener_name=co_present[0],
+                        channel="say",
+                        world_id=world_id,
+                    )
+                    ipc_hash = resolution.ipc_hash
+                except Exception:
+                    logger.warning(
+                        "Axis resolution failed for chat (speaker=%r) — "
+                        "continuing without ipc_hash.",
+                        username,
+                        exc_info=True,
+                    )
+
+        # ── OOC → IC translation ─────────────────────────────────────────────
+        # Translate the raw player message to in-character dialogue.  The
+        # service is non-authoritative and gracefully degrading — see its
+        # docstring.  The ipc_hash (if set above) is forwarded so the service
+        # can arm deterministic rendering and link this event in the ledger.
         translation_service = world.get_translation_service()
         if translation_service is not None:
             ic_text = translation_service.translate(
                 character_name=username,
                 ooc_message=message,
                 channel="say",
+                ipc_hash=ipc_hash,
             )
             # Use IC output if translation succeeded; otherwise keep OOC.
             final_message = ic_text if ic_text is not None else message
@@ -588,17 +614,43 @@ class GameEngine:
         if not current_room:
             return False, "Invalid room."
 
+        # ── Axis resolution ───────────────────────────────────────────────────
+        # Same pattern as chat() — first co-present, non-speaker character.
+        ipc_hash: str | None = None
+        axis_engine = world.get_axis_engine()
+        if axis_engine is not None:
+            co_present = [
+                name
+                for name in database.get_characters_in_room(current_room_id, world_id=world_id)
+                if name != username
+            ]
+            if co_present:
+                try:
+                    resolution = axis_engine.resolve_chat_interaction(
+                        speaker_name=username,
+                        listener_name=co_present[0],
+                        channel="yell",
+                        world_id=world_id,
+                    )
+                    ipc_hash = resolution.ipc_hash
+                except Exception:
+                    logger.warning(
+                        "Axis resolution failed for yell (speaker=%r) — "
+                        "continuing without ipc_hash.",
+                        username,
+                        exc_info=True,
+                    )
+
         # ── OOC → IC translation ─────────────────────────────────────────────
         # Translation occurs before the [YELL] prefix is applied so that the
-        # rendered IC dialogue is wrapped naturally rather than prefixing the
-        # raw OOC text.  Fallback behaviour and IPC/ledger notes are identical
-        # to GameEngine.chat — see that method for the full inline commentary.
+        # rendered IC dialogue is wrapped naturally.
         translation_service = world.get_translation_service()
         if translation_service is not None:
             ic_text = translation_service.translate(
                 character_name=username,
                 ooc_message=message,
                 channel="yell",
+                ipc_hash=ipc_hash,
             )
             final_message = ic_text if ic_text is not None else message
         else:
@@ -716,19 +768,42 @@ class GameEngine:
             logger.warning(f"Whisper failed: {target} in {target_room}, sender in {sender_room}")
             return False, f"Player '{target}' is not in this room."
 
+        world = self._get_world(world_id)
+
+        # ── Axis resolution ───────────────────────────────────────────────────
+        # For whisper the listener is unambiguous: the resolved target character.
+        ipc_hash: str | None = None
+        axis_engine = world.get_axis_engine()
+        if axis_engine is not None:
+            try:
+                resolution = axis_engine.resolve_chat_interaction(
+                    speaker_name=sender_name,
+                    listener_name=resolved_target,
+                    channel="whisper",
+                    world_id=world_id,
+                )
+                ipc_hash = resolution.ipc_hash
+            except Exception:
+                logger.warning(
+                    "Axis resolution failed for whisper (speaker=%r, listener=%r) — "
+                    "continuing without ipc_hash.",
+                    sender_name,
+                    resolved_target,
+                    exc_info=True,
+                )
+
         # ── OOC → IC translation ─────────────────────────────────────────────
         # Translation occurs before the [WHISPER: ...] prefix is applied so
         # that the IC dialogue is wrapped naturally.  Whispers are rendered
         # with channel="whisper" so that the prompt template can lower the
         # volume/intensity of the voice appropriately.
-        # Fallback and IPC/ledger notes are identical to GameEngine.chat.
-        world = self._get_world(world_id)
         translation_service = world.get_translation_service()
         if translation_service is not None:
             ic_text = translation_service.translate(
                 character_name=sender_name,
                 ooc_message=message,
                 channel="whisper",
+                ipc_hash=ipc_hash,
             )
             final_message = ic_text if ic_text is not None else message
         else:
