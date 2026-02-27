@@ -8,6 +8,7 @@ dialogue from a raw player message.
 Caller contract
 ---------------
 ``translate()`` always returns either:
+
 - A non-empty IC string on success.
 - ``None`` on any failure (missing profile, Ollama error, validation
   failure).
@@ -15,6 +16,16 @@ Caller contract
 The caller (``GameEngine.chat/yell/whisper``) treats ``None`` as a signal
 to use the original OOC message.  This is the graceful-degradation
 guarantee: the layer never breaks the game.
+
+Profile summary injection
+--------------------------
+Each world's ``ic_prompt.txt`` template uses a single ``{{profile_summary}}``
+placeholder to embed the character's current axis state as a formatted block.
+Before ``_render_system_prompt`` substitutes placeholders, ``translate()``
+calls :func:`_build_profile_summary` to produce this block and injects it
+into the profile dict under the key ``profile_summary``.  Without this step,
+``{{profile_summary}}`` would reach the LLM as a literal unresolved string
+and the model would have no character context.
 
 Ledger integration
 ------------------
@@ -32,7 +43,7 @@ Events record:
 - ``ic_output``:       the final IC text, or ``null`` on fallback
 - ``axis_snapshot``:   ``{axis_name: {score, label}}`` for every axis
                        present in the character's profile at translation
-                       time (i.e. before any axis mutations)
+                       time
 
 A ledger write failure is **never fatal** — the game interaction
 completes and only the audit record is lost.  See
@@ -41,23 +52,30 @@ completes and only the audit record is lost.  See
 The event is **not** emitted when the character profile cannot be
 resolved (``profile is None``) — there is no character data to record.
 
-Pre-axis-engine era: events carry ``meta: {"phase": "pre_axis_engine"}``
-while ``ipc_hash`` is always ``None``.  See the IPC hash section below.
-
-IPC hash and deterministic mode (FUTURE — axis engine integration)
-------------------------------------------------------------------
+IPC hash and deterministic mode
+---------------------------------
 ``translate()`` accepts an optional ``ipc_hash: str | None`` parameter.
-When the axis engine is integrated it will compute::
+The axis engine (``core/engine.py``) computes this hash via
+``AxisEngine.resolve_chat_interaction()`` and passes it here.
 
-    ipc_hash = axis_engine.compute_ipc(world_id, entity_a, entity_b, turn)
+When ``ipc_hash`` is provided and ``config.deterministic`` is ``True``:
 
-and pass it here.  The service will then:
-1. Convert ``ipc_hash[:16]`` to ``int`` to obtain the Ollama seed.
-2. Call ``self._renderer.set_deterministic(seed_int)``.
-3. Log the seed to the ledger event.
+1. ``ipc_hash[:16]`` is converted to an integer seed.
+2. ``self._renderer.set_deterministic(seed_int)`` is called, clamping
+   temperature to 0.0 and forwarding the seed to Ollama.
+3. Identical game state + identical OOC input → identical IC output
+   (subject to Ollama model determinism at seed=constant, temp=0.0).
 
-Until that point ``ipc_hash`` is always ``None`` and deterministic mode
-is silently skipped, even if ``config.deterministic = True``.
+When ``ipc_hash`` is ``None`` (solo-room interactions, axis resolution
+disabled, or axis engine failure), deterministic mode is silently skipped
+and the renderer uses the configured temperature.
+
+Pre-axis-engine era
+-------------------
+Events emitted before the axis engine was integrated carry
+``meta: {"phase": "pre_axis_engine"}`` to distinguish them from
+post-integration events during ledger replay or analysis.
+Post-integration events with a real ``ipc_hash`` carry ``meta: {}``.
 """
 
 from __future__ import annotations
@@ -78,6 +96,101 @@ logger = logging.getLogger(__name__)
 # ── Module-level helpers ──────────────────────────────────────────────────────
 
 
+def _build_profile_summary(profile: dict) -> str:
+    """Format a character's axis state into a human-readable summary block.
+
+    Scans the profile dict for ``{axis_name}_label`` and
+    ``{axis_name}_score`` key pairs (in insertion order, which matches the
+    ``active_axes`` ordering from the world config) and builds a multi-line
+    text block suitable for injection as the ``{{profile_summary}}``
+    placeholder in a system prompt template.
+
+    The character name is always included as the first line.  Axis scores
+    are formatted to two decimal places so the LLM receives clean, readable
+    values rather than floating-point noise (``0.07`` rather than
+    ``0.06875230399999996``).  Axis names are title-cased with underscores
+    replaced by spaces (``facial_signal`` → ``Facial Signal``), which
+    reads more naturally in a prompt block.
+
+    The ``channel`` key (injected into the profile dict by ``translate()``
+    before calling this function) is intentionally excluded from the
+    summary.  It is handled by the separate ``{{channel}}`` placeholder
+    in the template.
+
+    Insertion-order guarantee:
+        ``CharacterProfileBuilder.build()`` iterates ``active_axes`` in
+        world-configured order and inserts keys in that order.  Python 3.7+
+        dicts preserve insertion order, so the summary axes appear in the
+        same sequence as ``active_axes`` without any additional sorting.
+
+    Args:
+        profile: Flat profile dict from ``CharacterProfileBuilder.build()``,
+                 after ``channel`` has been injected by ``translate()``.
+                 Keys with ``_label`` / ``_score`` suffixes are treated as
+                 axis data; all other keys are silently ignored.
+
+    Returns:
+        Multi-line string suitable for use as the ``{{profile_summary}}``
+        placeholder value.  A profile with no axis data produces a
+        single-line string containing only the character name.
+
+    Example::
+
+        profile = {
+            "character_name": "Ddishfew Withnop",
+            "channel": "say",
+            "demeanor_label": "timid",
+            "demeanor_score": 0.069,
+            "health_label": "scarred",
+            "health_score": 0.655,
+        }
+        _build_profile_summary(profile)
+        # →
+        #   Character: Ddishfew Withnop
+        #   Demeanor: timid (0.07)
+        #   Health: scarred (0.65)
+    """
+    # Start with the character name line — always present regardless of
+    # whether any axis data exists.
+    lines: list[str] = [f"  Character: {profile.get('character_name', 'unknown')}"]
+
+    # Walk the profile dict in insertion order to collect axis names.
+    # We look for _label keys as the canonical presence signal (every axis
+    # built by CharacterProfileBuilder has both _label and _score).
+    # Using a seen set prevents duplicate lines if the dict ever has
+    # unexpected duplicate axis entries.
+    seen_axes: set[str] = set()
+    for key in profile:
+        if not key.endswith("_label"):
+            # Skip non-axis keys (character_name, channel, profile_summary
+            # itself if re-entrant, etc.).
+            continue
+
+        axis_name = key[: -len("_label")]
+
+        if axis_name in seen_axes:
+            # Guard against the same axis appearing twice — should not
+            # happen with CharacterProfileBuilder, but defensive is correct.
+            continue
+        seen_axes.add(axis_name)
+
+        label = profile.get(f"{axis_name}_label", "unknown")
+        score = float(profile.get(f"{axis_name}_score", 0.0))
+
+        # Convert snake_case axis names to Title Case words for prompt
+        # readability.  "facial_signal" → "Facial Signal" reads naturally
+        # in a character sheet block.  The LLM does not need to know the
+        # internal axis key name.
+        display_name = axis_name.replace("_", " ").title()
+
+        # Two decimal places: "0.07" conveys axis magnitude clearly without
+        # the floating-point noise that accumulates after repeated axis
+        # engine delta applications (e.g. "0.06875230399999996").
+        lines.append(f"  {display_name}: {label} ({score:.2f})")
+
+    return "\n".join(lines)
+
+
 def _extract_snapshot(profile: dict) -> dict:
     """Extract axis score/label pairs from a character profile dict.
 
@@ -92,7 +205,8 @@ def _extract_snapshot(profile: dict) -> dict:
     before any axis mutations are applied by the axis engine.
 
     Keys that do not follow the ``_score`` / ``_label`` suffix convention
-    (e.g. ``character_name``, ``channel``) are silently ignored.
+    (e.g. ``character_name``, ``channel``, ``profile_summary``) are
+    silently ignored.
 
     Args:
         profile: Flat dict from
@@ -163,16 +277,12 @@ def _emit_translation_event(
     writes to the real ``data/ledger/`` directory during testing.
 
     Pre-axis-engine era behaviour:
-        When ``ipc_hash`` is ``None`` (which is always the case until the
-        axis engine is integrated in Phase 4) the event carries
+        When ``ipc_hash`` is ``None`` the event carries
         ``meta: {"phase": "pre_axis_engine"}``.  This marker lets replay
         tooling distinguish null-hash-era events from post-integration
-        ones.
-
-        TODO(axis-engine): when ``ipc_hash`` is non-None, set
-        ``meta: {"phase": "axis_engine_live"}`` instead — or omit meta
-        entirely and let the non-null ipc_hash itself serve as the
-        provenance signal.
+        ones.  A non-``None`` ``ipc_hash`` means the axis engine ran
+        for this interaction; ``meta`` is left empty so the hash itself
+        serves as the provenance signal.
 
     Args:
         append_fn:      Callable with the same signature as
@@ -196,10 +306,13 @@ def _emit_translation_event(
                         Used by :func:`_extract_snapshot` to build the
                         ``axis_snapshot`` field.
         ipc_hash:       IPC hash produced by the axis engine, or ``None``
-                        in the pre-axis-engine era.
+                        when the axis engine did not run (solo-room
+                        interaction, engine disabled, or engine failure).
     """
     # Mark pre-axis-engine events explicitly so they are distinguishable
     # from post-integration events during replay or ledger analysis.
+    # A non-None ipc_hash means the axis engine ran; meta is empty in
+    # that case because the hash itself is the provenance signal.
     meta: dict = {"phase": "pre_axis_engine"} if ipc_hash is None else {}
 
     # Build the axis snapshot from the profile dict.  This captures the
@@ -312,17 +425,21 @@ class OOCToICTranslationService:
         """Translate an OOC message to in-character dialogue.
 
         Full pipeline:
-        1. Build character axis profile (DB lookup).
-        2. Arm deterministic mode if ``ipc_hash`` is provided and
-           ``config.deterministic`` is ``True``.
-        3. Render the system prompt from the profile + template.
-        4. Call Ollama via the renderer.
-        5. Validate the raw output.
-        6. Emit a ``chat.translation`` ledger event (success or fallback).
 
-        On any failure at steps 1–5 the method returns ``None`` and the
-        caller falls back to the original OOC message.  Step 6 always
-        executes on the success/fallback paths (steps 4–5 only) — it is
+        1. Build character axis profile (DB lookup).
+        2. Inject ``channel`` and ``profile_summary`` into the profile dict
+           so that ``{{channel}}`` and ``{{profile_summary}}`` placeholders
+           in the world's ``ic_prompt.txt`` resolve correctly.
+        3. Arm deterministic mode if ``ipc_hash`` is provided and
+           ``config.deterministic`` is ``True``.
+        4. Render the system prompt from the profile + template.
+        5. Call Ollama via the renderer.
+        6. Validate the raw output.
+        7. Emit a ``chat.translation`` ledger event (success or fallback).
+
+        On any failure at steps 1–6 the method returns ``None`` and the
+        caller falls back to the original OOC message.  Step 7 always
+        executes on the success/fallback paths (steps 5–6 only) — it is
         skipped when the profile cannot be resolved (step 1 failure)
         because there is no character data to record.
 
@@ -334,15 +451,16 @@ class OOCToICTranslationService:
                             ``"whisper"``).  Injected into the profile dict
                             as ``channel`` so that prompt templates can tailor
                             tone by delivery mode.
-            ipc_hash:       Optional IPC hash produced by the axis engine.
-                            When provided and ``config.deterministic=True``,
-                            deterministic mode is armed on the renderer.
-
-                            CURRENT STATUS: always ``None`` — the axis engine
-                            is not yet integrated.  When it is, the engine
-                            will pass the hash here and deterministic mode
-                            will activate automatically.  See module docstring
-                            for the full integration plan.
+            ipc_hash:       Optional IPC hash produced by the axis engine for
+                            this interaction.  When provided and
+                            ``config.deterministic=True``, deterministic mode
+                            is armed: temperature is clamped to 0.0 and a
+                            seed derived from the hash is forwarded to Ollama,
+                            ensuring identical game state + OOC input always
+                            produces identical IC output.  When ``None``
+                            (solo-room interaction, axis engine disabled, or
+                            engine failure), deterministic mode is skipped
+                            silently.
 
         Returns:
             IC dialogue string on success, ``None`` on any failure.
@@ -351,19 +469,34 @@ class OOCToICTranslationService:
             return None
 
         # ── Step 1: Build character profile ───────────────────────────────────
+        # Fetches the character's current axis scores and resolved threshold
+        # labels from the DB (world-scoped lookup — see CharacterProfileBuilder
+        # docstring for why world-scoping is non-negotiable).
         profile = self._profile_builder.build(character_name)
         if profile is None:
             # Warning already logged by ProfileBuilder.
+            # No ledger event — there is no character data to record.
             return None
 
-        # Inject channel so templates can vary tone by delivery mode.
+        # ── Step 2: Inject channel and profile_summary into the profile ────────
+        #
+        # channel: injected so the {{channel}} placeholder in ic_prompt.txt
+        # resolves to the delivery mode ("say", "yell", "whisper"), allowing
+        # the template to vary tone instructions per channel.
         profile["channel"] = channel
 
-        # ── Step 2: Deterministic mode (requires axis engine — see docstring) ─
-        #
-        # TODO(axis-engine): when the axis engine is integrated and ipc_hash is
-        # no longer None, this block will arm deterministic rendering using a
-        # seed derived from the hash.  For now it is always skipped.
+        # profile_summary: injected so the {{profile_summary}} placeholder in
+        # ic_prompt.txt resolves to a formatted multi-line block describing the
+        # character's current axis state.  Without this injection, the literal
+        # string "{{profile_summary}}" would be forwarded to the LLM unchanged,
+        # making the model blind to all character axis data.
+        profile["profile_summary"] = _build_profile_summary(profile)
+
+        # ── Step 3: Deterministic mode ─────────────────────────────────────────
+        # When the axis engine provides an ipc_hash and config.deterministic is
+        # True, arm the renderer with a seed derived from the first 16 hex
+        # characters of the hash.  This ensures that the same game state always
+        # produces the same IC output, making translation events replayable.
         if self._config.deterministic and ipc_hash is not None:
             seed_int = int(ipc_hash[:16], 16)
             self._renderer.set_deterministic(seed_int)
@@ -373,10 +506,14 @@ class OOCToICTranslationService:
                 seed_int,
             )
 
-        # ── Step 3: Render system prompt ──────────────────────────────────────
+        # ── Step 4: Render system prompt ──────────────────────────────────────
+        # Substitute all {{key}} placeholders in the loaded template with
+        # their corresponding values from the profile dict.  At this point the
+        # profile contains: all axis _label/_score fields, channel, and the
+        # pre-formatted profile_summary block.
         system_prompt = self._render_system_prompt(profile, ooc_message)
 
-        # ── Step 4: Call Ollama ────────────────────────────────────────────────
+        # ── Step 5: Call Ollama ────────────────────────────────────────────────
         ic_raw = self._renderer.render(system_prompt, ooc_message)
         if ic_raw is None:
             # Renderer already logged the specific failure reason.
@@ -396,7 +533,7 @@ class OOCToICTranslationService:
             )
             return None
 
-        # ── Step 5: Validate output ───────────────────────────────────────────
+        # ── Step 6: Validate output ───────────────────────────────────────────
         ic_text = self._validator.validate(ic_raw)
         if ic_text is None:
             # Validation rejected the raw output (e.g. PASSTHROUGH sentinel,
@@ -417,11 +554,11 @@ class OOCToICTranslationService:
             )
             return None
 
-        # ── Step 6: Emit success event ────────────────────────────────────────
+        # ── Step 7: Emit success event ────────────────────────────────────────
         # Record the successful translation.  The event captures what the
         # player said (ooc_input), what the character said (ic_output), the
         # character's mechanical state at translation time (axis_snapshot),
-        # and whether this is a pre-axis-engine event (meta.phase).
+        # and the ipc_hash linking this event to the preceding axis resolution.
         _emit_translation_event(
             _ledger_append,
             world_id=self._world_id,
@@ -444,6 +581,10 @@ class OOCToICTranslationService:
         Falls back to a minimal built-in template if the file is missing,
         so that the service degrades gracefully rather than raising at init.
 
+        The built-in fallback uses the individual ``{{demeanor_label}}``
+        placeholder (not ``{{profile_summary}}``) so that it remains
+        functional without any world-specific prompt file.
+
         Args:
             world_root: Path to the world package directory.
 
@@ -461,6 +602,11 @@ class OOCToICTranslationService:
             template_path,
             self._config.prompt_template_path,
         )
+        # Minimal fallback template.  Uses {{demeanor_label}} (a single axis
+        # key that exists in every profile) rather than {{profile_summary}}
+        # so it works without the profile_summary injection step.  This path
+        # should only be hit during development or misconfiguration — every
+        # production world must have its own ic_prompt.txt.
         return (
             "You are a character in a text-based RPG.\n"
             "Translate the following OOC message into a single line of IC "
@@ -481,15 +627,28 @@ class OOCToICTranslationService:
         the template are replaced with the corresponding value from
         ``profile``, then ``{{ooc_message}}`` is substituted last.
 
+        By the time this method is called, ``profile`` has been enriched
+        by ``translate()`` to include both ``channel`` and
+        ``profile_summary`` keys, ensuring those placeholders resolve.
+        Any placeholder with no matching key is left unchanged in the
+        output (e.g. ``{{unknown_key}}`` remains as-is), which is useful
+        during prompt development — unresolved placeholders are visible
+        rather than silently empty.
+
         Args:
-            profile:     Flat profile dict from ``CharacterProfileBuilder``.
+            profile:     Flat profile dict from ``CharacterProfileBuilder``,
+                         enriched with ``channel`` and ``profile_summary``.
             ooc_message: OOC message text.
 
         Returns:
             Fully-rendered system prompt string.
         """
         rendered = self._prompt_template
+        # Substitute every profile key — includes axis fields, channel, and
+        # the profile_summary block.
         for key, value in profile.items():
             rendered = rendered.replace(f"{{{{{key}}}}}", str(value))
+        # Substitute the OOC message last so that player text containing
+        # {{...}} patterns cannot accidentally collide with profile keys.
         rendered = rendered.replace("{{ooc_message}}", ooc_message)
         return rendered

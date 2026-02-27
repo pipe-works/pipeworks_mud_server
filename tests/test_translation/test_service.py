@@ -1,4 +1,44 @@
-"""Unit tests for OOCToICTranslationService."""
+"""Unit tests for OOCToICTranslationService and its module-level helpers.
+
+Test organisation
+-----------------
+``TestBuildProfileSummary``
+    Unit tests for :func:`_build_profile_summary`.  Exercises the summary
+    formatter in isolation — no service or DB interaction required.
+
+``TestExtractSnapshot``
+    Unit tests for :func:`_extract_snapshot`.  Exercises the ledger
+    snapshot builder in isolation.
+
+``TestEmitTranslationEvent``
+    Unit tests for :func:`_emit_translation_event`.  Exercises the
+    fire-and-forget ledger helper directly with a mock append function.
+
+``TestConstructorValidation``
+    Validates that ``OOCToICTranslationService.__init__`` rejects bad args.
+
+``TestTranslateSuccess``
+    Happy-path translate() tests: IC text returned, channel injected.
+
+``TestTranslateFallback``
+    Unhappy-path translate() tests: profile missing, renderer fails,
+    validation fails, service disabled.
+
+``TestDeterministicMode``
+    Verifies the ipc_hash → renderer.set_deterministic() wiring.
+
+``TestPromptTemplate``
+    Verifies template loading (custom file vs. built-in fallback).
+
+``TestSystemPromptRendering``
+    Verifies placeholder substitution in the rendered prompt, including
+    the critical guard that ``{{profile_summary}}`` is always resolved.
+
+``TestLedgerIntegration``
+    End-to-end tests confirming translate() emits the correct ledger
+    events through the full call stack (profile builder and renderer
+    mocked; ledger append function patched at the module level).
+"""
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -8,6 +48,7 @@ import pytest
 from mud_server.translation.config import TranslationLayerConfig
 from mud_server.translation.service import (
     OOCToICTranslationService,
+    _build_profile_summary,
     _emit_translation_event,
     _extract_snapshot,
 )
@@ -15,7 +56,15 @@ from mud_server.translation.service import (
 WORLD_ID = "test_world"
 
 
+# ── Test helpers ──────────────────────────────────────────────────────────────
+
+
 def _make_config(*, enabled=True, deterministic=False, **kwargs) -> TranslationLayerConfig:
+    """Build a ``TranslationLayerConfig`` with sensible test defaults.
+
+    Keyword-only flags ``enabled`` and ``deterministic`` are exposed for
+    convenience.  Any other field can be overridden via ``**kwargs``.
+    """
     data = {
         "enabled": enabled,
         "model": "gemma2:2b",
@@ -28,7 +77,17 @@ def _make_config(*, enabled=True, deterministic=False, **kwargs) -> TranslationL
 
 
 def _make_service(tmp_path: Path, *, deterministic=False) -> OOCToICTranslationService:
-    """Build a service with a minimal ic_prompt.txt in tmp_path."""
+    """Build a service instance backed by a minimal ic_prompt.txt in tmp_path.
+
+    The template uses ``{{ooc_message}}``, ``{{demeanor_label}}``, and
+    ``{{channel}}`` — individual axis placeholders rather than
+    ``{{profile_summary}}``.  This keeps existing tests focused on the
+    specific behaviour they were written to verify without requiring a
+    fully-populated profile_summary.
+
+    For tests that specifically verify ``{{profile_summary}}`` resolution,
+    use :func:`_make_service_with_profile_summary_template` instead.
+    """
     prompt_file = tmp_path / "policies" / "ic_prompt.txt"
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     prompt_file.write_text(
@@ -42,183 +101,152 @@ def _make_service(tmp_path: Path, *, deterministic=False) -> OOCToICTranslationS
     return OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
 
 
-class TestConstructorValidation:
-    def test_empty_world_id_raises(self, tmp_path):
-        cfg = _make_config()
-        with pytest.raises(ValueError, match="world_id"):
-            OOCToICTranslationService(world_id="", config=cfg, world_root=tmp_path)
+def _make_service_with_profile_summary_template(
+    tmp_path: Path,
+) -> OOCToICTranslationService:
+    """Build a service whose template uses the ``{{profile_summary}}`` placeholder.
+
+    Use this helper in tests that need to confirm ``{{profile_summary}}``
+    is resolved by translate() before reaching the renderer.
+    """
+    prompt_file = tmp_path / "policies" / "ic_prompt.txt"
+    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    prompt_file.write_text(
+        "PROFILE:\n{{profile_summary}}\nMODE: {{channel}}\nMESSAGE: {{ooc_message}}"
+    )
+    cfg = _make_config(enabled=True, prompt_template_path="policies/ic_prompt.txt")
+    return OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
 
 
-class TestTranslateSuccess:
-    def test_returns_ic_text_on_success(self, tmp_path):
-        svc = _make_service(tmp_path)
-        with (
-            patch.object(
-                svc._profile_builder,
-                "build",
-                return_value={
-                    "character_name": "Mira",
-                    "demeanor_label": "proud",
-                    "demeanor_score": 0.87,
-                },
-            ),
-            patch.object(svc._renderer, "render", return_value="Hand over the ledger."),
-        ):
-            result = svc.translate("Mira", "give me the ledger")
-        assert result == "Hand over the ledger."
-
-    def test_channel_injected_into_profile(self, tmp_path):
-        svc = _make_service(tmp_path)
-        captured = {}
-
-        def fake_render(system_prompt, user_message):
-            captured["prompt"] = system_prompt
-            return "IC text"
-
-        with (
-            patch.object(
-                svc._profile_builder,
-                "build",
-                return_value={"character_name": "Mira", "demeanor_label": "proud"},
-            ),
-            patch.object(svc._renderer, "render", side_effect=fake_render),
-        ):
-            svc.translate("Mira", "hello", channel="yell")
-
-        # The rendered system prompt should contain the channel value
-        assert "yell" in captured["prompt"]
+# ── TestBuildProfileSummary ───────────────────────────────────────────────────
 
 
-class TestTranslateFallback:
-    def test_returns_none_when_profile_build_fails(self, tmp_path):
-        svc = _make_service(tmp_path)
-        with patch.object(svc._profile_builder, "build", return_value=None):
-            assert svc.translate("Unknown", "hello") is None
+class TestBuildProfileSummary:
+    """Unit tests for the _build_profile_summary module-level helper.
 
-    def test_returns_none_when_renderer_fails(self, tmp_path):
-        svc = _make_service(tmp_path)
-        with (
-            patch.object(
-                svc._profile_builder,
-                "build",
-                return_value={"character_name": "Mira", "demeanor_label": "proud"},
-            ),
-            patch.object(svc._renderer, "render", return_value=None),
-        ):
-            assert svc.translate("Mira", "hello") is None
+    These tests exercise the summary formatter directly, independently of
+    the full translate() pipeline, so that formatting regressions produce
+    clear, targeted failures.
 
-    def test_returns_none_when_validation_fails(self, tmp_path):
-        svc = _make_service(tmp_path)
-        with (
-            patch.object(
-                svc._profile_builder,
-                "build",
-                return_value={"character_name": "Mira", "demeanor_label": "proud"},
-            ),
-            patch.object(svc._renderer, "render", return_value="PASSTHROUGH"),
-            patch.object(svc._validator, "validate", return_value=None),
-        ):
-            assert svc.translate("Mira", "some command") is None
-
-    def test_returns_none_when_disabled(self, tmp_path):
-        cfg = _make_config(enabled=False)
-        svc = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
-        # Even with a working profile/renderer it returns None immediately
-        assert svc.translate("Mira", "hello") is None
-
-
-class TestDeterministicMode:
-    """Deterministic mode arms the renderer when ipc_hash is provided.
-
-    IPC hash sourcing (FUTURE — axis engine integration):
-    These tests verify the wiring from ipc_hash → renderer.set_deterministic.
-    Currently ipc_hash will always be None in production because the axis
-    engine is not yet integrated.  Once it is, the hash will be passed
-    through and these code paths will activate in live gameplay.
+    The summary block is the fix for a production bug where
+    ``{{profile_summary}}`` was forwarded to Ollama as a literal unresolved
+    string, making the LLM blind to all character axis data.
     """
 
-    def test_deterministic_not_armed_when_ipc_hash_is_none(self, tmp_path):
-        svc = _make_service(tmp_path, deterministic=True)
-        with (
-            patch.object(
-                svc._profile_builder,
-                "build",
-                return_value={"character_name": "Mira", "demeanor_label": "proud"},
-            ),
-            patch.object(svc._renderer, "render", return_value="IC text"),
-            patch.object(svc._renderer, "set_deterministic") as mock_det,
-        ):
-            # No ipc_hash provided — deterministic mode must NOT be armed
-            svc.translate("Mira", "hello", ipc_hash=None)
-        mock_det.assert_not_called()
+    def _full_profile(self) -> dict:
+        """Return a profile dict matching the pipeworks_web active_axes config."""
+        return {
+            "character_name": "Ddishfew Withnop",
+            "channel": "say",
+            "demeanor_label": "timid",
+            "demeanor_score": 0.069,
+            "health_label": "scarred",
+            "health_score": 0.655,
+            "physique_label": "skinny",
+            "physique_score": 0.405,
+            "wealth_label": "well-kept",
+            "wealth_score": 0.495,
+            "facial_signal_label": "asymmetrical",
+            "facial_signal_score": 0.5,
+        }
 
-    def test_deterministic_armed_when_ipc_hash_provided(self, tmp_path):
-        svc = _make_service(tmp_path, deterministic=True)
-        ipc_hash = "a3f91c9e4b12f2d8baf0000000000000"  # 32 hex chars
-        expected_seed = int(ipc_hash[:16], 16)
-        with (
-            patch.object(
-                svc._profile_builder,
-                "build",
-                return_value={"character_name": "Mira", "demeanor_label": "proud"},
-            ),
-            patch.object(svc._renderer, "render", return_value="IC text"),
-            patch.object(svc._renderer, "set_deterministic") as mock_det,
-        ):
-            svc.translate("Mira", "hello", ipc_hash=ipc_hash)
-        mock_det.assert_called_once_with(expected_seed)
+    def test_contains_character_name(self) -> None:
+        """The summary's first line identifies the character by name."""
+        result = _build_profile_summary(self._full_profile())
+        assert "Character: Ddishfew Withnop" in result
 
-    def test_deterministic_not_armed_when_config_false(self, tmp_path):
-        """Config deterministic=False means ipc_hash is ignored even if provided."""
-        svc = _make_service(tmp_path, deterministic=False)
-        with (
-            patch.object(
-                svc._profile_builder,
-                "build",
-                return_value={"character_name": "Mira", "demeanor_label": "proud"},
-            ),
-            patch.object(svc._renderer, "render", return_value="IC text"),
-            patch.object(svc._renderer, "set_deterministic") as mock_det,
-        ):
-            svc.translate("Mira", "hello", ipc_hash="a3f91c9e4b12f2d8")
-        mock_det.assert_not_called()
+    def test_contains_all_active_axes(self) -> None:
+        """Every axis in the profile appears in the summary output."""
+        result = _build_profile_summary(self._full_profile())
+        assert "Demeanor: timid" in result
+        assert "Health: scarred" in result
+        assert "Physique: skinny" in result
+        assert "Wealth: well-kept" in result
+        assert "Facial Signal: asymmetrical" in result
 
+    def test_axes_in_insertion_order(self) -> None:
+        """Axes appear in the order they were inserted into the profile dict.
 
-class TestPromptTemplate:
-    def test_missing_template_uses_fallback(self, tmp_path):
-        """If ic_prompt.txt does not exist, a built-in fallback is used."""
-        cfg = _make_config(
-            enabled=True,
-            prompt_template_path="policies/nonexistent.txt",
-        )
-        # Should not raise; service uses built-in fallback
-        svc = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
-        assert svc._prompt_template  # fallback template is non-empty
+        CharacterProfileBuilder inserts keys in active_axes order (from
+        world.json), so the summary reflects the world-configured axis
+        sequence without any additional sorting in _build_profile_summary.
+        """
+        result = _build_profile_summary(self._full_profile())
+        demeanor_pos = result.index("Demeanor")
+        health_pos = result.index("Health")
+        physique_pos = result.index("Physique")
+        wealth_pos = result.index("Wealth")
+        facial_pos = result.index("Facial Signal")
+        assert demeanor_pos < health_pos < physique_pos < wealth_pos < facial_pos
 
-    def test_custom_template_loaded(self, tmp_path):
-        prompt_file = tmp_path / "policies" / "ic_prompt.txt"
-        prompt_file.parent.mkdir(parents=True, exist_ok=True)
-        prompt_file.write_text("Custom template: {{ooc_message}}")
-        cfg = _make_config(enabled=True, prompt_template_path="policies/ic_prompt.txt")
-        svc = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
-        assert "Custom template" in svc._prompt_template
+    def test_channel_not_in_summary(self) -> None:
+        """The 'channel' field must not appear as an axis line in the summary.
 
+        channel is handled by the separate {{channel}} placeholder in the
+        template; including it here would duplicate it in the rendered prompt.
+        """
+        result = _build_profile_summary(self._full_profile())
+        # "Channel:" would indicate the field leaked into the summary as an
+        # axis line — that is the bug this test guards against.
+        assert "Channel:" not in result
 
-class TestSystemPromptRendering:
-    def test_placeholders_substituted(self, tmp_path):
-        svc = _make_service(tmp_path)
-        profile = {"character_name": "Mira", "demeanor_label": "proud", "channel": "say"}
-        rendered = svc._render_system_prompt(profile, "give me bread")
-        assert "proud" in rendered
-        assert "give me bread" in rendered
+    def test_score_precision_two_decimal_places(self) -> None:
+        """Scores are formatted to two decimal places to suppress float noise.
 
-    def test_unknown_placeholder_left_as_is(self, tmp_path):
-        """Placeholders with no matching profile key are left unchanged."""
-        svc = _make_service(tmp_path)
-        svc._prompt_template = "{{unknown_key}} {{ooc_message}}"
-        rendered = svc._render_system_prompt({}, "hello")
-        assert "{{unknown_key}}" in rendered
-        assert "hello" in rendered
+        The axis engine accumulates small floating-point errors across
+        interactions (e.g. "0.06875230399999996").  Formatting to two
+        decimal places produces a clean "0.07" that reads naturally in a
+        prompt block without losing meaningful axis magnitude information.
+        """
+        profile = {
+            "character_name": "Mira",
+            "demeanor_label": "timid",
+            "demeanor_score": 0.06875230399999996,
+        }
+        result = _build_profile_summary(profile)
+        # Full-precision float must not appear — it clutters the prompt.
+        assert "0.06875" not in result
+        # Two-decimal form must be present — conveys the axis magnitude clearly.
+        assert "0.07" in result
+
+    def test_underscore_axis_name_formatted_as_title_case(self) -> None:
+        """Axis names with underscores are rendered as space-separated Title Case.
+
+        "facial_signal" → "Facial Signal" reads naturally in a character
+        sheet block.  The LLM does not need to know the internal key name.
+        """
+        profile = {
+            "character_name": "Mira",
+            "facial_signal_label": "asymmetrical",
+            "facial_signal_score": 0.5,
+        }
+        result = _build_profile_summary(profile)
+        # Title-cased display name must be present.
+        assert "Facial Signal: asymmetrical" in result
+        # Raw snake_case key must not appear in the output.
+        assert "facial_signal" not in result
+
+    def test_missing_score_defaults_to_zero(self) -> None:
+        """A _label key with no matching _score defaults the score to 0.00."""
+        profile = {
+            "character_name": "Mira",
+            "demeanor_label": "timid",
+            # demeanor_score deliberately absent
+        }
+        result = _build_profile_summary(profile)
+        assert "Demeanor: timid (0.00)" in result
+
+    def test_empty_axis_profile_returns_character_name_only(self) -> None:
+        """A profile with no axis data produces a single character name line."""
+        result = _build_profile_summary({"character_name": "Mira"})
+        assert "Character: Mira" in result
+        # Should be exactly one line — no axis entries appended.
+        assert result.count("\n") == 0
+
+    def test_missing_character_name_uses_unknown_fallback(self) -> None:
+        """If character_name is absent, 'unknown' is used as a safe default."""
+        result = _build_profile_summary({"demeanor_label": "timid", "demeanor_score": 0.5})
+        assert "Character: unknown" in result
 
 
 # ── TestExtractSnapshot ───────────────────────────────────────────────────────
@@ -259,15 +287,16 @@ class TestExtractSnapshot:
         assert result["health"] == {"score": 0.72, "label": "scarred"}
 
     def test_non_axis_keys_ignored(self) -> None:
-        """Keys like character_name and channel are silently ignored."""
+        """Keys like character_name, channel, and profile_summary are silently ignored."""
         profile = {
             "character_name": "Mira",
             "channel": "say",
+            "profile_summary": "  Character: Mira\n  Demeanor: proud (0.87)",
             "demeanor_score": 0.87,
             "demeanor_label": "proud",
         }
         result = _extract_snapshot(profile)
-        # Only the demeanor axis should appear; non-axis keys must be absent.
+        # Only the demeanor axis should appear; all non-axis keys must be absent.
         assert set(result.keys()) == {"demeanor"}
 
     def test_score_only_axis_produces_partial_entry(self) -> None:
@@ -337,7 +366,11 @@ class TestEmitTranslationEvent:
         assert kwargs["event_type"] == "chat.translation"
 
     def test_meta_phase_pre_axis_engine_when_ipc_hash_none(self) -> None:
-        """meta.phase is 'pre_axis_engine' when ipc_hash is None."""
+        """meta.phase is 'pre_axis_engine' when ipc_hash is None.
+
+        This marker distinguishes null-hash-era events from post-axis-engine
+        events during ledger replay.
+        """
         mock_append = MagicMock(return_value="a" * 32)
         _emit_translation_event(
             mock_append,
@@ -354,7 +387,12 @@ class TestEmitTranslationEvent:
         assert kwargs["meta"] == {"phase": "pre_axis_engine"}
 
     def test_meta_empty_when_ipc_hash_provided(self) -> None:
-        """meta is an empty dict (not pre_axis_engine) when ipc_hash is provided."""
+        """meta is an empty dict when ipc_hash is provided.
+
+        When the axis engine runs and produces a real ipc_hash, the hash
+        itself serves as the provenance signal — no meta phase annotation
+        is needed.
+        """
         mock_append = MagicMock(return_value="a" * 32)
         _emit_translation_event(
             mock_append,
@@ -368,8 +406,6 @@ class TestEmitTranslationEvent:
             ipc_hash="a" * 64,
         )
         kwargs = mock_append.call_args.kwargs
-        # When the axis engine provides an ipc_hash, meta is empty — the
-        # ipc_hash itself serves as the provenance signal.
         assert kwargs["meta"] == {}
 
     def test_data_payload_shape(self) -> None:
@@ -430,7 +466,11 @@ class TestEmitTranslationEvent:
         assert data["ic_output"] is None
 
     def test_never_raises_on_append_fn_exception(self) -> None:
-        """_emit_translation_event is fire-and-forget: exceptions are swallowed."""
+        """_emit_translation_event is fire-and-forget: exceptions are swallowed.
+
+        Ledger write failures must not propagate to the game layer — the
+        interaction must complete even if the audit record is lost.
+        """
         exploding_append = MagicMock(side_effect=OSError("disk full"))
         # Must not raise — ledger failures are non-fatal.
         _emit_translation_event(
@@ -444,7 +484,304 @@ class TestEmitTranslationEvent:
             profile=self._base_profile(),
             ipc_hash=None,
         )
-        # If we reach this line, the exception was suppressed correctly.
+        # Reaching this line confirms the exception was suppressed correctly.
+
+
+# ── TestConstructorValidation ─────────────────────────────────────────────────
+
+
+class TestConstructorValidation:
+    def test_empty_world_id_raises(self, tmp_path):
+        """An empty world_id raises ValueError at construction time."""
+        cfg = _make_config()
+        with pytest.raises(ValueError, match="world_id"):
+            OOCToICTranslationService(world_id="", config=cfg, world_root=tmp_path)
+
+
+# ── TestTranslateSuccess ──────────────────────────────────────────────────────
+
+
+class TestTranslateSuccess:
+    def test_returns_ic_text_on_success(self, tmp_path):
+        """translate() returns the validated IC text from the renderer."""
+        svc = _make_service(tmp_path)
+        with (
+            patch.object(
+                svc._profile_builder,
+                "build",
+                return_value={
+                    "character_name": "Mira",
+                    "demeanor_label": "proud",
+                    "demeanor_score": 0.87,
+                },
+            ),
+            patch.object(svc._renderer, "render", return_value="Hand over the ledger."),
+        ):
+            result = svc.translate("Mira", "give me the ledger")
+        assert result == "Hand over the ledger."
+
+    def test_channel_injected_into_profile(self, tmp_path):
+        """The channel value appears in the rendered system prompt."""
+        svc = _make_service(tmp_path)
+        captured = {}
+
+        def fake_render(system_prompt, user_message):
+            captured["prompt"] = system_prompt
+            return "IC text"
+
+        with (
+            patch.object(
+                svc._profile_builder,
+                "build",
+                return_value={"character_name": "Mira", "demeanor_label": "proud"},
+            ),
+            patch.object(svc._renderer, "render", side_effect=fake_render),
+        ):
+            svc.translate("Mira", "hello", channel="yell")
+
+        # The {{channel}} placeholder in the template resolves to "yell".
+        assert "yell" in captured["prompt"]
+
+
+# ── TestTranslateFallback ─────────────────────────────────────────────────────
+
+
+class TestTranslateFallback:
+    def test_returns_none_when_profile_build_fails(self, tmp_path):
+        """translate() returns None when the character profile cannot be resolved."""
+        svc = _make_service(tmp_path)
+        with patch.object(svc._profile_builder, "build", return_value=None):
+            assert svc.translate("Unknown", "hello") is None
+
+    def test_returns_none_when_renderer_fails(self, tmp_path):
+        """translate() returns None when the Ollama renderer returns None."""
+        svc = _make_service(tmp_path)
+        with (
+            patch.object(
+                svc._profile_builder,
+                "build",
+                return_value={"character_name": "Mira", "demeanor_label": "proud"},
+            ),
+            patch.object(svc._renderer, "render", return_value=None),
+        ):
+            assert svc.translate("Mira", "hello") is None
+
+    def test_returns_none_when_validation_fails(self, tmp_path):
+        """translate() returns None when the validator rejects the raw output."""
+        svc = _make_service(tmp_path)
+        with (
+            patch.object(
+                svc._profile_builder,
+                "build",
+                return_value={"character_name": "Mira", "demeanor_label": "proud"},
+            ),
+            patch.object(svc._renderer, "render", return_value="PASSTHROUGH"),
+            patch.object(svc._validator, "validate", return_value=None),
+        ):
+            assert svc.translate("Mira", "some command") is None
+
+    def test_returns_none_when_disabled(self, tmp_path):
+        """translate() returns None immediately when config.enabled is False."""
+        cfg = _make_config(enabled=False)
+        svc = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
+        # Even with a working profile/renderer it returns None immediately.
+        assert svc.translate("Mira", "hello") is None
+
+
+# ── TestDeterministicMode ─────────────────────────────────────────────────────
+
+
+class TestDeterministicMode:
+    """Deterministic mode arms the renderer when ipc_hash is provided.
+
+    The axis engine (core/engine.py) computes the ipc_hash and passes it
+    to translate().  When config.deterministic=True and the hash is not None,
+    the renderer is armed with a seed derived from the hash, ensuring that
+    identical game state + OOC input always produces identical IC output.
+    """
+
+    def test_deterministic_not_armed_when_ipc_hash_is_none(self, tmp_path):
+        """set_deterministic is not called when ipc_hash is None.
+
+        ipc_hash is None when the axis engine did not run (solo-room
+        interaction, engine disabled, or engine failure).  In that case
+        the renderer uses the configured temperature regardless of
+        config.deterministic.
+        """
+        svc = _make_service(tmp_path, deterministic=True)
+        with (
+            patch.object(
+                svc._profile_builder,
+                "build",
+                return_value={"character_name": "Mira", "demeanor_label": "proud"},
+            ),
+            patch.object(svc._renderer, "render", return_value="IC text"),
+            patch.object(svc._renderer, "set_deterministic") as mock_det,
+        ):
+            svc.translate("Mira", "hello", ipc_hash=None)
+        mock_det.assert_not_called()
+
+    def test_deterministic_armed_when_ipc_hash_provided(self, tmp_path):
+        """set_deterministic is called with the correct seed when ipc_hash is set."""
+        svc = _make_service(tmp_path, deterministic=True)
+        ipc_hash = "a3f91c9e4b12f2d8baf0000000000000"  # 32 hex chars
+        expected_seed = int(ipc_hash[:16], 16)
+        with (
+            patch.object(
+                svc._profile_builder,
+                "build",
+                return_value={"character_name": "Mira", "demeanor_label": "proud"},
+            ),
+            patch.object(svc._renderer, "render", return_value="IC text"),
+            patch.object(svc._renderer, "set_deterministic") as mock_det,
+        ):
+            svc.translate("Mira", "hello", ipc_hash=ipc_hash)
+        mock_det.assert_called_once_with(expected_seed)
+
+    def test_deterministic_not_armed_when_config_false(self, tmp_path):
+        """ipc_hash is ignored when config.deterministic is False.
+
+        The caller may always pass an ipc_hash for ledger linkage purposes.
+        Deterministic mode is opt-in via world.json — the hash alone is not
+        sufficient to activate it.
+        """
+        svc = _make_service(tmp_path, deterministic=False)
+        with (
+            patch.object(
+                svc._profile_builder,
+                "build",
+                return_value={"character_name": "Mira", "demeanor_label": "proud"},
+            ),
+            patch.object(svc._renderer, "render", return_value="IC text"),
+            patch.object(svc._renderer, "set_deterministic") as mock_det,
+        ):
+            svc.translate("Mira", "hello", ipc_hash="a3f91c9e4b12f2d8")
+        mock_det.assert_not_called()
+
+
+# ── TestPromptTemplate ────────────────────────────────────────────────────────
+
+
+class TestPromptTemplate:
+    def test_missing_template_uses_fallback(self, tmp_path):
+        """If ic_prompt.txt does not exist, the built-in fallback is used."""
+        cfg = _make_config(
+            enabled=True,
+            prompt_template_path="policies/nonexistent.txt",
+        )
+        # Should not raise — the service degrades gracefully with a fallback.
+        svc = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
+        assert svc._prompt_template  # fallback template is non-empty
+
+    def test_custom_template_loaded(self, tmp_path):
+        """A world-specific ic_prompt.txt is loaded and stored verbatim."""
+        prompt_file = tmp_path / "policies" / "ic_prompt.txt"
+        prompt_file.parent.mkdir(parents=True, exist_ok=True)
+        prompt_file.write_text("Custom template: {{ooc_message}}")
+        cfg = _make_config(enabled=True, prompt_template_path="policies/ic_prompt.txt")
+        svc = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
+        assert "Custom template" in svc._prompt_template
+
+
+# ── TestSystemPromptRendering ─────────────────────────────────────────────────
+
+
+class TestSystemPromptRendering:
+    def test_placeholders_substituted(self, tmp_path):
+        """_render_system_prompt substitutes {{key}} placeholders from the profile."""
+        svc = _make_service(tmp_path)
+        profile = {"character_name": "Mira", "demeanor_label": "proud", "channel": "say"}
+        rendered = svc._render_system_prompt(profile, "give me bread")
+        assert "proud" in rendered
+        assert "give me bread" in rendered
+
+    def test_unknown_placeholder_left_as_is(self, tmp_path):
+        """Placeholders with no matching profile key are left unchanged.
+
+        This makes unresolved placeholders visible during prompt development
+        rather than silently replaced with empty strings.
+        """
+        svc = _make_service(tmp_path)
+        svc._prompt_template = "{{unknown_key}} {{ooc_message}}"
+        rendered = svc._render_system_prompt({}, "hello")
+        assert "{{unknown_key}}" in rendered
+        assert "hello" in rendered
+
+    def test_profile_summary_placeholder_resolved_by_translate(self, tmp_path):
+        """The {{profile_summary}} placeholder must not survive into the rendered prompt.
+
+        This is the primary guard test for the bug fixed in 0.4.1.
+
+        The bug: ``ic_prompt.txt`` used ``{{profile_summary}}`` as a single
+        aggregated placeholder for the character's axis state, but no code
+        built or injected a ``profile_summary`` key into the profile dict.
+        As a result, ``{{profile_summary}}`` was forwarded to Ollama as a
+        literal unresolved string and the LLM was blind to all character
+        axis data.
+
+        The fix: ``translate()`` now calls ``_build_profile_summary(profile)``
+        and injects the result as ``profile["profile_summary"]`` before
+        ``_render_system_prompt`` runs, ensuring the placeholder resolves
+        to a formatted character profile block.
+        """
+        svc = _make_service_with_profile_summary_template(tmp_path)
+        captured: dict = {}
+
+        def fake_render(system_prompt: str, user_message: str) -> str:
+            # Capture the exact string sent to the renderer so we can
+            # assert that {{profile_summary}} was resolved before this point.
+            captured["prompt"] = system_prompt
+            return "IC text"
+
+        profile = {
+            "character_name": "Mira",
+            "demeanor_label": "proud",
+            "demeanor_score": 0.87,
+        }
+        with (
+            patch.object(svc._profile_builder, "build", return_value=profile),
+            patch.object(svc._renderer, "render", side_effect=fake_render),
+        ):
+            svc.translate("Mira", "hello", channel="say")
+
+        # The literal placeholder must not appear in the string passed to Ollama.
+        assert "{{profile_summary}}" not in captured["prompt"]
+
+        # The character name must appear — confirms _build_profile_summary ran
+        # and its output was substituted into the prompt.
+        assert "Mira" in captured["prompt"]
+
+    def test_profile_summary_contains_axis_data_in_rendered_prompt(self, tmp_path):
+        """Axis labels from the profile appear in the rendered system prompt.
+
+        Confirms end-to-end that the character's axis state (not just the
+        name) flows through _build_profile_summary into the prompt sent to
+        the renderer.
+        """
+        svc = _make_service_with_profile_summary_template(tmp_path)
+        captured: dict = {}
+
+        def fake_render(system_prompt: str, user_message: str) -> str:
+            captured["prompt"] = system_prompt
+            return "IC text"
+
+        profile = {
+            "character_name": "Ddishfew Withnop",
+            "demeanor_label": "timid",
+            "demeanor_score": 0.07,
+            "health_label": "scarred",
+            "health_score": 0.65,
+        }
+        with (
+            patch.object(svc._profile_builder, "build", return_value=profile),
+            patch.object(svc._renderer, "render", side_effect=fake_render),
+        ):
+            svc.translate("Ddishfew Withnop", "I need work", channel="say")
+
+        # Both axis labels must be present in the rendered prompt — the LLM
+        # must see the character's mechanical state, not a placeholder string.
+        assert "timid" in captured["prompt"]
+        assert "scarred" in captured["prompt"]
 
 
 # ── TestLedgerIntegration ─────────────────────────────────────────────────────
@@ -558,10 +895,10 @@ class TestLedgerIntegration:
         mock_append.assert_not_called()
 
     def test_ipc_hash_null_meta_pre_axis_engine(self, tmp_path: Path) -> None:
-        """meta.phase is 'pre_axis_engine' on every event while ipc_hash is None.
+        """meta.phase is 'pre_axis_engine' when ipc_hash is None.
 
-        This covers all three status outcomes — pre-axis-engine metadata
-        is determined solely by ipc_hash, not by the translation result.
+        Covers solo-room interactions, axis engine disabled, and axis engine
+        failure paths — all of which produce a None ipc_hash.
         """
         svc = _make_service(tmp_path)
         with (
@@ -569,11 +906,27 @@ class TestLedgerIntegration:
             patch.object(svc._renderer, "render", return_value="IC text"),
             patch(self._PATCH_TARGET) as mock_append,
         ):
-            # ipc_hash is explicitly None — simulates pre-axis-engine era.
             svc.translate("Mira", "hello", ipc_hash=None)
 
         meta = mock_append.call_args.kwargs["meta"]
         assert meta == {"phase": "pre_axis_engine"}
+
+    def test_ipc_hash_present_meta_empty(self, tmp_path: Path) -> None:
+        """meta is empty when the axis engine provides a real ipc_hash.
+
+        The hash itself serves as the provenance signal linking this event
+        to the preceding chat.mechanical_resolution event in the ledger.
+        """
+        svc = _make_service(tmp_path)
+        with (
+            patch.object(svc._profile_builder, "build", return_value=dict(self._PROFILE)),
+            patch.object(svc._renderer, "render", return_value="IC text"),
+            patch(self._PATCH_TARGET) as mock_append,
+        ):
+            svc.translate("Mira", "hello", ipc_hash="a" * 64)
+
+        meta = mock_append.call_args.kwargs["meta"]
+        assert meta == {}
 
     def test_ledger_failure_does_not_break_translate(self, tmp_path: Path) -> None:
         """A ledger write failure does not prevent translate() from returning IC text.
@@ -597,10 +950,9 @@ class TestLedgerIntegration:
     def test_axis_snapshot_contains_profile_axes(self, tmp_path: Path) -> None:
         """data.axis_snapshot contains the profile's axis fields at translate time.
 
-        The snapshot is taken before the axis engine (when integrated) can
-        mutate scores, so it represents the character's state as of this
-        specific interaction — the exact context the LLM used to generate
-        the IC output.
+        The snapshot is taken before any post-translation axis mutations,
+        representing the character's state as of this specific interaction —
+        the exact context the LLM used to generate the IC output.
         """
         svc = _make_service(tmp_path)
         with (
@@ -617,7 +969,7 @@ class TestLedgerIntegration:
         assert snapshot["health"]["label"] == "scarred"
 
     def test_channel_recorded_in_event_data(self, tmp_path: Path) -> None:
-        """The chat channel is recorded in the event data payload."""
+        """The chat channel is recorded in the ledger event data payload."""
         svc = _make_service(tmp_path)
         with (
             patch.object(svc._profile_builder, "build", return_value=dict(self._PROFILE)),
