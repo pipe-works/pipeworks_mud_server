@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.3](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.2...mud_server-v0.4.3) (2026-02-28)
+
+
+### Bug Fixes
+
+* **build:** consolidate deps on pyproject.toml and automate version ([788e9bc](https://github.com/pipe-works/pipeworks_mud_server/commit/788e9bcdcee6de9bd210f0f5315faa340aa436bb))
+* **build:** consolidate deps on pyproject.toml and automate version ([3c0eb2f](https://github.com/pipe-works/pipeworks_mud_server/commit/3c0eb2fcb59a560a4dbc4b2573f60f00edab8922))
+
 ## [0.4.2](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.1...mud_server-v0.4.2) (2026-02-28)
 
 
