@@ -82,6 +82,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from mud_server.ledger import append_event as _ledger_append
@@ -91,6 +92,33 @@ from mud_server.translation.renderer import OllamaRenderer
 from mud_server.translation.validator import OutputValidator
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LabTranslateResult:
+    """Result returned by ``OOCToICTranslationService.translate_with_axes``.
+
+    Carries the full research context the Axis Descriptor Lab needs to
+    display results: the IC text, outcome status, the profile_summary block
+    as the server formatted it, and the fully-rendered system prompt that
+    was actually sent to Ollama.
+
+    Attributes:
+        ic_text:        Validated IC dialogue on success, ``None`` on any
+                        fallback path.
+        status:         Outcome string — ``"success"``,
+                        ``"fallback.api_error"``, or
+                        ``"fallback.validation_failed"``.
+        profile_summary: The ``{{profile_summary}}`` block as formatted by
+                        the server (canonical format).
+        rendered_prompt: The fully-rendered system prompt sent to Ollama,
+                        with all placeholders resolved.
+    """
+
+    ic_text: str | None
+    status: str
+    profile_summary: str
+    rendered_prompt: str
 
 
 # ── Module-level helpers ──────────────────────────────────────────────────────
@@ -571,6 +599,116 @@ class OOCToICTranslationService:
             ipc_hash=ipc_hash,
         )
         return ic_text
+
+    # ── Public properties ─────────────────────────────────────────────────────
+
+    @property
+    def config(self) -> TranslationLayerConfig:
+        """Return the world's frozen translation layer configuration."""
+        return self._config
+
+    # ── Lab API ───────────────────────────────────────────────────────────────
+
+    def translate_with_axes(
+        self,
+        axes: dict[str, dict],
+        ooc_message: str,
+        *,
+        character_name: str = "Lab Subject",
+        channel: str = "say",
+        seed: int | None = None,
+        temperature: float = 0.7,
+    ) -> LabTranslateResult:
+        """Translate an OOC message using raw axis values — no DB lookup.
+
+        This is the entry point for the Axis Descriptor Lab.  It accepts a
+        caller-supplied axis dict instead of looking up a character in the
+        database, then runs steps 2–6 of the standard ``translate()``
+        pipeline (profile injection, prompt rendering, Ollama call,
+        validation).  No ledger event is emitted — lab calls are research
+        runs, not production game interactions.
+
+        The server filters ``axes`` to its configured ``active_axes`` before
+        building the profile, so the caller may supply all 11 known axes and
+        the server will silently use only the ones its world is configured
+        for.  The response includes ``world_config`` so the lab can see
+        exactly which axes were applied.
+
+        A fresh ``OllamaRenderer`` is created for each call to avoid
+        polluting the persistent game renderer's deterministic-mode state.
+
+        Args:
+            axes:           Dict of ``{axis_name: {"label": str, "score": float}}``.
+                            Keys not in ``active_axes`` are silently ignored.
+            ooc_message:    The raw OOC message to translate.
+            character_name: Display name used in the ``profile_summary`` first
+                            line.  Defaults to ``"Lab Subject"``.
+            channel:        Chat channel context (``"say"``, ``"yell"``,
+                            ``"whisper"``).
+            seed:           Integer seed for deterministic Ollama output.
+                            ``None`` means non-deterministic (random).
+            temperature:    Sampling temperature forwarded to Ollama.
+                            Ignored when ``seed`` is provided (clamped to
+                            0.0 for determinism).
+
+        Returns:
+            :class:`LabTranslateResult` with the IC text, status, canonical
+            profile_summary, and fully-rendered system prompt.
+        """
+        # ── Build profile from raw axes, filtered to active_axes ──────────────
+        profile: dict = {"character_name": character_name}
+        for axis_name in self._config.active_axes:
+            if axis_name not in axes:
+                continue
+            ax = axes[axis_name]
+            profile[f"{axis_name}_label"] = str(ax.get("label", "unknown"))
+            profile[f"{axis_name}_score"] = float(ax.get("score", 0.0))
+
+        profile["channel"] = channel
+        profile["profile_summary"] = _build_profile_summary(profile)
+
+        # ── Render system prompt ───────────────────────────────────────────────
+        system_prompt = self._render_system_prompt(profile, ooc_message)
+
+        # ── Per-call renderer (avoids state pollution with the game renderer) ──
+        # The game renderer's set_deterministic() state is sticky for its
+        # lifetime.  Creating a fresh instance here means lab calls never
+        # affect in-progress game turns.
+        renderer = OllamaRenderer(
+            api_endpoint=self._config.api_endpoint,
+            model=self._config.model,
+            timeout_seconds=self._config.timeout_seconds,
+            temperature=temperature,
+        )
+        if seed is not None:
+            renderer.set_deterministic(seed)
+
+        # ── Call Ollama ────────────────────────────────────────────────────────
+        ic_raw = renderer.render(system_prompt, ooc_message)
+        if ic_raw is None:
+            return LabTranslateResult(
+                ic_text=None,
+                status="fallback.api_error",
+                profile_summary=profile["profile_summary"],
+                rendered_prompt=system_prompt,
+            )
+
+        # ── Validate output ────────────────────────────────────────────────────
+        ic_text = self._validator.validate(ic_raw)
+        if ic_text is None:
+            return LabTranslateResult(
+                ic_text=None,
+                status="fallback.validation_failed",
+                profile_summary=profile["profile_summary"],
+                rendered_prompt=system_prompt,
+            )
+
+        return LabTranslateResult(
+            ic_text=ic_text,
+            status="success",
+            profile_summary=profile["profile_summary"],
+            rendered_prompt=system_prompt,
+        )
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 

@@ -47,6 +47,7 @@ import pytest
 
 from mud_server.translation.config import TranslationLayerConfig
 from mud_server.translation.service import (
+    LabTranslateResult,
     OOCToICTranslationService,
     _build_profile_summary,
     _emit_translation_event,
@@ -994,3 +995,222 @@ class TestLedgerIntegration:
 
         # Two translate() calls → two ledger writes, one per call.
         assert mock_append.call_count == 2
+
+
+# ── TestTranslateWithAxes ─────────────────────────────────────────────────────
+
+
+class TestTranslateWithAxes:
+    """Unit tests for OOCToICTranslationService.translate_with_axes().
+
+    ``translate_with_axes`` is the lab entry point: it accepts raw axis
+    values instead of performing a character DB lookup, then runs the same
+    render/validate pipeline as ``translate()``.
+
+    All Ollama network calls are patched at the ``OllamaRenderer`` class
+    level so that these tests never make real HTTP requests.
+    """
+
+    _AXES = {
+        "demeanor": {"label": "timid", "score": 0.07},
+        "health": {"label": "scarred", "score": 0.65},
+        "physique": {"label": "lean", "score": 0.40},
+    }
+
+    def _make_svc(self, tmp_path: Path, *, active_axes=None) -> OOCToICTranslationService:
+        """Build a service with a profile_summary template and explicit active_axes."""
+        prompt_file = tmp_path / "policies" / "ic_prompt.txt"
+        prompt_file.parent.mkdir(parents=True, exist_ok=True)
+        prompt_file.write_text(
+            "PROFILE:\n{{profile_summary}}\nCHANNEL: {{channel}}\nMSG: {{ooc_message}}"
+        )
+        axes = active_axes if active_axes is not None else ["demeanor", "health"]
+        cfg = _make_config(
+            enabled=True,
+            active_axes=axes,
+            prompt_template_path="policies/ic_prompt.txt",
+        )
+        return OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
+
+    # ── Return type and basic structure ───────────────────────────────────────
+
+    def test_returns_lab_translate_result(self, tmp_path: Path) -> None:
+        """translate_with_axes always returns a LabTranslateResult."""
+        svc = self._make_svc(tmp_path)
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "I must leave now."
+            result = svc.translate_with_axes(self._AXES, "I need to go.")
+        assert isinstance(result, LabTranslateResult)
+
+    def test_config_property_returns_config(self, tmp_path: Path) -> None:
+        """The config property exposes the frozen TranslationLayerConfig."""
+        svc = self._make_svc(tmp_path)
+        assert svc.config is svc._config
+
+    # ── Active-axes filtering ─────────────────────────────────────────────────
+
+    def test_axes_filtered_to_active_axes(self, tmp_path: Path) -> None:
+        """Axes not in active_axes are silently excluded from the profile."""
+        svc = self._make_svc(tmp_path, active_axes=["demeanor"])
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "IC line."
+            result = svc.translate_with_axes(self._AXES, "ooc")
+
+        # profile_summary should only mention demeanor, not health or physique
+        assert "Demeanor" in result.profile_summary
+        assert "Health" not in result.profile_summary
+        assert "Physique" not in result.profile_summary
+
+    def test_unknown_axes_silently_ignored(self, tmp_path: Path) -> None:
+        """Axis names not in active_axes (including unknown ones) produce no error."""
+        svc = self._make_svc(tmp_path, active_axes=["demeanor"])
+        axes_with_extras = {
+            **self._AXES,
+            "unknown_axis": {"label": "foo", "score": 0.5},
+        }
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "IC line."
+            result = svc.translate_with_axes(axes_with_extras, "ooc")
+        assert result.status == "success"
+
+    # ── Profile and prompt construction ──────────────────────────────────────
+
+    def test_profile_summary_uses_server_canonical_format(self, tmp_path: Path) -> None:
+        """profile_summary uses Title Case axis names and 2dp scores (server format)."""
+        svc = self._make_svc(tmp_path, active_axes=["demeanor", "health"])
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "IC line."
+            result = svc.translate_with_axes(self._AXES, "ooc", character_name="Mira")
+
+        assert "Character: Mira" in result.profile_summary
+        assert "Demeanor: timid (0.07)" in result.profile_summary
+        assert "Health: scarred (0.65)" in result.profile_summary
+
+    def test_rendered_prompt_contains_profile_summary(self, tmp_path: Path) -> None:
+        """The rendered_prompt has the profile_summary block substituted in."""
+        svc = self._make_svc(tmp_path, active_axes=["demeanor"])
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "IC line."
+            result = svc.translate_with_axes(self._AXES, "my message")
+
+        assert "PROFILE:" in result.rendered_prompt
+        assert "Demeanor" in result.rendered_prompt
+        assert "{{profile_summary}}" not in result.rendered_prompt
+
+    def test_channel_injected_into_rendered_prompt(self, tmp_path: Path) -> None:
+        """The channel value is substituted into the rendered prompt."""
+        svc = self._make_svc(tmp_path)
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "IC line."
+            result = svc.translate_with_axes(self._AXES, "ooc", channel="yell")
+
+        assert "CHANNEL: yell" in result.rendered_prompt
+
+    # ── Per-call renderer (state isolation) ──────────────────────────────────
+
+    def test_creates_fresh_renderer_per_call(self, tmp_path: Path) -> None:
+        """A new OllamaRenderer is constructed for each translate_with_axes call."""
+        svc = self._make_svc(tmp_path)
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "IC."
+            svc.translate_with_axes(self._AXES, "first")
+            svc.translate_with_axes(self._AXES, "second")
+
+        assert MockRenderer.call_count == 2
+
+    def test_renderer_receives_config_values(self, tmp_path: Path) -> None:
+        """The fresh renderer is initialised with the world's api_endpoint and model."""
+        svc = self._make_svc(tmp_path)
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "IC."
+            svc.translate_with_axes(self._AXES, "ooc")
+
+        call_kwargs = MockRenderer.call_args.kwargs
+        assert call_kwargs["api_endpoint"] == svc.config.api_endpoint
+        assert call_kwargs["model"] == svc.config.model
+        assert call_kwargs["timeout_seconds"] == svc.config.timeout_seconds
+
+    # ── Seed / deterministic mode ─────────────────────────────────────────────
+
+    def test_seed_none_does_not_call_set_deterministic(self, tmp_path: Path) -> None:
+        """When seed is None, set_deterministic is never called on the renderer."""
+        svc = self._make_svc(tmp_path)
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "IC."
+            svc.translate_with_axes(self._AXES, "ooc", seed=None)
+
+        MockRenderer.return_value.set_deterministic.assert_not_called()
+
+    def test_seed_value_arms_deterministic_mode(self, tmp_path: Path) -> None:
+        """When seed is provided, set_deterministic is called with that seed."""
+        svc = self._make_svc(tmp_path)
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "IC."
+            svc.translate_with_axes(self._AXES, "ooc", seed=42)
+
+        MockRenderer.return_value.set_deterministic.assert_called_once_with(42)
+
+    def test_game_renderer_untouched_by_lab_call(self, tmp_path: Path) -> None:
+        """translate_with_axes never calls set_deterministic on the service's own renderer."""
+        svc = self._make_svc(tmp_path)
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "IC."
+            with patch.object(svc._renderer, "set_deterministic") as mock_sd:
+                svc.translate_with_axes(self._AXES, "ooc", seed=99)
+
+        # The service's own renderer must be completely untouched
+        mock_sd.assert_not_called()
+
+    # ── Status outcomes ───────────────────────────────────────────────────────
+
+    def test_success_returns_ic_text_and_status(self, tmp_path: Path) -> None:
+        """On success, ic_text is set and status is 'success'."""
+        svc = self._make_svc(tmp_path)
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "I must leave."
+            result = svc.translate_with_axes(self._AXES, "I need to go.")
+
+        assert result.status == "success"
+        assert result.ic_text == "I must leave."
+
+    def test_api_error_returns_fallback_status(self, tmp_path: Path) -> None:
+        """When the renderer returns None, status is 'fallback.api_error'."""
+        svc = self._make_svc(tmp_path)
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = None
+            result = svc.translate_with_axes(self._AXES, "ooc")
+
+        assert result.status == "fallback.api_error"
+        assert result.ic_text is None
+
+    def test_api_error_still_returns_profile_summary_and_prompt(self, tmp_path: Path) -> None:
+        """Even on api_error, profile_summary and rendered_prompt are populated."""
+        svc = self._make_svc(tmp_path)
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = None
+            result = svc.translate_with_axes(self._AXES, "ooc")
+
+        assert result.profile_summary != ""
+        assert result.rendered_prompt != ""
+
+    def test_validation_failed_returns_fallback_status(self, tmp_path: Path) -> None:
+        """When the validator rejects output, status is 'fallback.validation_failed'."""
+        svc = self._make_svc(tmp_path)
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "raw output"
+            with patch.object(svc._validator, "validate", return_value=None):
+                result = svc.translate_with_axes(self._AXES, "ooc")
+
+        assert result.status == "fallback.validation_failed"
+        assert result.ic_text is None
+
+    def test_no_ledger_event_emitted(self, tmp_path: Path) -> None:
+        """translate_with_axes never writes to the ledger — lab calls are not game events."""
+        svc = self._make_svc(tmp_path)
+        ledger_target = "mud_server.translation.service._ledger_append"
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "IC."
+            with patch(ledger_target) as mock_ledger:
+                svc.translate_with_axes(self._AXES, "ooc")
+
+        mock_ledger.assert_not_called()

@@ -14,7 +14,7 @@
     "enabled": true,
     "model": "gemma2:2b",
     "ollama_base_url": "http://localhost:11434",
-    "timeout_seconds": 10.0,
+    "timeout_seconds": 60.0,
     "strict_mode": true,
     "max_output_chars": 280,
     "prompt_template_path": "policies/ic_prompt.txt",
