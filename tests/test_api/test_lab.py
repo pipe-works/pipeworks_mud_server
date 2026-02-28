@@ -79,9 +79,7 @@ def _build_lab_engine(
 
     engine_any.world_registry = SimpleNamespace(
         get_world=_get_world,
-        list_worlds=lambda: [
-            {"world_id": world_id, "name": world_name, "is_active": True}
-        ],
+        list_worlds=lambda: [{"world_id": world_id, "name": world_name, "is_active": True}],
     )
     return engine
 
@@ -276,9 +274,7 @@ def test_world_config_translation_disabled_returns_404(
     """World-config returns 404 when translation layer is disabled for that world."""
     with use_test_database(temp_db_path):
         sid = _login(lab_client_no_translation, "testadmin")
-        resp = lab_client_no_translation.get(
-            f"/api/lab/world-config/test_world?session_id={sid}"
-        )
+        resp = lab_client_no_translation.get(f"/api/lab/world-config/test_world?session_id={sid}")
     assert resp.status_code == 404
 
 
