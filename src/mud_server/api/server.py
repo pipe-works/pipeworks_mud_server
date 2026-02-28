@@ -29,6 +29,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from mud_server import __version__
 from mud_server.api.routes.register import register_routes
 from mud_server.config import config, print_config_summary
 from mud_server.core.engine import GameEngine
@@ -96,7 +97,7 @@ redoc_url = "/redoc" if config.docs_should_be_enabled else None
 # This creates the main app instance that will handle all HTTP requests
 app = FastAPI(
     title="MUD Server",
-    version="0.3.4",
+    version=__version__,
     lifespan=lifespan,
     docs_url=docs_url,
     redoc_url=redoc_url,

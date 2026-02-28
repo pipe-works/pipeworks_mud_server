@@ -39,7 +39,6 @@ repos:
   - id: debug-statements
   - id: name-tests-test
     args: [--pytest-test-first]
-  - id: requirements-txt-fixer
 
   # Python code formatting with Black - RUN AFTER file checks
   # IMPORTANT: Version pinned org-wide to prevent formatting drift
