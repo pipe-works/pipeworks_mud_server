@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.2](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.1...mud_server-v0.4.2) (2026-02-28)
+
+
+### Features
+
+* **lab:** add lab API endpoints for Axis Descriptor Lab integration ([bbee9e7](https://github.com/pipe-works/pipeworks_mud_server/commit/bbee9e737f15e6a8b1ee7f275711d4251110a90f))
+* **lab:** add lab API endpoints for Axis Descriptor Lab integration ([060c91f](https://github.com/pipe-works/pipeworks_mud_server/commit/060c91f43bfe5e89ce2208ec8dfeaa7c2b9e78d0))
+
+
+### Bug Fixes
+
+* **lab:** resolve ruff B904 and I001 lint errors ([436bbcc](https://github.com/pipe-works/pipeworks_mud_server/commit/436bbcc73ed72edb5ebd9e79e9948ddaf6fe89ca))
+
 ## [0.4.1](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.0...mud_server-v0.4.1) (2026-02-27)
 
 
