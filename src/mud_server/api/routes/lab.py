@@ -100,7 +100,7 @@ def router(engine: GameEngine) -> APIRouter:
         worlds_data = engine.world_registry.list_worlds()
         result: list[LabWorldSummary] = []
         for row in worlds_data:
-            wid = row.get("world_id", "")
+            wid = row.get("world_id") or row.get("id", "")
             translation_enabled = False
             try:
                 world = engine.world_registry.get_world(wid)
@@ -108,7 +108,7 @@ def router(engine: GameEngine) -> APIRouter:
             except Exception:
                 # World failed to load or is inactive — surface it with
                 # translation_enabled=False so the lab can still show it.
-                pass
+                logger.debug("World %r: translation check skipped (load error)", wid)
             result.append(
                 LabWorldSummary(
                     world_id=wid,
