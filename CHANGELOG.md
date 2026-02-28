@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.4](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.3...mud_server-v0.4.4) (2026-02-28)
+
+
+### Bug Fixes
+
+* **api:** resolve world_id key mismatch in lab worlds endpoint ([#151](https://github.com/pipe-works/pipeworks_mud_server/issues/151)) ([4a323c9](https://github.com/pipe-works/pipeworks_mud_server/commit/4a323c958ea9fb1e8c22c60a410dc458c6833e35))
+
 ## [0.4.3](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.2...mud_server-v0.4.3) (2026-02-28)
 
 
