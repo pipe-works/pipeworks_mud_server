@@ -26,12 +26,19 @@ Design Notes:
 - Cross-zone exits use "zone:room" format (e.g., "docks:east_pier")
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mud_server.db import facade as database
+
+if TYPE_CHECKING:
+    from mud_server.axis.engine import AxisEngine
+    from mud_server.translation.service import OOCToICTranslationService
 
 logger = logging.getLogger(__name__)
 
@@ -228,12 +235,12 @@ class World:
         # _load_from_zones once it has parsed world.json.
         # The type annotation uses a string forward-reference to avoid a
         # circular import at module level; no runtime import is needed here.
-        self._translation_service = None  # type: OOCToICTranslationService | None
+        self._translation_service: OOCToICTranslationService | None = None
 
         # Axis resolution engine — initialised to None here; populated by
         # _load_from_zones once it has parsed world.json and loaded the
         # resolution grammar from policies/resolution.yaml.
-        self._axis_engine = None  # type: AxisEngine | None
+        self._axis_engine: AxisEngine | None = None
 
         # Load world data from JSON files
         self._load_world()

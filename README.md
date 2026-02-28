@@ -230,9 +230,6 @@ The MUD server is **fully data-driven**. Create a custom world by editing `data/
 ```bash
 # Install with development dependencies
 pip install -e ".[dev]"
-
-# Or use requirements file
-pip install -r requirements-dev.txt
 ```
 
 ### Running Tests

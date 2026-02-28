@@ -409,7 +409,8 @@ def _compute_resolution_hash(
         "axis_snapshot_before": axis_snapshot_before,
         "grammar_version": grammar_version,
     }
-    return compute_payload_hash(payload)
+    result: str = compute_payload_hash(payload)
+    return result
 
 
 def _call_resolver(
