@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast, Any
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -29,7 +29,6 @@ from mud_server.core.world import World
 from mud_server.translation.config import TranslationLayerConfig
 from mud_server.translation.service import LabTranslateResult, OOCToICTranslationService
 from tests.constants import TEST_PASSWORD
-
 
 # ── Shared test helpers ────────────────────────────────────────────────────────
 

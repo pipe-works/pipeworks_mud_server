@@ -136,11 +136,11 @@ def router(engine: GameEngine) -> APIRouter:
 
         try:
             world = engine.world_registry.get_world(world_id)
-        except ValueError:
+        except ValueError as err:
             raise HTTPException(
                 status_code=404,
                 detail=f"World {world_id!r} not found or inactive.",
-            )
+            ) from err
 
         service = world.get_translation_service()
         if service is None:
@@ -187,11 +187,11 @@ def router(engine: GameEngine) -> APIRouter:
 
         try:
             world = engine.world_registry.get_world(req.world_id)
-        except ValueError:
+        except ValueError as err:
             raise HTTPException(
                 status_code=404,
                 detail=f"World {req.world_id!r} not found or inactive.",
-            )
+            ) from err
 
         service = world.get_translation_service()
         if service is None:
