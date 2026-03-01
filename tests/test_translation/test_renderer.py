@@ -116,3 +116,35 @@ class TestDeterministicMode:
         options = mock.call_args[1]["json"]["options"]
         # Default temperature is 0.7 (from renderer.py constant)
         assert options["temperature"] == 0.7
+
+
+class TestKeepAlive:
+    def test_default_keep_alive_is_5m(self, renderer):
+        with patch("requests.post", return_value=_mock_ollama_response("ok")) as mock:
+            renderer.render("prompt", "msg")
+        payload = mock.call_args[1]["json"]
+        assert payload["keep_alive"] == "5m"
+
+    def test_custom_keep_alive_forwarded(self):
+        r = OllamaRenderer(
+            api_endpoint=ENDPOINT,
+            model=MODEL,
+            timeout_seconds=10.0,
+            keep_alive="10m",
+        )
+        with patch("requests.post", return_value=_mock_ollama_response("ok")) as mock:
+            r.render("prompt", "msg")
+        payload = mock.call_args[1]["json"]
+        assert payload["keep_alive"] == "10m"
+
+    def test_keep_alive_zero_to_unload(self):
+        r = OllamaRenderer(
+            api_endpoint=ENDPOINT,
+            model=MODEL,
+            timeout_seconds=10.0,
+            keep_alive="0",
+        )
+        with patch("requests.post", return_value=_mock_ollama_response("ok")) as mock:
+            r.render("prompt", "msg")
+        payload = mock.call_args[1]["json"]
+        assert payload["keep_alive"] == "0"

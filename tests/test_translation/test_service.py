@@ -1129,6 +1129,7 @@ class TestTranslateWithAxes:
         assert call_kwargs["api_endpoint"] == svc.config.api_endpoint
         assert call_kwargs["model"] == svc.config.model
         assert call_kwargs["timeout_seconds"] == svc.config.timeout_seconds
+        assert call_kwargs["keep_alive"] == svc.config.keep_alive
 
     # ── Seed / deterministic mode ─────────────────────────────────────────────
 

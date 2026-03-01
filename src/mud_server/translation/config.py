@@ -61,6 +61,11 @@ class TranslationLayerConfig:
         timeout_seconds:      HTTP request timeout for Ollama calls.  On
                               expiry the service returns ``None`` and the
                               caller falls back to the OOC message.
+        keep_alive:           Ollama ``keep_alive`` duration string.
+                              Controls how long the model stays loaded in
+                              GPU/CPU memory after each request (e.g.
+                              ``"5m"``).  Prevents cold-start reloads
+                              between consecutive requests.
         strict_mode:          When ``True``, any non-compliant LLM output
                               (multi-line, forbidden patterns, over-length)
                               triggers an immediate fallback rather than a
@@ -85,6 +90,7 @@ class TranslationLayerConfig:
     model: str
     ollama_base_url: str
     timeout_seconds: float
+    keep_alive: str
     strict_mode: bool
     max_output_chars: int
     prompt_template_path: str
@@ -117,6 +123,7 @@ class TranslationLayerConfig:
             model=str(data.get("model", "gemma2:2b")),
             ollama_base_url=str(data.get("ollama_base_url", "http://localhost:11434")),
             timeout_seconds=float(data.get("timeout_seconds", 10.0)),
+            keep_alive=str(data.get("keep_alive", "5m")),
             strict_mode=bool(data.get("strict_mode", True)),
             max_output_chars=int(data.get("max_output_chars", 280)),
             prompt_template_path=str(data.get("prompt_template_path", "policies/ic_prompt.txt")),
@@ -136,6 +143,7 @@ class TranslationLayerConfig:
             model="gemma2:2b",
             ollama_base_url="http://localhost:11434",
             timeout_seconds=10.0,
+            keep_alive="5m",
             strict_mode=True,
             max_output_chars=280,
             prompt_template_path="policies/ic_prompt.txt",

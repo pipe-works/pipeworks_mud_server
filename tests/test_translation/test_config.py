@@ -14,6 +14,7 @@ class TestTranslationLayerConfigFromDict:
             "model": "llama3.2",
             "ollama_base_url": "http://remote:11434",
             "timeout_seconds": 5.0,
+            "keep_alive": "10m",
             "strict_mode": False,
             "max_output_chars": 140,
             "prompt_template_path": "policies/custom_prompt.txt",
@@ -25,6 +26,7 @@ class TestTranslationLayerConfigFromDict:
         assert cfg.model == "llama3.2"
         assert cfg.ollama_base_url == "http://remote:11434"
         assert cfg.timeout_seconds == 5.0
+        assert cfg.keep_alive == "10m"
         assert cfg.strict_mode is False
         assert cfg.max_output_chars == 140
         assert cfg.prompt_template_path == "policies/custom_prompt.txt"
@@ -38,11 +40,20 @@ class TestTranslationLayerConfigFromDict:
         assert cfg.model == "gemma2:2b"
         assert cfg.ollama_base_url == "http://localhost:11434"
         assert cfg.timeout_seconds == 10.0
+        assert cfg.keep_alive == "5m"
         assert cfg.strict_mode is True
         assert cfg.max_output_chars == 280
         assert cfg.prompt_template_path == "policies/ic_prompt.txt"
         assert cfg.active_axes == []
         assert cfg.deterministic is False
+
+    def test_keep_alive_custom_value(self, tmp_path):
+        """Custom keep_alive value from dict is preserved."""
+        cfg = TranslationLayerConfig.from_dict(
+            {"enabled": True, "keep_alive": "30s"},
+            world_root=tmp_path,
+        )
+        assert cfg.keep_alive == "30s"
 
     def test_empty_dict_defaults_to_disabled(self, tmp_path):
         cfg = TranslationLayerConfig.from_dict({}, world_root=tmp_path)
