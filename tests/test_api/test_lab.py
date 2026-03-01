@@ -479,6 +479,83 @@ def test_world_prompts_returns_files(test_db, temp_db_path, db_with_users, tmp_p
 
 
 @pytest.mark.api
+def test_world_prompts_no_world_root_returns_empty(test_db, temp_db_path, db_with_users):
+    """World-prompts returns an empty list when _world_root is None."""
+    mock_service = _make_mock_service()
+    world = _build_world_with_service(mock_service)
+    world._world_root = None
+
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world?session_id={sid}")
+
+    assert resp.status_code == 200
+    assert resp.json()["prompts"] == []
+
+
+@pytest.mark.api
+def test_world_prompts_no_policies_dir_returns_empty(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """World-prompts returns an empty list when policies/ directory doesn't exist."""
+    mock_service = _make_mock_service()
+    world = _build_world_with_service(mock_service)
+    # tmp_path exists but has no policies/ subdirectory.
+    world._world_root = tmp_path
+
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world?session_id={sid}")
+
+    assert resp.status_code == 200
+    assert resp.json()["prompts"] == []
+
+
+@pytest.mark.api
+def test_world_prompts_skips_unreadable_file(test_db, temp_db_path, db_with_users, tmp_path):
+    """World-prompts skips .txt files that raise OSError on read."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "good.txt").write_text("readable prompt")
+    bad_file = policies / "bad.txt"
+    bad_file.write_text("will be unreadable")
+    bad_file.chmod(0o000)
+
+    mock_service = _make_mock_service()
+    mock_service.config = _make_translation_config(prompt_template_path="policies/good.txt")
+    world = _build_world_with_service(mock_service)
+    world._world_root = tmp_path
+
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world?session_id={sid}")
+
+    # Restore permissions for cleanup.
+    bad_file.chmod(0o644)
+
+    assert resp.status_code == 200
+    prompts = resp.json()["prompts"]
+    filenames = [p["filename"] for p in prompts]
+    assert "good.txt" in filenames
+    assert "bad.txt" not in filenames
+
+
+@pytest.mark.api
 def test_world_prompts_unknown_world_returns_404(lab_client, db_with_users, temp_db_path):
     """World-prompts returns 404 for an unknown world_id."""
     with use_test_database(temp_db_path):
