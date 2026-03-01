@@ -1085,6 +1085,34 @@ class LabWorldsResponse(BaseModel):
     worlds: list[LabWorldSummary]
 
 
+class LabPromptFile(BaseModel):
+    """A single prompt template file from the world's ``policies/`` directory.
+
+    Attributes:
+        filename:  File name (e.g. ``"ic_prompt.txt"``).
+        content:   Full text content of the file.
+        is_active: ``True`` if this file is the world's configured
+                   ``prompt_template_path``.
+    """
+
+    filename: str
+    content: str
+    is_active: bool
+
+
+class LabWorldPromptsResponse(BaseModel):
+    """Response to ``GET /api/lab/world-prompts/{world_id}``.
+
+    Attributes:
+        world_id: World identifier.
+        prompts:  List of prompt template files found in the world's
+                  ``policies/`` directory.
+    """
+
+    world_id: str
+    prompts: list[LabPromptFile]
+
+
 class LabTranslateRequest(BaseModel):
     """Request to ``POST /api/lab/translate``.
 
@@ -1104,6 +1132,10 @@ class LabTranslateRequest(BaseModel):
         seed:           Ollama seed for deterministic output.  ``-1`` means
                         non-deterministic.
         temperature:    Sampling temperature.  Ignored when seed is set.
+        prompt_template_override: Optional full prompt template text.  When
+                        provided, used instead of the world's configured
+                        ``prompt_template_path`` for this single call only.
+                        The server's canonical file is never modified.
     """
 
     session_id: str
@@ -1114,6 +1146,7 @@ class LabTranslateRequest(BaseModel):
     character_name: str = "Lab Subject"
     seed: int = -1
     temperature: float = 0.7
+    prompt_template_override: str | None = None
 
 
 class LabTranslateResponse(BaseModel):

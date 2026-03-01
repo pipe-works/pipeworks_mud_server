@@ -619,6 +619,7 @@ class OOCToICTranslationService:
         channel: str = "say",
         seed: int | None = None,
         temperature: float = 0.7,
+        prompt_template_override: str | None = None,
     ) -> LabTranslateResult:
         """Translate an OOC message using raw axis values — no DB lookup.
 
@@ -651,6 +652,10 @@ class OOCToICTranslationService:
             temperature:    Sampling temperature forwarded to Ollama.
                             Ignored when ``seed`` is provided (clamped to
                             0.0 for determinism).
+            prompt_template_override: Optional full prompt template text.
+                            When provided, used instead of ``self._prompt_template``
+                            for this single call.  The server's canonical file is
+                            never modified.
 
         Returns:
             :class:`LabTranslateResult` with the IC text, status, canonical
@@ -669,7 +674,9 @@ class OOCToICTranslationService:
         profile["profile_summary"] = _build_profile_summary(profile)
 
         # ── Render system prompt ───────────────────────────────────────────────
-        system_prompt = self._render_system_prompt(profile, ooc_message)
+        system_prompt = self._render_system_prompt(
+            profile, ooc_message, template_override=prompt_template_override
+        )
 
         # ── Per-call renderer (avoids state pollution with the game renderer) ──
         # The game renderer's set_deterministic() state is sticky for its
@@ -759,7 +766,13 @@ class OOCToICTranslationService:
             "OOC MESSAGE:\n{{ooc_message}}"
         )
 
-    def _render_system_prompt(self, profile: dict, ooc_message: str) -> str:
+    def _render_system_prompt(
+        self,
+        profile: dict,
+        ooc_message: str,
+        *,
+        template_override: str | None = None,
+    ) -> str:
         """Substitute ``{{key}}`` placeholders in the template.
 
         Uses simple string replacement rather than a template engine to
@@ -776,14 +789,16 @@ class OOCToICTranslationService:
         rather than silently empty.
 
         Args:
-            profile:     Flat profile dict from ``CharacterProfileBuilder``,
-                         enriched with ``channel`` and ``profile_summary``.
-            ooc_message: OOC message text.
+            profile:           Flat profile dict from ``CharacterProfileBuilder``,
+                               enriched with ``channel`` and ``profile_summary``.
+            ooc_message:       OOC message text.
+            template_override: When provided, used instead of
+                               ``self._prompt_template``.
 
         Returns:
             Fully-rendered system prompt string.
         """
-        rendered = self._prompt_template
+        rendered = template_override if template_override is not None else self._prompt_template
         # Substitute every profile key — includes axis fields, channel, and
         # the profile_summary block.
         for key, value in profile.items():
