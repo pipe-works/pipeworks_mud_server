@@ -435,3 +435,189 @@ def test_translate_seed_minus_one_passes_none_to_service(test_db, temp_db_path, 
 
     call_kwargs = mock_service.translate_with_axes.call_args
     assert call_kwargs.kwargs["seed"] is None
+
+
+# ── GET /api/lab/world-prompts/{world_id} ─────────────────────────────────────
+
+
+@pytest.mark.api
+def test_world_prompts_returns_files(test_db, temp_db_path, db_with_users, tmp_path):
+    """World-prompts endpoint returns .txt files from policies/ with active flag."""
+    # Set up a policies directory with two .txt files.
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt {{profile_summary}}")
+    (policies / "alt_prompt.txt").write_text("Alternative prompt {{profile_summary}}")
+    (policies / "not_a_prompt.yaml").write_text("should be ignored")
+
+    mock_service = _make_mock_service()
+    mock_service.config = _make_translation_config(prompt_template_path="policies/ic_prompt.txt")
+
+    world = _build_world_with_service(mock_service)
+    world._world_root = tmp_path
+
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world?session_id={sid}")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["world_id"] == "test_world"
+    prompts = data["prompts"]
+    assert len(prompts) == 2
+    names = {p["filename"] for p in prompts}
+    assert names == {"alt_prompt.txt", "ic_prompt.txt"}
+    active = [p for p in prompts if p["is_active"]]
+    assert len(active) == 1
+    assert active[0]["filename"] == "ic_prompt.txt"
+    assert active[0]["content"] == "Active prompt {{profile_summary}}"
+
+
+@pytest.mark.api
+def test_world_prompts_no_world_root_returns_empty(test_db, temp_db_path, db_with_users):
+    """World-prompts returns an empty list when _world_root is None."""
+    mock_service = _make_mock_service()
+    world = _build_world_with_service(mock_service)
+    world._world_root = None
+
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world?session_id={sid}")
+
+    assert resp.status_code == 200
+    assert resp.json()["prompts"] == []
+
+
+@pytest.mark.api
+def test_world_prompts_no_policies_dir_returns_empty(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """World-prompts returns an empty list when policies/ directory doesn't exist."""
+    mock_service = _make_mock_service()
+    world = _build_world_with_service(mock_service)
+    # tmp_path exists but has no policies/ subdirectory.
+    world._world_root = tmp_path
+
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world?session_id={sid}")
+
+    assert resp.status_code == 200
+    assert resp.json()["prompts"] == []
+
+
+@pytest.mark.api
+def test_world_prompts_skips_unreadable_file(test_db, temp_db_path, db_with_users, tmp_path):
+    """World-prompts skips .txt files that raise OSError on read."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "good.txt").write_text("readable prompt")
+    bad_file = policies / "bad.txt"
+    bad_file.write_text("will be unreadable")
+    bad_file.chmod(0o000)
+
+    mock_service = _make_mock_service()
+    mock_service.config = _make_translation_config(prompt_template_path="policies/good.txt")
+    world = _build_world_with_service(mock_service)
+    world._world_root = tmp_path
+
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world?session_id={sid}")
+
+    # Restore permissions for cleanup.
+    bad_file.chmod(0o644)
+
+    assert resp.status_code == 200
+    prompts = resp.json()["prompts"]
+    filenames = [p["filename"] for p in prompts]
+    assert "good.txt" in filenames
+    assert "bad.txt" not in filenames
+
+
+@pytest.mark.api
+def test_world_prompts_unknown_world_returns_404(lab_client, db_with_users, temp_db_path):
+    """World-prompts returns 404 for an unknown world_id."""
+    with use_test_database(temp_db_path):
+        sid = _login(lab_client, "testadmin")
+        resp = lab_client.get(f"/api/lab/world-prompts/no_such_world?session_id={sid}")
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_prompts_translation_disabled_returns_404(
+    lab_client_no_translation, db_with_users, temp_db_path
+):
+    """World-prompts returns 404 when translation layer is disabled."""
+    with use_test_database(temp_db_path):
+        sid = _login(lab_client_no_translation, "testadmin")
+        resp = lab_client_no_translation.get(f"/api/lab/world-prompts/test_world?session_id={sid}")
+    assert resp.status_code == 404
+
+
+# ── prompt_template_override in translate ─────────────────────────────────────
+
+
+@pytest.mark.api
+def test_translate_with_prompt_override(test_db, temp_db_path, db_with_users):
+    """Translate passes prompt_template_override to translate_with_axes when provided."""
+    mock_service = _make_mock_service()
+    world = _build_world_with_service(mock_service)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    override_text = "Custom prompt: {{profile_summary}}\nOOC: {{ooc_message}}"
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        payload = {
+            **_TRANSLATE_PAYLOAD,
+            "session_id": sid,
+            "prompt_template_override": override_text,
+        }
+        resp = client.post("/api/lab/translate", json=payload)
+
+    assert resp.status_code == 200
+    call_kwargs = mock_service.translate_with_axes.call_args
+    assert call_kwargs.kwargs["prompt_template_override"] == override_text
+
+
+@pytest.mark.api
+def test_translate_without_prompt_override(test_db, temp_db_path, db_with_users):
+    """Translate passes None for prompt_template_override when not provided."""
+    mock_service = _make_mock_service()
+    world = _build_world_with_service(mock_service)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        payload = {**_TRANSLATE_PAYLOAD, "session_id": sid}
+        resp = client.post("/api/lab/translate", json=payload)
+
+    assert resp.status_code == 200
+    call_kwargs = mock_service.translate_with_axes.call_args
+    assert call_kwargs.kwargs["prompt_template_override"] is None

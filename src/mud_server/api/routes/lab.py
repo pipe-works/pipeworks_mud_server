@@ -38,9 +38,11 @@ from fastapi import APIRouter, HTTPException
 
 from mud_server.api.auth import validate_session
 from mud_server.api.models import (
+    LabPromptFile,
     LabTranslateRequest,
     LabTranslateResponse,
     LabWorldConfig,
+    LabWorldPromptsResponse,
     LabWorldsResponse,
     LabWorldSummary,
 )
@@ -163,6 +165,60 @@ def router(engine: GameEngine) -> APIRouter:
             translation_enabled=True,
         )
 
+    @api.get("/world-prompts/{world_id}", response_model=LabWorldPromptsResponse)
+    async def get_world_prompts(world_id: str, session_id: str) -> LabWorldPromptsResponse:
+        """List prompt template files from the world's ``policies/`` directory.
+
+        Returns each ``.txt`` file's name and content, and flags which one is
+        the world's active ``prompt_template_path``.
+
+        Requires admin or superuser role.
+        """
+        _, _, role = validate_session(session_id)
+        _require_lab_role(role)
+
+        try:
+            world = engine.world_registry.get_world(world_id)
+        except ValueError as err:
+            raise HTTPException(
+                status_code=404,
+                detail=f"World {world_id!r} not found or inactive.",
+            ) from err
+
+        service = world.get_translation_service()
+        if service is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Translation layer not enabled for world {world_id!r}.",
+            )
+
+        # Resolve the policies directory from the world root.
+        world_root = world._world_root
+        if world_root is None:
+            return LabWorldPromptsResponse(world_id=world_id, prompts=[])
+        policies_dir = world_root / "policies"
+        if not policies_dir.is_dir():
+            return LabWorldPromptsResponse(world_id=world_id, prompts=[])
+
+        active_path = service.config.prompt_template_path  # e.g. "policies/ic_prompt.txt"
+        prompts: list[LabPromptFile] = []
+        for txt_file in sorted(policies_dir.glob("*.txt")):
+            try:
+                content = txt_file.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            # Compare relative path (e.g. "policies/ic_prompt.txt") to active_path.
+            rel = f"policies/{txt_file.name}"
+            prompts.append(
+                LabPromptFile(
+                    filename=txt_file.name,
+                    content=content,
+                    is_active=(rel == active_path),
+                )
+            )
+
+        return LabWorldPromptsResponse(world_id=world_id, prompts=prompts)
+
     @api.post("/translate", response_model=LabTranslateResponse)
     async def lab_translate(req: LabTranslateRequest) -> LabTranslateResponse:
         """Translate an OOC message using the world's canonical pipeline.
@@ -210,6 +266,7 @@ def router(engine: GameEngine) -> APIRouter:
             channel=req.channel,
             seed=seed,
             temperature=req.temperature,
+            prompt_template_override=req.prompt_template_override,
         )
 
         cfg = service.config
