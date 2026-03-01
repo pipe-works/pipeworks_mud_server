@@ -1215,3 +1215,51 @@ class TestTranslateWithAxes:
                 svc.translate_with_axes(self._AXES, "ooc")
 
         mock_ledger.assert_not_called()
+
+    # ── prompt_template field ────────────────────────────────────────────────
+
+    def test_prompt_template_returns_raw_template(self, tmp_path: Path) -> None:
+        """prompt_template is the raw template text (before substitution)."""
+        svc = self._make_svc(tmp_path)
+        raw = (tmp_path / "policies" / "ic_prompt.txt").read_text()
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "IC."
+            result = svc.translate_with_axes(self._AXES, "ooc")
+
+        assert result.prompt_template == raw
+        # rendered_prompt has placeholders resolved; prompt_template does not
+        assert "{{profile_summary}}" not in result.rendered_prompt
+        assert "{{profile_summary}}" in result.prompt_template
+
+    def test_prompt_template_with_override(self, tmp_path: Path) -> None:
+        """When prompt_template_override is provided, prompt_template reflects it."""
+        svc = self._make_svc(tmp_path)
+        override = "CUSTOM TEMPLATE: {{profile_summary}} {{ooc_message}}"
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "IC."
+            result = svc.translate_with_axes(self._AXES, "ooc", prompt_template_override=override)
+
+        assert result.prompt_template == override
+
+    def test_prompt_template_on_api_error(self, tmp_path: Path) -> None:
+        """prompt_template is populated even on fallback.api_error."""
+        svc = self._make_svc(tmp_path)
+        raw = (tmp_path / "policies" / "ic_prompt.txt").read_text()
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = None
+            result = svc.translate_with_axes(self._AXES, "ooc")
+
+        assert result.status == "fallback.api_error"
+        assert result.prompt_template == raw
+
+    def test_prompt_template_on_validation_failed(self, tmp_path: Path) -> None:
+        """prompt_template is populated even on fallback.validation_failed."""
+        svc = self._make_svc(tmp_path)
+        raw = (tmp_path / "policies" / "ic_prompt.txt").read_text()
+        with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
+            MockRenderer.return_value.render.return_value = "raw output"
+            with patch.object(svc._validator, "validate", return_value=None):
+                result = svc.translate_with_axes(self._AXES, "ooc")
+
+        assert result.status == "fallback.validation_failed"
+        assert result.prompt_template == raw

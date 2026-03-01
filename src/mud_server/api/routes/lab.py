@@ -287,6 +287,7 @@ def router(engine: GameEngine) -> APIRouter:
             status=result.status,
             profile_summary=result.profile_summary,
             rendered_prompt=result.rendered_prompt,
+            prompt_template=result.prompt_template,
             model=cfg.model,
             world_config=world_config,
         )

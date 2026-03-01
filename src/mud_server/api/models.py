@@ -1160,6 +1160,9 @@ class LabTranslateResponse(BaseModel):
                          formatted it (canonical format for the world).
         rendered_prompt: The fully-rendered system prompt sent to Ollama,
                          with all placeholders resolved.
+        prompt_template: Raw template text before per-character variable
+                         substitution.  Hash this (not ``rendered_prompt``)
+                         to identify which prompt file was used.
         model:           Ollama model tag used for this translation.
         world_config:    World configuration that was applied.
     """
@@ -1168,5 +1171,6 @@ class LabTranslateResponse(BaseModel):
     status: str
     profile_summary: str
     rendered_prompt: str
+    prompt_template: str
     model: str
     world_config: LabWorldConfig

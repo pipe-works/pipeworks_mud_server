@@ -113,12 +113,17 @@ class LabTranslateResult:
                         the server (canonical format).
         rendered_prompt: The fully-rendered system prompt sent to Ollama,
                         with all placeholders resolved.
+        prompt_template: Raw template text before per-character variable
+                        substitution.  Consumers that need a stable hash
+                        identifying which prompt *file* was used should hash
+                        this field, not ``rendered_prompt``.
     """
 
     ic_text: str | None
     status: str
     profile_summary: str
     rendered_prompt: str
+    prompt_template: str
 
 
 # ── Module-level helpers ──────────────────────────────────────────────────────
@@ -673,6 +678,15 @@ class OOCToICTranslationService:
         profile["channel"] = channel
         profile["profile_summary"] = _build_profile_summary(profile)
 
+        # ── Resolve raw template text ─────────────────────────────────────────
+        # Capture the template *before* placeholder substitution so that
+        # callers can hash it as a stable prompt-file identity.
+        template_used = (
+            prompt_template_override
+            if prompt_template_override is not None
+            else self._prompt_template
+        )
+
         # ── Render system prompt ───────────────────────────────────────────────
         system_prompt = self._render_system_prompt(
             profile, ooc_message, template_override=prompt_template_override
@@ -700,6 +714,7 @@ class OOCToICTranslationService:
                 status="fallback.api_error",
                 profile_summary=profile["profile_summary"],
                 rendered_prompt=system_prompt,
+                prompt_template=template_used,
             )
 
         # ── Validate output ────────────────────────────────────────────────────
@@ -710,6 +725,7 @@ class OOCToICTranslationService:
                 status="fallback.validation_failed",
                 profile_summary=profile["profile_summary"],
                 rendered_prompt=system_prompt,
+                prompt_template=template_used,
             )
 
         return LabTranslateResult(
@@ -717,6 +733,7 @@ class OOCToICTranslationService:
             status="success",
             profile_summary=profile["profile_summary"],
             rendered_prompt=system_prompt,
+            prompt_template=template_used,
         )
 
     # ── Internal helpers ──────────────────────────────────────────────────────

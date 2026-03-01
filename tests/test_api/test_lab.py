@@ -56,6 +56,7 @@ def _make_mock_service(result: LabTranslateResult | None = None) -> OOCToICTrans
             status="success",
             profile_summary="  Character: Lab Subject\n  Demeanor: timid (0.07)",
             rendered_prompt="<rendered system prompt>",
+            prompt_template="<raw template>",
         )
     service.translate_with_axes.return_value = result
     return service
@@ -92,7 +93,7 @@ def _build_world_with_service(
         world = World()
     world.world_name = "Test World"
     world.world_id = "test_world"
-    world._translation_service = service  # type: ignore[attr-defined]
+    world._translation_service = service
     return world
 
 
@@ -128,7 +129,7 @@ def _login(client: TestClient, username: str) -> str:
     """Log in and return the session_id."""
     resp = client.post("/login", json={"username": username, "password": TEST_PASSWORD})
     assert resp.status_code == 200, f"Login failed for {username}: {resp.text}"
-    return resp.json()["session_id"]
+    return str(resp.json()["session_id"])
 
 
 # ── Role enforcement ───────────────────────────────────────────────────────────
@@ -322,6 +323,7 @@ def test_translate_fallback_api_error(test_db, temp_db_path, db_with_users):
         status="fallback.api_error",
         profile_summary="  Character: Lab Subject",
         rendered_prompt="<rendered>",
+        prompt_template="<raw template>",
     )
     world = _build_world_with_service(_make_mock_service(error_result))
     engine = _build_lab_engine(world)
@@ -348,6 +350,7 @@ def test_translate_fallback_validation_failed(test_db, temp_db_path, db_with_use
         status="fallback.validation_failed",
         profile_summary="  Character: Lab Subject",
         rendered_prompt="<rendered>",
+        prompt_template="<raw template>",
     )
     world = _build_world_with_service(_make_mock_service(val_fail_result))
     engine = _build_lab_engine(world)
