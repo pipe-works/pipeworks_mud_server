@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.5](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.4...mud_server-v0.4.5) (2026-03-01)
+
+
+### Bug Fixes
+
+* **translation:** add keep_alive to OllamaRenderer and increase pipeworks_web timeout ([#153](https://github.com/pipe-works/pipeworks_mud_server/issues/153)) ([8e14dd1](https://github.com/pipe-works/pipeworks_mud_server/commit/8e14dd14a3efeb7bf154eb36f13507828294bb10))
+
 ## [0.4.4](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.3...mud_server-v0.4.4) (2026-02-28)
 
 
