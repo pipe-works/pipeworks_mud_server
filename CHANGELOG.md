@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.7](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.6...mud_server-v0.4.7) (2026-03-01)
+
+
+### Features
+
+* **api:** return raw prompt_template in lab translate response ([#157](https://github.com/pipe-works/pipeworks_mud_server/issues/157)) ([770858a](https://github.com/pipe-works/pipeworks_mud_server/commit/770858ac37be6163771b6026bf28ed899c8739ea))
+
 ## [0.4.6](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.5...mud_server-v0.4.6) (2026-03-01)
 
 

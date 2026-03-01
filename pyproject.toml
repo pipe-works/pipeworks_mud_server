@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mud_server"
-version = "0.4.6"
+version = "0.4.7"
 description = "A Python-based MUD (Multi-User Dungeon) server with web interface"
 readme = "README.md"
 requires-python = ">=3.12"
