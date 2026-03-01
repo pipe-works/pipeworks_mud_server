@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.6](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.5...mud_server-v0.4.6) (2026-03-01)
+
+
+### Features
+
+* **api:** add world-prompts endpoint and prompt override to lab translate ([#155](https://github.com/pipe-works/pipeworks_mud_server/issues/155)) ([0e9525f](https://github.com/pipe-works/pipeworks_mud_server/commit/0e9525f9e75c6134f2abfa68739ba1cb22a1fb08))
+
 ## [0.4.5](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.4...mud_server-v0.4.5) (2026-03-01)
 
 
