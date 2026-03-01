@@ -426,6 +426,7 @@ class OOCToICTranslationService:
             api_endpoint=config.api_endpoint,
             model=config.model,
             timeout_seconds=config.timeout_seconds,
+            keep_alive=config.keep_alive,
         )
         self._validator = OutputValidator(
             strict_mode=config.strict_mode,
@@ -679,6 +680,7 @@ class OOCToICTranslationService:
             model=self._config.model,
             timeout_seconds=self._config.timeout_seconds,
             temperature=temperature,
+            keep_alive=self._config.keep_alive,
         )
         if seed is not None:
             renderer.set_deterministic(seed)

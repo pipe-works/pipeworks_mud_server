@@ -19,6 +19,15 @@ When the engine is eventually asyncified the upgrade path is:
 ``httpx`` is already in the project dependencies (``>=0.28.1``) so no
 new dep is required at that point.
 
+Request structure
+-----------------
+The ``/api/chat`` payload includes a top-level ``keep_alive`` field
+(default ``"5m"``) that tells Ollama how long to keep the model loaded
+in memory after the request completes.  Without this field Ollama uses
+its server default (typically 5 minutes), but after a cold-start the
+model may be unloaded before the next request arrives, causing a full
+reload on every call.  Setting ``keep_alive`` explicitly avoids this.
+
 Deterministic mode
 ------------------
 When ``set_deterministic(seed_int)`` is called (by the service, after
@@ -67,6 +76,9 @@ class OllamaRenderer:
         _api_endpoint:  Full ``/api/chat`` URL.
         _model:         Ollama model tag (e.g. ``"gemma2:2b"``).
         _timeout:       HTTP request timeout in seconds.
+        _keep_alive:    Ollama ``keep_alive`` duration string (e.g.
+                        ``"5m"``).  Controls how long the model stays
+                        loaded in GPU/CPU memory after each request.
         _temperature:   Sampling temperature; clamped to 0.0 in deterministic
                         mode.
         _seed:          Integer seed forwarded to Ollama when deterministic;
@@ -80,6 +92,7 @@ class OllamaRenderer:
         model: str,
         timeout_seconds: float,
         temperature: float = _DEFAULT_TEMPERATURE,
+        keep_alive: str = "5m",
     ) -> None:
         """Initialise the renderer.
 
@@ -88,10 +101,16 @@ class OllamaRenderer:
             model:           Ollama model tag.
             timeout_seconds: HTTP request timeout.
             temperature:     Default sampling temperature.
+            keep_alive:      Ollama ``keep_alive`` duration string.
+                             Controls how long the model stays loaded
+                             after each request.  ``"5m"`` (default)
+                             keeps it warm for 5 minutes; ``"0"``
+                             unloads immediately.
         """
         self._api_endpoint = api_endpoint
         self._model = model
         self._timeout = timeout_seconds
+        self._keep_alive = keep_alive
         self._temperature: float = temperature
         self._seed: int | None = None
 
@@ -172,6 +191,8 @@ class OllamaRenderer:
 
         ``stream`` is always ``False`` — we want the full response in a
         single JSON object rather than a server-sent-event stream.
+        ``keep_alive`` is included at the top level to control how long
+        Ollama keeps the model loaded after responding.
 
         Args:
             system_prompt: Rendered system prompt text.
@@ -190,6 +211,7 @@ class OllamaRenderer:
         return {
             "model": self._model,
             "stream": False,
+            "keep_alive": self._keep_alive,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
