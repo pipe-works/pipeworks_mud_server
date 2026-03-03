@@ -38,6 +38,11 @@ POST /api/lab/world-prompts/{world_id}/drafts
     Create a new prompt draft under the world's ``policies/drafts``
     directory without overwriting any canonical files.
 
+POST /api/lab/world-prompts/{world_id}/drafts/{name}/promote
+    Promote one draft into a new canonical ``policies/<name>.txt`` file and
+    make it the active prompt_template_path without overwriting any existing
+    canonical files.
+
 GET  /api/lab/world-policy-bundle/{world_id}
     Return the canonical world policy package normalised into one JSON bundle
     for Artifact Editor inspection.
@@ -84,6 +89,8 @@ from mud_server.api.models import (
     LabPromptDraftCreateResponse,
     LabPromptDraftDocument,
     LabPromptDraftListResponse,
+    LabPromptDraftPromoteRequest,
+    LabPromptDraftPromoteResponse,
     LabPromptDraftSummary,
     LabPromptFile,
     LabTranslateRequest,
@@ -143,6 +150,41 @@ def _hash_policy_payload(axes_payload: dict, thresholds_payload: dict) -> str:
         sort_keys=True,
     )
     return sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _write_world_json(path: Path, payload: dict) -> None:
+    """Persist one world.json payload using the repo's standard formatting."""
+
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _activate_prompt_template(world, *, prompt_template_path: str) -> None:
+    """Update ``world.json`` and reload the world's translation service.
+
+    The lab promotion flow uses this helper to make a newly-promoted canonical
+    prompt file active without requiring a server restart.
+    """
+
+    world_root = world._world_root
+    if world_root is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Prompt files unavailable for world {world.world_id!r}.",
+        )
+
+    world_json_path = getattr(world, "_world_json_path", None) or (world_root / "world.json")
+    if not world_json_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"World config unavailable for world {world.world_id!r}.",
+        )
+
+    world_data = json.loads(world_json_path.read_text(encoding="utf-8"))
+    translation_data = world_data.setdefault("translation_layer", {})
+    translation_data["enabled"] = True
+    translation_data["prompt_template_path"] = prompt_template_path
+    _write_world_json(world_json_path, world_data)
+    world._init_translation_service(world_data)
 
 
 def _build_policy_bundle(world_id: str, world_root: Path) -> LabPolicyBundleResponse:
@@ -591,6 +633,110 @@ def router(engine: GameEngine) -> APIRouter:
             origin_path=f"policies/drafts/{draft_name}.txt",
             world_id=world_id,
             content=content,
+        )
+
+    @api.post(
+        "/world-prompts/{world_id}/drafts/{draft_name}/promote",
+        response_model=LabPromptDraftPromoteResponse,
+    )
+    async def promote_world_prompt_draft(
+        world_id: str,
+        draft_name: str,
+        req: LabPromptDraftPromoteRequest,
+    ) -> LabPromptDraftPromoteResponse:
+        """Promote one prompt draft into a new canonical active prompt file.
+
+        Promotion is explicit and create-only: the draft remains in place, a
+        new canonical ``policies/<target>.txt`` file is created, and the
+        world's active ``prompt_template_path`` is updated to point to it.
+        Existing canonical prompt files are never overwritten.
+
+        Requires admin or superuser role.
+        """
+
+        _, _, role = validate_session(req.session_id)
+        _require_lab_role(role)
+
+        if not _DRAFT_NAME_RE.fullmatch(draft_name):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Draft names must use lowercase letters, numbers, underscores, or "
+                    "hyphens and must not include a file extension."
+                ),
+            )
+
+        target_name = req.target_name.strip()
+        if not _DRAFT_NAME_RE.fullmatch(target_name):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Promotion target names must use lowercase letters, numbers, underscores, "
+                    "or hyphens and must not include a file extension."
+                ),
+            )
+
+        try:
+            world = engine.world_registry.get_world(world_id)
+        except ValueError as err:
+            raise HTTPException(
+                status_code=404,
+                detail=f"World {world_id!r} not found or inactive.",
+            ) from err
+
+        service = world.get_translation_service()
+        if service is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Translation layer not enabled for world {world_id!r}.",
+            )
+
+        world_root = world._world_root
+        if world_root is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Prompt files unavailable for world {world_id!r}.",
+            )
+
+        policies_dir = world_root / "policies"
+        if not policies_dir.is_dir():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Prompt files unavailable for world {world_id!r}.",
+            )
+
+        draft_path = policies_dir / "drafts" / f"{draft_name}.txt"
+        if not draft_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Prompt draft {draft_name!r} not found for world {world_id!r}.",
+            )
+
+        canonical_path = policies_dir / f"{target_name}.txt"
+        if canonical_path.exists():
+            raise HTTPException(
+                status_code=409,
+                detail=f"A canonical prompt named {target_name!r} already exists.",
+            )
+
+        try:
+            content = draft_path.read_text(encoding="utf-8")
+        except OSError as err:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Prompt draft {draft_name!r} is unreadable on disk.",
+            ) from err
+
+        canonical_path.write_text(content.rstrip() + "\n", encoding="utf-8")
+        active_prompt_path = f"policies/{target_name}.txt"
+        _activate_prompt_template(world, prompt_template_path=active_prompt_path)
+
+        return LabPromptDraftPromoteResponse(
+            name=draft_name,
+            world_id=world_id,
+            canonical_name=target_name,
+            canonical_path=active_prompt_path,
+            active_prompt_path=active_prompt_path,
         )
 
     @api.get("/world-policy-bundle/{world_id}", response_model=LabPolicyBundleResponse)
