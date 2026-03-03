@@ -109,6 +109,7 @@ def _build_prompt_world(
     )
     world = _build_world_with_service(service)
     world._world_root = world_root
+    world._world_json_path = world_root / "world.json"
     return world
 
 
@@ -1150,6 +1151,310 @@ def test_world_prompt_draft_load_returns_404_when_policies_dir_missing(
 
     assert resp.status_code == 404
     assert "prompt files unavailable" in resp.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_world_prompt_draft_promote_creates_canonical_file_and_activates_it(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft promotion creates a new canonical file and makes it active."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text(
+        "Active prompt {{profile_summary}}\n",
+        encoding="utf-8",
+    )
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    (drafts / "ic_prompt_variant.txt").write_text(
+        "Promoted prompt {{profile_summary}}\nDelivery Mode: {{channel}}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "world.json").write_text(
+        "{\n"
+        '  "translation_layer": {\n'
+        '    "enabled": true,\n'
+        '    "prompt_template_path": "policies/ic_prompt.txt"\n'
+        "  }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts/ic_prompt_variant/promote",
+            json={"session_id": sid, "target_name": "ic_prompt_v2"},
+        )
+        prompts_resp = client.get(f"/api/lab/world-prompts/test_world?session_id={sid}")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "ic_prompt_variant"
+    assert data["canonical_name"] == "ic_prompt_v2"
+    assert data["canonical_path"] == "policies/ic_prompt_v2.txt"
+    assert data["active_prompt_path"] == "policies/ic_prompt_v2.txt"
+    assert (policies / "ic_prompt_v2.txt").read_text(encoding="utf-8") == (
+        "Promoted prompt {{profile_summary}}\nDelivery Mode: {{channel}}\n"
+    )
+    assert '"prompt_template_path": "policies/ic_prompt_v2.txt"' in (
+        tmp_path / "world.json"
+    ).read_text(encoding="utf-8")
+    active = [entry for entry in prompts_resp.json()["prompts"] if entry["is_active"]]
+    assert [entry["filename"] for entry in active] == ["ic_prompt_v2.txt"]
+
+
+@pytest.mark.api
+def test_world_prompt_draft_promote_rejects_invalid_draft_name(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft promotion rejects source names outside the safe draft pattern."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt\n", encoding="utf-8")
+    (tmp_path / "world.json").write_text(
+        '{"translation_layer":{"enabled":true,"prompt_template_path":"policies/ic_prompt.txt"}}\n',
+        encoding="utf-8",
+    )
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts/Bad Name/promote",
+            json={"session_id": sid, "target_name": "ic_prompt_v2"},
+        )
+
+    assert resp.status_code == 400
+
+
+@pytest.mark.api
+def test_world_prompt_draft_promote_rejects_invalid_target_name(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft promotion rejects canonical target names outside the safe pattern."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt\n", encoding="utf-8")
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    (drafts / "ic_prompt_variant.txt").write_text("Prompt\n", encoding="utf-8")
+    (tmp_path / "world.json").write_text(
+        '{"translation_layer":{"enabled":true,"prompt_template_path":"policies/ic_prompt.txt"}}\n',
+        encoding="utf-8",
+    )
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts/ic_prompt_variant/promote",
+            json={"session_id": sid, "target_name": "Bad Name"},
+        )
+
+    assert resp.status_code == 400
+
+
+@pytest.mark.api
+def test_world_prompt_draft_promote_returns_404_when_world_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Prompt-draft promotion returns 404 when the target world is inactive."""
+    engine = _build_lab_engine(_build_world_with_service(_make_mock_service()))
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/missing_world/drafts/ic_prompt_variant/promote",
+            json={"session_id": sid, "target_name": "ic_prompt_v2"},
+        )
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_prompt_draft_promote_returns_404_when_translation_disabled(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft promotion returns 404 when translation is disabled for the world."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    (drafts / "ic_prompt_variant.txt").write_text("Prompt\n", encoding="utf-8")
+    world = _build_world_with_service(None)
+    world._world_root = tmp_path
+    world._world_json_path = tmp_path / "world.json"
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts/ic_prompt_variant/promote",
+            json={"session_id": sid, "target_name": "ic_prompt_v2"},
+        )
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_prompt_draft_promote_returns_404_when_world_root_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Prompt-draft promotion returns 404 when prompt files are unavailable."""
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = None
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts/ic_prompt_variant/promote",
+            json={"session_id": sid, "target_name": "ic_prompt_v2"},
+        )
+
+    assert resp.status_code == 404
+    assert "prompt files unavailable" in resp.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_world_prompt_draft_promote_returns_404_when_policies_dir_missing(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft promotion returns 404 when the policies directory is missing."""
+    (tmp_path / "world.json").write_text(
+        '{"translation_layer":{"enabled":true,"prompt_template_path":"policies/ic_prompt.txt"}}\n',
+        encoding="utf-8",
+    )
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts/ic_prompt_variant/promote",
+            json={"session_id": sid, "target_name": "ic_prompt_v2"},
+        )
+
+    assert resp.status_code == 404
+    assert "prompt files unavailable" in resp.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_world_prompt_draft_promote_returns_404_when_draft_missing(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft promotion returns 404 when the named draft does not exist."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt\n", encoding="utf-8")
+    (tmp_path / "world.json").write_text(
+        '{"translation_layer":{"enabled":true,"prompt_template_path":"policies/ic_prompt.txt"}}\n',
+        encoding="utf-8",
+    )
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts/no_such_prompt/promote",
+            json={"session_id": sid, "target_name": "ic_prompt_v2"},
+        )
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_prompt_draft_promote_returns_409_when_target_exists(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft promotion rejects canonical target collisions."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt\n", encoding="utf-8")
+    (policies / "ic_prompt_v2.txt").write_text("Existing canonical\n", encoding="utf-8")
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    (drafts / "ic_prompt_variant.txt").write_text("Prompt\n", encoding="utf-8")
+    (tmp_path / "world.json").write_text(
+        '{"translation_layer":{"enabled":true,"prompt_template_path":"policies/ic_prompt.txt"}}\n',
+        encoding="utf-8",
+    )
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts/ic_prompt_variant/promote",
+            json={"session_id": sid, "target_name": "ic_prompt_v2"},
+        )
+
+    assert resp.status_code == 409
+
+
+@pytest.mark.api
+def test_world_prompt_draft_promote_returns_404_when_world_config_missing(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft promotion returns 404 when world.json is unavailable."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt\n", encoding="utf-8")
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    (drafts / "ic_prompt_variant.txt").write_text("Prompt\n", encoding="utf-8")
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts/ic_prompt_variant/promote",
+            json={"session_id": sid, "target_name": "ic_prompt_v2"},
+        )
+
+    assert resp.status_code == 404
+    assert "world config unavailable" in resp.json()["detail"].lower()
 
 
 # ── GET /api/lab/world-policy-bundle/{world_id} ─────────────────────────────

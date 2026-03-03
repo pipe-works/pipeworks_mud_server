@@ -1191,6 +1191,37 @@ class LabPromptDraftDocument(BaseModel):
     content: str
 
 
+class LabPromptDraftPromoteRequest(BaseModel):
+    """Request to promote a prompt draft into a canonical active prompt file.
+
+    Attributes:
+        session_id: Active admin or superuser session.
+        target_name: Filename stem for the canonical prompt file, without
+            ``.txt``. The target must not already exist.
+    """
+
+    session_id: str
+    target_name: str
+
+
+class LabPromptDraftPromoteResponse(BaseModel):
+    """Response returned after promoting a prompt draft to canonical status.
+
+    Attributes:
+        name: Draft file stem without ``.txt``.
+        world_id: World that owns the promoted prompt.
+        canonical_name: Canonical prompt file stem created by the promotion.
+        canonical_path: World-relative path of the created canonical prompt.
+        active_prompt_path: Updated ``translation_layer.prompt_template_path``.
+    """
+
+    name: str
+    world_id: str
+    canonical_name: str
+    canonical_path: str
+    active_prompt_path: str
+
+
 class LabPolicyBundleResponse(BaseModel):
     """Normalized world policy bundle returned to the Axis Descriptor Lab.
 
