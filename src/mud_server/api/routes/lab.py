@@ -23,6 +23,21 @@ GET  /api/lab/world-config/{world_id}
     active_axes, strict_mode, etc.).  Used by the lab UI to reflect what the
     server will actually apply to a translation request.
 
+GET  /api/lab/world-prompts/{world_id}
+    Return the canonical prompt template files from the world's ``policies/``
+    directory.
+
+GET  /api/lab/world-prompts/{world_id}/drafts
+    List saved prompt draft files under the world's ``policies/drafts``
+    directory.
+
+GET  /api/lab/world-prompts/{world_id}/drafts/{name}
+    Load one saved prompt draft for Artifact Editor inspection.
+
+POST /api/lab/world-prompts/{world_id}/drafts
+    Create a new prompt draft under the world's ``policies/drafts``
+    directory without overwriting any canonical files.
+
 GET  /api/lab/world-policy-bundle/{world_id}
     Return the canonical world policy package normalised into one JSON bundle
     for Artifact Editor inspection.
@@ -65,6 +80,11 @@ from mud_server.api.models import (
     LabPolicyBundleDraftPayload,
     LabPolicyBundleDraftSummary,
     LabPolicyBundleResponse,
+    LabPromptDraftCreateRequest,
+    LabPromptDraftCreateResponse,
+    LabPromptDraftDocument,
+    LabPromptDraftListResponse,
+    LabPromptDraftSummary,
     LabPromptFile,
     LabTranslateRequest,
     LabTranslateResponse,
@@ -346,6 +366,232 @@ def router(engine: GameEngine) -> APIRouter:
             )
 
         return LabWorldPromptsResponse(world_id=world_id, prompts=prompts)
+
+    @api.post(
+        "/world-prompts/{world_id}/drafts",
+        response_model=LabPromptDraftCreateResponse,
+    )
+    async def create_world_prompt_draft(
+        world_id: str,
+        req: LabPromptDraftCreateRequest,
+    ) -> LabPromptDraftCreateResponse:
+        """Create a new prompt-template draft file for one world.
+
+        The lab may build on canonical server prompts, but it must never
+        overwrite active policy files. This endpoint therefore writes only to
+        ``policies/drafts`` and rejects any filename collision with either
+        canonical prompt files or existing drafts.
+
+        Requires admin or superuser role.
+        """
+
+        _, _, role = validate_session(req.session_id)
+        _require_lab_role(role)
+
+        draft_name = req.draft_name.strip()
+        if not _DRAFT_NAME_RE.fullmatch(draft_name):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Draft names must use lowercase letters, numbers, underscores, or "
+                    "hyphens and must not include a file extension."
+                ),
+            )
+
+        try:
+            world = engine.world_registry.get_world(world_id)
+        except ValueError as err:
+            raise HTTPException(
+                status_code=404,
+                detail=f"World {world_id!r} not found or inactive.",
+            ) from err
+
+        service = world.get_translation_service()
+        if service is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Translation layer not enabled for world {world_id!r}.",
+            )
+
+        world_root = world._world_root
+        if world_root is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Prompt files unavailable for world {world_id!r}.",
+            )
+
+        policies_dir = world_root / "policies"
+        if not policies_dir.is_dir():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Prompt files unavailable for world {world_id!r}.",
+            )
+
+        canonical_target = policies_dir / f"{draft_name}.txt"
+        drafts_dir = policies_dir / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        target = drafts_dir / f"{draft_name}.txt"
+        if canonical_target.exists() or target.exists():
+            raise HTTPException(
+                status_code=409,
+                detail=f"A prompt draft named {draft_name!r} already exists.",
+            )
+
+        target.write_text(req.content.rstrip() + "\n", encoding="utf-8")
+
+        return LabPromptDraftCreateResponse(
+            name=draft_name,
+            origin_path=f"policies/drafts/{draft_name}.txt",
+            world_id=world_id,
+            based_on_name=req.based_on_name,
+        )
+
+    @api.get(
+        "/world-prompts/{world_id}/drafts",
+        response_model=LabPromptDraftListResponse,
+    )
+    async def list_world_prompt_drafts(
+        world_id: str,
+        session_id: str,
+    ) -> LabPromptDraftListResponse:
+        """List saved prompt-template drafts for one world.
+
+        Draft files live under ``policies/drafts`` and are returned only if
+        they can still be read as UTF-8 text files. Invalid files are skipped
+        so the Artifact Editor sees a stable listing instead of a hard failure.
+
+        Requires admin or superuser role.
+        """
+
+        _, _, role = validate_session(session_id)
+        _require_lab_role(role)
+
+        try:
+            world = engine.world_registry.get_world(world_id)
+        except ValueError as err:
+            raise HTTPException(
+                status_code=404,
+                detail=f"World {world_id!r} not found or inactive.",
+            ) from err
+
+        service = world.get_translation_service()
+        if service is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Translation layer not enabled for world {world_id!r}.",
+            )
+
+        world_root = world._world_root
+        if world_root is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Prompt files unavailable for world {world_id!r}.",
+            )
+
+        policies_dir = world_root / "policies"
+        if not policies_dir.is_dir():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Prompt files unavailable for world {world_id!r}.",
+            )
+
+        drafts_dir = policies_dir / "drafts"
+        if not drafts_dir.is_dir():
+            return LabPromptDraftListResponse(world_id=world_id, drafts=[])
+
+        drafts: list[LabPromptDraftSummary] = []
+        for draft_file in sorted(drafts_dir.glob("*.txt")):
+            try:
+                draft_file.read_text(encoding="utf-8")
+            except OSError:
+                logger.warning("Skipping unreadable lab prompt draft: %s", draft_file)
+                continue
+            drafts.append(
+                LabPromptDraftSummary(
+                    name=draft_file.stem,
+                    origin_path=f"policies/drafts/{draft_file.name}",
+                    world_id=world_id,
+                )
+            )
+
+        return LabPromptDraftListResponse(world_id=world_id, drafts=drafts)
+
+    @api.get(
+        "/world-prompts/{world_id}/drafts/{draft_name}",
+        response_model=LabPromptDraftDocument,
+    )
+    async def get_world_prompt_draft(
+        world_id: str,
+        draft_name: str,
+        session_id: str,
+    ) -> LabPromptDraftDocument:
+        """Load one saved prompt-template draft for one world.
+
+        Requires admin or superuser role.
+        """
+
+        _, _, role = validate_session(session_id)
+        _require_lab_role(role)
+
+        if not _DRAFT_NAME_RE.fullmatch(draft_name):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Draft names must use lowercase letters, numbers, underscores, or "
+                    "hyphens and must not include a file extension."
+                ),
+            )
+
+        try:
+            world = engine.world_registry.get_world(world_id)
+        except ValueError as err:
+            raise HTTPException(
+                status_code=404,
+                detail=f"World {world_id!r} not found or inactive.",
+            ) from err
+
+        service = world.get_translation_service()
+        if service is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Translation layer not enabled for world {world_id!r}.",
+            )
+
+        world_root = world._world_root
+        if world_root is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Prompt files unavailable for world {world_id!r}.",
+            )
+
+        policies_dir = world_root / "policies"
+        if not policies_dir.is_dir():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Prompt files unavailable for world {world_id!r}.",
+            )
+
+        target = policies_dir / "drafts" / f"{draft_name}.txt"
+        if not target.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Prompt draft {draft_name!r} not found for world {world_id!r}.",
+            )
+
+        try:
+            content = target.read_text(encoding="utf-8")
+        except OSError as err:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Prompt draft {draft_name!r} is unreadable on disk.",
+            ) from err
+
+        return LabPromptDraftDocument(
+            name=draft_name,
+            origin_path=f"policies/drafts/{draft_name}.txt",
+            world_id=world_id,
+            content=content,
+        )
 
     @api.get("/world-policy-bundle/{world_id}", response_model=LabPolicyBundleResponse)
     async def get_world_policy_bundle(world_id: str, session_id: str) -> LabPolicyBundleResponse:

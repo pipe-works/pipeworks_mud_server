@@ -97,6 +97,21 @@ def _build_world_with_service(
     return world
 
 
+def _build_prompt_world(
+    world_root: Path,
+    *,
+    prompt_template_path: str = "policies/ic_prompt.txt",
+) -> World:
+    """Build a world rooted at a temporary policies directory for prompt-route tests."""
+    service = _make_mock_service()
+    cast(Any, service).config = _make_translation_config(
+        prompt_template_path=prompt_template_path,
+    )
+    world = _build_world_with_service(service)
+    world._world_root = world_root
+    return world
+
+
 @pytest.fixture()
 def lab_client(test_db, temp_db_path):
     """TestClient backed by a world with the translation layer enabled."""
@@ -580,6 +595,561 @@ def test_world_prompts_translation_disabled_returns_404(
         sid = _login(lab_client_no_translation, "testadmin")
         resp = lab_client_no_translation.get(f"/api/lab/world-prompts/test_world?session_id={sid}")
     assert resp.status_code == 404
+
+
+# ── prompt draft routes ──────────────────────────────────────────────────────
+
+
+@pytest.mark.api
+def test_world_prompt_draft_create_writes_file(test_db, temp_db_path, db_with_users, tmp_path):
+    """Prompt-draft create writes a create-only text draft under policies/drafts."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt {{profile_summary}}", encoding="utf-8")
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts",
+            json={
+                "session_id": sid,
+                "draft_name": "ic_prompt_variant",
+                "content": "Draft prompt {{profile_summary}}\nDelivery Mode: {{channel}}\n",
+                "based_on_name": "ic_prompt",
+            },
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "ic_prompt_variant"
+    assert data["origin_path"] == "policies/drafts/ic_prompt_variant.txt"
+    assert data["world_id"] == "test_world"
+    assert (policies / "drafts" / "ic_prompt_variant.txt").read_text(encoding="utf-8") == (
+        "Draft prompt {{profile_summary}}\nDelivery Mode: {{channel}}\n"
+    )
+
+
+@pytest.mark.api
+def test_world_prompt_draft_create_rejects_invalid_name(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft create rejects names outside the safe draft pattern."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt", encoding="utf-8")
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts",
+            json={
+                "session_id": sid,
+                "draft_name": "Bad Name",
+                "content": "Draft prompt",
+            },
+        )
+
+    assert resp.status_code == 400
+    assert "draft names must use lowercase letters" in resp.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_world_prompt_draft_create_rejects_existing_canonical_name(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft create rejects names that collide with canonical prompt files."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt", encoding="utf-8")
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts",
+            json={
+                "session_id": sid,
+                "draft_name": "ic_prompt",
+                "content": "Draft prompt",
+            },
+        )
+
+    assert resp.status_code == 409
+
+
+@pytest.mark.api
+def test_world_prompt_draft_create_returns_404_when_world_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Prompt-draft create returns 404 when the target world is inactive."""
+    engine = _build_lab_engine(_build_world_with_service(_make_mock_service()))
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/missing_world/drafts",
+            json={
+                "session_id": sid,
+                "draft_name": "missing_world_prompt",
+                "content": "Draft prompt",
+            },
+        )
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_prompt_draft_create_returns_404_when_translation_disabled(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft create returns 404 when translation is disabled for the world."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    world = _build_world_with_service(None)
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts",
+            json={"session_id": sid, "draft_name": "disabled_prompt", "content": "Draft prompt"},
+        )
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_prompt_draft_create_returns_404_when_world_root_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Prompt-draft create returns 404 when prompt files are unavailable."""
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = None
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts",
+            json={
+                "session_id": sid,
+                "draft_name": "missing_root_prompt",
+                "content": "Draft prompt",
+            },
+        )
+
+    assert resp.status_code == 404
+    assert "prompt files unavailable" in resp.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_world_prompt_draft_create_returns_404_when_policies_dir_missing(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft create returns 404 when the policies directory is missing."""
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-prompts/test_world/drafts",
+            json={"session_id": sid, "draft_name": "no_policies_prompt", "content": "Draft prompt"},
+        )
+
+    assert resp.status_code == 404
+    assert "prompt files unavailable" in resp.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_world_prompt_drafts_lists_saved_drafts(test_db, temp_db_path, db_with_users, tmp_path):
+    """Prompt-draft listing returns saved text drafts for one world."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt", encoding="utf-8")
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    (drafts / "ic_prompt_variant.txt").write_text("Draft prompt one", encoding="utf-8")
+    (drafts / "ic_prompt_variant_two.txt").write_text("Draft prompt two", encoding="utf-8")
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world/drafts?session_id={sid}")
+
+    assert resp.status_code == 200
+    drafts_data = resp.json()["drafts"]
+    assert [entry["name"] for entry in drafts_data] == [
+        "ic_prompt_variant",
+        "ic_prompt_variant_two",
+    ]
+
+
+@pytest.mark.api
+def test_world_prompt_drafts_returns_empty_when_drafts_dir_missing(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft listing returns an empty list when no drafts directory exists."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt", encoding="utf-8")
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world/drafts?session_id={sid}")
+
+    assert resp.status_code == 200
+    assert resp.json()["drafts"] == []
+
+
+@pytest.mark.api
+def test_world_prompt_drafts_skips_unreadable_files(test_db, temp_db_path, db_with_users, tmp_path):
+    """Prompt-draft listing skips drafts that raise OSError while being read."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt", encoding="utf-8")
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    good_draft = drafts / "good_prompt.txt"
+    bad_draft = drafts / "bad_prompt.txt"
+    good_draft.write_text("readable", encoding="utf-8")
+    bad_draft.write_text("broken", encoding="utf-8")
+
+    original_read_text = Path.read_text
+
+    def _read_text(self: Path, *args, **kwargs):
+        if self == bad_draft:
+            raise OSError("unreadable")
+        return original_read_text(self, *args, **kwargs)
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with patch.object(Path, "read_text", _read_text):
+        with use_test_database(temp_db_path):
+            sid = _login(client, "testadmin")
+            resp = client.get(f"/api/lab/world-prompts/test_world/drafts?session_id={sid}")
+
+    assert resp.status_code == 200
+    assert [entry["name"] for entry in resp.json()["drafts"]] == ["good_prompt"]
+
+
+@pytest.mark.api
+def test_world_prompt_drafts_returns_404_when_world_missing(test_db, temp_db_path, db_with_users):
+    """Prompt-draft listing returns 404 when the target world is inactive."""
+    engine = _build_lab_engine(_build_world_with_service(_make_mock_service()))
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/missing_world/drafts?session_id={sid}")
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_prompt_drafts_returns_404_when_translation_disabled(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft listing returns 404 when translation is disabled for the world."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    world = _build_world_with_service(None)
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world/drafts?session_id={sid}")
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_prompt_drafts_returns_404_when_world_root_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Prompt-draft listing returns 404 when prompt files are unavailable."""
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = None
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world/drafts?session_id={sid}")
+
+    assert resp.status_code == 404
+    assert "prompt files unavailable" in resp.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_world_prompt_drafts_returns_404_when_policies_dir_missing(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft listing returns 404 when the policies directory is missing."""
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world/drafts?session_id={sid}")
+
+    assert resp.status_code == 404
+    assert "prompt files unavailable" in resp.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_world_prompt_draft_load_returns_document(test_db, temp_db_path, db_with_users, tmp_path):
+    """Prompt-draft load returns the saved prompt text for one world."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt", encoding="utf-8")
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    (drafts / "ic_prompt_variant.txt").write_text(
+        "Draft prompt {{profile_summary}}\nDelivery Mode: {{channel}}\n",
+        encoding="utf-8",
+    )
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(
+            f"/api/lab/world-prompts/test_world/drafts/ic_prompt_variant?session_id={sid}"
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "ic_prompt_variant"
+    assert data["origin_path"] == "policies/drafts/ic_prompt_variant.txt"
+    assert data["content"].startswith("Draft prompt")
+
+
+@pytest.mark.api
+def test_world_prompt_draft_load_rejects_invalid_name(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft load rejects names outside the safe draft pattern."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt", encoding="utf-8")
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world/drafts/Bad Name?session_id={sid}")
+
+    assert resp.status_code == 400
+
+
+@pytest.mark.api
+def test_world_prompt_draft_load_returns_404_when_missing(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft load returns 404 when the named draft does not exist."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt", encoding="utf-8")
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(
+            f"/api/lab/world-prompts/test_world/drafts/no_such_prompt?session_id={sid}"
+        )
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_prompt_draft_load_returns_500_when_unreadable(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft load returns 500 when the draft file cannot be read."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt", encoding="utf-8")
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    target = drafts / "ic_prompt_variant.txt"
+    target.write_text("broken", encoding="utf-8")
+
+    original_read_text = Path.read_text
+
+    def _read_text(self: Path, *args, **kwargs):
+        if self == target:
+            raise OSError("unreadable")
+        return original_read_text(self, *args, **kwargs)
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with patch.object(Path, "read_text", _read_text):
+        with use_test_database(temp_db_path):
+            sid = _login(client, "testadmin")
+            resp = client.get(
+                f"/api/lab/world-prompts/test_world/drafts/ic_prompt_variant?session_id={sid}"
+            )
+
+    assert resp.status_code == 500
+
+
+@pytest.mark.api
+def test_world_prompt_draft_load_returns_404_when_world_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Prompt-draft load returns 404 when the target world is inactive."""
+    engine = _build_lab_engine(_build_world_with_service(_make_mock_service()))
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(
+            f"/api/lab/world-prompts/missing_world/drafts/ic_prompt_variant?session_id={sid}"
+        )
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_prompt_draft_load_returns_404_when_translation_disabled(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft load returns 404 when translation is disabled for the world."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    world = _build_world_with_service(None)
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(
+            f"/api/lab/world-prompts/test_world/drafts/ic_prompt_variant?session_id={sid}"
+        )
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_prompt_draft_load_returns_404_when_world_root_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Prompt-draft load returns 404 when prompt files are unavailable."""
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = None
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(
+            f"/api/lab/world-prompts/test_world/drafts/ic_prompt_variant?session_id={sid}"
+        )
+
+    assert resp.status_code == 404
+    assert "prompt files unavailable" in resp.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_world_prompt_draft_load_returns_404_when_policies_dir_missing(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Prompt-draft load returns 404 when the policies directory is missing."""
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(
+            f"/api/lab/world-prompts/test_world/drafts/ic_prompt_variant?session_id={sid}"
+        )
+
+    assert resp.status_code == 404
+    assert "prompt files unavailable" in resp.json()["detail"].lower()
 
 
 # ── GET /api/lab/world-policy-bundle/{world_id} ─────────────────────────────
