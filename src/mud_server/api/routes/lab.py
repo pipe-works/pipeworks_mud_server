@@ -33,11 +33,15 @@ POST /api/lab/translate
 from __future__ import annotations
 
 import logging
+from hashlib import sha256
+from pathlib import Path
 
+import yaml
 from fastapi import APIRouter, HTTPException
 
 from mud_server.api.auth import validate_session
 from mud_server.api.models import (
+    LabPolicyBundleResponse,
     LabPromptFile,
     LabTranslateRequest,
     LabTranslateResponse,
@@ -72,6 +76,106 @@ def _require_lab_role(role: str) -> None:
             status_code=403,
             detail="Lab endpoints require admin or superuser role.",
         )
+
+
+def _read_yaml(path: Path) -> dict:
+    """Read one YAML file from a world policy package.
+
+    Missing files return an empty dict so the route can surface consistent
+    contract errors rather than failing with an unhandled file exception.
+    """
+
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
+
+
+def _hash_policy_payload(axes_payload: dict, thresholds_payload: dict) -> str:
+    """Compute the canonical policy hash for the normalized bundle."""
+
+    serialized = yaml.safe_dump(
+        {"axes": axes_payload, "thresholds": thresholds_payload},
+        sort_keys=True,
+    )
+    return sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _build_policy_bundle(world_id: str, world_root: Path) -> LabPolicyBundleResponse:
+    """Normalize a world's policy package into the lab-facing JSON bundle shape."""
+
+    policy_root = world_root / "policies"
+    axes_payload = _read_yaml(policy_root / "axes.yaml")
+    thresholds_payload = _read_yaml(policy_root / "thresholds.yaml")
+    resolution_payload = _read_yaml(policy_root / "resolution.yaml")
+
+    axes_raw = axes_payload.get("axes") or {}
+    thresholds_raw = (
+        (thresholds_payload.get("axes") or {}) if isinstance(thresholds_payload, dict) else {}
+    )
+    chat_raw = (
+        ((resolution_payload.get("interactions") or {}).get("chat") or {})
+        if isinstance(resolution_payload, dict)
+        else {}
+    )
+    chat_axes_raw = chat_raw.get("axes") or {}
+
+    axes_order = list(axes_raw.keys())
+    if not axes_order:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Axis policy files unavailable for world {world_id!r}.",
+        )
+
+    normalized_axes: dict[str, dict] = {}
+    for axis_name, axis_meta in axes_raw.items():
+        ordering_values = (((axis_meta or {}).get("ordering") or {}).get("values")) or []
+        threshold_values = ((thresholds_raw.get(axis_name) or {}).get("values")) or {}
+        normalized_axes[axis_name] = {
+            "group": (axis_meta or {}).get("group", "character"),
+            "ordering": list(ordering_values),
+            "thresholds": [
+                {
+                    "label": label,
+                    "min": ranges.get("min"),
+                    "max": ranges.get("max"),
+                }
+                for label, ranges in threshold_values.items()
+            ],
+        }
+
+    normalized_chat_rules = {
+        "channel_multipliers": dict(chat_raw.get("channel_multipliers") or {}),
+        "min_gap_threshold": chat_raw.get("min_gap_threshold"),
+        "axes": {
+            axis_name: {
+                key: value
+                for key, value in (chat_axes_raw.get(axis_name) or {}).items()
+                if key in {"resolver", "base_magnitude"}
+            }
+            for axis_name in axes_order
+        },
+    }
+
+    return LabPolicyBundleResponse(
+        world_id=world_id,
+        version=str(
+            axes_payload.get("version")
+            or thresholds_payload.get("version")
+            or resolution_payload.get("version")
+            or ""
+        ),
+        source="mud_server policy package normalized to JSON",
+        policy_hash=_hash_policy_payload(axes_payload, thresholds_payload),
+        source_files=[
+            "policies/axes.yaml",
+            "policies/thresholds.yaml",
+            "policies/resolution.yaml",
+        ],
+        axes_order=axes_order,
+        axes=normalized_axes,
+        chat_rules=normalized_chat_rules,
+    )
 
 
 def router(engine: GameEngine) -> APIRouter:
@@ -218,6 +322,36 @@ def router(engine: GameEngine) -> APIRouter:
             )
 
         return LabWorldPromptsResponse(world_id=world_id, prompts=prompts)
+
+    @api.get("/world-policy-bundle/{world_id}", response_model=LabPolicyBundleResponse)
+    async def get_world_policy_bundle(world_id: str, session_id: str) -> LabPolicyBundleResponse:
+        """Return one world's normalized canonical policy bundle for the lab.
+
+        This endpoint is read-only.  It exposes the current server policy
+        package as a single JSON document so the Axis Descriptor Lab can use
+        the mud server as the canonical source of truth while still offering
+        a text-box driven editing experience for drafts.
+        """
+
+        _, _, role = validate_session(session_id)
+        _require_lab_role(role)
+
+        try:
+            world = engine.world_registry.get_world(world_id)
+        except ValueError as err:
+            raise HTTPException(
+                status_code=404,
+                detail=f"World {world_id!r} not found or inactive.",
+            ) from err
+
+        world_root = world._world_root
+        if world_root is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Axis policy files unavailable for world {world_id!r}.",
+            )
+
+        return _build_policy_bundle(world_id, world_root)
 
     @api.post("/translate", response_model=LabTranslateResponse)
     async def lab_translate(req: LabTranslateRequest) -> LabTranslateResponse:
