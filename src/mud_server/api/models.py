@@ -1142,6 +1142,116 @@ class LabPolicyBundleResponse(BaseModel):
     chat_rules: dict[str, Any]
 
 
+class LabPolicyBundleDraftPayload(BaseModel):
+    """Normalized policy bundle payload accepted for draft creation.
+
+    This mirrors the lab-facing JSON bundle shape, minus ``source_files``, so
+    the lab can submit edited drafts back to the mud server without needing to
+    reconstruct the original YAML package layout.
+
+    Attributes:
+        world_id: World identifier that owns the draft.
+        version: Draft policy bundle version string.
+        source: Human-readable provenance string carried into the draft file.
+        policy_hash: Optional hash copied from the canonical source bundle.
+        axes_order: Canonical axis ordering used by the bundle.
+        axes: Normalized per-axis metadata and threshold ranges.
+        chat_rules: Normalized chat-resolution rules.
+    """
+
+    world_id: str
+    version: str
+    source: str
+    policy_hash: str | None = None
+    axes_order: list[str]
+    axes: dict[str, Any]
+    chat_rules: dict[str, Any]
+
+
+class LabPolicyBundleDraftCreateRequest(BaseModel):
+    """Request to create a new policy bundle draft file for one world.
+
+    Attributes:
+        session_id: Active admin or superuser session.
+        draft_name: Filename stem for the new draft, without ``.json``.
+        content: Validated normalized policy bundle JSON to write.
+        based_on_name: Optional source artifact name the draft was derived from.
+    """
+
+    session_id: str
+    draft_name: str
+    content: LabPolicyBundleDraftPayload
+    based_on_name: str | None = None
+
+
+class LabPolicyBundleDraftCreateResponse(BaseModel):
+    """Response returned after creating a new policy bundle draft.
+
+    Attributes:
+        name: Draft file stem without ``.json``.
+        origin_path: World-relative path of the created draft file.
+        world_id: World that owns the created draft.
+        version: Version declared by the saved draft payload.
+        based_on_name: Optional source artifact name copied from the request.
+    """
+
+    name: str
+    origin_path: str
+    world_id: str
+    version: str
+    based_on_name: str | None = None
+
+
+class LabPolicyBundleDraftSummary(BaseModel):
+    """Metadata for one policy bundle draft file stored by the mud server.
+
+    Attributes:
+        name: Draft file stem without ``.json``.
+        origin_path: World-relative path to the draft file.
+        world_id: World that owns the draft file.
+        version: Version declared inside the draft payload.
+        based_on_name: Optional source artifact name carried from draft creation.
+    """
+
+    name: str
+    origin_path: str
+    world_id: str
+    version: str
+    based_on_name: str | None = None
+
+
+class LabPolicyBundleDraftListResponse(BaseModel):
+    """Response to ``GET /api/lab/world-policy-bundle/{world_id}/drafts``.
+
+    Attributes:
+        world_id: World identifier.
+        drafts: List of saved draft bundle files for that world.
+    """
+
+    world_id: str
+    drafts: list[LabPolicyBundleDraftSummary]
+
+
+class LabPolicyBundleDraftDocument(BaseModel):
+    """Response to ``GET /api/lab/world-policy-bundle/{world_id}/drafts/{name}``.
+
+    Attributes:
+        name: Draft file stem without ``.json``.
+        origin_path: World-relative path to the draft file.
+        world_id: World that owns the draft file.
+        version: Version declared inside the draft payload.
+        based_on_name: Optional source artifact name carried from draft creation.
+        content: Full normalized policy bundle draft payload.
+    """
+
+    name: str
+    origin_path: str
+    world_id: str
+    version: str
+    based_on_name: str | None = None
+    content: LabPolicyBundleDraftPayload
+
+
 class LabTranslateRequest(BaseModel):
     """Request to ``POST /api/lab/translate``.
 
