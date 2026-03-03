@@ -1113,6 +1113,35 @@ class LabWorldPromptsResponse(BaseModel):
     prompts: list[LabPromptFile]
 
 
+class LabPolicyBundleResponse(BaseModel):
+    """Normalized world policy bundle returned to the Axis Descriptor Lab.
+
+    This response exposes the mud server's canonical policy package as one
+    read-only JSON document so the lab can inspect and draft against the
+    current server contract without re-parsing YAML itself.
+
+    Attributes:
+        world_id: World identifier.
+        version: Policy package version mirrored from the canonical files.
+        source: Human-readable provenance string describing the normalization.
+        policy_hash: Deterministic hash of the combined axes/threshold payload.
+        source_files: Canonical server file paths that were normalized into
+            this bundle.
+        axes_order: Canonical axis ordering derived from ``axes.yaml``.
+        axes: Per-axis group, ordinal ordering, and threshold ranges.
+        chat_rules: Chat interaction rules normalized from ``resolution.yaml``.
+    """
+
+    world_id: str
+    version: str
+    source: str
+    policy_hash: str | None
+    source_files: list[str]
+    axes_order: list[str]
+    axes: dict[str, Any]
+    chat_rules: dict[str, Any]
+
+
 class LabTranslateRequest(BaseModel):
     """Request to ``POST /api/lab/translate``.
 

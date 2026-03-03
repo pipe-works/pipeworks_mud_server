@@ -414,7 +414,7 @@ def test_translate_passes_axes_to_service(test_db, temp_db_path, db_with_users):
         resp = client.post("/api/lab/translate", json=payload)
 
     assert resp.status_code == 200
-    call_kwargs = mock_service.translate_with_axes.call_args
+    call_kwargs = cast(Any, mock_service).translate_with_axes.call_args
     assert call_kwargs.kwargs["character_name"] == "Mira"
     assert call_kwargs.kwargs["channel"] == "whisper"
     assert call_kwargs.kwargs["seed"] == 42
@@ -436,7 +436,7 @@ def test_translate_seed_minus_one_passes_none_to_service(test_db, temp_db_path, 
         payload = {**_TRANSLATE_PAYLOAD, "session_id": sid, "seed": -1}
         client.post("/api/lab/translate", json=payload)
 
-    call_kwargs = mock_service.translate_with_axes.call_args
+    call_kwargs = cast(Any, mock_service).translate_with_axes.call_args
     assert call_kwargs.kwargs["seed"] is None
 
 
@@ -454,7 +454,9 @@ def test_world_prompts_returns_files(test_db, temp_db_path, db_with_users, tmp_p
     (policies / "not_a_prompt.yaml").write_text("should be ignored")
 
     mock_service = _make_mock_service()
-    mock_service.config = _make_translation_config(prompt_template_path="policies/ic_prompt.txt")
+    cast(Any, mock_service).config = _make_translation_config(
+        prompt_template_path="policies/ic_prompt.txt"
+    )
 
     world = _build_world_with_service(mock_service)
     world._world_root = tmp_path
@@ -535,7 +537,9 @@ def test_world_prompts_skips_unreadable_file(test_db, temp_db_path, db_with_user
     bad_file.chmod(0o000)
 
     mock_service = _make_mock_service()
-    mock_service.config = _make_translation_config(prompt_template_path="policies/good.txt")
+    cast(Any, mock_service).config = _make_translation_config(
+        prompt_template_path="policies/good.txt"
+    )
     world = _build_world_with_service(mock_service)
     world._world_root = tmp_path
 
@@ -578,6 +582,105 @@ def test_world_prompts_translation_disabled_returns_404(
     assert resp.status_code == 404
 
 
+# ── GET /api/lab/world-policy-bundle/{world_id} ─────────────────────────────
+
+
+@pytest.mark.api
+def test_world_policy_bundle_returns_normalized_bundle(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle endpoint returns the canonical policy package as normalized JSON."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "axes.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    group: character\n"
+        "    ordering:\n"
+        "      type: ordinal\n"
+        "      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policies / "thresholds.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    scale: ordinal\n"
+        "    values:\n"
+        "      timid: {min: 0.0, max: 0.49}\n"
+        "      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policies / "resolution.yaml").write_text(
+        'version: "1.0"\n'
+        "interactions:\n"
+        "  chat:\n"
+        "    channel_multipliers:\n"
+        "      say: 1.0\n"
+        "      yell: 1.5\n"
+        "      whisper: 0.5\n"
+        "    min_gap_threshold: 0.05\n"
+        "    axes:\n"
+        "      demeanor:\n"
+        "        resolver: dominance_shift\n"
+        "        base_magnitude: 0.03\n",
+        encoding="utf-8",
+    )
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-policy-bundle/test_world?session_id={sid}")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["world_id"] == "test_world"
+    assert data["version"] == "0.1.0"
+    assert data["source_files"] == [
+        "policies/axes.yaml",
+        "policies/thresholds.yaml",
+        "policies/resolution.yaml",
+    ]
+    assert data["axes_order"] == ["demeanor"]
+    assert data["axes"]["demeanor"]["ordering"] == ["timid", "proud"]
+    assert data["chat_rules"]["axes"]["demeanor"]["resolver"] == "dominance_shift"
+
+
+@pytest.mark.api
+def test_world_policy_bundle_unknown_world_returns_404(lab_client, db_with_users, temp_db_path):
+    """Policy-bundle endpoint returns 404 for an unknown world_id."""
+    with use_test_database(temp_db_path):
+        sid = _login(lab_client, "testadmin")
+        resp = lab_client.get(f"/api/lab/world-policy-bundle/no_such_world?session_id={sid}")
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_policy_bundle_missing_files_returns_404(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle endpoint returns 404 when the world has no policy package."""
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-policy-bundle/test_world?session_id={sid}")
+
+    assert resp.status_code == 404
+
+
 # ── prompt_template_override in translate ─────────────────────────────────────
 
 
@@ -602,7 +705,7 @@ def test_translate_with_prompt_override(test_db, temp_db_path, db_with_users):
         resp = client.post("/api/lab/translate", json=payload)
 
     assert resp.status_code == 200
-    call_kwargs = mock_service.translate_with_axes.call_args
+    call_kwargs = cast(Any, mock_service).translate_with_axes.call_args
     assert call_kwargs.kwargs["prompt_template_override"] == override_text
 
 
@@ -622,5 +725,5 @@ def test_translate_without_prompt_override(test_db, temp_db_path, db_with_users)
         resp = client.post("/api/lab/translate", json=payload)
 
     assert resp.status_code == 200
-    call_kwargs = mock_service.translate_with_axes.call_args
+    call_kwargs = cast(Any, mock_service).translate_with_axes.call_args
     assert call_kwargs.kwargs["prompt_template_override"] is None
