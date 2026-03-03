@@ -1113,6 +1113,84 @@ class LabWorldPromptsResponse(BaseModel):
     prompts: list[LabPromptFile]
 
 
+class LabPromptDraftCreateRequest(BaseModel):
+    """Request to create a new prompt draft file for one world.
+
+    Attributes:
+        session_id: Active admin or superuser session.
+        draft_name: Filename stem for the new draft, without ``.txt``.
+        content: Raw prompt template text to write.
+        based_on_name: Optional source artifact name the draft was derived from.
+    """
+
+    session_id: str
+    draft_name: str
+    content: str
+    based_on_name: str | None = None
+
+
+class LabPromptDraftCreateResponse(BaseModel):
+    """Response returned after creating a new prompt draft.
+
+    Attributes:
+        name: Draft file stem without ``.txt``.
+        origin_path: World-relative path of the created draft file.
+        world_id: World that owns the created draft.
+        based_on_name: Optional source artifact name copied from the request.
+    """
+
+    name: str
+    origin_path: str
+    world_id: str
+    based_on_name: str | None = None
+
+
+class LabPromptDraftSummary(BaseModel):
+    """Metadata for one prompt draft file stored by the mud server.
+
+    Attributes:
+        name: Draft file stem without ``.txt``.
+        origin_path: World-relative path to the draft file.
+        world_id: World that owns the draft file.
+        based_on_name: Optional source artifact name carried from draft creation.
+    """
+
+    name: str
+    origin_path: str
+    world_id: str
+    based_on_name: str | None = None
+
+
+class LabPromptDraftListResponse(BaseModel):
+    """Response to ``GET /api/lab/world-prompts/{world_id}/drafts``.
+
+    Attributes:
+        world_id: World identifier.
+        drafts: List of saved draft prompt files for that world.
+    """
+
+    world_id: str
+    drafts: list[LabPromptDraftSummary]
+
+
+class LabPromptDraftDocument(BaseModel):
+    """Response to ``GET /api/lab/world-prompts/{world_id}/drafts/{name}``.
+
+    Attributes:
+        name: Draft file stem without ``.txt``.
+        origin_path: World-relative path to the draft file.
+        world_id: World that owns the draft file.
+        based_on_name: Optional source artifact name carried from draft creation.
+        content: Raw prompt template text stored on disk.
+    """
+
+    name: str
+    origin_path: str
+    world_id: str
+    based_on_name: str | None = None
+    content: str
+
+
 class LabPolicyBundleResponse(BaseModel):
     """Normalized world policy bundle returned to the Axis Descriptor Lab.
 
