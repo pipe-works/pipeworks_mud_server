@@ -23,6 +23,21 @@ GET  /api/lab/world-config/{world_id}
     active_axes, strict_mode, etc.).  Used by the lab UI to reflect what the
     server will actually apply to a translation request.
 
+GET  /api/lab/world-policy-bundle/{world_id}
+    Return the canonical world policy package normalised into one JSON bundle
+    for Artifact Editor inspection.
+
+GET  /api/lab/world-policy-bundle/{world_id}/drafts
+    List saved JSON draft bundles under the world's ``policies/drafts``
+    directory.
+
+GET  /api/lab/world-policy-bundle/{world_id}/drafts/{name}
+    Load one saved JSON draft bundle for Artifact Editor inspection.
+
+POST /api/lab/world-policy-bundle/{world_id}/drafts
+    Create a new draft JSON bundle under the world's ``policies/drafts``
+    directory without overwriting any canonical files.
+
 POST /api/lab/translate
     Translate an OOC message to IC dialogue using the world's canonical
     pipeline.  Accepts raw axis values — no character DB lookup is
@@ -32,7 +47,9 @@ POST /api/lab/translate
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from hashlib import sha256
 from pathlib import Path
 
@@ -41,6 +58,12 @@ from fastapi import APIRouter, HTTPException
 
 from mud_server.api.auth import validate_session
 from mud_server.api.models import (
+    LabPolicyBundleDraftCreateRequest,
+    LabPolicyBundleDraftCreateResponse,
+    LabPolicyBundleDraftDocument,
+    LabPolicyBundleDraftListResponse,
+    LabPolicyBundleDraftPayload,
+    LabPolicyBundleDraftSummary,
     LabPolicyBundleResponse,
     LabPromptFile,
     LabTranslateRequest,
@@ -60,6 +83,7 @@ logger = logging.getLogger(__name__)
 # Admin (level 2) and Superuser (level 3) are permitted; Player (0) and
 # Worldbuilder (1) are not.
 _LAB_MIN_ROLE_LEVEL: int = get_role_hierarchy_level("admin")
+_DRAFT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 def _require_lab_role(role: str) -> None:
@@ -352,6 +376,221 @@ def router(engine: GameEngine) -> APIRouter:
             )
 
         return _build_policy_bundle(world_id, world_root)
+
+    @api.post(
+        "/world-policy-bundle/{world_id}/drafts",
+        response_model=LabPolicyBundleDraftCreateResponse,
+    )
+    async def create_world_policy_bundle_draft(
+        world_id: str,
+        req: LabPolicyBundleDraftCreateRequest,
+    ) -> LabPolicyBundleDraftCreateResponse:
+        """Create a new normalized policy bundle draft for one world.
+
+        The lab may build on canonical server artifacts, but it must never
+        overwrite active policy files. This endpoint therefore writes only to
+        ``policies/drafts`` and rejects any filename collision.
+
+        Requires admin or superuser role.
+        """
+
+        _, _, role = validate_session(req.session_id)
+        _require_lab_role(role)
+
+        draft_name = req.draft_name.strip()
+        if not _DRAFT_NAME_RE.fullmatch(draft_name):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Draft names must use lowercase letters, numbers, underscores, or "
+                    "hyphens and must not include a file extension."
+                ),
+            )
+
+        if req.content.world_id != world_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Draft content world_id must match the target world_id.",
+            )
+
+        try:
+            world = engine.world_registry.get_world(world_id)
+        except ValueError as err:
+            raise HTTPException(
+                status_code=404,
+                detail=f"World {world_id!r} not found or inactive.",
+            ) from err
+
+        world_root = world._world_root
+        if world_root is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Axis policy files unavailable for world {world_id!r}.",
+            )
+
+        _build_policy_bundle(world_id, world_root)
+
+        drafts_dir = world_root / "policies" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        target = drafts_dir / f"{draft_name}.json"
+        if target.exists():
+            raise HTTPException(
+                status_code=409,
+                detail=f"A policy bundle draft named {draft_name!r} already exists.",
+            )
+
+        target.write_text(
+            json.dumps(req.content.model_dump(), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        return LabPolicyBundleDraftCreateResponse(
+            name=draft_name,
+            origin_path=f"policies/drafts/{draft_name}.json",
+            world_id=req.content.world_id,
+            version=req.content.version,
+            based_on_name=req.based_on_name,
+        )
+
+    @api.get(
+        "/world-policy-bundle/{world_id}/drafts",
+        response_model=LabPolicyBundleDraftListResponse,
+    )
+    async def list_world_policy_bundle_drafts(
+        world_id: str,
+        session_id: str,
+    ) -> LabPolicyBundleDraftListResponse:
+        """List saved normalized policy bundle drafts for one world.
+
+        Draft files live under ``policies/drafts`` and are returned only if
+        they still parse as valid normalized bundle JSON for the selected
+        world. Invalid files are skipped so the Artifact Editor sees a stable
+        listing instead of a hard failure.
+
+        Requires admin or superuser role.
+        """
+
+        _, _, role = validate_session(session_id)
+        _require_lab_role(role)
+
+        try:
+            world = engine.world_registry.get_world(world_id)
+        except ValueError as err:
+            raise HTTPException(
+                status_code=404,
+                detail=f"World {world_id!r} not found or inactive.",
+            ) from err
+
+        world_root = world._world_root
+        if world_root is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Axis policy files unavailable for world {world_id!r}.",
+            )
+
+        _build_policy_bundle(world_id, world_root)
+
+        drafts_dir = world_root / "policies" / "drafts"
+        if not drafts_dir.is_dir():
+            return LabPolicyBundleDraftListResponse(world_id=world_id, drafts=[])
+
+        drafts: list[LabPolicyBundleDraftSummary] = []
+        for draft_file in sorted(drafts_dir.glob("*.json")):
+            try:
+                raw = json.loads(draft_file.read_text(encoding="utf-8"))
+                payload = LabPolicyBundleDraftPayload.model_validate(raw)
+            except (OSError, json.JSONDecodeError, ValueError):
+                logger.warning("Skipping invalid lab policy bundle draft: %s", draft_file)
+                continue
+            if payload.world_id != world_id:
+                logger.warning(
+                    "Skipping lab policy bundle draft with mismatched world_id: %s",
+                    draft_file,
+                )
+                continue
+            drafts.append(
+                LabPolicyBundleDraftSummary(
+                    name=draft_file.stem,
+                    origin_path=f"policies/drafts/{draft_file.name}",
+                    world_id=payload.world_id,
+                    version=payload.version,
+                )
+            )
+
+        return LabPolicyBundleDraftListResponse(world_id=world_id, drafts=drafts)
+
+    @api.get(
+        "/world-policy-bundle/{world_id}/drafts/{draft_name}",
+        response_model=LabPolicyBundleDraftDocument,
+    )
+    async def get_world_policy_bundle_draft(
+        world_id: str,
+        draft_name: str,
+        session_id: str,
+    ) -> LabPolicyBundleDraftDocument:
+        """Load one saved normalized policy bundle draft for one world.
+
+        Requires admin or superuser role.
+        """
+
+        _, _, role = validate_session(session_id)
+        _require_lab_role(role)
+
+        if not _DRAFT_NAME_RE.fullmatch(draft_name):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Draft names must use lowercase letters, numbers, underscores, or "
+                    "hyphens and must not include a file extension."
+                ),
+            )
+
+        try:
+            world = engine.world_registry.get_world(world_id)
+        except ValueError as err:
+            raise HTTPException(
+                status_code=404,
+                detail=f"World {world_id!r} not found or inactive.",
+            ) from err
+
+        world_root = world._world_root
+        if world_root is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Axis policy files unavailable for world {world_id!r}.",
+            )
+
+        _build_policy_bundle(world_id, world_root)
+
+        target = world_root / "policies" / "drafts" / f"{draft_name}.json"
+        if not target.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Policy bundle draft {draft_name!r} not found for world {world_id!r}.",
+            )
+
+        try:
+            raw = json.loads(target.read_text(encoding="utf-8"))
+            payload = LabPolicyBundleDraftPayload.model_validate(raw)
+        except (OSError, json.JSONDecodeError, ValueError) as err:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Policy bundle draft {draft_name!r} is invalid on disk.",
+            ) from err
+
+        if payload.world_id != world_id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Policy bundle draft {draft_name!r} belongs to a different world.",
+            )
+
+        return LabPolicyBundleDraftDocument(
+            name=draft_name,
+            origin_path=f"policies/drafts/{draft_name}.json",
+            world_id=payload.world_id,
+            version=payload.version,
+            content=payload,
+        )
 
     @api.post("/translate", response_model=LabTranslateResponse)
     async def lab_translate(req: LabTranslateRequest) -> LabTranslateResponse:

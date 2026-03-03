@@ -681,6 +681,338 @@ def test_world_policy_bundle_missing_files_returns_404(
     assert resp.status_code == 404
 
 
+@pytest.mark.api
+def test_world_policy_bundle_draft_create_writes_json_file(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle draft endpoint writes a create-only JSON draft under policies/drafts."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "axes.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    group: character\n"
+        "    ordering:\n"
+        "      type: ordinal\n"
+        "      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policies / "thresholds.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    scale: ordinal\n"
+        "    values:\n"
+        "      timid: {min: 0.0, max: 0.49}\n"
+        "      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policies / "resolution.yaml").write_text(
+        'version: "1.0"\n'
+        "interactions:\n"
+        "  chat:\n"
+        "    channel_multipliers:\n"
+        "      say: 1.0\n"
+        "      yell: 1.5\n"
+        "      whisper: 0.5\n"
+        "    min_gap_threshold: 0.05\n"
+        "    axes:\n"
+        "      demeanor:\n"
+        "        resolver: dominance_shift\n"
+        "        base_magnitude: 0.03\n",
+        encoding="utf-8",
+    )
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-policy-bundle/test_world/drafts",
+            json={
+                "session_id": sid,
+                "draft_name": "test_world_bundle_alt",
+                "content": {
+                    "world_id": "test_world",
+                    "version": "0.2.0",
+                    "source": "lab draft",
+                    "policy_hash": None,
+                    "axes_order": ["demeanor"],
+                    "axes": {
+                        "demeanor": {
+                            "group": "character",
+                            "ordering": ["timid", "proud"],
+                            "thresholds": [
+                                {"label": "timid", "min": 0.0, "max": 0.49},
+                                {"label": "proud", "min": 0.5, "max": 1.0},
+                            ],
+                        }
+                    },
+                    "chat_rules": {
+                        "channel_multipliers": {
+                            "say": 1.0,
+                            "yell": 1.5,
+                            "whisper": 0.5,
+                        },
+                        "min_gap_threshold": 0.05,
+                        "axes": {
+                            "demeanor": {
+                                "resolver": "dominance_shift",
+                                "base_magnitude": 0.04,
+                            }
+                        },
+                    },
+                },
+                "based_on_name": "test_world_policy_bundle",
+            },
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["origin_path"] == "policies/drafts/test_world_bundle_alt.json"
+    draft_file = tmp_path / "policies" / "drafts" / "test_world_bundle_alt.json"
+    assert draft_file.exists()
+    assert '"world_id": "test_world"' in draft_file.read_text(encoding="utf-8")
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_create_rejects_name_collision(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle draft endpoint refuses to overwrite an existing draft file."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "axes.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    group: character\n"
+        "    ordering:\n"
+        "      type: ordinal\n"
+        "      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policies / "thresholds.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    scale: ordinal\n"
+        "    values:\n"
+        "      timid: {min: 0.0, max: 0.49}\n"
+        "      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policies / "resolution.yaml").write_text(
+        'version: "1.0"\n'
+        "interactions:\n"
+        "  chat:\n"
+        "    channel_multipliers:\n"
+        "      say: 1.0\n"
+        "      yell: 1.5\n"
+        "      whisper: 0.5\n"
+        "    min_gap_threshold: 0.05\n"
+        "    axes:\n"
+        "      demeanor:\n"
+        "        resolver: dominance_shift\n"
+        "        base_magnitude: 0.03\n",
+        encoding="utf-8",
+    )
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    (drafts / "test_world_bundle_alt.json").write_text("{}\n", encoding="utf-8")
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-policy-bundle/test_world/drafts",
+            json={
+                "session_id": sid,
+                "draft_name": "test_world_bundle_alt",
+                "content": {
+                    "world_id": "test_world",
+                    "version": "0.2.0",
+                    "source": "lab draft",
+                    "policy_hash": None,
+                    "axes_order": ["demeanor"],
+                    "axes": {
+                        "demeanor": {
+                            "group": "character",
+                            "ordering": ["timid", "proud"],
+                            "thresholds": [
+                                {"label": "timid", "min": 0.0, "max": 0.49},
+                                {"label": "proud", "min": 0.5, "max": 1.0},
+                            ],
+                        }
+                    },
+                    "chat_rules": {
+                        "channel_multipliers": {
+                            "say": 1.0,
+                            "yell": 1.5,
+                            "whisper": 0.5,
+                        },
+                        "min_gap_threshold": 0.05,
+                        "axes": {
+                            "demeanor": {
+                                "resolver": "dominance_shift",
+                                "base_magnitude": 0.04,
+                            }
+                        },
+                    },
+                },
+            },
+        )
+
+    assert resp.status_code == 409
+    assert "already exists" in resp.json()["detail"]
+
+
+@pytest.mark.api
+def test_world_policy_bundle_drafts_lists_saved_drafts(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle draft listing returns saved JSON drafts for one world."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "axes.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    group: character\n"
+        "    ordering:\n"
+        "      type: ordinal\n"
+        "      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policies / "thresholds.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    scale: ordinal\n"
+        "    values:\n"
+        "      timid: {min: 0.0, max: 0.49}\n"
+        "      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policies / "resolution.yaml").write_text(
+        'version: "1.0"\n'
+        "interactions:\n"
+        "  chat:\n"
+        "    channel_multipliers:\n"
+        "      say: 1.0\n"
+        "      yell: 1.5\n"
+        "      whisper: 0.5\n"
+        "    min_gap_threshold: 0.05\n"
+        "    axes:\n"
+        "      demeanor:\n"
+        "        resolver: dominance_shift\n"
+        "        base_magnitude: 0.03\n",
+        encoding="utf-8",
+    )
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    (drafts / "test_world_bundle_alt.json").write_text(
+        '{"world_id":"test_world","version":"0.2.0","source":"lab draft","policy_hash":null,"axes_order":["demeanor"],"axes":{"demeanor":{"group":"character","ordering":["timid","proud"],"thresholds":[{"label":"timid","min":0.0,"max":0.49},{"label":"proud","min":0.5,"max":1.0}]}},"chat_rules":{"channel_multipliers":{"say":1.0,"yell":1.5,"whisper":0.5},"min_gap_threshold":0.05,"axes":{"demeanor":{"resolver":"dominance_shift","base_magnitude":0.04}}}}\n',
+        encoding="utf-8",
+    )
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-policy-bundle/test_world/drafts?session_id={sid}")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["world_id"] == "test_world"
+    assert data["drafts"][0]["name"] == "test_world_bundle_alt"
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_loads_saved_draft(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle draft load returns one saved JSON draft document."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "axes.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    group: character\n"
+        "    ordering:\n"
+        "      type: ordinal\n"
+        "      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policies / "thresholds.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    scale: ordinal\n"
+        "    values:\n"
+        "      timid: {min: 0.0, max: 0.49}\n"
+        "      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policies / "resolution.yaml").write_text(
+        'version: "1.0"\n'
+        "interactions:\n"
+        "  chat:\n"
+        "    channel_multipliers:\n"
+        "      say: 1.0\n"
+        "      yell: 1.5\n"
+        "      whisper: 0.5\n"
+        "    min_gap_threshold: 0.05\n"
+        "    axes:\n"
+        "      demeanor:\n"
+        "        resolver: dominance_shift\n"
+        "        base_magnitude: 0.03\n",
+        encoding="utf-8",
+    )
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    (drafts / "test_world_bundle_alt.json").write_text(
+        '{"world_id":"test_world","version":"0.2.0","source":"lab draft","policy_hash":null,"axes_order":["demeanor"],"axes":{"demeanor":{"group":"character","ordering":["timid","proud"],"thresholds":[{"label":"timid","min":0.0,"max":0.49},{"label":"proud","min":0.5,"max":1.0}]}},"chat_rules":{"channel_multipliers":{"say":1.0,"yell":1.5,"whisper":0.5},"min_gap_threshold":0.05,"axes":{"demeanor":{"resolver":"dominance_shift","base_magnitude":0.04}}}}\n',
+        encoding="utf-8",
+    )
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(
+            f"/api/lab/world-policy-bundle/test_world/drafts/test_world_bundle_alt?session_id={sid}"
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "test_world_bundle_alt"
+    assert data["content"]["world_id"] == "test_world"
+
+
 # ── prompt_template_override in translate ─────────────────────────────────────
 
 
