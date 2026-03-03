@@ -1013,6 +1013,727 @@ def test_world_policy_bundle_draft_loads_saved_draft(
     assert data["content"]["world_id"] == "test_world"
 
 
+@pytest.mark.api
+def test_world_policy_bundle_draft_create_rejects_invalid_name(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle draft endpoint rejects names outside the safe draft pattern."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "axes.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    group: character\n"
+        "    ordering:\n"
+        "      type: ordinal\n"
+        "      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policies / "thresholds.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    scale: ordinal\n"
+        "    values:\n"
+        "      timid: {min: 0.0, max: 0.49}\n"
+        "      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policies / "resolution.yaml").write_text(
+        'version: "1.0"\n'
+        "interactions:\n"
+        "  chat:\n"
+        "    channel_multipliers:\n"
+        "      say: 1.0\n"
+        "      yell: 1.5\n"
+        "      whisper: 0.5\n"
+        "    min_gap_threshold: 0.05\n"
+        "    axes:\n"
+        "      demeanor:\n"
+        "        resolver: dominance_shift\n"
+        "        base_magnitude: 0.03\n",
+        encoding="utf-8",
+    )
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-policy-bundle/test_world/drafts",
+            json={
+                "session_id": sid,
+                "draft_name": "Bad Name",
+                "content": {
+                    "world_id": "test_world",
+                    "version": "0.2.0",
+                    "source": "lab draft",
+                    "policy_hash": None,
+                    "axes_order": ["demeanor"],
+                    "axes": {
+                        "demeanor": {
+                            "group": "character",
+                            "ordering": ["timid", "proud"],
+                            "thresholds": [
+                                {"label": "timid", "min": 0.0, "max": 0.49},
+                                {"label": "proud", "min": 0.5, "max": 1.0},
+                            ],
+                        }
+                    },
+                    "chat_rules": {
+                        "channel_multipliers": {"say": 1.0, "yell": 1.5, "whisper": 0.5},
+                        "min_gap_threshold": 0.05,
+                        "axes": {
+                            "demeanor": {"resolver": "dominance_shift", "base_magnitude": 0.04}
+                        },
+                    },
+                },
+            },
+        )
+
+    assert resp.status_code == 400
+    assert "draft names must use lowercase letters" in resp.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_create_rejects_world_mismatch(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle draft endpoint rejects payloads whose world_id does not match."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "axes.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    group: character\n"
+        "    ordering:\n"
+        "      type: ordinal\n"
+        "      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policies / "thresholds.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    scale: ordinal\n"
+        "    values:\n"
+        "      timid: {min: 0.0, max: 0.49}\n"
+        "      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policies / "resolution.yaml").write_text(
+        'version: "1.0"\n'
+        "interactions:\n"
+        "  chat:\n"
+        "    channel_multipliers:\n"
+        "      say: 1.0\n"
+        "      yell: 1.5\n"
+        "      whisper: 0.5\n"
+        "    min_gap_threshold: 0.05\n"
+        "    axes:\n"
+        "      demeanor:\n"
+        "        resolver: dominance_shift\n"
+        "        base_magnitude: 0.03\n",
+        encoding="utf-8",
+    )
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-policy-bundle/test_world/drafts",
+            json={
+                "session_id": sid,
+                "draft_name": "test_world_bundle_alt",
+                "content": {
+                    "world_id": "other_world",
+                    "version": "0.2.0",
+                    "source": "lab draft",
+                    "policy_hash": None,
+                    "axes_order": ["demeanor"],
+                    "axes": {
+                        "demeanor": {
+                            "group": "character",
+                            "ordering": ["timid", "proud"],
+                            "thresholds": [
+                                {"label": "timid", "min": 0.0, "max": 0.49},
+                                {"label": "proud", "min": 0.5, "max": 1.0},
+                            ],
+                        }
+                    },
+                    "chat_rules": {
+                        "channel_multipliers": {"say": 1.0, "yell": 1.5, "whisper": 0.5},
+                        "min_gap_threshold": 0.05,
+                        "axes": {
+                            "demeanor": {"resolver": "dominance_shift", "base_magnitude": 0.04}
+                        },
+                    },
+                },
+            },
+        )
+
+    assert resp.status_code == 400
+    assert "must match the target world_id" in resp.json()["detail"]
+
+
+@pytest.mark.api
+def test_world_policy_bundle_drafts_returns_empty_when_drafts_dir_missing(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle draft listing returns an empty list when no drafts directory exists."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "axes.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    group: character\n"
+        "    ordering:\n"
+        "      type: ordinal\n"
+        "      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policies / "thresholds.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    scale: ordinal\n"
+        "    values:\n"
+        "      timid: {min: 0.0, max: 0.49}\n"
+        "      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policies / "resolution.yaml").write_text(
+        'version: "1.0"\n'
+        "interactions:\n"
+        "  chat:\n"
+        "    channel_multipliers:\n"
+        "      say: 1.0\n"
+        "      yell: 1.5\n"
+        "      whisper: 0.5\n"
+        "    min_gap_threshold: 0.05\n"
+        "    axes:\n"
+        "      demeanor:\n"
+        "        resolver: dominance_shift\n"
+        "        base_magnitude: 0.03\n",
+        encoding="utf-8",
+    )
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-policy-bundle/test_world/drafts?session_id={sid}")
+
+    assert resp.status_code == 200
+    assert resp.json()["drafts"] == []
+
+
+@pytest.mark.api
+def test_world_policy_bundle_drafts_skips_invalid_and_mismatched_files(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle draft listing skips invalid JSON files and mismatched-world drafts."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "axes.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    group: character\n"
+        "    ordering:\n"
+        "      type: ordinal\n"
+        "      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policies / "thresholds.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    scale: ordinal\n"
+        "    values:\n"
+        "      timid: {min: 0.0, max: 0.49}\n"
+        "      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policies / "resolution.yaml").write_text(
+        'version: "1.0"\n'
+        "interactions:\n"
+        "  chat:\n"
+        "    channel_multipliers:\n"
+        "      say: 1.0\n"
+        "      yell: 1.5\n"
+        "      whisper: 0.5\n"
+        "    min_gap_threshold: 0.05\n"
+        "    axes:\n"
+        "      demeanor:\n"
+        "        resolver: dominance_shift\n"
+        "        base_magnitude: 0.03\n",
+        encoding="utf-8",
+    )
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    (drafts / "invalid.json").write_text('{"bad": }\n', encoding="utf-8")
+    (drafts / "other_world.json").write_text(
+        '{"world_id":"other_world","version":"0.2.0","source":"lab draft","policy_hash":null,"axes_order":["demeanor"],"axes":{"demeanor":{"group":"character","ordering":["timid","proud"],"thresholds":[{"label":"timid","min":0.0,"max":0.49},{"label":"proud","min":0.5,"max":1.0}]}},"chat_rules":{"channel_multipliers":{"say":1.0,"yell":1.5,"whisper":0.5},"min_gap_threshold":0.05,"axes":{"demeanor":{"resolver":"dominance_shift","base_magnitude":0.04}}}}\n',
+        encoding="utf-8",
+    )
+    (drafts / "test_world_bundle_alt.json").write_text(
+        '{"world_id":"test_world","version":"0.2.0","source":"lab draft","policy_hash":null,"axes_order":["demeanor"],"axes":{"demeanor":{"group":"character","ordering":["timid","proud"],"thresholds":[{"label":"timid","min":0.0,"max":0.49},{"label":"proud","min":0.5,"max":1.0}]}},"chat_rules":{"channel_multipliers":{"say":1.0,"yell":1.5,"whisper":0.5},"min_gap_threshold":0.05,"axes":{"demeanor":{"resolver":"dominance_shift","base_magnitude":0.04}}}}\n',
+        encoding="utf-8",
+    )
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-policy-bundle/test_world/drafts?session_id={sid}")
+
+    assert resp.status_code == 200
+    drafts = resp.json()["drafts"]
+    assert [entry["name"] for entry in drafts] == ["test_world_bundle_alt"]
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_load_rejects_invalid_name(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle draft load rejects names outside the safe draft pattern."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "axes.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    group: character\n"
+        "    ordering:\n"
+        "      type: ordinal\n"
+        "      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policies / "thresholds.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    scale: ordinal\n"
+        "    values:\n"
+        "      timid: {min: 0.0, max: 0.49}\n"
+        "      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policies / "resolution.yaml").write_text(
+        'version: "1.0"\n'
+        "interactions:\n"
+        "  chat:\n"
+        "    channel_multipliers:\n"
+        "      say: 1.0\n"
+        "      yell: 1.5\n"
+        "      whisper: 0.5\n"
+        "    min_gap_threshold: 0.05\n"
+        "    axes:\n"
+        "      demeanor:\n"
+        "        resolver: dominance_shift\n"
+        "        base_magnitude: 0.03\n",
+        encoding="utf-8",
+    )
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(
+            f"/api/lab/world-policy-bundle/test_world/drafts/Bad Name?session_id={sid}"
+        )
+
+    assert resp.status_code == 400
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_load_returns_404_when_missing(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle draft load returns 404 when the requested draft file is absent."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "axes.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    group: character\n"
+        "    ordering:\n"
+        "      type: ordinal\n"
+        "      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policies / "thresholds.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    scale: ordinal\n"
+        "    values:\n"
+        "      timid: {min: 0.0, max: 0.49}\n"
+        "      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policies / "resolution.yaml").write_text(
+        'version: "1.0"\n'
+        "interactions:\n"
+        "  chat:\n"
+        "    channel_multipliers:\n"
+        "      say: 1.0\n"
+        "      yell: 1.5\n"
+        "      whisper: 0.5\n"
+        "    min_gap_threshold: 0.05\n"
+        "    axes:\n"
+        "      demeanor:\n"
+        "        resolver: dominance_shift\n"
+        "        base_magnitude: 0.03\n",
+        encoding="utf-8",
+    )
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(
+            f"/api/lab/world-policy-bundle/test_world/drafts/no_such_draft?session_id={sid}"
+        )
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_load_rejects_invalid_file_on_disk(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle draft load returns 500 when the saved draft file is invalid JSON."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "axes.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    group: character\n"
+        "    ordering:\n"
+        "      type: ordinal\n"
+        "      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policies / "thresholds.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    scale: ordinal\n"
+        "    values:\n"
+        "      timid: {min: 0.0, max: 0.49}\n"
+        "      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policies / "resolution.yaml").write_text(
+        'version: "1.0"\n'
+        "interactions:\n"
+        "  chat:\n"
+        "    channel_multipliers:\n"
+        "      say: 1.0\n"
+        "      yell: 1.5\n"
+        "      whisper: 0.5\n"
+        "    min_gap_threshold: 0.05\n"
+        "    axes:\n"
+        "      demeanor:\n"
+        "        resolver: dominance_shift\n"
+        "        base_magnitude: 0.03\n",
+        encoding="utf-8",
+    )
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    (drafts / "test_world_bundle_alt.json").write_text('{"bad": }\n', encoding="utf-8")
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(
+            f"/api/lab/world-policy-bundle/test_world/drafts/test_world_bundle_alt?session_id={sid}"
+        )
+
+    assert resp.status_code == 500
+    assert "invalid on disk" in resp.json()["detail"]
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_load_rejects_mismatched_world_file(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle draft load returns 409 when the saved draft belongs to another world."""
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "axes.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    group: character\n"
+        "    ordering:\n"
+        "      type: ordinal\n"
+        "      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policies / "thresholds.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    scale: ordinal\n"
+        "    values:\n"
+        "      timid: {min: 0.0, max: 0.49}\n"
+        "      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policies / "resolution.yaml").write_text(
+        'version: "1.0"\n'
+        "interactions:\n"
+        "  chat:\n"
+        "    channel_multipliers:\n"
+        "      say: 1.0\n"
+        "      yell: 1.5\n"
+        "      whisper: 0.5\n"
+        "    min_gap_threshold: 0.05\n"
+        "    axes:\n"
+        "      demeanor:\n"
+        "        resolver: dominance_shift\n"
+        "        base_magnitude: 0.03\n",
+        encoding="utf-8",
+    )
+    drafts = policies / "drafts"
+    drafts.mkdir()
+    (drafts / "test_world_bundle_alt.json").write_text(
+        '{"world_id":"other_world","version":"0.2.0","source":"lab draft","policy_hash":null,"axes_order":["demeanor"],"axes":{"demeanor":{"group":"character","ordering":["timid","proud"],"thresholds":[{"label":"timid","min":0.0,"max":0.49},{"label":"proud","min":0.5,"max":1.0}]}},"chat_rules":{"channel_multipliers":{"say":1.0,"yell":1.5,"whisper":0.5},"min_gap_threshold":0.05,"axes":{"demeanor":{"resolver":"dominance_shift","base_magnitude":0.04}}}}\n',
+        encoding="utf-8",
+    )
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(
+            f"/api/lab/world-policy-bundle/test_world/drafts/test_world_bundle_alt?session_id={sid}"
+        )
+
+    assert resp.status_code == 409
+    assert "belongs to a different world" in resp.json()["detail"]
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_create_returns_404_when_world_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Policy-bundle draft create returns 404 when the target world is inactive."""
+    engine = _build_lab_engine(MagicMock())
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    payload = {
+        "world_id": "missing_world",
+        "version": "0.2.0",
+        "source": "lab draft",
+        "policy_hash": None,
+        "axes_order": ["demeanor"],
+        "axes": {
+            "demeanor": {
+                "group": "character",
+                "ordering": ["timid", "proud"],
+                "thresholds": [
+                    {"label": "timid", "min": 0.0, "max": 0.49},
+                    {"label": "proud", "min": 0.5, "max": 1.0},
+                ],
+            }
+        },
+        "chat_rules": {
+            "channel_multipliers": {"say": 1.0, "yell": 1.5, "whisper": 0.5},
+            "min_gap_threshold": 0.05,
+            "axes": {"demeanor": {"resolver": "dominance_shift", "base_magnitude": 0.04}},
+        },
+    }
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-policy-bundle/missing_world/drafts",
+            json={"session_id": sid, "draft_name": "missing_world_bundle", "content": payload},
+        )
+
+    assert resp.status_code == 404
+    assert "missing_world" in resp.json()["detail"]
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_create_returns_404_when_world_root_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Policy-bundle draft create returns 404 when policy files are unavailable."""
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = None
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    payload = {
+        "world_id": "test_world",
+        "version": "0.2.0",
+        "source": "lab draft",
+        "policy_hash": None,
+        "axes_order": ["demeanor"],
+        "axes": {
+            "demeanor": {
+                "group": "character",
+                "ordering": ["timid", "proud"],
+                "thresholds": [
+                    {"label": "timid", "min": 0.0, "max": 0.49},
+                    {"label": "proud", "min": 0.5, "max": 1.0},
+                ],
+            }
+        },
+        "chat_rules": {
+            "channel_multipliers": {"say": 1.0, "yell": 1.5, "whisper": 0.5},
+            "min_gap_threshold": 0.05,
+            "axes": {"demeanor": {"resolver": "dominance_shift", "base_magnitude": 0.04}},
+        },
+    }
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-policy-bundle/test_world/drafts",
+            json={"session_id": sid, "draft_name": "test_world_bundle", "content": payload},
+        )
+
+    assert resp.status_code == 404
+    assert "policy files unavailable" in resp.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_world_policy_bundle_drafts_returns_404_when_world_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Policy-bundle draft listing returns 404 when the target world is inactive."""
+    engine = _build_lab_engine(MagicMock())
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-policy-bundle/missing_world/drafts?session_id={sid}")
+
+    assert resp.status_code == 404
+    assert "missing_world" in resp.json()["detail"]
+
+
+@pytest.mark.api
+def test_world_policy_bundle_drafts_returns_404_when_world_root_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Policy-bundle draft listing returns 404 when policy files are unavailable."""
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = None
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-policy-bundle/test_world/drafts?session_id={sid}")
+
+    assert resp.status_code == 404
+    assert "policy files unavailable" in resp.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_load_returns_404_when_world_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Policy-bundle draft load returns 404 when the target world is inactive."""
+    engine = _build_lab_engine(MagicMock())
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(
+            f"/api/lab/world-policy-bundle/missing_world/drafts/test_world_bundle?session_id={sid}"
+        )
+
+    assert resp.status_code == 404
+    assert "missing_world" in resp.json()["detail"]
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_load_returns_404_when_world_root_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Policy-bundle draft load returns 404 when policy files are unavailable."""
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = None
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(
+            f"/api/lab/world-policy-bundle/test_world/drafts/test_world_bundle?session_id={sid}"
+        )
+
+    assert resp.status_code == 404
+    assert "policy files unavailable" in resp.json()["detail"].lower()
+
+
 # ── prompt_template_override in translate ─────────────────────────────────────
 
 
