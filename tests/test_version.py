@@ -11,8 +11,11 @@ in ``pyproject.toml``.  These tests ensure nothing drifts.
 
 from __future__ import annotations
 
+import importlib
 import re
+import sys
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -61,6 +64,24 @@ class TestVersionAttribute:
         assert (
             mud_server.__version__ != "0.0.0-dev"
         ), "__version__ is the fallback value — is the package installed?"
+
+    def test_version_falls_back_when_package_metadata_is_missing(self) -> None:
+        """__version__ falls back to the stable dev marker outside an install.
+
+        Release PRs bump the installed package version in ``pyproject.toml``,
+        but the fallback branch should remain a stable development marker so
+        release metadata changes do not create recurring uncovered lines.
+        """
+
+        with patch(
+            "importlib.metadata.version", side_effect=importlib.metadata.PackageNotFoundError
+        ):
+            reloaded = importlib.reload(sys.modules["mud_server"])
+
+        try:
+            assert reloaded.__version__ == "0.0.0-dev"
+        finally:
+            importlib.reload(reloaded)
 
 
 # ---------------------------------------------------------------------------
