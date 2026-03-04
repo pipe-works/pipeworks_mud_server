@@ -58,6 +58,11 @@ POST /api/lab/world-policy-bundle/{world_id}/drafts
     Create a new draft JSON bundle under the world's ``policies/drafts``
     directory without overwriting any canonical files.
 
+POST /api/lab/world-policy-bundle/{world_id}/drafts/{name}/promote
+    Promote one draft into the canonical ``policies/axes.yaml``,
+    ``policies/thresholds.yaml``, and ``policies/resolution.yaml`` files and
+    reload the world's axis engine explicitly.
+
 POST /api/lab/translate
     Translate an OOC message to IC dialogue using the world's canonical
     pipeline.  Accepts raw axis values — no character DB lookup is
@@ -78,13 +83,18 @@ from fastapi import APIRouter, HTTPException
 
 from mud_server.api.auth import validate_session
 from mud_server.api.models import (
+    LabPolicyAxisDefinition,
     LabPolicyBundleDraftCreateRequest,
     LabPolicyBundleDraftCreateResponse,
     LabPolicyBundleDraftDocument,
     LabPolicyBundleDraftListResponse,
     LabPolicyBundleDraftPayload,
+    LabPolicyBundleDraftPromoteRequest,
+    LabPolicyBundleDraftPromoteResponse,
     LabPolicyBundleDraftSummary,
     LabPolicyBundleResponse,
+    LabPolicyChatAxisRule,
+    LabPolicyThresholdBand,
     LabPromptDraftCreateRequest,
     LabPromptDraftCreateResponse,
     LabPromptDraftDocument,
@@ -158,19 +168,23 @@ def _write_world_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def _activate_prompt_template(world, *, prompt_template_path: str) -> None:
-    """Update ``world.json`` and reload the world's translation service.
+def _write_yaml(path: Path, payload: dict) -> None:
+    """Persist one YAML payload using a deterministic block-map style."""
 
-    The lab promotion flow uses this helper to make a newly-promoted canonical
-    prompt file active without requiring a server restart.
+    serialized = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+    path.write_text(serialized, encoding="utf-8")
+
+
+def _load_world_json(world, *, unavailable_detail: str) -> tuple[Path, dict]:
+    """Return ``world.json`` path and parsed payload for one world.
+
+    The promotion flows need access to the on-disk world configuration so they
+    can reload runtime services after writing canonical artifacts.
     """
 
     world_root = world._world_root
     if world_root is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Prompt files unavailable for world {world.world_id!r}.",
-        )
+        raise HTTPException(status_code=404, detail=unavailable_detail)
 
     world_json_path = getattr(world, "_world_json_path", None) or (world_root / "world.json")
     if not world_json_path.exists():
@@ -179,7 +193,28 @@ def _activate_prompt_template(world, *, prompt_template_path: str) -> None:
             detail=f"World config unavailable for world {world.world_id!r}.",
         )
 
-    world_data = json.loads(world_json_path.read_text(encoding="utf-8"))
+    try:
+        world_data = json.loads(world_json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as err:
+        raise HTTPException(
+            status_code=500,
+            detail=f"World config for world {world.world_id!r} is unreadable on disk.",
+        ) from err
+
+    return world_json_path, world_data
+
+
+def _activate_prompt_template(world, *, prompt_template_path: str) -> None:
+    """Update ``world.json`` and reload the world's translation service.
+
+    The lab promotion flow uses this helper to make a newly-promoted canonical
+    prompt file active without requiring a server restart.
+    """
+
+    world_json_path, world_data = _load_world_json(
+        world,
+        unavailable_detail=f"Prompt files unavailable for world {world.world_id!r}.",
+    )
     translation_data = world_data.setdefault("translation_layer", {})
     translation_data["enabled"] = True
     translation_data["prompt_template_path"] = prompt_template_path
@@ -262,6 +297,108 @@ def _build_policy_bundle(world_id: str, world_root: Path) -> LabPolicyBundleResp
         axes=normalized_axes,
         chat_rules=normalized_chat_rules,
     )
+
+
+def _canonical_policy_source_files() -> list[str]:
+    """Return the stable canonical file set for world policy bundles."""
+
+    return [
+        "policies/axes.yaml",
+        "policies/thresholds.yaml",
+        "policies/resolution.yaml",
+    ]
+
+
+def _build_axes_yaml_payload(payload: LabPolicyBundleDraftPayload) -> dict:
+    """Convert one normalized bundle draft into canonical ``axes.yaml`` data."""
+
+    axes: dict[str, dict] = {}
+    for axis_name in payload.axes_order:
+        axis: LabPolicyAxisDefinition = payload.axes[axis_name]
+        ordering = list(axis.ordering)
+        axes[axis_name] = {
+            "group": axis.group,
+            "values": ordering,
+            "ordering": {"type": "ordinal", "values": ordering},
+        }
+    return {
+        "version": payload.version,
+        "source": payload.source,
+        "axes": axes,
+    }
+
+
+def _build_thresholds_yaml_payload(payload: LabPolicyBundleDraftPayload) -> dict:
+    """Convert one normalized bundle draft into canonical ``thresholds.yaml`` data."""
+
+    axes: dict[str, dict] = {}
+    for axis_name in payload.axes_order:
+        axis: LabPolicyAxisDefinition = payload.axes[axis_name]
+        values: dict[str, dict[str, float | None]] = {}
+        for band in axis.thresholds:
+            threshold: LabPolicyThresholdBand = band
+            values[threshold.label] = {"min": threshold.min, "max": threshold.max}
+        axes[axis_name] = {"scale": "ordinal", "values": values}
+    return {
+        "version": payload.version,
+        "axes": axes,
+    }
+
+
+def _build_resolution_yaml_payload(payload: LabPolicyBundleDraftPayload) -> dict:
+    """Convert one normalized bundle draft into canonical ``resolution.yaml`` data."""
+
+    axes: dict[str, dict] = {}
+    for axis_name in payload.axes_order:
+        rule: LabPolicyChatAxisRule = payload.chat_rules.axes[axis_name]
+        axis_rule: dict[str, object] = {"resolver": rule.resolver}
+        if rule.base_magnitude is not None:
+            axis_rule["base_magnitude"] = rule.base_magnitude
+        axes[axis_name] = axis_rule
+    return {
+        "version": payload.version,
+        "interactions": {
+            "chat": {
+                "channel_multipliers": dict(payload.chat_rules.channel_multipliers),
+                "min_gap_threshold": payload.chat_rules.min_gap_threshold,
+                "axes": axes,
+            }
+        },
+    }
+
+
+def _validate_policy_bundle_active_axes(
+    world, world_data: dict, payload: LabPolicyBundleDraftPayload
+) -> None:
+    """Reject promotion when translation ``active_axes`` would drift from policy axes."""
+
+    translation_data = world_data.get("translation_layer") or {}
+    active_axes = list(translation_data.get("active_axes") or [])
+    missing_axes = [axis_name for axis_name in active_axes if axis_name not in payload.axes]
+    if missing_axes:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Cannot promote policy bundle because translation_layer.active_axes "
+                f"references axes missing from the promoted bundle: {', '.join(missing_axes)}."
+            ),
+        )
+
+
+def _reload_world_axis_engine(world, world_data: dict) -> None:
+    """Reload the world's axis engine after canonical policy files change."""
+
+    axis_engine_enabled = bool((world_data.get("axis_engine") or {}).get("enabled", False))
+    world._axis_engine = None
+    world._init_axis_engine(world_data)
+    if axis_engine_enabled and world.get_axis_engine() is None:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Promoted policy bundle for world {world.world_id!r} was written, "
+                "but the axis engine failed to reload."
+            ),
+        )
 
 
 def router(engine: GameEngine) -> APIRouter:
@@ -982,6 +1119,106 @@ def router(engine: GameEngine) -> APIRouter:
             world_id=payload.world_id,
             version=payload.version,
             content=payload,
+        )
+
+    @api.post(
+        "/world-policy-bundle/{world_id}/drafts/{draft_name}/promote",
+        response_model=LabPolicyBundleDraftPromoteResponse,
+    )
+    async def promote_world_policy_bundle_draft(
+        world_id: str,
+        draft_name: str,
+        req: LabPolicyBundleDraftPromoteRequest,
+    ) -> LabPolicyBundleDraftPromoteResponse:
+        """Promote one saved policy bundle draft into canonical policy files.
+
+        Promotion is explicit and destructive only to the canonical policy
+        package: the draft remains in place, while ``policies/axes.yaml``,
+        ``policies/thresholds.yaml``, and ``policies/resolution.yaml`` are
+        rewritten from the normalized draft payload and the world's axis
+        engine is reloaded.
+
+        Requires admin or superuser role.
+        """
+
+        _, _, role = validate_session(req.session_id)
+        _require_lab_role(role)
+
+        if not _DRAFT_NAME_RE.fullmatch(draft_name):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Draft names must use lowercase letters, numbers, underscores, or "
+                    "hyphens and must not include a file extension."
+                ),
+            )
+
+        try:
+            world = engine.world_registry.get_world(world_id)
+        except ValueError as err:
+            raise HTTPException(
+                status_code=404,
+                detail=f"World {world_id!r} not found or inactive.",
+            ) from err
+
+        world_root = world._world_root
+        if world_root is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Axis policy files unavailable for world {world_id!r}.",
+            )
+
+        policies_dir = world_root / "policies"
+        if not policies_dir.is_dir():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Axis policy files unavailable for world {world_id!r}.",
+            )
+
+        draft_path = policies_dir / "drafts" / f"{draft_name}.json"
+        if not draft_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Policy bundle draft {draft_name!r} not found for world {world_id!r}.",
+            )
+
+        try:
+            raw = json.loads(draft_path.read_text(encoding="utf-8"))
+            payload = LabPolicyBundleDraftPayload.model_validate(raw)
+        except (OSError, json.JSONDecodeError, ValueError) as err:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Policy bundle draft {draft_name!r} is invalid on disk.",
+            ) from err
+
+        if payload.world_id != world_id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Policy bundle draft {draft_name!r} belongs to a different world.",
+            )
+
+        _, world_data = _load_world_json(
+            world,
+            unavailable_detail=f"Axis policy files unavailable for world {world_id!r}.",
+        )
+        _validate_policy_bundle_active_axes(world, world_data, payload)
+
+        axes_payload = _build_axes_yaml_payload(payload)
+        thresholds_payload = _build_thresholds_yaml_payload(payload)
+        resolution_payload = _build_resolution_yaml_payload(payload)
+
+        _write_yaml(policies_dir / "axes.yaml", axes_payload)
+        _write_yaml(policies_dir / "thresholds.yaml", thresholds_payload)
+        _write_yaml(policies_dir / "resolution.yaml", resolution_payload)
+        _reload_world_axis_engine(world, world_data)
+
+        return LabPolicyBundleDraftPromoteResponse(
+            name=draft_name,
+            world_id=world_id,
+            canonical_name=f"{world_id}_policy_bundle",
+            source_files=_canonical_policy_source_files(),
+            version=payload.version,
+            policy_hash=_hash_policy_payload(axes_payload, thresholds_payload),
         )
 
     @api.post("/translate", response_model=LabTranslateResponse)
