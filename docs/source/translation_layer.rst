@@ -163,6 +163,29 @@ Built-in placeholders:
 If the template file is absent at startup, the service falls back to a
 built-in minimal template and logs a WARNING.
 
+Canonical Prompt Management via the Axis Descriptor Lab
+-------------------------------------------------------
+
+The mud server now exposes prompt management endpoints for the Axis
+Descriptor Lab under ``/api/lab``. These endpoints let the lab inspect
+canonical prompt files, create server-side drafts under
+``data/worlds/<world_id>/policies/drafts/``, and explicitly promote a
+draft into a new canonical prompt file.
+
+Prompt promotion has two effects:
+
+* it writes a new canonical ``policies/<name>.txt`` file without
+  overwriting any existing canonical prompt
+* it updates ``world.json -> translation_layer.prompt_template_path`` and
+  reloads the running world's translation service immediately
+
+In the lab UI, the prompt marked ``active`` is the file currently named by
+``prompt_template_path``. Once promotion succeeds, new translation calls use
+the new prompt without requiring a process restart, though clients may need
+to refresh their prompt lists.
+
+See :doc:`lab_artifact_editor` for the full artifact workflow.
+
 Example template (``pipeworks_web/policies/ic_prompt.txt``):
 
 .. code-block:: text

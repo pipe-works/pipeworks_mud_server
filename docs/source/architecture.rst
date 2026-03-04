@@ -106,7 +106,7 @@ WebUI Architecture
 The admin WebUI is a lightweight static frontend served by FastAPI::
 
     src/mud_server/web/
-    ├── routes.py                 # WebUI route registration
+    ├── routes.py                 # Admin + play shell route registration
     ├── templates/                # HTML shell
     └── static/                   # CSS + JS assets
 
@@ -121,8 +121,13 @@ Package Layout
     src/mud_server/
     ├── api/                    # FastAPI REST API
     │   ├── server.py           # App init, CORS, uvicorn entry
-    │   ├── routes.py           # All endpoints, command parsing
     │   ├── models.py           # Pydantic request/response schemas
+    │   ├── routes/             # Router modules grouped by capability
+    │   │   ├── game.py         # Commands, chat, status, heartbeat
+    │   │   ├── auth.py         # Login, logout, session selection
+    │   │   ├── admin.py        # Admin dashboard + management routes
+    │   │   ├── lab.py          # Axis Descriptor Lab canonical draft APIs
+    │   │   └── register.py     # Route assembly helper
     │   ├── auth.py             # DB-backed sessions with TTL
     │   ├── password.py         # bcrypt hashing via passlib
     │   └── permissions.py      # RBAC: Role + Permission enums
@@ -177,10 +182,11 @@ Each world is a self-contained directory under ``data/worlds/``::
     ├── world.json              # World metadata and enabled subsystems
     ├── zones/                  # Zone definitions (rooms, items)
     └── policies/
-        ├── axes.yaml           # Axis registry (names, labels, ordinals)
-        ├── thresholds.yaml     # Float-score → label mappings
-        ├── resolution.yaml     # Chat resolver grammar  ← NEW
-        └── ic_prompt.txt       # Translation system prompt template  ← NEW
+        ├── axes.yaml           # Canonical axis registry
+        ├── thresholds.yaml     # Canonical float-score → label mappings
+        ├── resolution.yaml     # Canonical chat resolver grammar
+        ├── ic_prompt.txt       # Canonical active prompt template
+        └── drafts/             # Lab-created draft prompts + policy bundles
 
 ``world.json`` controls which subsystems are active for a world:
 
@@ -208,7 +214,8 @@ Backend (FastAPI)
 Located in ``src/mud_server/api/``:
 
 * ``server.py`` — App initialization, CORS, routing
-* ``routes.py`` — All API endpoints
+* ``routes/`` — Router modules grouped by capability; assembled by
+  ``routes/register.py``
 * ``models.py`` — Pydantic request/response models
 * ``auth.py`` — Session management
 * ``password.py`` — Bcrypt password hashing
@@ -276,7 +283,7 @@ Located in ``src/mud_server/translation/``:
   from ``world.json``.
 
 See :doc:`translation_layer` for the full service contract and
-prompt template format.
+prompt template format. See :doc:`lab_artifact_editor` for the server-backed draft and promotion workflow exposed to the Axis Descriptor Lab.
 
 Event Bus Architecture
 ~~~~~~~~~~~~~~~~~~~~~~
