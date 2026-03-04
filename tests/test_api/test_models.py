@@ -1,18 +1,23 @@
 """Regression tests for the API model import surface."""
 
 from mud_server.api.models import (
+    CommandRequest,
     DatabaseWorldStatusResponse,
     LabPolicyBundleDraftPayload,
     LabPromptDraftCreateRequest,
     LabTranslateResponse,
     LabWorldConfig,
     LoginResponse,
+    RegisterRequest,
     UserManagementRequest,
 )
 from mud_server.api.models_admin import (
     DatabaseWorldStatusResponse as DatabaseWorldStatusResponseModule,
 )
 from mud_server.api.models_admin import UserManagementRequest as UserManagementRequestModule
+from mud_server.api.models_auth_game import CommandRequest as CommandRequestModule
+from mud_server.api.models_auth_game import LoginResponse as LoginResponseModule
+from mud_server.api.models_auth_game import RegisterRequest as RegisterRequestModule
 from mud_server.api.models_lab import (
     LabPolicyBundleDraftPayload as LabPolicyBundleDraftPayloadModule,
 )
@@ -32,6 +37,9 @@ def test_lab_models_remain_importable_from_api_models():
     assert LabTranslateResponse is LabTranslateResponseModule
     assert UserManagementRequest is UserManagementRequestModule
     assert DatabaseWorldStatusResponse is DatabaseWorldStatusResponseModule
+    assert RegisterRequest is RegisterRequestModule
+    assert CommandRequest is CommandRequestModule
+    assert LoginResponse is LoginResponseModule
 
 
 def test_login_response_list_defaults_are_not_shared():
