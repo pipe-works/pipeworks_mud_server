@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.9](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.8...mud_server-v0.4.9) (2026-03-04)
+
+
+### Documentation
+
+* refresh artifact lab documentation ([cee0e4e](https://github.com/pipe-works/pipeworks_mud_server/commit/cee0e4e621850161d2f93d06aa16b91d7e855c7b))
+* refresh artifact lab documentation ([0726c0b](https://github.com/pipe-works/pipeworks_mud_server/commit/0726c0bdf2a3f2f0a797b131a37e8db7ea4f0226))
+
 ## [0.4.8](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.7...mud_server-v0.4.8) (2026-03-04)
 
 
