@@ -12,11 +12,9 @@
  */
 
 import {
-  apiCall,
   createCharacter,
   getErrorMessage,
   getStatus,
-  listCharacters,
   login,
   logout,
   selectCharacter,
@@ -31,6 +29,13 @@ import {
 } from './play_session.js';
 import { startGameSession, stopChatPolling } from './play_game_session.js';
 import {
+  setLogoutButtonVisible,
+  setState,
+  updateCharacterName,
+  updateLocation,
+  updateStatus,
+} from './play_dom.js';
+import {
   getDefaultWorldId,
   getSelectedCharacterId,
   getSelectedWorldId,
@@ -38,155 +43,13 @@ import {
   getWorldId,
   getWorldOptions,
   getPreferredWorldId,
-  populateCharacterSelect,
   populateWorldSelect,
+  refreshCharactersForWorld,
   updateCharacterHint,
   updateCreateCharacterButtonState,
   updateEnterWorldButtonState,
   updateWorldPolicyHint,
 } from './play_portal.js';
-
-/**
- * Collect top-level UI containers for state toggling.
- *
- * @returns {{loggedOut: HTMLElement|null, selectWorld: HTMLElement|null, inWorld: HTMLElement|null}}
- */
-function getStateElements() {
-  return {
-    loggedOut: document.querySelector('[data-play-state="logged-out"]'),
-    selectWorld: document.querySelector('[data-play-state="select-world"]'),
-    inWorld: document.querySelector('[data-play-state="in-world"]'),
-  };
-}
-
-/**
- * Toggle the shell state panels.
- *
- * @param {'logged-out'|'select-world'|'in-world'} state
- * @returns {void}
- */
-function setState(state) {
-  const { loggedOut, selectWorld, inWorld } = getStateElements();
-  if (loggedOut) loggedOut.hidden = state !== 'logged-out';
-  if (selectWorld) selectWorld.hidden = state !== 'select-world';
-  if (inWorld) inWorld.hidden = state !== 'in-world';
-}
-
-/**
- * Update top-level status text.
- *
- * @param {string} message
- * @returns {void}
- */
-function updateStatus(message) {
-  const status = document.getElementById('play-status');
-  if (status) {
-    status.textContent = message;
-  }
-}
-
-/**
- * Update the in-world character name label.
- *
- * @param {string} name
- * @returns {void}
- */
-function updateCharacterName(name) {
-  const label = document.getElementById('play-character-name-display');
-  if (label) {
-    label.textContent = name;
-  }
-}
-
-/**
- * Refresh character list for the selected world and persist the result.
- *
- * This call is the key bridge between account sessions and character-bound
- * gameplay sessions. World entry is blocked until this list contains at least
- * one character and `/characters/select` succeeds.
- *
- * @param {{sessionId: string, worldId: string, preferredCharacterId?: number|null}} params
- * @returns {Promise<void>}
- */
-async function refreshCharactersForWorld({ sessionId, worldId, preferredCharacterId = null }) {
-  updateCharacterHint(`Loading characters for ${worldId}...`);
-  const session = readSession();
-  const worldOptions = getWorldOptions(session?.available_worlds);
-  const worldEntry = worldOptions.find((entry) => entry.id === worldId) || null;
-  updateWorldPolicyHint(worldEntry);
-
-  if (worldEntry && worldEntry.can_access === false) {
-    populateCharacterSelect([], null);
-    updateSession({
-      selected_world_id: worldId,
-      selected_character_id: null,
-      selected_character_name: null,
-    });
-    updateCharacterHint(`World ${worldId} is invite-locked for this account.`);
-    updateEnterWorldButtonState();
-    updateCreateCharacterButtonState();
-    return;
-  }
-
-  const response = await listCharacters(sessionId, worldId);
-  const characters = Array.isArray(response?.characters) ? response.characters : [];
-
-  if (worldEntry) {
-    const updatedWorlds = worldOptions.map((entry) => {
-      if (entry.id !== worldId) {
-        return entry;
-      }
-      const slotLimit = Number(entry.slot_limit_per_account || 0);
-      const usedSlots = characters.length;
-      return {
-        ...entry,
-        current_character_count: usedSlots,
-        can_create: usedSlots < slotLimit,
-      };
-    });
-    updateSession({ available_worlds: updatedWorlds });
-    updateWorldPolicyHint(updatedWorlds.find((entry) => entry.id === worldId) || null);
-  }
-
-  populateCharacterSelect(characters, preferredCharacterId);
-  if (!characters.length) {
-    updateSession({
-      selected_world_id: worldId,
-      selected_character_id: null,
-      selected_character_name: null,
-    });
-    updateCharacterHint(
-      `No characters are available in ${worldId}. Create one before entering this world.`
-    );
-    updateEnterWorldButtonState();
-    updateCreateCharacterButtonState();
-    return;
-  }
-
-  const selectedCharacterId = getSelectedCharacterId();
-  const selectedCharacter = characters.find((entry) => Number(entry.id) === selectedCharacterId);
-  updateSession({
-    selected_world_id: worldId,
-    selected_character_id: selectedCharacterId,
-    selected_character_name: selectedCharacter?.name || null,
-  });
-  updateCharacterHint(`${characters.length} character(s) available in ${worldId}.`);
-  updateEnterWorldButtonState();
-  updateCreateCharacterButtonState();
-}
-
-/**
- * Update location message in the in-world panel.
- *
- * @param {string} message
- * @returns {void}
- */
-function updateLocation(message) {
-  const element = document.getElementById('play-location');
-  if (element) {
-    element.textContent = message;
-  }
-}
 
 /**
  * Authenticate account credentials and transition to world/character selection.
@@ -227,10 +90,7 @@ async function handleLogin() {
     selected_character_name: null,
   });
 
-  const logoutButton = document.getElementById('play-logout-button');
-  if (logoutButton) {
-    logoutButton.hidden = false;
-  }
+  setLogoutButtonVisible(true);
 
   updateStatus(`Logged in as ${accountUsername}.`);
   updateCharacterName(accountUsername);
@@ -269,10 +129,7 @@ async function handleLogout() {
   updateCharacterHint('Select a world to load available characters.');
   updateWorldPolicyHint(null);
   updateCharacterName('Character Name');
-  const logoutButton = document.getElementById('play-logout-button');
-  if (logoutButton) {
-    logoutButton.hidden = true;
-  }
+  setLogoutButtonVisible(false);
   updateCreateCharacterButtonState();
 }
 
@@ -456,10 +313,7 @@ async function hydratePortalSession() {
     return;
   }
 
-  const logoutButton = document.getElementById('play-logout-button');
-  if (logoutButton) {
-    logoutButton.hidden = false;
-  }
+  setLogoutButtonVisible(true);
 
   updateStatus('Checking existing account session...');
   updateCharacterName(session.selected_character_name || session.username || 'Character Name');
@@ -519,10 +373,7 @@ async function hydrateWorldSession(worldId) {
     setState('in-world');
     updateCharacterName(session.selected_character_name || session.username || 'Character Name');
     updateLocation(`Entering ${worldId}...`);
-    const logoutButton = document.getElementById('play-logout-button');
-    if (logoutButton) {
-      logoutButton.hidden = false;
-    }
+    setLogoutButtonVisible(true);
     await startGameSession(worldId, session.session_id);
   } catch (err) {
     writeFlashMessage(
