@@ -13,12 +13,14 @@ Covers:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -111,6 +113,84 @@ def _build_prompt_world(
     world._world_root = world_root
     world._world_json_path = world_root / "world.json"
     return world
+
+
+def _write_minimal_policy_package(policy_root: Path) -> None:
+    """Write a one-axis canonical policy package used by lab route tests."""
+
+    policy_root.mkdir(parents=True, exist_ok=True)
+    (policy_root / "axes.yaml").write_text(
+        "version: 0.1.0\n"
+        "source: test\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    group: character\n"
+        "    ordering:\n"
+        "      type: ordinal\n"
+        "      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policy_root / "thresholds.yaml").write_text(
+        "version: 0.1.0\n"
+        "axes:\n"
+        "  demeanor:\n"
+        "    scale: ordinal\n"
+        "    values:\n"
+        "      timid: {min: 0.0, max: 0.49}\n"
+        "      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policy_root / "resolution.yaml").write_text(
+        'version: "1.0"\n'
+        "interactions:\n"
+        "  chat:\n"
+        "    channel_multipliers:\n"
+        "      say: 1.0\n"
+        "      yell: 1.5\n"
+        "      whisper: 0.5\n"
+        "    min_gap_threshold: 0.05\n"
+        "    axes:\n"
+        "      demeanor:\n"
+        "        resolver: dominance_shift\n"
+        "        base_magnitude: 0.03\n",
+        encoding="utf-8",
+    )
+
+
+def _write_policy_bundle_draft(
+    policy_root: Path,
+    *,
+    filename: str = "test_world_bundle_alt.json",
+    world_id: str = "test_world",
+    version: str = "0.2.0",
+) -> None:
+    """Write one normalized policy bundle draft under ``policies/drafts``."""
+
+    drafts = policy_root / "drafts"
+    drafts.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "world_id": world_id,
+        "version": version,
+        "source": "lab draft",
+        "policy_hash": None,
+        "axes_order": ["demeanor"],
+        "axes": {
+            "demeanor": {
+                "group": "character",
+                "ordering": ["timid", "proud"],
+                "thresholds": [
+                    {"label": "timid", "min": 0.0, "max": 0.44},
+                    {"label": "proud", "min": 0.45, "max": 1.0},
+                ],
+            }
+        },
+        "chat_rules": {
+            "channel_multipliers": {"say": 1.0, "yell": 1.4, "whisper": 0.6},
+            "min_gap_threshold": 0.07,
+            "axes": {"demeanor": {"resolver": "dominance_shift", "base_magnitude": 0.04}},
+        },
+    }
+    (drafts / filename).write_text(json.dumps(payload) + "\n", encoding="utf-8")
 
 
 @pytest.fixture()
@@ -1886,6 +1966,260 @@ def test_world_policy_bundle_draft_loads_saved_draft(
     data = resp.json()
     assert data["name"] == "test_world_bundle_alt"
     assert data["content"]["world_id"] == "test_world"
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_promote_rewrites_canonical_files(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle promotion rewrites canonical YAML and reloads the axis engine."""
+
+    policies = tmp_path / "policies"
+    _write_minimal_policy_package(policies)
+    _write_policy_bundle_draft(policies)
+    (tmp_path / "world.json").write_text(
+        "{\n"
+        '  "translation_layer": {\n'
+        '    "enabled": true,\n'
+        '    "active_axes": ["demeanor"]\n'
+        "  },\n"
+        '  "axis_engine": {"enabled": true}\n'
+        "}\n",
+        encoding="utf-8",
+    )
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    world._world_json_path = tmp_path / "world.json"
+    world._axis_engine = None
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-policy-bundle/test_world/drafts/test_world_bundle_alt/promote",
+            json={"session_id": sid},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "test_world_bundle_alt"
+    assert data["canonical_name"] == "test_world_policy_bundle"
+    assert data["source_files"] == [
+        "policies/axes.yaml",
+        "policies/thresholds.yaml",
+        "policies/resolution.yaml",
+    ]
+    assert data["version"] == "0.2.0"
+    assert data["policy_hash"]
+
+    axes_payload = yaml.safe_load((policies / "axes.yaml").read_text(encoding="utf-8"))
+    thresholds_payload = yaml.safe_load((policies / "thresholds.yaml").read_text(encoding="utf-8"))
+    resolution_payload = yaml.safe_load((policies / "resolution.yaml").read_text(encoding="utf-8"))
+    assert axes_payload["version"] == "0.2.0"
+    assert axes_payload["source"] == "lab draft"
+    assert axes_payload["axes"]["demeanor"]["ordering"]["values"] == ["timid", "proud"]
+    assert thresholds_payload["axes"]["demeanor"]["values"]["proud"]["min"] == 0.45
+    assert resolution_payload["interactions"]["chat"]["axes"]["demeanor"]["base_magnitude"] == 0.04
+    assert world.get_axis_engine() is not None
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_promote_rejects_invalid_name(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle promotion rejects source names outside the safe draft pattern."""
+
+    policies = tmp_path / "policies"
+    _write_minimal_policy_package(policies)
+    (tmp_path / "world.json").write_text('{"axis_engine":{"enabled":true}}\n', encoding="utf-8")
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    world._world_json_path = tmp_path / "world.json"
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-policy-bundle/test_world/drafts/Bad Name/promote",
+            json={"session_id": sid},
+        )
+
+    assert resp.status_code == 400
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_promote_returns_404_when_world_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Policy-bundle promotion returns 404 when the target world is inactive."""
+
+    engine = _build_lab_engine(_build_world_with_service(_make_mock_service()))
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-policy-bundle/missing_world/drafts/test_world_bundle_alt/promote",
+            json={"session_id": sid},
+        )
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_promote_returns_404_when_world_root_missing(
+    test_db, temp_db_path, db_with_users
+):
+    """Policy-bundle promotion returns 404 when policy files are unavailable."""
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = None
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-policy-bundle/test_world/drafts/test_world_bundle_alt/promote",
+            json={"session_id": sid},
+        )
+
+    assert resp.status_code == 404
+    assert "axis policy files unavailable" in resp.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_promote_returns_404_when_draft_missing(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle promotion returns 404 when the named draft does not exist."""
+
+    policies = tmp_path / "policies"
+    _write_minimal_policy_package(policies)
+    (tmp_path / "world.json").write_text('{"axis_engine":{"enabled":true}}\n', encoding="utf-8")
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    world._world_json_path = tmp_path / "world.json"
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-policy-bundle/test_world/drafts/no_such_bundle/promote",
+            json={"session_id": sid},
+        )
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_promote_returns_404_when_world_config_missing(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle promotion returns 404 when world.json is unavailable."""
+
+    policies = tmp_path / "policies"
+    _write_minimal_policy_package(policies)
+    _write_policy_bundle_draft(policies)
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    world._world_json_path = tmp_path / "world.json"
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-policy-bundle/test_world/drafts/test_world_bundle_alt/promote",
+            json={"session_id": sid},
+        )
+
+    assert resp.status_code == 404
+    assert "world config unavailable" in resp.json()["detail"].lower()
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_promote_returns_409_when_world_mismatches(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle promotion rejects drafts saved for another world."""
+
+    policies = tmp_path / "policies"
+    _write_minimal_policy_package(policies)
+    _write_policy_bundle_draft(policies, world_id="daily_undertaking")
+    (tmp_path / "world.json").write_text('{"axis_engine":{"enabled":true}}\n', encoding="utf-8")
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    world._world_json_path = tmp_path / "world.json"
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-policy-bundle/test_world/drafts/test_world_bundle_alt/promote",
+            json={"session_id": sid},
+        )
+
+    assert resp.status_code == 409
+
+
+@pytest.mark.api
+def test_world_policy_bundle_draft_promote_returns_409_when_active_axes_would_drift(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy-bundle promotion rejects bundles that drop configured active_axes."""
+
+    policies = tmp_path / "policies"
+    _write_minimal_policy_package(policies)
+    _write_policy_bundle_draft(policies)
+    (tmp_path / "world.json").write_text(
+        "{\n"
+        '  "translation_layer": {"enabled": true, "active_axes": ["health"]},\n'
+        '  "axis_engine": {"enabled": true}\n'
+        "}\n",
+        encoding="utf-8",
+    )
+
+    world = _build_world_with_service(_make_mock_service())
+    world._world_root = tmp_path
+    world._world_json_path = tmp_path / "world.json"
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/world-policy-bundle/test_world/drafts/test_world_bundle_alt/promote",
+            json={"session_id": sid},
+        )
+
+    assert resp.status_code == 409
+    assert "active_axes" in resp.json()["detail"]
 
 
 @pytest.mark.api

@@ -15,7 +15,7 @@ Models are organized into two categories:
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 # ============================================================================
 # REQUEST MODELS (Client → Server)
@@ -1251,6 +1251,53 @@ class LabPolicyBundleResponse(BaseModel):
     chat_rules: dict[str, Any]
 
 
+class LabPolicyThresholdBand(BaseModel):
+    """One ordinal threshold band inside a normalized policy bundle."""
+
+    label: str
+    min: float | None = None
+    max: float | None = None
+
+
+class LabPolicyAxisDefinition(BaseModel):
+    """Normalized axis definition used by policy bundle drafts and promotion."""
+
+    group: str
+    ordering: list[str]
+    thresholds: list[LabPolicyThresholdBand]
+
+
+class LabPolicyChatAxisRule(BaseModel):
+    """One chat-resolution rule for an axis in the normalized bundle."""
+
+    resolver: str
+    base_magnitude: float | None = None
+
+    @model_validator(mode="after")
+    def validate_rule(self) -> "LabPolicyChatAxisRule":
+        """Require base_magnitude on any resolver that is not a no-op."""
+
+        if self.resolver != "no_effect" and self.base_magnitude is None:
+            raise ValueError("base_magnitude is required unless resolver is 'no_effect'")
+        return self
+
+
+class LabPolicyChatRules(BaseModel):
+    """Normalized chat-resolution block used by policy bundle drafts."""
+
+    channel_multipliers: dict[str, float]
+    min_gap_threshold: float
+    axes: dict[str, LabPolicyChatAxisRule]
+
+    @model_validator(mode="after")
+    def validate_channels(self) -> "LabPolicyChatRules":
+        """Require the canonical say/yell/whisper chat channel set."""
+
+        if set(self.channel_multipliers) != {"say", "yell", "whisper"}:
+            raise ValueError("channel_multipliers must define exactly say, yell, and whisper")
+        return self
+
+
 class LabPolicyBundleDraftPayload(BaseModel):
     """Normalized policy bundle payload accepted for draft creation.
 
@@ -1273,8 +1320,18 @@ class LabPolicyBundleDraftPayload(BaseModel):
     source: str
     policy_hash: str | None = None
     axes_order: list[str]
-    axes: dict[str, Any]
-    chat_rules: dict[str, Any]
+    axes: dict[str, LabPolicyAxisDefinition]
+    chat_rules: LabPolicyChatRules
+
+    @model_validator(mode="after")
+    def validate_consistency(self) -> "LabPolicyBundleDraftPayload":
+        """Require consistent axis coverage across the normalized bundle."""
+
+        if self.axes_order != list(self.axes.keys()):
+            raise ValueError("axes_order must match the axes object key order exactly")
+        if set(self.chat_rules.axes) != set(self.axes):
+            raise ValueError("chat_rules.axes must define exactly the same axis set as axes")
+        return self
 
 
 class LabPolicyBundleDraftCreateRequest(BaseModel):
@@ -1359,6 +1416,36 @@ class LabPolicyBundleDraftDocument(BaseModel):
     version: str
     based_on_name: str | None = None
     content: LabPolicyBundleDraftPayload
+
+
+class LabPolicyBundleDraftPromoteRequest(BaseModel):
+    """Request to promote one saved policy bundle draft into canonical files.
+
+    Attributes:
+        session_id: Active admin or superuser session.
+    """
+
+    session_id: str
+
+
+class LabPolicyBundleDraftPromoteResponse(BaseModel):
+    """Response returned after promoting a policy bundle draft.
+
+    Attributes:
+        name: Draft file stem without ``.json``.
+        world_id: World that owns the promoted bundle.
+        canonical_name: Stable lab-facing canonical bundle name.
+        source_files: Canonical policy files rewritten from the bundle.
+        version: Version written to the canonical policy package.
+        policy_hash: Deterministic hash of the promoted axes/threshold payload.
+    """
+
+    name: str
+    world_id: str
+    canonical_name: str
+    source_files: list[str]
+    version: str
+    policy_hash: str | None = None
 
 
 class LabTranslateRequest(BaseModel):
