@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.8](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.7...mud_server-v0.4.8) (2026-03-04)
+
+
+### Features
+
+* add lab policy bundle draft APIs ([c1ca50e](https://github.com/pipe-works/pipeworks_mud_server/commit/c1ca50eb3a2a6cd798c9c20dd4c3dac07092f047))
+* add lab policy bundle draft APIs ([9261e18](https://github.com/pipe-works/pipeworks_mud_server/commit/9261e18909e71f703db48c045d2e8d6770562cc6))
+* add lab policy bundle endpoint ([59859f6](https://github.com/pipe-works/pipeworks_mud_server/commit/59859f674c8e102aa05e87c07bb6919796b4a4b1))
+* add lab policy bundle endpoint ([588b5f5](https://github.com/pipe-works/pipeworks_mud_server/commit/588b5f504173b8c6bb41ccc363553b5d1a439a18))
+* add lab prompt draft APIs ([ec2b650](https://github.com/pipe-works/pipeworks_mud_server/commit/ec2b6507dba81efae44a9ad469cf0aacf808153e))
+* add lab prompt draft APIs ([e5ac948](https://github.com/pipe-works/pipeworks_mud_server/commit/e5ac9487aca5b4f7bc5f48c2d4c98348418481d7))
+* add policy bundle promotion API ([1f6a183](https://github.com/pipe-works/pipeworks_mud_server/commit/1f6a183f3c6daa063e6b79adb870d326a10a182c))
+* add policy bundle promotion API ([756e1e2](https://github.com/pipe-works/pipeworks_mud_server/commit/756e1e215c7535f30b70ae657b25401c448b6c47))
+* add prompt draft promotion API ([6f673d9](https://github.com/pipe-works/pipeworks_mud_server/commit/6f673d9ca52ec4749c053ccb733fdfa054369d7a))
+* add prompt draft promotion API ([470c801](https://github.com/pipe-works/pipeworks_mud_server/commit/470c8015057e4c29385a0a8c117e3da20f2b220c))
+
 ## [0.4.7](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.6...mud_server-v0.4.7) (2026-03-01)
 
 
