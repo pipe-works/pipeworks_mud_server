@@ -407,6 +407,27 @@ class World:
         """
         return self._translation_service
 
+    def get_world_root(self) -> Path | None:
+        """Return the on-disk root directory for this world package, if any."""
+
+        return self._world_root
+
+    def get_world_json_path(self) -> Path:
+        """Return the resolved ``world.json`` path for this world instance."""
+
+        return self._world_json_path
+
+    def reload_translation_service(self, world_data: dict) -> None:
+        """Rebuild the translation service from the provided world.json payload.
+
+        This is used by runtime admin flows that update translation-layer
+        configuration on disk and need the in-memory service to reflect the
+        new canonical world state without a full server restart.
+        """
+
+        self._translation_service = None
+        self._init_translation_service(world_data)
+
     def translation_layer_enabled(self) -> bool:
         """Return True if the translation service is configured and active.
 
@@ -494,6 +515,17 @@ class World:
             AxisEngine instance, or None.
         """
         return self._axis_engine
+
+    def reload_axis_engine(self, world_data: dict) -> None:
+        """Rebuild the axis engine from the provided world.json payload.
+
+        This is used by runtime promotion flows that rewrite canonical policy
+        files and need the in-memory engine to reload against the latest
+        package contents.
+        """
+
+        self._axis_engine = None
+        self._init_axis_engine(world_data)
 
     def axis_resolution_enabled(self) -> bool:
         """Return True if the axis engine is configured and active.

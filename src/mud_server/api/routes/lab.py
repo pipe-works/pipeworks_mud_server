@@ -72,16 +72,13 @@ POST /api/lab/translate
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from hashlib import sha256
 from pathlib import Path
 
 import yaml
 from fastapi import APIRouter, HTTPException
 
-from mud_server.api.auth import validate_session
 from mud_server.api.models import (
     LabPolicyAxisDefinition,
     LabPolicyBundleDraftCreateRequest,
@@ -91,7 +88,6 @@ from mud_server.api.models import (
     LabPolicyBundleDraftPayload,
     LabPolicyBundleDraftPromoteRequest,
     LabPolicyBundleDraftPromoteResponse,
-    LabPolicyBundleDraftSummary,
     LabPolicyBundleResponse,
     LabPolicyChatAxisRule,
     LabPolicyThresholdBand,
@@ -101,8 +97,6 @@ from mud_server.api.models import (
     LabPromptDraftListResponse,
     LabPromptDraftPromoteRequest,
     LabPromptDraftPromoteResponse,
-    LabPromptDraftSummary,
-    LabPromptFile,
     LabTranslateRequest,
     LabTranslateResponse,
     LabWorldConfig,
@@ -110,33 +104,43 @@ from mud_server.api.models import (
     LabWorldsResponse,
     LabWorldSummary,
 )
-from mud_server.api.permissions import get_role_hierarchy_level
+from mud_server.api.routes.lab_policy_support import (
+    create_world_policy_bundle_draft as create_world_policy_bundle_draft_document,
+)
+from mud_server.api.routes.lab_policy_support import (
+    get_world_policy_bundle_draft as get_world_policy_bundle_draft_document,
+)
+from mud_server.api.routes.lab_policy_support import (
+    list_world_policy_bundle_drafts as list_world_policy_bundle_drafts_document,
+)
+from mud_server.api.routes.lab_policy_support import (
+    promote_world_policy_bundle_draft as promote_world_policy_bundle_draft_document,
+)
+from mud_server.api.routes.lab_prompt_support import (
+    create_world_prompt_draft as create_world_prompt_draft_document,
+)
+from mud_server.api.routes.lab_prompt_support import (
+    get_world_prompt_draft as get_world_prompt_draft_document,
+)
+from mud_server.api.routes.lab_prompt_support import (
+    list_world_prompt_drafts as list_world_prompt_drafts_document,
+)
+from mud_server.api.routes.lab_prompt_support import (
+    list_world_prompts as list_world_prompts_document,
+)
+from mud_server.api.routes.lab_prompt_support import (
+    promote_world_prompt_draft as promote_world_prompt_draft_document,
+)
+from mud_server.api.routes.lab_support import (
+    build_lab_world_config,
+    get_lab_world,
+    require_lab_session,
+    require_translation_world,
+    require_world_root,
+)
 from mud_server.core.engine import GameEngine
-from mud_server.db import facade as database
 
 logger = logging.getLogger(__name__)
-
-# Minimum role level required for all lab endpoints.
-# Admin (level 2) and Superuser (level 3) are permitted; Player (0) and
-# Worldbuilder (1) are not.
-_LAB_MIN_ROLE_LEVEL: int = get_role_hierarchy_level("admin")
-_DRAFT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-
-
-def _require_lab_role(role: str) -> None:
-    """Raise 403 if the session role is below admin.
-
-    Args:
-        role: Role string from the validated session.
-
-    Raises:
-        HTTPException(403): If the role's hierarchy level is below admin.
-    """
-    if get_role_hierarchy_level(role) < _LAB_MIN_ROLE_LEVEL:
-        raise HTTPException(
-            status_code=403,
-            detail="Lab endpoints require admin or superuser role.",
-        )
 
 
 def _read_yaml(path: Path) -> dict:
@@ -162,64 +166,11 @@ def _hash_policy_payload(axes_payload: dict, thresholds_payload: dict) -> str:
     return sha256(serialized.encode("utf-8")).hexdigest()
 
 
-def _write_world_json(path: Path, payload: dict) -> None:
-    """Persist one world.json payload using the repo's standard formatting."""
-
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
 def _write_yaml(path: Path, payload: dict) -> None:
     """Persist one YAML payload using a deterministic block-map style."""
 
     serialized = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
     path.write_text(serialized, encoding="utf-8")
-
-
-def _load_world_json(world, *, unavailable_detail: str) -> tuple[Path, dict]:
-    """Return ``world.json`` path and parsed payload for one world.
-
-    The promotion flows need access to the on-disk world configuration so they
-    can reload runtime services after writing canonical artifacts.
-    """
-
-    world_root = world._world_root
-    if world_root is None:
-        raise HTTPException(status_code=404, detail=unavailable_detail)
-
-    world_json_path = getattr(world, "_world_json_path", None) or (world_root / "world.json")
-    if not world_json_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"World config unavailable for world {world.world_id!r}.",
-        )
-
-    try:
-        world_data = json.loads(world_json_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as err:
-        raise HTTPException(
-            status_code=500,
-            detail=f"World config for world {world.world_id!r} is unreadable on disk.",
-        ) from err
-
-    return world_json_path, world_data
-
-
-def _activate_prompt_template(world, *, prompt_template_path: str) -> None:
-    """Update ``world.json`` and reload the world's translation service.
-
-    The lab promotion flow uses this helper to make a newly-promoted canonical
-    prompt file active without requiring a server restart.
-    """
-
-    world_json_path, world_data = _load_world_json(
-        world,
-        unavailable_detail=f"Prompt files unavailable for world {world.world_id!r}.",
-    )
-    translation_data = world_data.setdefault("translation_layer", {})
-    translation_data["enabled"] = True
-    translation_data["prompt_template_path"] = prompt_template_path
-    _write_world_json(world_json_path, world_data)
-    world._init_translation_service(world_data)
 
 
 def _build_policy_bundle(world_id: str, world_root: Path) -> LabPolicyBundleResponse:
@@ -389,8 +340,7 @@ def _reload_world_axis_engine(world, world_data: dict) -> None:
     """Reload the world's axis engine after canonical policy files change."""
 
     axis_engine_enabled = bool((world_data.get("axis_engine") or {}).get("enabled", False))
-    world._axis_engine = None
-    world._init_axis_engine(world_data)
+    world.reload_axis_engine(world_data)
     if axis_engine_enabled and world.get_axis_engine() is None:
         raise HTTPException(
             status_code=500,
@@ -423,8 +373,7 @@ def router(engine: GameEngine) -> APIRouter:
 
         Requires admin or superuser role.
         """
-        _, _, role = validate_session(session_id)
-        _require_lab_role(role)
+        require_lab_session(session_id)
 
         worlds_data = engine.world_registry.list_worlds()
         result: list[LabWorldSummary] = []
@@ -432,7 +381,7 @@ def router(engine: GameEngine) -> APIRouter:
             wid = row.get("world_id") or row.get("id", "")
             translation_enabled = False
             try:
-                world = engine.world_registry.get_world(wid)
+                world = get_lab_world(engine, wid)
                 translation_enabled = world.translation_layer_enabled()
             except Exception:
                 # World failed to load or is inactive — surface it with
@@ -460,37 +409,12 @@ def router(engine: GameEngine) -> APIRouter:
 
         Requires admin or superuser role.
         """
-        _, _, role = validate_session(session_id)
-        _require_lab_role(role)
+        require_lab_session(session_id)
 
-        try:
-            world = engine.world_registry.get_world(world_id)
-        except ValueError as err:
-            raise HTTPException(
-                status_code=404,
-                detail=f"World {world_id!r} not found or inactive.",
-            ) from err
+        world = get_lab_world(engine, world_id)
+        service = require_translation_world(world, world_id)
 
-        service = world.get_translation_service()
-        if service is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Translation layer not enabled for world {world_id!r}.",
-            )
-
-        cfg = service.config
-        world_row = database.get_world_by_id(world_id) or {}
-
-        return LabWorldConfig(
-            world_id=world_id,
-            name=world_row.get("name", world_id),
-            model=cfg.model,
-            active_axes=list(cfg.active_axes),
-            strict_mode=cfg.strict_mode,
-            max_output_chars=cfg.max_output_chars,
-            timeout_seconds=cfg.timeout_seconds,
-            translation_enabled=True,
-        )
+        return build_lab_world_config(world_id, service)
 
     @api.get("/world-prompts/{world_id}", response_model=LabWorldPromptsResponse)
     async def get_world_prompts(world_id: str, session_id: str) -> LabWorldPromptsResponse:
@@ -501,50 +425,10 @@ def router(engine: GameEngine) -> APIRouter:
 
         Requires admin or superuser role.
         """
-        _, _, role = validate_session(session_id)
-        _require_lab_role(role)
+        require_lab_session(session_id)
 
-        try:
-            world = engine.world_registry.get_world(world_id)
-        except ValueError as err:
-            raise HTTPException(
-                status_code=404,
-                detail=f"World {world_id!r} not found or inactive.",
-            ) from err
-
-        service = world.get_translation_service()
-        if service is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Translation layer not enabled for world {world_id!r}.",
-            )
-
-        # Resolve the policies directory from the world root.
-        world_root = world._world_root
-        if world_root is None:
-            return LabWorldPromptsResponse(world_id=world_id, prompts=[])
-        policies_dir = world_root / "policies"
-        if not policies_dir.is_dir():
-            return LabWorldPromptsResponse(world_id=world_id, prompts=[])
-
-        active_path = service.config.prompt_template_path  # e.g. "policies/ic_prompt.txt"
-        prompts: list[LabPromptFile] = []
-        for txt_file in sorted(policies_dir.glob("*.txt")):
-            try:
-                content = txt_file.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            # Compare relative path (e.g. "policies/ic_prompt.txt") to active_path.
-            rel = f"policies/{txt_file.name}"
-            prompts.append(
-                LabPromptFile(
-                    filename=txt_file.name,
-                    content=content,
-                    is_active=(rel == active_path),
-                )
-            )
-
-        return LabWorldPromptsResponse(world_id=world_id, prompts=prompts)
+        world = get_lab_world(engine, world_id)
+        return list_world_prompts_document(world, world_id)
 
     @api.post(
         "/world-prompts/{world_id}/drafts",
@@ -564,66 +448,10 @@ def router(engine: GameEngine) -> APIRouter:
         Requires admin or superuser role.
         """
 
-        _, _, role = validate_session(req.session_id)
-        _require_lab_role(role)
+        require_lab_session(req.session_id)
 
-        draft_name = req.draft_name.strip()
-        if not _DRAFT_NAME_RE.fullmatch(draft_name):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Draft names must use lowercase letters, numbers, underscores, or "
-                    "hyphens and must not include a file extension."
-                ),
-            )
-
-        try:
-            world = engine.world_registry.get_world(world_id)
-        except ValueError as err:
-            raise HTTPException(
-                status_code=404,
-                detail=f"World {world_id!r} not found or inactive.",
-            ) from err
-
-        service = world.get_translation_service()
-        if service is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Translation layer not enabled for world {world_id!r}.",
-            )
-
-        world_root = world._world_root
-        if world_root is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Prompt files unavailable for world {world_id!r}.",
-            )
-
-        policies_dir = world_root / "policies"
-        if not policies_dir.is_dir():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Prompt files unavailable for world {world_id!r}.",
-            )
-
-        canonical_target = policies_dir / f"{draft_name}.txt"
-        drafts_dir = policies_dir / "drafts"
-        drafts_dir.mkdir(parents=True, exist_ok=True)
-        target = drafts_dir / f"{draft_name}.txt"
-        if canonical_target.exists() or target.exists():
-            raise HTTPException(
-                status_code=409,
-                detail=f"A prompt draft named {draft_name!r} already exists.",
-            )
-
-        target.write_text(req.content.rstrip() + "\n", encoding="utf-8")
-
-        return LabPromptDraftCreateResponse(
-            name=draft_name,
-            origin_path=f"policies/drafts/{draft_name}.txt",
-            world_id=world_id,
-            based_on_name=req.based_on_name,
-        )
+        world = get_lab_world(engine, world_id)
+        return create_world_prompt_draft_document(world, world_id, req)
 
     @api.get(
         "/world-prompts/{world_id}/drafts",
@@ -642,58 +470,10 @@ def router(engine: GameEngine) -> APIRouter:
         Requires admin or superuser role.
         """
 
-        _, _, role = validate_session(session_id)
-        _require_lab_role(role)
+        require_lab_session(session_id)
 
-        try:
-            world = engine.world_registry.get_world(world_id)
-        except ValueError as err:
-            raise HTTPException(
-                status_code=404,
-                detail=f"World {world_id!r} not found or inactive.",
-            ) from err
-
-        service = world.get_translation_service()
-        if service is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Translation layer not enabled for world {world_id!r}.",
-            )
-
-        world_root = world._world_root
-        if world_root is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Prompt files unavailable for world {world_id!r}.",
-            )
-
-        policies_dir = world_root / "policies"
-        if not policies_dir.is_dir():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Prompt files unavailable for world {world_id!r}.",
-            )
-
-        drafts_dir = policies_dir / "drafts"
-        if not drafts_dir.is_dir():
-            return LabPromptDraftListResponse(world_id=world_id, drafts=[])
-
-        drafts: list[LabPromptDraftSummary] = []
-        for draft_file in sorted(drafts_dir.glob("*.txt")):
-            try:
-                draft_file.read_text(encoding="utf-8")
-            except OSError:
-                logger.warning("Skipping unreadable lab prompt draft: %s", draft_file)
-                continue
-            drafts.append(
-                LabPromptDraftSummary(
-                    name=draft_file.stem,
-                    origin_path=f"policies/drafts/{draft_file.name}",
-                    world_id=world_id,
-                )
-            )
-
-        return LabPromptDraftListResponse(world_id=world_id, drafts=drafts)
+        world = get_lab_world(engine, world_id)
+        return list_world_prompt_drafts_document(world, world_id)
 
     @api.get(
         "/world-prompts/{world_id}/drafts/{draft_name}",
@@ -709,68 +489,10 @@ def router(engine: GameEngine) -> APIRouter:
         Requires admin or superuser role.
         """
 
-        _, _, role = validate_session(session_id)
-        _require_lab_role(role)
+        require_lab_session(session_id)
 
-        if not _DRAFT_NAME_RE.fullmatch(draft_name):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Draft names must use lowercase letters, numbers, underscores, or "
-                    "hyphens and must not include a file extension."
-                ),
-            )
-
-        try:
-            world = engine.world_registry.get_world(world_id)
-        except ValueError as err:
-            raise HTTPException(
-                status_code=404,
-                detail=f"World {world_id!r} not found or inactive.",
-            ) from err
-
-        service = world.get_translation_service()
-        if service is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Translation layer not enabled for world {world_id!r}.",
-            )
-
-        world_root = world._world_root
-        if world_root is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Prompt files unavailable for world {world_id!r}.",
-            )
-
-        policies_dir = world_root / "policies"
-        if not policies_dir.is_dir():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Prompt files unavailable for world {world_id!r}.",
-            )
-
-        target = policies_dir / "drafts" / f"{draft_name}.txt"
-        if not target.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Prompt draft {draft_name!r} not found for world {world_id!r}.",
-            )
-
-        try:
-            content = target.read_text(encoding="utf-8")
-        except OSError as err:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Prompt draft {draft_name!r} is unreadable on disk.",
-            ) from err
-
-        return LabPromptDraftDocument(
-            name=draft_name,
-            origin_path=f"policies/drafts/{draft_name}.txt",
-            world_id=world_id,
-            content=content,
-        )
+        world = get_lab_world(engine, world_id)
+        return get_world_prompt_draft_document(world, world_id, draft_name)
 
     @api.post(
         "/world-prompts/{world_id}/drafts/{draft_name}/promote",
@@ -791,90 +513,10 @@ def router(engine: GameEngine) -> APIRouter:
         Requires admin or superuser role.
         """
 
-        _, _, role = validate_session(req.session_id)
-        _require_lab_role(role)
+        require_lab_session(req.session_id)
 
-        if not _DRAFT_NAME_RE.fullmatch(draft_name):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Draft names must use lowercase letters, numbers, underscores, or "
-                    "hyphens and must not include a file extension."
-                ),
-            )
-
-        target_name = req.target_name.strip()
-        if not _DRAFT_NAME_RE.fullmatch(target_name):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Promotion target names must use lowercase letters, numbers, underscores, "
-                    "or hyphens and must not include a file extension."
-                ),
-            )
-
-        try:
-            world = engine.world_registry.get_world(world_id)
-        except ValueError as err:
-            raise HTTPException(
-                status_code=404,
-                detail=f"World {world_id!r} not found or inactive.",
-            ) from err
-
-        service = world.get_translation_service()
-        if service is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Translation layer not enabled for world {world_id!r}.",
-            )
-
-        world_root = world._world_root
-        if world_root is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Prompt files unavailable for world {world_id!r}.",
-            )
-
-        policies_dir = world_root / "policies"
-        if not policies_dir.is_dir():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Prompt files unavailable for world {world_id!r}.",
-            )
-
-        draft_path = policies_dir / "drafts" / f"{draft_name}.txt"
-        if not draft_path.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Prompt draft {draft_name!r} not found for world {world_id!r}.",
-            )
-
-        canonical_path = policies_dir / f"{target_name}.txt"
-        if canonical_path.exists():
-            raise HTTPException(
-                status_code=409,
-                detail=f"A canonical prompt named {target_name!r} already exists.",
-            )
-
-        try:
-            content = draft_path.read_text(encoding="utf-8")
-        except OSError as err:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Prompt draft {draft_name!r} is unreadable on disk.",
-            ) from err
-
-        canonical_path.write_text(content.rstrip() + "\n", encoding="utf-8")
-        active_prompt_path = f"policies/{target_name}.txt"
-        _activate_prompt_template(world, prompt_template_path=active_prompt_path)
-
-        return LabPromptDraftPromoteResponse(
-            name=draft_name,
-            world_id=world_id,
-            canonical_name=target_name,
-            canonical_path=active_prompt_path,
-            active_prompt_path=active_prompt_path,
-        )
+        world = get_lab_world(engine, world_id)
+        return promote_world_prompt_draft_document(world, world_id, draft_name, req)
 
     @api.get("/world-policy-bundle/{world_id}", response_model=LabPolicyBundleResponse)
     async def get_world_policy_bundle(world_id: str, session_id: str) -> LabPolicyBundleResponse:
@@ -886,23 +528,13 @@ def router(engine: GameEngine) -> APIRouter:
         a text-box driven editing experience for drafts.
         """
 
-        _, _, role = validate_session(session_id)
-        _require_lab_role(role)
+        require_lab_session(session_id)
 
-        try:
-            world = engine.world_registry.get_world(world_id)
-        except ValueError as err:
-            raise HTTPException(
-                status_code=404,
-                detail=f"World {world_id!r} not found or inactive.",
-            ) from err
-
-        world_root = world._world_root
-        if world_root is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Axis policy files unavailable for world {world_id!r}.",
-            )
+        world = get_lab_world(engine, world_id)
+        world_root = require_world_root(
+            world,
+            unavailable_detail=f"Axis policy files unavailable for world {world_id!r}.",
+        )
 
         return _build_policy_bundle(world_id, world_root)
 
@@ -923,62 +555,14 @@ def router(engine: GameEngine) -> APIRouter:
         Requires admin or superuser role.
         """
 
-        _, _, role = validate_session(req.session_id)
-        _require_lab_role(role)
+        require_lab_session(req.session_id)
 
-        draft_name = req.draft_name.strip()
-        if not _DRAFT_NAME_RE.fullmatch(draft_name):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Draft names must use lowercase letters, numbers, underscores, or "
-                    "hyphens and must not include a file extension."
-                ),
-            )
-
-        if req.content.world_id != world_id:
-            raise HTTPException(
-                status_code=400,
-                detail="Draft content world_id must match the target world_id.",
-            )
-
-        try:
-            world = engine.world_registry.get_world(world_id)
-        except ValueError as err:
-            raise HTTPException(
-                status_code=404,
-                detail=f"World {world_id!r} not found or inactive.",
-            ) from err
-
-        world_root = world._world_root
-        if world_root is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Axis policy files unavailable for world {world_id!r}.",
-            )
-
-        _build_policy_bundle(world_id, world_root)
-
-        drafts_dir = world_root / "policies" / "drafts"
-        drafts_dir.mkdir(parents=True, exist_ok=True)
-        target = drafts_dir / f"{draft_name}.json"
-        if target.exists():
-            raise HTTPException(
-                status_code=409,
-                detail=f"A policy bundle draft named {draft_name!r} already exists.",
-            )
-
-        target.write_text(
-            json.dumps(req.content.model_dump(), ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-
-        return LabPolicyBundleDraftCreateResponse(
-            name=draft_name,
-            origin_path=f"policies/drafts/{draft_name}.json",
-            world_id=req.content.world_id,
-            version=req.content.version,
-            based_on_name=req.based_on_name,
+        world = get_lab_world(engine, world_id)
+        return create_world_policy_bundle_draft_document(
+            world,
+            world_id,
+            req,
+            build_policy_bundle=_build_policy_bundle,
         )
 
     @api.get(
@@ -999,54 +583,14 @@ def router(engine: GameEngine) -> APIRouter:
         Requires admin or superuser role.
         """
 
-        _, _, role = validate_session(session_id)
-        _require_lab_role(role)
+        require_lab_session(session_id)
 
-        try:
-            world = engine.world_registry.get_world(world_id)
-        except ValueError as err:
-            raise HTTPException(
-                status_code=404,
-                detail=f"World {world_id!r} not found or inactive.",
-            ) from err
-
-        world_root = world._world_root
-        if world_root is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Axis policy files unavailable for world {world_id!r}.",
-            )
-
-        _build_policy_bundle(world_id, world_root)
-
-        drafts_dir = world_root / "policies" / "drafts"
-        if not drafts_dir.is_dir():
-            return LabPolicyBundleDraftListResponse(world_id=world_id, drafts=[])
-
-        drafts: list[LabPolicyBundleDraftSummary] = []
-        for draft_file in sorted(drafts_dir.glob("*.json")):
-            try:
-                raw = json.loads(draft_file.read_text(encoding="utf-8"))
-                payload = LabPolicyBundleDraftPayload.model_validate(raw)
-            except (OSError, json.JSONDecodeError, ValueError):
-                logger.warning("Skipping invalid lab policy bundle draft: %s", draft_file)
-                continue
-            if payload.world_id != world_id:
-                logger.warning(
-                    "Skipping lab policy bundle draft with mismatched world_id: %s",
-                    draft_file,
-                )
-                continue
-            drafts.append(
-                LabPolicyBundleDraftSummary(
-                    name=draft_file.stem,
-                    origin_path=f"policies/drafts/{draft_file.name}",
-                    world_id=payload.world_id,
-                    version=payload.version,
-                )
-            )
-
-        return LabPolicyBundleDraftListResponse(world_id=world_id, drafts=drafts)
+        world = get_lab_world(engine, world_id)
+        return list_world_policy_bundle_drafts_document(
+            world,
+            world_id,
+            build_policy_bundle=_build_policy_bundle,
+        )
 
     @api.get(
         "/world-policy-bundle/{world_id}/drafts/{draft_name}",
@@ -1062,63 +606,14 @@ def router(engine: GameEngine) -> APIRouter:
         Requires admin or superuser role.
         """
 
-        _, _, role = validate_session(session_id)
-        _require_lab_role(role)
+        require_lab_session(session_id)
 
-        if not _DRAFT_NAME_RE.fullmatch(draft_name):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Draft names must use lowercase letters, numbers, underscores, or "
-                    "hyphens and must not include a file extension."
-                ),
-            )
-
-        try:
-            world = engine.world_registry.get_world(world_id)
-        except ValueError as err:
-            raise HTTPException(
-                status_code=404,
-                detail=f"World {world_id!r} not found or inactive.",
-            ) from err
-
-        world_root = world._world_root
-        if world_root is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Axis policy files unavailable for world {world_id!r}.",
-            )
-
-        _build_policy_bundle(world_id, world_root)
-
-        target = world_root / "policies" / "drafts" / f"{draft_name}.json"
-        if not target.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Policy bundle draft {draft_name!r} not found for world {world_id!r}.",
-            )
-
-        try:
-            raw = json.loads(target.read_text(encoding="utf-8"))
-            payload = LabPolicyBundleDraftPayload.model_validate(raw)
-        except (OSError, json.JSONDecodeError, ValueError) as err:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Policy bundle draft {draft_name!r} is invalid on disk.",
-            ) from err
-
-        if payload.world_id != world_id:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Policy bundle draft {draft_name!r} belongs to a different world.",
-            )
-
-        return LabPolicyBundleDraftDocument(
-            name=draft_name,
-            origin_path=f"policies/drafts/{draft_name}.json",
-            world_id=payload.world_id,
-            version=payload.version,
-            content=payload,
+        world = get_lab_world(engine, world_id)
+        return get_world_policy_bundle_draft_document(
+            world,
+            world_id,
+            draft_name,
+            build_policy_bundle=_build_policy_bundle,
         )
 
     @api.post(
@@ -1141,84 +636,23 @@ def router(engine: GameEngine) -> APIRouter:
         Requires admin or superuser role.
         """
 
-        _, _, role = validate_session(req.session_id)
-        _require_lab_role(role)
+        require_lab_session(req.session_id)
 
-        if not _DRAFT_NAME_RE.fullmatch(draft_name):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Draft names must use lowercase letters, numbers, underscores, or "
-                    "hyphens and must not include a file extension."
-                ),
-            )
-
-        try:
-            world = engine.world_registry.get_world(world_id)
-        except ValueError as err:
-            raise HTTPException(
-                status_code=404,
-                detail=f"World {world_id!r} not found or inactive.",
-            ) from err
-
-        world_root = world._world_root
-        if world_root is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Axis policy files unavailable for world {world_id!r}.",
-            )
-
-        policies_dir = world_root / "policies"
-        if not policies_dir.is_dir():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Axis policy files unavailable for world {world_id!r}.",
-            )
-
-        draft_path = policies_dir / "drafts" / f"{draft_name}.json"
-        if not draft_path.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Policy bundle draft {draft_name!r} not found for world {world_id!r}.",
-            )
-
-        try:
-            raw = json.loads(draft_path.read_text(encoding="utf-8"))
-            payload = LabPolicyBundleDraftPayload.model_validate(raw)
-        except (OSError, json.JSONDecodeError, ValueError) as err:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Policy bundle draft {draft_name!r} is invalid on disk.",
-            ) from err
-
-        if payload.world_id != world_id:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Policy bundle draft {draft_name!r} belongs to a different world.",
-            )
-
-        _, world_data = _load_world_json(
+        world = get_lab_world(engine, world_id)
+        return promote_world_policy_bundle_draft_document(
             world,
-            unavailable_detail=f"Axis policy files unavailable for world {world_id!r}.",
-        )
-        _validate_policy_bundle_active_axes(world, world_data, payload)
-
-        axes_payload = _build_axes_yaml_payload(payload)
-        thresholds_payload = _build_thresholds_yaml_payload(payload)
-        resolution_payload = _build_resolution_yaml_payload(payload)
-
-        _write_yaml(policies_dir / "axes.yaml", axes_payload)
-        _write_yaml(policies_dir / "thresholds.yaml", thresholds_payload)
-        _write_yaml(policies_dir / "resolution.yaml", resolution_payload)
-        _reload_world_axis_engine(world, world_data)
-
-        return LabPolicyBundleDraftPromoteResponse(
-            name=draft_name,
-            world_id=world_id,
-            canonical_name=f"{world_id}_policy_bundle",
-            source_files=_canonical_policy_source_files(),
-            version=payload.version,
-            policy_hash=_hash_policy_payload(axes_payload, thresholds_payload),
+            world_id,
+            draft_name,
+            req,
+            build_policy_bundle=_build_policy_bundle,
+            build_axes_yaml_payload=_build_axes_yaml_payload,
+            build_thresholds_yaml_payload=_build_thresholds_yaml_payload,
+            build_resolution_yaml_payload=_build_resolution_yaml_payload,
+            write_yaml=_write_yaml,
+            reload_world_axis_engine=_reload_world_axis_engine,
+            validate_policy_bundle_active_axes=_validate_policy_bundle_active_axes,
+            canonical_policy_source_files=_canonical_policy_source_files,
+            hash_policy_payload=_hash_policy_payload,
         )
 
     @api.post("/translate", response_model=LabTranslateResponse)
@@ -1240,23 +674,10 @@ def router(engine: GameEngine) -> APIRouter:
 
         Requires admin or superuser role.
         """
-        _, _, role = validate_session(req.session_id)
-        _require_lab_role(role)
+        require_lab_session(req.session_id)
 
-        try:
-            world = engine.world_registry.get_world(req.world_id)
-        except ValueError as err:
-            raise HTTPException(
-                status_code=404,
-                detail=f"World {req.world_id!r} not found or inactive.",
-            ) from err
-
-        service = world.get_translation_service()
-        if service is None:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Translation layer not enabled for world {req.world_id!r}.",
-            )
+        world = get_lab_world(engine, req.world_id)
+        service = require_translation_world(world, req.world_id, status_code=503)
 
         axes_raw = {name: ax.model_dump() for name, ax in req.axes.items()}
         seed = req.seed if req.seed != -1 else None
@@ -1272,17 +693,7 @@ def router(engine: GameEngine) -> APIRouter:
         )
 
         cfg = service.config
-        world_row = database.get_world_by_id(req.world_id) or {}
-        world_config = LabWorldConfig(
-            world_id=req.world_id,
-            name=world_row.get("name", req.world_id),
-            model=cfg.model,
-            active_axes=list(cfg.active_axes),
-            strict_mode=cfg.strict_mode,
-            max_output_chars=cfg.max_output_chars,
-            timeout_seconds=cfg.timeout_seconds,
-            translation_enabled=True,
-        )
+        world_config = build_lab_world_config(req.world_id, service)
 
         return LabTranslateResponse(
             ic_text=result.ic_text,
