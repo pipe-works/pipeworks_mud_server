@@ -73,7 +73,7 @@ def require_translation_world(
             status_code=status_code,
             detail=f"Translation layer not enabled for world {world_id!r}.",
         )
-    return cast(OOCToICTranslationService, service)
+    return cast("OOCToICTranslationService", service)
 
 
 def require_world_root(world: World, *, unavailable_detail: str) -> Path:
