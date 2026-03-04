@@ -4,7 +4,8 @@
  * World-selection and account-portal helpers for the play shell.
  */
 
-import { readSession } from './play_session.js';
+import { listCharacters } from './play_api.js';
+import { readSession, updateSession } from './play_session.js';
 
 /**
  * Read world id from the server-rendered body dataset.
@@ -273,6 +274,83 @@ function updateCreateCharacterButtonState() {
   createButton.disabled = !canCreate;
 }
 
+/**
+ * Refresh character list for the selected world and persist the result.
+ *
+ * This call is the key bridge between account sessions and character-bound
+ * gameplay sessions. World entry is blocked until this list contains at least
+ * one character and `/characters/select` succeeds.
+ *
+ * @param {{sessionId: string, worldId: string, preferredCharacterId?: number|null}} params
+ * @returns {Promise<void>}
+ */
+async function refreshCharactersForWorld({ sessionId, worldId, preferredCharacterId = null }) {
+  updateCharacterHint(`Loading characters for ${worldId}...`);
+  const session = readSession();
+  const worldOptions = getWorldOptions(session?.available_worlds);
+  const worldEntry = worldOptions.find((entry) => entry.id === worldId) || null;
+  updateWorldPolicyHint(worldEntry);
+
+  if (worldEntry && worldEntry.can_access === false) {
+    populateCharacterSelect([], null);
+    updateSession({
+      selected_world_id: worldId,
+      selected_character_id: null,
+      selected_character_name: null,
+    });
+    updateCharacterHint(`World ${worldId} is invite-locked for this account.`);
+    updateEnterWorldButtonState();
+    updateCreateCharacterButtonState();
+    return;
+  }
+
+  const response = await listCharacters(sessionId, worldId);
+  const characters = Array.isArray(response?.characters) ? response.characters : [];
+
+  if (worldEntry) {
+    const updatedWorlds = worldOptions.map((entry) => {
+      if (entry.id !== worldId) {
+        return entry;
+      }
+      const slotLimit = Number(entry.slot_limit_per_account || 0);
+      const usedSlots = characters.length;
+      return {
+        ...entry,
+        current_character_count: usedSlots,
+        can_create: usedSlots < slotLimit,
+      };
+    });
+    updateSession({ available_worlds: updatedWorlds });
+    updateWorldPolicyHint(updatedWorlds.find((entry) => entry.id === worldId) || null);
+  }
+
+  populateCharacterSelect(characters, preferredCharacterId);
+  if (!characters.length) {
+    updateSession({
+      selected_world_id: worldId,
+      selected_character_id: null,
+      selected_character_name: null,
+    });
+    updateCharacterHint(
+      `No characters are available in ${worldId}. Create one before entering this world.`
+    );
+    updateEnterWorldButtonState();
+    updateCreateCharacterButtonState();
+    return;
+  }
+
+  const selectedCharacterId = getSelectedCharacterId();
+  const selectedCharacter = characters.find((entry) => Number(entry.id) === selectedCharacterId);
+  updateSession({
+    selected_world_id: worldId,
+    selected_character_id: selectedCharacterId,
+    selected_character_name: selectedCharacter?.name || null,
+  });
+  updateCharacterHint(`${characters.length} character(s) available in ${worldId}.`);
+  updateEnterWorldButtonState();
+  updateCreateCharacterButtonState();
+}
+
 export {
   getDefaultWorldId,
   getPreferredWorldId,
@@ -283,6 +361,7 @@ export {
   getWorldOptions,
   populateCharacterSelect,
   populateWorldSelect,
+  refreshCharactersForWorld,
   updateCharacterHint,
   updateCreateCharacterButtonState,
   updateEnterWorldButtonState,
