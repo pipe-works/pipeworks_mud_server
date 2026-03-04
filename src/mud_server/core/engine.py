@@ -29,6 +29,7 @@ Architecture:
 
 import html
 import logging
+from typing import cast
 
 from mud_server.core.bus import MudBus
 from mud_server.core.events import Events
@@ -311,17 +312,12 @@ class GameEngine:
             (False, "You cannot move west from here.")
         """
         current_room = database.get_character_room(username, world_id=world_id)
-        world = self._get_world(world_id)
         if not current_room:
-            # Emit failure event - player has no valid room
-            _get_bus().emit(
-                Events.PLAYER_MOVE_FAILED,
-                {
-                    "username": username,
-                    "room": None,
-                    "direction": direction,
-                    "reason": "Player not in a valid room",
-                },
+            self._emit_move_failed(
+                username=username,
+                room_id=None,
+                direction=direction,
+                reason="Player not in a valid room",
             )
             return False, "You are not in a valid room."
 
@@ -329,43 +325,31 @@ class GameEngine:
 
         # Check if current room exists in the world
         if not world.get_room(current_room):
-            # Emit failure event - room doesn't exist in world data
-            _get_bus().emit(
-                Events.PLAYER_MOVE_FAILED,
-                {
-                    "username": username,
-                    "room": current_room,
-                    "direction": direction,
-                    "reason": "Room not in world data",
-                },
+            self._emit_move_failed(
+                username=username,
+                room_id=current_room,
+                direction=direction,
+                reason="Room not in world data",
             )
             return False, "You are not in a valid room."
 
         can_move, destination = world.can_move(current_room, direction)
         if not can_move or destination is None:
-            # Emit failure event - no exit in that direction
-            _get_bus().emit(
-                Events.PLAYER_MOVE_FAILED,
-                {
-                    "username": username,
-                    "room": current_room,
-                    "direction": direction,
-                    "reason": f"No exit {direction}",
-                },
+            self._emit_move_failed(
+                username=username,
+                room_id=current_room,
+                direction=direction,
+                reason=f"No exit {direction}",
             )
             return False, f"You cannot move {direction} from here."
 
         # Update player room in database
         if not database.set_character_room(username, destination, world_id=world_id):
-            # Emit failure event - database update failed
-            _get_bus().emit(
-                Events.PLAYER_MOVE_FAILED,
-                {
-                    "username": username,
-                    "room": current_room,
-                    "direction": direction,
-                    "reason": "Database update failed",
-                },
+            self._emit_move_failed(
+                username=username,
+                room_id=current_room,
+                direction=direction,
+                reason="Database update failed",
             )
             return False, "Failed to move."
 
@@ -388,12 +372,14 @@ class GameEngine:
         room_desc = world.get_room_description(destination, username, world_id=world_id)
         message = f"You move {direction}.\n{room_desc}"
 
-        # Notify other players (legacy broadcast - will eventually be event-driven)
-        self._broadcast_to_room(current_room, f"{username} leaves {direction}.", exclude=username)
-        self._broadcast_to_room(
-            destination,
-            f"{username} arrives from {self._opposite_direction(direction)}.",
-            exclude=username,
+        # Movement state changes are authoritative on the event bus.
+        # This broadcast path remains only as a retained no-op compatibility seam.
+        self._emit_deprecated_room_broadcasts(
+            username=username,
+            departure_room=current_room,
+            departure_message=f"{username} leaves {direction}.",
+            destination_room=destination,
+            arrival_message=f"{username} arrives from {self._opposite_direction(direction)}.",
         )
 
         return True, message
@@ -448,15 +434,12 @@ class GameEngine:
         if not database.set_character_room(username, destination, world_id=world_id):
             return False, "Failed to recall."
 
-        # Broadcast departure (when implemented)
-        if current_room:
-            self._broadcast_to_room(
-                current_room, f"{username} vanishes in a puff of smoke.", exclude=username
-            )
-
-        # Broadcast arrival
-        self._broadcast_to_room(
-            destination, f"{username} appears in a puff of smoke.", exclude=username
+        self._emit_deprecated_room_broadcasts(
+            username=username,
+            departure_room=current_room,
+            departure_message=f"{username} vanishes in a puff of smoke.",
+            destination_room=destination,
+            arrival_message=f"{username} appears in a puff of smoke.",
         )
 
         # Generate response
@@ -464,6 +447,114 @@ class GameEngine:
         message = f"You recall to {zone_name}'s spawn point.\n{room_desc}"
 
         return True, message
+
+    def _resolve_channel_ipc_hash(
+        self,
+        *,
+        world: World,
+        speaker_name: str,
+        channel: str,
+        world_id: str,
+        room_id: str | None = None,
+        listener_name: str | None = None,
+    ) -> str | None:
+        """Resolve one chat interaction to an ipc_hash when an axis engine is available."""
+
+        axis_engine = world.get_axis_engine()
+        if axis_engine is None:
+            return None
+
+        resolved_listener = listener_name
+        if resolved_listener is None and room_id is not None:
+            co_present = [
+                name
+                for name in database.get_characters_in_room(room_id, world_id=world_id)
+                if name != speaker_name
+            ]
+            if co_present:
+                resolved_listener = co_present[0]
+
+        if resolved_listener is None:
+            return None
+
+        try:
+            resolution = axis_engine.resolve_chat_interaction(
+                speaker_name=speaker_name,
+                listener_name=resolved_listener,
+                channel=channel,
+                world_id=world_id,
+            )
+            return cast(str | None, resolution.ipc_hash)
+        except Exception:
+            logger.warning(
+                "Axis resolution failed for %s (speaker=%r, listener=%r) - "
+                "continuing without ipc_hash.",
+                channel,
+                speaker_name,
+                resolved_listener,
+                exc_info=True,
+            )
+            return None
+
+    def _translate_and_sanitize_chat(
+        self,
+        *,
+        world: World,
+        character_name: str,
+        message: str,
+        channel: str,
+        ipc_hash: str | None,
+    ) -> str:
+        """Translate one OOC message when possible, then sanitize the final text."""
+
+        translation_service = world.get_translation_service()
+        final_message = message
+        if translation_service is not None:
+            ic_text = translation_service.translate(
+                character_name=character_name,
+                ooc_message=message,
+                channel=channel,
+                ipc_hash=ipc_hash,
+            )
+            if ic_text is not None:
+                final_message = ic_text
+
+        return sanitize_chat_message(final_message)
+
+    def _emit_deprecated_room_broadcasts(
+        self,
+        *,
+        username: str,
+        destination_room: str,
+        arrival_message: str,
+        departure_room: str | None = None,
+        departure_message: str | None = None,
+    ) -> None:
+        """Route movement compatibility calls through the deprecated broadcast seam."""
+
+        if departure_room and departure_message:
+            self._broadcast_to_room(departure_room, departure_message, exclude=username)
+        self._broadcast_to_room(destination_room, arrival_message, exclude=username)
+
+    def _emit_move_failed(
+        self,
+        *,
+        username: str,
+        direction: str,
+        reason: str,
+        room_id: str | None,
+    ) -> None:
+        """Emit the canonical failed-movement event payload."""
+
+        _get_bus().emit(
+            Events.PLAYER_MOVE_FAILED,
+            {
+                "username": username,
+                "room": room_id,
+                "direction": direction,
+                "reason": reason,
+            },
+        )
 
     def chat(self, username: str, message: str, *, world_id: str) -> tuple[bool, str]:
         """
@@ -511,53 +602,28 @@ class GameEngine:
         # the speaker.  If the room is empty (solo), resolution is skipped.
         # TODO(axis-engine): resolve against each listener individually once
         # the tick system exists to batch multi-listener interactions.
-        ipc_hash: str | None = None
-        axis_engine = world.get_axis_engine()
-        if axis_engine is not None:
-            co_present = [
-                name
-                for name in database.get_characters_in_room(room, world_id=world_id)
-                if name != username
-            ]
-            if co_present:
-                try:
-                    resolution = axis_engine.resolve_chat_interaction(
-                        speaker_name=username,
-                        listener_name=co_present[0],
-                        channel="say",
-                        world_id=world_id,
-                    )
-                    ipc_hash = resolution.ipc_hash
-                except Exception:
-                    logger.warning(
-                        "Axis resolution failed for chat (speaker=%r) — "
-                        "continuing without ipc_hash.",
-                        username,
-                        exc_info=True,
-                    )
+        ipc_hash = self._resolve_channel_ipc_hash(
+            world=world,
+            speaker_name=username,
+            room_id=room,
+            channel="say",
+            world_id=world_id,
+        )
 
         # ── OOC → IC translation ─────────────────────────────────────────────
         # Translate the raw player message to in-character dialogue.  The
         # service is non-authoritative and gracefully degrading — see its
         # docstring.  The ipc_hash (if set above) is forwarded so the service
         # can arm deterministic rendering and link this event in the ledger.
-        translation_service = world.get_translation_service()
-        if translation_service is not None:
-            ic_text = translation_service.translate(
-                character_name=username,
-                ooc_message=message,
-                channel="say",
-                ipc_hash=ipc_hash,
-            )
-            # Use IC output if translation succeeded; otherwise keep OOC.
-            final_message = ic_text if ic_text is not None else message
-        else:
-            final_message = message
-
-        # Sanitize the final message (IC or OOC) before storage.
         # XSS escaping is applied *after* translation so that the IC output
         # is cleaned by the same sanitiser as the OOC fallback.
-        safe_message = sanitize_chat_message(final_message)
+        safe_message = self._translate_and_sanitize_chat(
+            world=world,
+            character_name=username,
+            message=message,
+            channel="say",
+            ipc_hash=ipc_hash,
+        )
 
         if not database.add_chat_message(username, safe_message, room, world_id=world_id):
             return False, "Failed to send message."
@@ -616,48 +682,24 @@ class GameEngine:
 
         # ── Axis resolution ───────────────────────────────────────────────────
         # Same pattern as chat() — first co-present, non-speaker character.
-        ipc_hash: str | None = None
-        axis_engine = world.get_axis_engine()
-        if axis_engine is not None:
-            co_present = [
-                name
-                for name in database.get_characters_in_room(current_room_id, world_id=world_id)
-                if name != username
-            ]
-            if co_present:
-                try:
-                    resolution = axis_engine.resolve_chat_interaction(
-                        speaker_name=username,
-                        listener_name=co_present[0],
-                        channel="yell",
-                        world_id=world_id,
-                    )
-                    ipc_hash = resolution.ipc_hash
-                except Exception:
-                    logger.warning(
-                        "Axis resolution failed for yell (speaker=%r) — "
-                        "continuing without ipc_hash.",
-                        username,
-                        exc_info=True,
-                    )
+        ipc_hash = self._resolve_channel_ipc_hash(
+            world=world,
+            speaker_name=username,
+            room_id=current_room_id,
+            channel="yell",
+            world_id=world_id,
+        )
 
         # ── OOC → IC translation ─────────────────────────────────────────────
         # Translation occurs before the [YELL] prefix is applied so that the
         # rendered IC dialogue is wrapped naturally.
-        translation_service = world.get_translation_service()
-        if translation_service is not None:
-            ic_text = translation_service.translate(
-                character_name=username,
-                ooc_message=message,
-                channel="yell",
-                ipc_hash=ipc_hash,
-            )
-            final_message = ic_text if ic_text is not None else message
-        else:
-            final_message = message
-
-        # Sanitize the final message (IC or OOC) before storage.
-        safe_message = sanitize_chat_message(final_message)
+        safe_message = self._translate_and_sanitize_chat(
+            world=world,
+            character_name=username,
+            message=message,
+            channel="yell",
+            ipc_hash=ipc_hash,
+        )
 
         # Add [YELL] prefix to sanitized message
         yell_message = f"[YELL] {safe_message}"
@@ -735,10 +777,6 @@ class GameEngine:
             >>> engine.whisper("player1", "Player2", "Hi")
             (False, "Player 'Player2' is not in this room.")
         """
-        import logging
-
-        logger = logging.getLogger(__name__)
-
         resolved_sender = database.resolve_character_name(username, world_id=world_id)
         sender_name = resolved_sender or username
         sender_room = database.get_character_room(sender_name, world_id=world_id)
@@ -772,45 +810,26 @@ class GameEngine:
 
         # ── Axis resolution ───────────────────────────────────────────────────
         # For whisper the listener is unambiguous: the resolved target character.
-        ipc_hash: str | None = None
-        axis_engine = world.get_axis_engine()
-        if axis_engine is not None:
-            try:
-                resolution = axis_engine.resolve_chat_interaction(
-                    speaker_name=sender_name,
-                    listener_name=resolved_target,
-                    channel="whisper",
-                    world_id=world_id,
-                )
-                ipc_hash = resolution.ipc_hash
-            except Exception:
-                logger.warning(
-                    "Axis resolution failed for whisper (speaker=%r, listener=%r) — "
-                    "continuing without ipc_hash.",
-                    sender_name,
-                    resolved_target,
-                    exc_info=True,
-                )
+        ipc_hash = self._resolve_channel_ipc_hash(
+            world=world,
+            speaker_name=sender_name,
+            listener_name=resolved_target,
+            channel="whisper",
+            world_id=world_id,
+        )
 
         # ── OOC → IC translation ─────────────────────────────────────────────
         # Translation occurs before the [WHISPER: ...] prefix is applied so
         # that the IC dialogue is wrapped naturally.  Whispers are rendered
         # with channel="whisper" so that the prompt template can lower the
         # volume/intensity of the voice appropriately.
-        translation_service = world.get_translation_service()
-        if translation_service is not None:
-            ic_text = translation_service.translate(
-                character_name=sender_name,
-                ooc_message=message,
-                channel="whisper",
-                ipc_hash=ipc_hash,
-            )
-            final_message = ic_text if ic_text is not None else message
-        else:
-            final_message = message
-
-        # Sanitize the final message (IC or OOC) before storage.
-        safe_message = sanitize_chat_message(final_message)
+        safe_message = self._translate_and_sanitize_chat(
+            world=world,
+            character_name=sender_name,
+            message=message,
+            channel="whisper",
+            ipc_hash=ipc_hash,
+        )
 
         # Add whisper message with recipient (include both sender and target for clarity)
         whisper_message = f"[WHISPER: {sender_name} → {target}] {safe_message}"
@@ -1125,16 +1144,17 @@ class GameEngine:
 
     def _broadcast_to_room(self, room_id: str, message: str, exclude: str | None = None):
         """
-        Broadcast a message to all players in a room.
+        Deprecated compatibility hook for room-broadcast notifications.
 
-        This method is currently a stub and doesn't actually send messages.
-        Real implementation would require:
+        Movement and recall are authoritative through emitted events, not this
+        method. The hook remains as a deliberate no-op seam so older call sites
+        can be isolated without implying that room broadcasts are an active
+        delivery mechanism.
+
+        A real implementation would require:
         - WebSocket connections or message queue system
         - Per-player message buffers
         - Push notification mechanism
-
-        When implemented, this would be called by move() to notify other
-        players when someone enters or leaves a room.
 
         Args:
             room_id: Room to broadcast to
@@ -1142,10 +1162,10 @@ class GameEngine:
             exclude: Optional username to exclude from broadcast (usually sender)
 
         Current Status:
-            Not implemented - movement notifications not sent to other players
+            Not implemented; retained only as a compatibility stub.
         """
         # This would be handled by the server's message queue
-        # TODO: Implement real-time message broadcasting
+        # TODO: Remove once movement/recall call sites no longer reference it.
         pass
 
     @staticmethod
