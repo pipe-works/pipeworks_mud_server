@@ -163,20 +163,60 @@ MUD_ADMIN_USER=myadmin MUD_ADMIN_PASSWORD=securepass123 mud-server init-db
 
 ## Creating Your Own World
 
-The MUD server is **fully data-driven**. Create a custom world by editing `data/world_data.json`:
+The MUD server is **fully data-driven**. Worlds now live under `data/worlds/<world_id>/` as self-contained packages:
+
+```text
+data/worlds/<world_id>/
+├── world.json
+├── zones/
+│   └── <zone>.json
+└── policies/
+    ├── axes.yaml
+    ├── thresholds.yaml
+    ├── resolution.yaml
+    └── ic_prompt.txt
+```
+
+A minimal world package looks like this:
 
 ```json
 {
+  "name": "My World",
+  "description": "A custom world package.",
+  "version": "0.1.0",
+  "default_spawn": {"zone": "my_world", "room": "spawn"},
+  "zones": ["my_world"],
+  "global_items": {},
+  "translation_layer": {
+    "enabled": true,
+    "model": "gemma2:2b",
+    "prompt_template_path": "policies/ic_prompt.txt",
+    "active_axes": ["demeanor", "health"]
+  },
+  "axis_engine": {"enabled": true}
+}
+```
+
+And the zone data lives separately in `zones/<zone>.json`:
+
+```json
+{
+  "id": "my_world",
+  "name": "My World",
   "rooms": {
+    "spawn": {
+      "id": "spawn",
+      "name": "Spawn Zone",
+      "description": "A central gathering point.",
+      "exits": {"north": "library"},
+      "items": []
+    },
     "library": {
       "id": "library",
       "name": "Ancient Library",
-      "description": "Dusty books line the shelves. A reading desk sits by the window.",
-      "exits": {
-        "south": "spawn",
-        "up": "tower"
-      },
-      "items": ["dusty_book", "reading_lamp"]
+      "description": "Dusty books line the shelves.",
+      "exits": {"south": "spawn"},
+      "items": ["dusty_book"]
     }
   },
   "items": {
@@ -189,7 +229,34 @@ The MUD server is **fully data-driven**. Create a custom world by editing `data/
 }
 ```
 
-**That's it.** No code changes needed. Restart the server and the new room is live.
+No server code changes are required when you add a new world package or tune
+its policies. The server loads the world from disk and the axis engine and
+translation layer read their canonical configuration from that package.
+
+## Axis Descriptor Lab Integration
+
+The mud server is now the canonical source of truth for prompt templates and policy bundles used by the Axis Descriptor Lab.
+
+What the lab can do against the mud server:
+
+- inspect canonical prompt templates in `policies/*.txt`
+- create prompt drafts under `policies/drafts/*.txt`
+- promote a prompt draft into a new canonical prompt and make it the active `translation_layer.prompt_template_path`
+- inspect the canonical policy package as one normalized JSON bundle
+- create policy bundle drafts under `policies/drafts/*.json`
+- promote a policy bundle draft back into canonical `axes.yaml`, `thresholds.yaml`, and `resolution.yaml`
+
+Important semantics:
+
+- `canonical` means the server-owned files in the world package
+- `draft` means a lab-created artifact under `policies/drafts/`
+- `active` for prompts means the file currently referenced by `world.json -> translation_layer.prompt_template_path`
+
+Promotion updates the running world immediately:
+
+- prompt promotion writes the new canonical prompt, updates `world.json`, and reloads the translation service
+- policy bundle promotion rewrites the canonical YAML package and reloads the world axis engine
+- no full server restart is required, although clients may need to refresh their UI to see updated dropdown state
 
 ---
 

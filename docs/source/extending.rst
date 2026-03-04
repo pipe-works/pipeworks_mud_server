@@ -37,7 +37,7 @@ In ``src/mud_server/core/engine.py``:
 2. Add Command Handler
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-In ``src/mud_server/api/routes.py``:
+In ``src/mud_server/api/routes/game.py``:
 
 .. code-block:: python
 
@@ -57,16 +57,18 @@ The new command is now available to players.
 Extending World Data
 --------------------
 
-World data is defined in ``data/world_data.json``.
+World data is defined in self-contained world packages under ``data/worlds/<world_id>/``.
 
 Adding Room Properties
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-1. **Update JSON schema**:
+1. **Update the zone JSON shape** in ``data/worlds/<world_id>/zones/<zone>.json``:
 
 .. code-block:: json
 
     {
+      "id": "my_world",
+      "name": "My World",
       "rooms": {
         "library": {
           "id": "library",
@@ -178,7 +180,7 @@ only as a compatibility re-export surface for legacy imports and tests.
 Add Client Wrapper
 ~~~~~~~~~~~~~~~~~~
 
-In ``src/mud_server/client/api/game.py``:
+In the relevant client or integration layer that calls the endpoint:
 
 .. code-block:: python
 
@@ -205,16 +207,14 @@ In ``src/mud_server/api/models.py``:
 Add Route
 ~~~~~~~~~
 
-In ``src/mud_server/api/routes.py``:
+In the appropriate router module under ``src/mud_server/api/routes/``:
 
 .. code-block:: python
 
-    @app.get("/api/achievements/{username}", response_model=list[AchievementResponse])
-    async def get_player_achievements(username: str, request: Request):
+    @api.get("/achievements/{username}", response_model=list[AchievementResponse])
+    async def get_player_achievements(username: str, session_id: str):
         """Get all achievements for a player."""
-        if not validate_session(request):
-            raise HTTPException(status_code=401, detail="Not authenticated")
-
+        validate_session(session_id)
         achievements = db.get_achievements(username)
         return achievements
 
@@ -409,8 +409,13 @@ Keep code organized by feature::
     │   └── admin_repo.py     # Admin dashboard and inspector read paths
     ├── api/
     │   ├── server.py
-    │   ├── routes.py
     │   ├── models.py
+    │   ├── routes/
+    │   │   ├── game.py
+    │   │   ├── auth.py
+    │   │   ├── admin.py
+    │   │   ├── lab.py
+    │   │   └── register.py
     │   └── ...
     └── web/                  # Admin WebUI
         ├── routes.py

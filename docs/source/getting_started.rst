@@ -102,40 +102,68 @@ First Login
 Creating Your First World
 --------------------------
 
-The default world is defined in ``data/world_data.json``:
+Worlds are self-contained packages under ``data/worlds/<world_id>/``.
+A minimal package contains:
+
+.. code-block:: text
+
+    data/worlds/<world_id>/
+    ├── world.json
+    ├── zones/
+    │   └── <zone>.json
+    └── policies/
+        ├── axes.yaml
+        ├── thresholds.yaml
+        ├── resolution.yaml
+        └── ic_prompt.txt
+
+``world.json`` defines the world metadata and which subsystems are enabled:
 
 .. code-block:: json
 
     {
+      "name": "My World",
+      "description": "A custom world package.",
+      "version": "0.1.0",
+      "default_spawn": {"zone": "my_world", "room": "spawn"},
+      "zones": ["my_world"],
+      "global_items": {},
+      "translation_layer": {
+        "enabled": true,
+        "model": "gemma2:2b",
+        "prompt_template_path": "policies/ic_prompt.txt",
+        "active_axes": ["demeanor", "health"]
+      },
+      "axis_engine": {"enabled": true}
+    }
+
+The room and item data lives in ``zones/<zone>.json``:
+
+.. code-block:: json
+
+    {
+      "id": "my_world",
+      "name": "My World",
       "rooms": {
         "spawn": {
           "id": "spawn",
           "name": "Spawn Zone",
           "description": "A central gathering point.",
-          "exits": {
-            "north": "forest",
-            "south": "desert"
-          },
-          "items": ["torch"]
+          "exits": {"north": "library"},
+          "items": []
         }
       },
-      "items": {
-        "torch": {
-          "id": "torch",
-          "name": "torch",
-          "description": "A burning torch providing light."
-        }
-      }
+      "items": {}
     }
 
 To create your own world:
 
-1. Edit ``data/world_data.json``
-2. Add rooms with connections
-3. Add items to rooms
-4. Restart the server
+1. Create ``data/worlds/<world_id>/world.json``.
+2. Add one or more zone files under ``data/worlds/<world_id>/zones/``.
+3. Add canonical policy files under ``data/worlds/<world_id>/policies/``.
+4. Restart the server so the world package is loaded.
 
-No code changes required!
+No code changes are required.
 
 Development Setup
 -----------------

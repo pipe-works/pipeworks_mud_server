@@ -17,6 +17,7 @@ JSON-driven world data, and clean architecture.
    axis_state
    ledger
    translation_layer
+   lab_artifact_editor
    admin_axis_inspector
    security
    admin_web_ui_mtls

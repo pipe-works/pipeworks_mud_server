@@ -200,6 +200,38 @@ Health
 
 * ``GET /health`` - Server health check
 
+Lab Integration
+~~~~~~~~~~~~~~~
+
+These endpoints are intended for the Axis Descriptor Lab and expose the mud
+server as the canonical source of truth for prompt templates and policy
+packages:
+
+* ``GET /api/lab/worlds`` - List worlds visible to the lab
+* ``GET /api/lab/world-prompts/{world_id}`` - List canonical prompt templates
+  and indicate which one is active in ``world.json``
+* ``GET /api/lab/world-prompts/{world_id}/drafts`` - List saved prompt drafts
+* ``GET /api/lab/world-prompts/{world_id}/drafts/{name}`` - Load one prompt draft
+* ``POST /api/lab/world-prompts/{world_id}/drafts`` - Create a new prompt draft
+* ``POST /api/lab/world-prompts/{world_id}/drafts/{name}/promote`` - Promote a
+  prompt draft into a new canonical active prompt
+* ``GET /api/lab/world-policy-bundle/{world_id}`` - Return the canonical policy
+  package as one normalized JSON bundle
+* ``GET /api/lab/world-policy-bundle/{world_id}/drafts`` - List saved policy
+  bundle drafts
+* ``GET /api/lab/world-policy-bundle/{world_id}/drafts/{name}`` - Load one
+  policy bundle draft
+* ``POST /api/lab/world-policy-bundle/{world_id}/drafts`` - Create a new policy
+  bundle draft
+* ``POST /api/lab/world-policy-bundle/{world_id}/drafts/{name}/promote`` -
+  Promote a policy bundle draft into canonical ``axes.yaml``,
+  ``thresholds.yaml``, and ``resolution.yaml``
+
+These routes are intentionally lab-focused rather than general public editing
+APIs. They assume a trusted single-user tool and preserve create-only draft
+behavior until promotion.
+
+
 Authentication
 --------------
 
