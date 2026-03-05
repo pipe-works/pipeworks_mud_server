@@ -1,0 +1,8 @@
+{
+  "name": "pipeworks-mud-server-js-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:js": "node --test tests/js/*.test.mjs"
+  }
+}

@@ -153,6 +153,7 @@ async function createCharacter(sessionId, worldId) {
 
 export {
   apiCall,
+  buildCharacterListParams,
   createCharacter,
   getErrorMessage,
   getStatus,
