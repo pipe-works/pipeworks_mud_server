@@ -17,6 +17,80 @@ def _write_policy(world_root: Path, axes_yaml: str, thresholds_yaml: str) -> Non
     (policies_dir / "thresholds.yaml").write_text(thresholds_yaml, encoding="utf-8")
 
 
+def _write_manifest_axis_paths(world_root: Path) -> None:
+    """Write a minimal manifest that points axis assets at nested paths."""
+    policies_dir = world_root / "policies"
+    manifest = """
+schema_version: 0.1.0
+policy_schema: pipeworks_policy_v1
+world_id: test_world
+policy_bundle:
+  id: bundle
+  version: 1
+axis:
+  active_bundle:
+    id: axis_core_v1
+    version: 1
+    files:
+      axes: policies/axis/axes.yaml
+      thresholds: policies/axis/thresholds.yaml
+      resolution: policies/axis/resolution.yaml
+translation:
+  active_prompt:
+    id: ic_default_v1
+    version: 1
+    path: policies/translation/prompts/ic/default_v1.txt
+image:
+  descriptor_layer:
+    id: id_card_v1
+    version: 1
+    path: policies/image/descriptor_layers/id_card_v1.txt
+  tone_profile:
+    id: ledger_engraving_v1
+    version: 1
+    path: policies/image/tone_profiles/ledger_engraving_v1.json
+  registries:
+    species: policies/image/registries/species_registry.yaml
+    clothing: policies/image/registries/clothing_registry.yaml
+  composition:
+    order:
+      - species_canon_block
+      - descriptor_layer_output
+      - clothing_block
+      - tone_profile_block
+    required_runtime_inputs:
+      - entity.identity.gender
+      - entity.species
+      - entity.axes
+"""
+    (policies_dir / "manifest.yaml").write_text(manifest, encoding="utf-8")
+    (world_root / "policies" / "axis").mkdir(parents=True, exist_ok=True)
+    (world_root / "policies" / "translation" / "prompts" / "ic").mkdir(parents=True, exist_ok=True)
+    (world_root / "policies" / "image" / "descriptor_layers").mkdir(parents=True, exist_ok=True)
+    (world_root / "policies" / "image" / "tone_profiles").mkdir(parents=True, exist_ok=True)
+    (world_root / "policies" / "image" / "registries").mkdir(parents=True, exist_ok=True)
+
+    (world_root / "policies" / "translation" / "prompts" / "ic" / "default_v1.txt").write_text(
+        "ic prompt",
+        encoding="utf-8",
+    )
+    (world_root / "policies" / "image" / "descriptor_layers" / "id_card_v1.txt").write_text(
+        "descriptor",
+        encoding="utf-8",
+    )
+    (world_root / "policies" / "image" / "tone_profiles" / "ledger_engraving_v1.json").write_text(
+        '{"name":"ledger_engraving_v1"}', encoding="utf-8"
+    )
+    (world_root / "policies" / "image" / "registries" / "species_registry.yaml").write_text(
+        "registry: { id: species_registry, version: 1, kind: species }",
+        encoding="utf-8",
+    )
+    (world_root / "policies" / "image" / "registries" / "clothing_registry.yaml").write_text(
+        "registry: { id: clothing_registry, version: 1, kind: clothing }",
+        encoding="utf-8",
+    )
+
+
 @pytest.mark.unit
 def test_axis_policy_loader_report_complete(tmp_path: Path) -> None:
     """Loader should report axes, ordering, thresholds, and hash when complete."""
@@ -109,3 +183,64 @@ def test_axis_policy_loader_empty_policy(tmp_path: Path) -> None:
     _payload, report = loader.load(world_id)
 
     assert "axes list missing or empty" in report.missing_components
+
+
+@pytest.mark.unit
+def test_axis_policy_loader_prefers_manifest_axis_paths(tmp_path: Path) -> None:
+    """When manifest exists, axis payloads should come from manifest-referenced paths."""
+    world_id = "manifest_world"
+    world_root = tmp_path / world_id
+    _write_policy(
+        world_root,
+        """
+version: 0.1.0
+axes:
+  legacy_only:
+    values: [a, b]
+    ordering:
+      type: ordinal
+      values: [a, b]
+""",
+        """
+version: 0.1.0
+axes:
+  legacy_only:
+    values:
+      a: { min: 0.0, max: 0.5 }
+      b: { min: 0.5, max: 1.0 }
+""",
+    )
+    _write_manifest_axis_paths(world_root)
+    (world_root / "policies" / "axis" / "axes.yaml").write_text(
+        """
+version: 0.1.0
+axes:
+  manifest_only:
+    values: [x, y]
+    ordering:
+      type: ordinal
+      values: [x, y]
+""",
+        encoding="utf-8",
+    )
+    (world_root / "policies" / "axis" / "thresholds.yaml").write_text(
+        """
+version: 0.1.0
+axes:
+  manifest_only:
+    values:
+      x: { min: 0.0, max: 0.5 }
+      y: { min: 0.5, max: 1.0 }
+""",
+        encoding="utf-8",
+    )
+    (world_root / "policies" / "axis" / "resolution.yaml").write_text(
+        "version: '1.0'\n", encoding="utf-8"
+    )
+
+    loader = AxisPolicyLoader(worlds_root=tmp_path)
+    _payload, report = loader.load(world_id)
+
+    assert report.axes == ["manifest_only"]
+    assert "ordering missing for axis: manifest_only" not in report.missing_components
+    assert "thresholds missing for axis: manifest_only" not in report.missing_components

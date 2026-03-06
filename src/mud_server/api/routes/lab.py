@@ -47,6 +47,14 @@ GET  /api/lab/world-policy-bundle/{world_id}
     Return the canonical world policy package normalised into one JSON bundle
     for Artifact Editor inspection.
 
+GET  /api/lab/world-image-policy-bundle/{world_id}
+    Return the manifest-resolved image policy bundle (composition order,
+    runtime input requirements, and image policy asset references).
+
+POST /api/lab/compile-image-prompt
+    Compile a deterministic image prompt from manifest-resolved policy assets
+    and runtime inputs (species, gender, axes, optional context signals).
+
 GET  /api/lab/world-policy-bundle/{world_id}/drafts
     List saved JSON draft bundles under the world's ``policies/drafts``
     directory.
@@ -75,11 +83,16 @@ from __future__ import annotations
 import logging
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
 
 import yaml
 from fastapi import APIRouter, HTTPException
+from pipeworks_ipc import compute_payload_hash
 
 from mud_server.api.models import (
+    LabImageCompileRequest,
+    LabImageCompileResponse,
+    LabImagePolicyBundleResponse,
     LabPolicyAxisDefinition,
     LabPolicyBundleDraftCreateRequest,
     LabPolicyBundleDraftCreateResponse,
@@ -139,6 +152,7 @@ from mud_server.api.routes.lab_support import (
     require_world_root,
 )
 from mud_server.core.engine import GameEngine
+from mud_server.policies import PolicyManifestLoader
 
 logger = logging.getLogger(__name__)
 
@@ -175,11 +189,9 @@ def _write_yaml(path: Path, payload: dict) -> None:
 
 def _build_policy_bundle(world_id: str, world_root: Path) -> LabPolicyBundleResponse:
     """Normalize a world's policy package into the lab-facing JSON bundle shape."""
-
-    policy_root = world_root / "policies"
-    axes_payload = _read_yaml(policy_root / "axes.yaml")
-    thresholds_payload = _read_yaml(policy_root / "thresholds.yaml")
-    resolution_payload = _read_yaml(policy_root / "resolution.yaml")
+    axes_payload, thresholds_payload, resolution_payload, source_files = (
+        _load_world_axis_policy_files(world_id, world_root)
+    )
 
     axes_raw = axes_payload.get("axes") or {}
     thresholds_raw = (
@@ -239,14 +251,66 @@ def _build_policy_bundle(world_id: str, world_root: Path) -> LabPolicyBundleResp
         ),
         source="mud_server policy package normalized to JSON",
         policy_hash=_hash_policy_payload(axes_payload, thresholds_payload),
-        source_files=[
-            "policies/axes.yaml",
-            "policies/thresholds.yaml",
-            "policies/resolution.yaml",
-        ],
+        source_files=source_files,
         axes_order=axes_order,
         axes=normalized_axes,
         chat_rules=normalized_chat_rules,
+    )
+
+
+def _load_world_axis_policy_files(
+    world_id: str, world_root: Path
+) -> tuple[dict, dict, dict, list[str]]:
+    """Load axis policy files with manifest-first resolution and flat fallback.
+
+    Resolution order:
+    1. If ``policies/manifest.yaml`` exists and includes valid axis bundle paths,
+       load axis/thresholds/resolution from referenced files.
+    2. Otherwise fall back to legacy flat files under ``policies/``.
+
+    This helper keeps existing lab behavior working during migration.
+    """
+
+    policy_root = world_root / "policies"
+    manifest_path = policy_root / "manifest.yaml"
+
+    if manifest_path.exists():
+        manifest_loader = PolicyManifestLoader(worlds_root=world_root.parent)
+        payload, report = manifest_loader.load_from_world_root(
+            world_id=world_id, world_root=world_root
+        )
+
+        axes_payload = ((payload.get("axis") or {}).get("axes")) or {}
+        thresholds_payload = ((payload.get("axis") or {}).get("thresholds")) or {}
+        resolution_payload = ((payload.get("axis") or {}).get("resolution")) or {}
+
+        if (
+            isinstance(axes_payload, dict)
+            and isinstance(thresholds_payload, dict)
+            and isinstance(resolution_payload, dict)
+            and axes_payload
+        ):
+            source_files = [
+                report.referenced_paths.get("axis.axes", "policies/axis/axes.yaml"),
+                report.referenced_paths.get("axis.thresholds", "policies/axis/thresholds.yaml"),
+                report.referenced_paths.get("axis.resolution", "policies/axis/resolution.yaml"),
+            ]
+            return axes_payload, thresholds_payload, resolution_payload, source_files
+
+        # TODO(refactor-cleanup): remove after manifest migration complete.
+        # Fall back to legacy flat files when manifest exists but axis assets
+        # are incomplete or invalid during the transition period.
+        logger.warning(
+            "World %r manifest axis assets incomplete, falling back to legacy policy files: %s",
+            world_id,
+            ", ".join(report.missing_components),
+        )
+
+    return (
+        _read_yaml(policy_root / "axes.yaml"),
+        _read_yaml(policy_root / "thresholds.yaml"),
+        _read_yaml(policy_root / "resolution.yaml"),
+        ["policies/axes.yaml", "policies/thresholds.yaml", "policies/resolution.yaml"],
     )
 
 
@@ -258,6 +322,489 @@ def _canonical_policy_source_files() -> list[str]:
         "policies/thresholds.yaml",
         "policies/resolution.yaml",
     ]
+
+
+def _build_image_policy_bundle(world_id: str, world_root: Path) -> LabImagePolicyBundleResponse:
+    """Build one manifest-resolved image policy bundle response.
+
+    This helper returns a diagnostic contract snapshot for integration clients.
+    It does not perform prompt compilation; it only reports resolved references
+    and manifest validation state.
+    """
+
+    manifest_path = world_root / "policies" / "manifest.yaml"
+    if not manifest_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Image policy files unavailable for world {world_id!r}.",
+        )
+
+    loader = PolicyManifestLoader(worlds_root=world_root.parent)
+    payload, report = loader.load_from_world_root(world_id=world_id, world_root=world_root)
+
+    image_payload = payload.get("image") or {}
+    return LabImagePolicyBundleResponse(
+        world_id=world_id,
+        policy_schema=report.policy_schema,
+        policy_bundle_id=report.bundle_id,
+        policy_bundle_version=report.bundle_version,
+        composition_order=list(image_payload.get("composition_order") or []),
+        required_runtime_inputs=list(image_payload.get("required_runtime_inputs") or []),
+        descriptor_layer_path=report.referenced_paths.get("image.descriptor_layer"),
+        tone_profile_path=report.referenced_paths.get("image.tone_profile"),
+        species_registry_path=report.referenced_paths.get("image.species_registry"),
+        clothing_registry_path=report.referenced_paths.get("image.clothing_registry"),
+        missing_components=list(report.missing_components),
+    )
+
+
+def _compile_image_prompt(
+    req: LabImageCompileRequest, *, world_root: Path
+) -> LabImageCompileResponse:
+    """Compile one deterministic image prompt from manifest-resolved policy assets.
+
+    The compiler is intentionally policy-driven and deterministic:
+
+    1. Load manifest + referenced assets via ``PolicyManifestLoader``.
+    2. Select species/clothing blocks using registry rules + runtime inputs.
+    3. Assemble the prompt in manifest-defined composition order.
+    4. Return selection metadata and deterministic provenance hashes.
+
+    Raises:
+        HTTPException: When required manifest assets are missing or selection
+            cannot produce required blocks.
+    """
+
+    loader = PolicyManifestLoader(worlds_root=world_root.parent)
+    payload, report = loader.load_from_world_root(world_id=req.world_id, world_root=world_root)
+
+    if report.missing_components:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Image policy manifest is incomplete for compile: "
+                + "; ".join(report.missing_components)
+            ),
+        )
+
+    manifest_payload = payload.get("manifest") or {}
+    image_payload = payload.get("image") or {}
+    composition_order = list(image_payload.get("composition_order") or [])
+    required_runtime_inputs = list(image_payload.get("required_runtime_inputs") or [])
+    descriptor_layer_text = image_payload.get("descriptor_layer")
+    tone_profile_payload = image_payload.get("tone_profile")
+    species_registry = image_payload.get("species_registry")
+    clothing_registry = image_payload.get("clothing_registry")
+
+    if not isinstance(descriptor_layer_text, str):
+        raise HTTPException(
+            status_code=409, detail="Descriptor layer text missing in policy bundle."
+        )
+    if not isinstance(tone_profile_payload, dict):
+        raise HTTPException(
+            status_code=409, detail="Tone profile payload missing in policy bundle."
+        )
+    if not isinstance(species_registry, dict):
+        raise HTTPException(
+            status_code=409, detail="Species registry payload missing in policy bundle."
+        )
+    if not isinstance(clothing_registry, dict):
+        raise HTTPException(
+            status_code=409, detail="Clothing registry payload missing in policy bundle."
+        )
+
+    axis_labels = {axis_name: axis_value.label for axis_name, axis_value in req.axes.items()}
+    _validate_compile_runtime_inputs(
+        required_runtime_inputs=required_runtime_inputs,
+        species=req.species,
+        gender=req.gender,
+        axes=req.axes,
+    )
+    selected_species_entry = _select_species_entry(
+        species_registry=species_registry,
+        species=req.species,
+        gender=req.gender,
+    )
+    if selected_species_entry is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"No active species block matched species={req.species!r} and "
+                f"gender={req.gender!r}."
+            ),
+        )
+
+    species_block_text = _read_registry_block_text(
+        world_root=world_root,
+        rel_path=str(selected_species_entry.get("block_path") or ""),
+    )
+
+    selected_clothing_profile_id = _extract_clothing_profile_id(clothing_registry)
+    selected_clothing_slots, clothing_blocks = _select_clothing_blocks(
+        clothing_registry=clothing_registry,
+        world_root=world_root,
+        gender=req.gender,
+        axis_labels=axis_labels,
+        world_context=req.world_context,
+        occupation_signals=req.occupation_signals,
+    )
+
+    tone_block_text = _render_tone_profile_block(tone_profile_payload)
+    compiled_prompt = _assemble_compiled_prompt(
+        composition_order=composition_order,
+        species_block_text=species_block_text,
+        descriptor_layer_text=descriptor_layer_text,
+        clothing_block_text="\n".join(clothing_blocks).strip(),
+        tone_block_text=tone_block_text,
+    )
+
+    # Hash policy/compiler inputs only (no runtime axis/gender in policy hash).
+    policy_hash = compute_payload_hash(
+        {
+            "manifest": manifest_payload,
+            "axis_bundle": payload.get("axis") or {},
+            "descriptor_layer_text": descriptor_layer_text,
+            "tone_profile_payload": tone_profile_payload,
+            "composition_order": composition_order,
+            "selected_blocks": {
+                "species": {
+                    "id": selected_species_entry.get("id"),
+                    "content": species_block_text,
+                },
+                "clothing_profile_id": selected_clothing_profile_id,
+                "clothing_slots": selected_clothing_slots,
+                "clothing_block_texts": clothing_blocks,
+            },
+        }
+    )
+    axis_hash = compute_payload_hash(
+        {
+            axis_name: {"label": axis_value.label, "score": axis_value.score}
+            for axis_name, axis_value in sorted(req.axes.items(), key=lambda item: item[0])
+        }
+    )
+
+    descriptor_id = _nested_get(manifest_payload, ["image", "descriptor_layer", "id"])
+    tone_id = _nested_get(manifest_payload, ["image", "tone_profile", "id"])
+
+    return LabImageCompileResponse(
+        world_id=req.world_id,
+        policy_schema=report.policy_schema,
+        policy_bundle_id=report.bundle_id,
+        policy_bundle_version=report.bundle_version,
+        policy_hash=policy_hash,
+        axis_hash=axis_hash,
+        required_runtime_inputs=required_runtime_inputs,
+        selected_descriptor_layer_id=str(descriptor_id) if descriptor_id is not None else None,
+        selected_tone_profile_id=str(tone_id) if tone_id is not None else None,
+        selected_species_block_id=str(selected_species_entry.get("id") or ""),
+        selected_clothing_profile_id=selected_clothing_profile_id,
+        selected_clothing_slot_ids=selected_clothing_slots,
+        compiled_prompt=compiled_prompt,
+        generation_defaults={
+            "model_id": req.model_id or "flux-2-klein-4b",
+            "aspect_ratio": req.aspect_ratio or "1:1",
+            "seed": req.seed,
+        },
+        missing_components=[],
+    )
+
+
+def _validate_compile_runtime_inputs(
+    *,
+    required_runtime_inputs: list[str],
+    species: str,
+    gender: str,
+    axes: dict[str, Any],
+) -> None:
+    """Validate required runtime inputs declared by manifest composition contract."""
+    missing: list[str] = []
+    required = set(required_runtime_inputs)
+
+    if "entity.species" in required and not str(species).strip():
+        missing.append("entity.species")
+    if "entity.identity.gender" in required and not str(gender).strip():
+        missing.append("entity.identity.gender")
+    if "entity.axes" in required and not axes:
+        missing.append("entity.axes")
+
+    if missing:
+        raise HTTPException(
+            status_code=409,
+            detail=("Missing required runtime inputs for compile: " + ", ".join(sorted(missing))),
+        )
+
+
+def _select_species_entry(
+    *, species_registry: dict[str, Any], species: str, gender: str
+) -> dict[str, Any] | None:
+    """Select one active species registry entry deterministically."""
+    entries = species_registry.get("entries") or []
+    if not isinstance(entries, list):
+        return None
+
+    candidates: list[dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("status", "")).lower() != "active":
+            continue
+        if str(entry.get("block_type", "")) != "species":
+            continue
+        if not _matches_species(entry, species):
+            continue
+        if not _matches_gender(entry, gender):
+            continue
+        if not _matches_species_rule(entry, species):
+            continue
+        candidates.append(entry)
+
+    if not candidates:
+        return None
+    return sorted(
+        candidates,
+        key=lambda item: (
+            -int(item.get("render_priority", 0)),
+            str(item.get("id", "")),
+        ),
+    )[0]
+
+
+def _select_clothing_blocks(
+    *,
+    clothing_registry: dict[str, Any],
+    world_root: Path,
+    gender: str,
+    axis_labels: dict[str, str],
+    world_context: list[str],
+    occupation_signals: list[str],
+) -> tuple[dict[str, str | None], list[str]]:
+    """Select one clothing block per slot and return ids + block texts."""
+    slots = clothing_registry.get("slots") or {}
+    if not isinstance(slots, dict):
+        return {}, []
+
+    selected_slot_ids: dict[str, str | None] = {}
+    selected_block_texts: list[str] = []
+
+    for slot_name in clothing_registry.get("composition_contract", {}).get("slots", []):
+        slot_entries = slots.get(slot_name) or []
+        selected = _select_clothing_slot_entry(
+            slot_entries=slot_entries,
+            slot_name=str(slot_name),
+            gender=gender,
+            axis_labels=axis_labels,
+            world_context=world_context,
+            occupation_signals=occupation_signals,
+        )
+        if selected is None:
+            selected_slot_ids[str(slot_name)] = None
+            continue
+
+        selected_slot_ids[str(slot_name)] = str(selected.get("id") or "")
+        rel_path = str(selected.get("fragment_path") or "")
+        if rel_path:
+            selected_block_texts.append(
+                _read_registry_block_text(world_root=world_root, rel_path=rel_path)
+            )
+
+    return selected_slot_ids, selected_block_texts
+
+
+def _select_clothing_slot_entry(
+    *,
+    slot_entries: Any,
+    slot_name: str,
+    gender: str,
+    axis_labels: dict[str, str],
+    world_context: list[str],
+    occupation_signals: list[str],
+) -> dict[str, Any] | None:
+    """Select one clothing entry for a slot using deterministic match ordering."""
+    if not isinstance(slot_entries, list):
+        return None
+
+    candidates: list[tuple[int, int, str, dict[str, Any]]] = []
+    for entry in slot_entries:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("status", "")).lower() != "active":
+            continue
+        if str(entry.get("block_type", "")) != "clothing_fragment":
+            continue
+        if not _matches_gender(entry, gender):
+            continue
+
+        matched, fallback = _matches_clothing_rules(
+            entry=entry,
+            slot_name=slot_name,
+            axis_labels=axis_labels,
+            world_context=world_context,
+            occupation_signals=occupation_signals,
+        )
+        if not matched:
+            continue
+
+        match_score = 0 if fallback else 1
+        candidates.append(
+            (
+                -match_score,
+                -int(entry.get("render_priority", 0)),
+                str(entry.get("id", "")),
+                entry,
+            )
+        )
+
+    if not candidates:
+        return None
+    candidates.sort()
+    return candidates[0][3]
+
+
+def _matches_clothing_rules(
+    *,
+    entry: dict[str, Any],
+    slot_name: str,
+    axis_labels: dict[str, str],
+    world_context: list[str],
+    occupation_signals: list[str],
+) -> tuple[bool, bool]:
+    """Evaluate clothing entry rules and return ``(matched, fallback_match)``."""
+    rules = ((entry.get("selection_rules") or {}).get("when")) or {}
+    if not isinstance(rules, dict):
+        return True, False
+
+    fallback = bool(rules.get("fallback", False))
+    axis_rule_any = _nested_get(rules, ["axis_labels", "wealth_any"])
+    if axis_rule_any is not None:
+        axis_label = axis_labels.get("wealth")
+        if axis_label not in set(axis_rule_any if isinstance(axis_rule_any, list) else []):
+            return False, fallback
+
+    world_any = rules.get("world_context_any")
+    if world_any is not None:
+        world_set = set(world_context)
+        if not world_set.intersection(set(world_any if isinstance(world_any, list) else [])):
+            return False, fallback
+
+    occupation_any = rules.get("occupation_signal_any")
+    if occupation_any is not None:
+        occupation_set = set(occupation_signals)
+        if not occupation_set.intersection(
+            set(occupation_any if isinstance(occupation_any, list) else [])
+        ):
+            return False, fallback
+
+    _ = slot_name  # Explicitly unused in v0; retained for future per-slot rule logic.
+    return True, fallback
+
+
+def _extract_clothing_profile_id(clothing_registry: dict[str, Any]) -> str | None:
+    """Extract default clothing profile id from registry payload."""
+    defaults = clothing_registry.get("defaults") or {}
+    profile_id = defaults.get("profile_id")
+    return str(profile_id) if isinstance(profile_id, str) else None
+
+
+def _assemble_compiled_prompt(
+    *,
+    composition_order: list[str],
+    species_block_text: str,
+    descriptor_layer_text: str,
+    clothing_block_text: str,
+    tone_block_text: str,
+) -> str:
+    """Assemble final prompt in strict composition order."""
+    block_map = {
+        "species_canon_block": species_block_text.strip(),
+        "descriptor_layer_output": descriptor_layer_text.strip(),
+        "clothing_block": clothing_block_text.strip(),
+        "tone_profile_block": tone_block_text.strip(),
+    }
+    blocks = [block_map.get(block_name, "") for block_name in composition_order]
+    return "\n\n".join([block for block in blocks if block])
+
+
+def _render_tone_profile_block(tone_profile_payload: dict[str, Any]) -> str:
+    """Render a tone-profile block from JSON payload.
+
+    The v0 implementation prefers ``prompt_block`` when present. Otherwise it
+    composes one conservative sentence from a subset of known tone fields.
+    """
+    prompt_block = tone_profile_payload.get("prompt_block")
+    if isinstance(prompt_block, str) and prompt_block.strip():
+        return prompt_block
+
+    linework = str(tone_profile_payload.get("linework_style") or "").strip()
+    palette = str(tone_profile_payload.get("palette_descriptor") or "").strip()
+    context = str(tone_profile_payload.get("presentation_context") or "").strip()
+    phrases = [phrase for phrase in [linework, palette, context] if phrase]
+    if not phrases:
+        return ""
+    return ". ".join(phrases).rstrip(".") + "."
+
+
+def _read_registry_block_text(*, world_root: Path, rel_path: str) -> str:
+    """Read a species/clothing block file and return normalized text content."""
+    if not rel_path:
+        raise HTTPException(status_code=409, detail="Registry entry missing block path.")
+
+    path = world_root / rel_path
+    if not path.exists():
+        raise HTTPException(status_code=409, detail=f"Referenced block file missing: {rel_path}")
+
+    if path.suffix.lower() == ".txt":
+        return path.read_text(encoding="utf-8").strip()
+
+    if path.suffix.lower() in {".yaml", ".yml"}:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if isinstance(loaded, dict):
+            for key in ("text", "anatomy_block", "prompt_block"):
+                value = loaded.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return yaml.safe_dump(loaded, sort_keys=False).strip()
+
+    return path.read_text(encoding="utf-8").strip()
+
+
+def _matches_species(entry: dict[str, Any], species: str) -> bool:
+    """Return whether species entry matches requested species."""
+    values = entry.get("compatible_species") or []
+    if isinstance(values, list) and values:
+        return species in values
+    return True
+
+
+def _matches_gender(entry: dict[str, Any], gender: str) -> bool:
+    """Return whether entry supports requested gender."""
+    values = entry.get("compatible_genders") or []
+    if isinstance(values, list) and values:
+        return gender in values
+    return True
+
+
+def _matches_species_rule(entry: dict[str, Any], species: str) -> bool:
+    """Return whether species selection rules allow the requested species."""
+    when = ((entry.get("selection_rules") or {}).get("when")) or {}
+    if not isinstance(when, dict):
+        return True
+    species_any = when.get("species_any")
+    if species_any is None:
+        return True
+    if isinstance(species_any, list):
+        return species in species_any
+    return False
+
+
+def _nested_get(payload: dict[str, Any], path_keys: list[str]) -> Any:
+    """Get nested value from mapping path, returning ``None`` when missing."""
+    current: Any = payload
+    for key in path_keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
 
 
 def _build_axes_yaml_payload(payload: LabPolicyBundleDraftPayload) -> dict:
@@ -537,6 +1084,41 @@ def router(engine: GameEngine) -> APIRouter:
         )
 
         return _build_policy_bundle(world_id, world_root)
+
+    @api.get(
+        "/world-image-policy-bundle/{world_id}",
+        response_model=LabImagePolicyBundleResponse,
+    )
+    async def get_world_image_policy_bundle(
+        world_id: str, session_id: str
+    ) -> LabImagePolicyBundleResponse:
+        """Return one world's manifest-resolved image policy bundle.
+
+        This endpoint is intended for integration clients that need the
+        canonical image policy references and composition contract before
+        calling prompt compilation/generation endpoints.
+        """
+        require_lab_session(session_id)
+
+        world = get_lab_world(engine, world_id)
+        world_root = require_world_root(
+            world,
+            unavailable_detail=f"Image policy files unavailable for world {world_id!r}.",
+        )
+        return _build_image_policy_bundle(world_id, world_root)
+
+    @api.post("/compile-image-prompt", response_model=LabImageCompileResponse)
+    async def compile_image_prompt(req: LabImageCompileRequest) -> LabImageCompileResponse:
+        """Compile one deterministic image prompt from canonical policy assets."""
+
+        require_lab_session(req.session_id)
+
+        world = get_lab_world(engine, req.world_id)
+        world_root = require_world_root(
+            world,
+            unavailable_detail=f"Image policy files unavailable for world {req.world_id!r}.",
+        )
+        return _compile_image_prompt(req, world_root=world_root)
 
     @api.post(
         "/world-policy-bundle/{world_id}/drafts",

@@ -74,7 +74,8 @@ class LabPromptFile(BaseModel):
     """A single prompt template file from the world's ``policies/`` directory.
 
     Attributes:
-        filename:  File name (e.g. ``"ic_prompt.txt"``).
+        filename:  World-relative prompt path under ``policies/`` (for example
+                   ``"ic_prompt.txt"`` or ``"translation/prompts/ic/default_v1.txt"``).
         content:   Full text content of the file.
         is_active: ``True`` if this file is the world's configured
                    ``prompt_template_path``.
@@ -234,6 +235,40 @@ class LabPolicyBundleResponse(BaseModel):
     axes_order: list[str]
     axes: dict[str, Any]
     chat_rules: dict[str, Any]
+
+
+class LabImagePolicyBundleResponse(BaseModel):
+    """Manifest-resolved image policy bundle for one world.
+
+    This model exposes the canonical image-policy contract the server resolves
+    from ``policies/manifest.yaml`` and referenced assets. It is intentionally
+    read-only and diagnostic so integration clients can verify migration state.
+
+    Attributes:
+        world_id: World identifier.
+        policy_schema: Manifest schema id (for parser compatibility).
+        policy_bundle_id: Active policy bundle id.
+        policy_bundle_version: Active policy bundle version.
+        composition_order: Ordered image block composition.
+        required_runtime_inputs: Runtime inputs required for deterministic compile.
+        descriptor_layer_path: Manifest-referenced descriptor layer path.
+        tone_profile_path: Manifest-referenced tone profile path.
+        species_registry_path: Manifest-referenced species registry path.
+        clothing_registry_path: Manifest-referenced clothing registry path.
+        missing_components: Validation/report issues from manifest resolution.
+    """
+
+    world_id: str
+    policy_schema: str | None
+    policy_bundle_id: str | None
+    policy_bundle_version: int | str | None
+    composition_order: list[str]
+    required_runtime_inputs: list[str]
+    descriptor_layer_path: str | None
+    tone_profile_path: str | None
+    species_registry_path: str | None
+    clothing_registry_path: str | None
+    missing_components: list[str]
 
 
 class LabPolicyThresholdBand(BaseModel):
@@ -494,3 +529,81 @@ class LabTranslateResponse(BaseModel):
     prompt_template: str
     model: str
     world_config: LabWorldConfig
+
+
+class LabImageCompileRequest(BaseModel):
+    """Request to compile one deterministic image prompt from canonical policy.
+
+    Attributes:
+        session_id: Active admin/superuser session.
+        world_id: Target world identifier.
+        species: Species identifier used for species block selection.
+        gender: Fixed identity gender value. Phase-1 allowed values are
+            ``"male"`` and ``"female"``.
+        axes: Axis payload used for descriptor/clothing selection context.
+        world_context: Optional world-context tags used by clothing selection
+            (for example ``"coastal"``, ``"harbor"``).
+        occupation_signals: Optional occupation/activity tags used by clothing
+            selection (for example ``"manual_labour"``, ``"trade"``).
+        model_id: Optional generation model hint returned in defaults.
+        aspect_ratio: Optional aspect-ratio hint returned in defaults.
+        seed: Optional generation seed hint returned in defaults.
+    """
+
+    session_id: str
+    world_id: str
+    species: str
+    gender: str
+    axes: dict[str, LabAxisValue]
+    world_context: list[str] = []
+    occupation_signals: list[str] = []
+    model_id: str | None = None
+    aspect_ratio: str | None = None
+    seed: int | None = None
+
+    @model_validator(mode="after")
+    def validate_gender(self) -> "LabImageCompileRequest":
+        """Normalize and validate phase-1 gender values."""
+        normalized = self.gender.strip().lower()
+        if normalized not in {"male", "female"}:
+            raise ValueError("gender must be one of: male, female")
+        self.gender = normalized
+        return self
+
+
+class LabImageCompileResponse(BaseModel):
+    """Response from ``POST /api/lab/compile-image-prompt``.
+
+    Attributes:
+        world_id: World identifier.
+        policy_schema: Manifest schema identifier.
+        policy_bundle_id: Active policy bundle id.
+        policy_bundle_version: Active policy bundle version.
+        policy_hash: Deterministic hash of compiler policy inputs.
+        axis_hash: Deterministic hash of runtime axis payload.
+        required_runtime_inputs: Runtime input keys required by composition.
+        selected_descriptor_layer_id: Selected descriptor layer id.
+        selected_tone_profile_id: Selected tone profile id.
+        selected_species_block_id: Selected species block entry id.
+        selected_clothing_profile_id: Selected clothing profile id.
+        selected_clothing_slot_ids: Selected clothing entry ids by slot.
+        compiled_prompt: Final deterministic prompt string.
+        generation_defaults: Generation defaults derived from request/manifest.
+        missing_components: Non-fatal validation/report issues encountered.
+    """
+
+    world_id: str
+    policy_schema: str | None
+    policy_bundle_id: str | None
+    policy_bundle_version: int | str | None
+    policy_hash: str
+    axis_hash: str
+    required_runtime_inputs: list[str]
+    selected_descriptor_layer_id: str | None
+    selected_tone_profile_id: str | None
+    selected_species_block_id: str | None
+    selected_clothing_profile_id: str | None
+    selected_clothing_slot_ids: dict[str, str | None]
+    compiled_prompt: str
+    generation_defaults: dict[str, Any]
+    missing_components: list[str]

@@ -14,6 +14,8 @@ from typing import Any
 
 import yaml
 
+from .manifest_policy import PolicyManifestLoader
+
 
 @dataclass(slots=True)
 class AxisPolicyValidationReport:
@@ -59,9 +61,38 @@ class AxisPolicyLoader:
         """
         policy_root = self._worlds_root / world_id / "policies"
 
-        # Load policy files (empty dicts if missing) so validation can report gaps.
+        # Default to legacy flat-path loading.
         axes_payload = self._read_yaml(policy_root / "axes.yaml")
         thresholds_payload = self._read_yaml(policy_root / "thresholds.yaml")
+        manifest_missing: list[str] = []
+
+        # Prefer manifest-defined axis assets when available.
+        #
+        # TODO(refactor-cleanup): remove after manifest migration complete.
+        # The compatibility branch below keeps legacy worlds running while
+        # manifest-backed packages are being rolled out incrementally.
+        manifest_path = policy_root / "manifest.yaml"
+        if manifest_path.exists():
+            manifest_loader = PolicyManifestLoader(worlds_root=self._worlds_root)
+            manifest_payload, manifest_report = manifest_loader.load(world_id)
+            manifest_missing = list(manifest_report.missing_components)
+
+            manifest_axes = ((manifest_payload.get("axis") or {}).get("axes")) or None
+            manifest_thresholds = ((manifest_payload.get("axis") or {}).get("thresholds")) or None
+
+            if isinstance(manifest_axes, dict):
+                axes_payload = manifest_axes
+            else:
+                manifest_missing.append(
+                    "manifest axis payload missing; fell back to policies/axes.yaml"
+                )
+
+            if isinstance(manifest_thresholds, dict):
+                thresholds_payload = manifest_thresholds
+            else:
+                manifest_missing.append(
+                    "manifest threshold payload missing; fell back to policies/thresholds.yaml"
+                )
 
         # Extract axis names plus their ordering/threshold definitions.
         axes = list((axes_payload.get("axes") or {}).keys())
@@ -74,6 +105,7 @@ class AxisPolicyLoader:
             ordering_present=ordering_present,
             thresholds_present=thresholds_present,
         )
+        missing_components.extend(manifest_missing)
 
         # Hash the combined payload so the policy can be versioned/diffed reliably.
         payload = {
