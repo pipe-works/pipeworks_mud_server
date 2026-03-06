@@ -15,7 +15,7 @@ are needed anywhere else — ``server.py`` and ``health.py`` import
 
 from __future__ import annotations
 
-from importlib.metadata import PackageNotFoundError, version
+import importlib.metadata
 
 # ---------------------------------------------------------------------------
 # Package version — read from pyproject.toml via importlib.metadata.
@@ -27,6 +27,6 @@ from importlib.metadata import PackageNotFoundError, version
 # the application can still start.
 # ---------------------------------------------------------------------------
 try:
-    __version__: str = version("mud_server")
-except PackageNotFoundError:
+    __version__: str = importlib.metadata.version("mud_server")
+except importlib.metadata.PackageNotFoundError:
     __version__ = "0.0.0-dev"
