@@ -17,16 +17,20 @@ from __future__ import annotations
 
 import importlib.metadata
 
+# Keep fallback separate from `__version__ = "..."` assignment patterns so
+# release automation cannot accidentally rewrite this stable dev marker.
+_DEV_FALLBACK_VERSION = "0.0.0-dev"
+
 # ---------------------------------------------------------------------------
 # Package version — read from pyproject.toml via importlib.metadata.
 #
 # When the package is installed (``pip install -e .``), importlib.metadata
 # resolves the version from the distribution metadata that pip wrote.  If
 # the package is somehow imported without being installed (rare, but
-# possible during early bootstrapping), we fall back to "0.0.0-dev" so
+# possible during early bootstrapping), we fall back to `_DEV_FALLBACK_VERSION` so
 # the application can still start.
 # ---------------------------------------------------------------------------
 try:
     __version__: str = importlib.metadata.version("mud_server")
 except importlib.metadata.PackageNotFoundError:
-    __version__ = "0.0.0-dev"
+    __version__ = _DEV_FALLBACK_VERSION
