@@ -944,6 +944,7 @@ def test_world_image_policy_bundle_returns_manifest_contract(
     assert data["world_id"] == "test_world"
     assert data["policy_schema"] == "pipeworks_policy_v1"
     assert data["policy_bundle_id"] == "pipeworks_web_default"
+    assert data["policy_hash"]
     assert data["descriptor_layer_path"] == "policies/image/descriptor_layers/id_card_v1.txt"
     assert data["species_registry_path"] == "policies/image/registries/species_registry.yaml"
     assert "entity.identity.gender" in data["required_runtime_inputs"]
@@ -967,6 +968,36 @@ def test_world_image_policy_bundle_missing_manifest_returns_404(
         resp = client.get(f"/api/lab/world-image-policy-bundle/test_world?session_id={sid}")
 
     assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_world_image_policy_bundle_policy_hash_changes_on_content_change(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Bundle policy hash should change when referenced asset content changes."""
+    policies = tmp_path / "policies"
+    _write_manifest_policy_package(policies)
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp_one = client.get(f"/api/lab/world-image-policy-bundle/test_world?session_id={sid}")
+        assert resp_one.status_code == 200
+        hash_one = resp_one.json()["policy_hash"]
+
+        descriptor_path = policies / "image" / "descriptor_layers" / "id_card_v1.txt"
+        descriptor_path.write_text("Descriptor layer updated for hash test.", encoding="utf-8")
+
+        resp_two = client.get(f"/api/lab/world-image-policy-bundle/test_world?session_id={sid}")
+        assert resp_two.status_code == 200
+        hash_two = resp_two.json()["policy_hash"]
+
+    assert hash_one != hash_two
 
 
 # ── POST /api/lab/compile-image-prompt ──────────────────────────────────────

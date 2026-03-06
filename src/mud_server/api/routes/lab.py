@@ -342,12 +342,30 @@ def _build_image_policy_bundle(world_id: str, world_root: Path) -> LabImagePolic
     loader = PolicyManifestLoader(worlds_root=world_root.parent)
     payload, report = loader.load_from_world_root(world_id=world_id, world_root=world_root)
 
+    # Hash compiler inputs resolved from manifest references only. Runtime
+    # entity inputs (for example gender/species/axes values) are intentionally
+    # excluded so this hash remains stable for a fixed policy package.
+    bundle_policy_hash = compute_payload_hash(
+        {
+            "manifest": payload.get("manifest") or {},
+            "axis_bundle": payload.get("axis") or {},
+            "descriptor_layer_text": (payload.get("image") or {}).get("descriptor_layer"),
+            "tone_profile_payload": (payload.get("image") or {}).get("tone_profile"),
+            "species_registry_payload": (payload.get("image") or {}).get("species_registry"),
+            "clothing_registry_payload": (payload.get("image") or {}).get("clothing_registry"),
+            "composition_order": (payload.get("image") or {}).get("composition_order") or [],
+            "required_runtime_inputs": (payload.get("image") or {}).get("required_runtime_inputs")
+            or [],
+        }
+    )
+
     image_payload = payload.get("image") or {}
     return LabImagePolicyBundleResponse(
         world_id=world_id,
         policy_schema=report.policy_schema,
         policy_bundle_id=report.bundle_id,
         policy_bundle_version=report.bundle_version,
+        policy_hash=bundle_policy_hash,
         composition_order=list(image_payload.get("composition_order") or []),
         required_runtime_inputs=list(image_payload.get("required_runtime_inputs") or []),
         descriptor_layer_path=report.referenced_paths.get("image.descriptor_layer"),

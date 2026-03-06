@@ -249,6 +249,7 @@ class LabImagePolicyBundleResponse(BaseModel):
         policy_schema: Manifest schema id (for parser compatibility).
         policy_bundle_id: Active policy bundle id.
         policy_bundle_version: Active policy bundle version.
+        policy_hash: Deterministic hash of manifest-resolved compiler inputs.
         composition_order: Ordered image block composition.
         required_runtime_inputs: Runtime inputs required for deterministic compile.
         descriptor_layer_path: Manifest-referenced descriptor layer path.
@@ -262,6 +263,7 @@ class LabImagePolicyBundleResponse(BaseModel):
     policy_schema: str | None
     policy_bundle_id: str | None
     policy_bundle_version: int | str | None
+    policy_hash: str
     composition_order: list[str]
     required_runtime_inputs: list[str]
     descriptor_layer_path: str | None
