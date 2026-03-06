@@ -25,6 +25,7 @@ from mud_server.api.routes.lab_support import (
     write_world_json,
 )
 from mud_server.core.world import World
+from mud_server.policies import PolicyManifestLoader
 
 
 def validate_prompt_draft_name(name: str, *, detail_prefix: str = "Draft names") -> str:
@@ -77,23 +78,59 @@ def list_world_prompts(world: World, world_id: str) -> LabWorldPromptsResponse:
     if not policies_dir.is_dir():
         return LabWorldPromptsResponse(world_id=world_id, prompts=[])
 
-    active_path = service.config.prompt_template_path
+    active_path = _resolve_active_prompt_template_path(
+        world_root, world_id, service.config.prompt_template_path
+    )
     prompts: list[LabPromptFile] = []
-    for txt_file in sorted(policies_dir.glob("*.txt")):
+    for txt_file in sorted(policies_dir.rglob("*.txt")):
+        # Draft artifacts are intentionally excluded from canonical prompt listing.
+        if "drafts" in txt_file.parts:
+            continue
         try:
             content = txt_file.read_text(encoding="utf-8")
         except OSError:
             continue
-        rel = f"policies/{txt_file.name}"
+        rel_path = txt_file.relative_to(policies_dir).as_posix()
+        rel = f"policies/{rel_path}"
         prompts.append(
             LabPromptFile(
-                filename=txt_file.name,
+                filename=rel_path,
                 content=content,
                 is_active=(rel == active_path),
             )
         )
 
     return LabWorldPromptsResponse(world_id=world_id, prompts=prompts)
+
+
+def _resolve_active_prompt_template_path(
+    world_root: Path, world_id: str, configured_active_path: str
+) -> str:
+    """Resolve active prompt path, preferring manifest path when available.
+
+    During migration, worlds may have both:
+    - legacy ``translation_layer.prompt_template_path`` in ``world.json``
+    - manifest-defined ``translation.active_prompt.path``
+
+    Manifest path is preferred when available so downstream tooling follows the
+    new canonical policy source.
+    """
+
+    policy_root = world_root / "policies"
+    manifest_path = policy_root / "manifest.yaml"
+    if not manifest_path.exists():
+        return configured_active_path
+
+    loader = PolicyManifestLoader(worlds_root=world_root.parent)
+    _payload, report = loader.load_from_world_root(world_id=world_id, world_root=world_root)
+    manifest_prompt_path = report.referenced_paths.get("translation.active_prompt")
+    if manifest_prompt_path:
+        return manifest_prompt_path
+
+    # TODO(refactor-cleanup): remove after manifest migration complete.
+    # Fallback to world.json-configured prompt path while manifest adoption
+    # is still in progress and some worlds may be partially migrated.
+    return configured_active_path
 
 
 def create_world_prompt_draft(

@@ -77,6 +77,9 @@ SelectCharacterResponse = auth_game_models.SelectCharacterResponse
 StatusResponse = auth_game_models.StatusResponse
 
 LabAxisValue = lab_models.LabAxisValue
+LabImageCompileRequest = lab_models.LabImageCompileRequest
+LabImageCompileResponse = lab_models.LabImageCompileResponse
+LabImagePolicyBundleResponse = lab_models.LabImagePolicyBundleResponse
 LabPolicyAxisDefinition = lab_models.LabPolicyAxisDefinition
 LabPolicyBundleDraftCreateRequest = lab_models.LabPolicyBundleDraftCreateRequest
 LabPolicyBundleDraftCreateResponse = lab_models.LabPolicyBundleDraftCreateResponse

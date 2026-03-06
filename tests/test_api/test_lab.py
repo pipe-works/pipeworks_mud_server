@@ -193,6 +193,211 @@ def _write_policy_bundle_draft(
     (drafts / filename).write_text(json.dumps(payload) + "\n", encoding="utf-8")
 
 
+def _write_manifest_policy_package(policy_root: Path) -> None:
+    """Write a minimal manifest-driven package for prompt/image policy tests."""
+    policy_root.mkdir(parents=True, exist_ok=True)
+    (policy_root / "manifest.yaml").write_text(
+        """
+schema_version: 0.1.0
+policy_schema: pipeworks_policy_v1
+world_id: test_world
+policy_bundle:
+  id: pipeworks_web_default
+  version: 1
+identity_contract:
+  fixed_traits:
+    gender:
+      type: enum
+      allowed_values: [male, female]
+      required: true
+axis:
+  active_bundle:
+    id: axis_core_v1
+    version: 1
+    files:
+      axes: policies/axis/axes.yaml
+      thresholds: policies/axis/thresholds.yaml
+      resolution: policies/axis/resolution.yaml
+translation:
+  active_prompt:
+    id: ic_default_v1
+    version: 1
+    path: policies/translation/prompts/ic/default_v1.txt
+image:
+  descriptor_layer:
+    id: id_card_v1
+    version: 1
+    path: policies/image/descriptor_layers/id_card_v1.txt
+  tone_profile:
+    id: ledger_engraving_v1
+    version: 1
+    path: policies/image/tone_profiles/ledger_engraving_v1.json
+  registries:
+    species: policies/image/registries/species_registry.yaml
+    clothing: policies/image/registries/clothing_registry.yaml
+  composition:
+    order:
+      - species_canon_block
+      - descriptor_layer_output
+      - clothing_block
+      - tone_profile_block
+    required_runtime_inputs:
+      - entity.identity.gender
+      - entity.species
+      - entity.axes
+""",
+        encoding="utf-8",
+    )
+    (policy_root / "axis").mkdir(parents=True, exist_ok=True)
+    (policy_root / "axis" / "axes.yaml").write_text(
+        "version: 0.1.0\naxes:\n  demeanor:\n    ordering:\n      type: ordinal\n      values: [timid, proud]\n",
+        encoding="utf-8",
+    )
+    (policy_root / "axis" / "thresholds.yaml").write_text(
+        "version: 0.1.0\naxes:\n  demeanor:\n    values:\n      timid: {min: 0.0, max: 0.49}\n      proud: {min: 0.5, max: 1.0}\n",
+        encoding="utf-8",
+    )
+    (policy_root / "axis" / "resolution.yaml").write_text(
+        'version: "1.0"\ninteractions:\n  chat:\n    axes: {}\n', encoding="utf-8"
+    )
+    (policy_root / "translation" / "prompts" / "ic").mkdir(parents=True, exist_ok=True)
+    (policy_root / "translation" / "prompts" / "ic" / "default_v1.txt").write_text(
+        "Manifest prompt {{profile_summary}}",
+        encoding="utf-8",
+    )
+    (policy_root / "image" / "descriptor_layers").mkdir(parents=True, exist_ok=True)
+    (policy_root / "image" / "descriptor_layers" / "id_card_v1.txt").write_text(
+        "Descriptor layer",
+        encoding="utf-8",
+    )
+    (policy_root / "image" / "tone_profiles").mkdir(parents=True, exist_ok=True)
+    (policy_root / "image" / "tone_profiles" / "ledger_engraving_v1.json").write_text(
+        '{"name":"ledger_engraving_v1"}',
+        encoding="utf-8",
+    )
+    (policy_root / "image" / "registries").mkdir(parents=True, exist_ok=True)
+    (policy_root / "image" / "registries" / "species_registry.yaml").write_text(
+        "registry: {id: species_registry, version: 1, kind: species}",
+        encoding="utf-8",
+    )
+    (policy_root / "image" / "registries" / "clothing_registry.yaml").write_text(
+        "registry: {id: clothing_registry, version: 1, kind: clothing}",
+        encoding="utf-8",
+    )
+
+
+def _write_manifest_compile_policy_package(policy_root: Path) -> None:
+    """Write manifest policy fixtures with concrete species/clothing block entries."""
+    _write_manifest_policy_package(policy_root)
+
+    (policy_root / "image" / "blocks" / "species").mkdir(parents=True, exist_ok=True)
+    (policy_root / "image" / "blocks" / "clothing" / "environment").mkdir(
+        parents=True, exist_ok=True
+    )
+    (policy_root / "image" / "blocks" / "clothing" / "activity").mkdir(parents=True, exist_ok=True)
+    (policy_root / "image" / "blocks" / "clothing" / "wealth").mkdir(parents=True, exist_ok=True)
+
+    (policy_root / "image" / "blocks" / "species" / "goblin_v1.yaml").write_text(
+        "text: A goblin of pipe-works canon with upright humanoid posture.\n",
+        encoding="utf-8",
+    )
+    (policy_root / "image" / "blocks" / "clothing" / "environment" / "coastal_v1.txt").write_text(
+        "Practical coastal clothing suited to wind and damp.",
+        encoding="utf-8",
+    )
+    (
+        policy_root / "image" / "blocks" / "clothing" / "activity" / "general_labour_v1.txt"
+    ).write_text(
+        "Garments suggest regular manual work and functional movement.",
+        encoding="utf-8",
+    )
+    (policy_root / "image" / "blocks" / "clothing" / "wealth" / "modest_v1.txt").write_text(
+        "Fabrics are modest, durable, and maintained.",
+        encoding="utf-8",
+    )
+
+    (policy_root / "image" / "tone_profiles" / "ledger_engraving_v1.json").write_text(
+        '{"name":"ledger_engraving_v1","prompt_block":"Linocut style with muted sepia palette."}',
+        encoding="utf-8",
+    )
+    (policy_root / "image" / "registries" / "species_registry.yaml").write_text(
+        """
+registry:
+  id: species_registry
+  version: 1
+  kind: species
+entries:
+  - id: goblin_pipeworks_v1
+    version: 1
+    block_type: species
+    status: active
+    render_priority: 100
+    block_path: policies/image/blocks/species/goblin_v1.yaml
+    compatible_species: [goblin]
+    compatible_genders: [male, female]
+    selection_rules:
+      when:
+        species_any: [goblin]
+""",
+        encoding="utf-8",
+    )
+    (policy_root / "image" / "registries" / "clothing_registry.yaml").write_text(
+        """
+registry:
+  id: clothing_registry
+  version: 1
+  kind: clothing
+composition_contract:
+  slots: [environment, activity, wealth]
+defaults:
+  profile_id: clothing_default_v1
+slots:
+  environment:
+    - id: clothing_environment_coastal_v1
+      version: 1
+      block_type: clothing_fragment
+      status: active
+      render_priority: 90
+      fragment_path: policies/image/blocks/clothing/environment/coastal_v1.txt
+      compatible_genders: [male, female]
+      selection_rules:
+        when:
+          world_context_any: [coastal]
+  activity:
+    - id: clothing_activity_general_labour_v1
+      version: 1
+      block_type: clothing_fragment
+      status: active
+      render_priority: 80
+      fragment_path: policies/image/blocks/clothing/activity/general_labour_v1.txt
+      compatible_genders: [male, female]
+      selection_rules:
+        when:
+          occupation_signal_any: [manual_labour]
+  wealth:
+    - id: clothing_wealth_modest_v1
+      version: 1
+      block_type: clothing_fragment
+      status: active
+      render_priority: 80
+      fragment_path: policies/image/blocks/clothing/wealth/modest_v1.txt
+      compatible_genders: [male, female]
+      selection_rules:
+        when:
+          axis_labels:
+            wealth_any: [modest, well-kept]
+profiles:
+  - id: clothing_default_v1
+    version: 1
+    status: active
+    render_priority: 100
+    strategy: slot_select
+    slot_priority: [environment, activity, wealth]
+""",
+        encoding="utf-8",
+    )
+
+
 @pytest.fixture()
 def lab_client(test_db, temp_db_path):
     """TestClient backed by a world with the translation layer enabled."""
@@ -580,6 +785,41 @@ def test_world_prompts_returns_files(test_db, temp_db_path, db_with_users, tmp_p
 
 
 @pytest.mark.api
+def test_world_prompts_manifest_nested_prompt_is_listed_and_active(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Manifest-configured nested prompt paths should be listed and marked active."""
+    policies = tmp_path / "policies"
+    _write_manifest_policy_package(policies)
+
+    # Legacy config path intentionally differs; manifest path should win.
+    mock_service = _make_mock_service()
+    cast(Any, mock_service).config = _make_translation_config(
+        prompt_template_path="policies/ic_prompt.txt"
+    )
+    world = _build_world_with_service(mock_service)
+    world._world_root = tmp_path
+
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world?session_id={sid}")
+
+    assert resp.status_code == 200
+    prompts = resp.json()["prompts"]
+    filenames = {p["filename"] for p in prompts}
+    assert "translation/prompts/ic/default_v1.txt" in filenames
+
+    active = [p for p in prompts if p["is_active"]]
+    assert len(active) == 1
+    assert active[0]["filename"] == "translation/prompts/ic/default_v1.txt"
+
+
+@pytest.mark.api
 def test_world_prompts_no_world_root_returns_empty(test_db, temp_db_path, db_with_users):
     """World-prompts returns an empty list when _world_root is None."""
     mock_service = _make_mock_service()
@@ -676,6 +916,255 @@ def test_world_prompts_translation_disabled_returns_404(
         sid = _login(lab_client_no_translation, "testadmin")
         resp = lab_client_no_translation.get(f"/api/lab/world-prompts/test_world?session_id={sid}")
     assert resp.status_code == 404
+
+
+# ── GET /api/lab/world-image-policy-bundle/{world_id} ───────────────────────
+
+
+@pytest.mark.api
+def test_world_image_policy_bundle_returns_manifest_contract(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Image policy bundle endpoint should return manifest-resolved references."""
+    policies = tmp_path / "policies"
+    _write_manifest_policy_package(policies)
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-image-policy-bundle/test_world?session_id={sid}")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["world_id"] == "test_world"
+    assert data["policy_schema"] == "pipeworks_policy_v1"
+    assert data["policy_bundle_id"] == "pipeworks_web_default"
+    assert data["descriptor_layer_path"] == "policies/image/descriptor_layers/id_card_v1.txt"
+    assert data["species_registry_path"] == "policies/image/registries/species_registry.yaml"
+    assert "entity.identity.gender" in data["required_runtime_inputs"]
+
+
+@pytest.mark.api
+def test_world_image_policy_bundle_missing_manifest_returns_404(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Image policy bundle endpoint should return 404 without a manifest file."""
+    (tmp_path / "policies").mkdir()
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-image-policy-bundle/test_world?session_id={sid}")
+
+    assert resp.status_code == 404
+
+
+# ── POST /api/lab/compile-image-prompt ──────────────────────────────────────
+
+
+@pytest.mark.api
+def test_compile_image_prompt_returns_compiled_prompt(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Compile endpoint should return deterministic selection metadata + prompt."""
+    policies = tmp_path / "policies"
+    _write_manifest_compile_policy_package(policies)
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/compile-image-prompt",
+            json={
+                "session_id": sid,
+                "world_id": "test_world",
+                "species": "goblin",
+                "gender": "male",
+                "axes": {
+                    "wealth": {"label": "modest", "score": 0.33},
+                    "demeanor": {"label": "alert", "score": 0.70},
+                },
+                "world_context": ["coastal"],
+                "occupation_signals": ["manual_labour"],
+                "model_id": "flux-2-klein-4b",
+                "aspect_ratio": "1:1",
+                "seed": 123,
+            },
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["world_id"] == "test_world"
+    assert data["selected_species_block_id"] == "goblin_pipeworks_v1"
+    assert data["selected_clothing_profile_id"] == "clothing_default_v1"
+    assert data["selected_clothing_slot_ids"]["environment"] == "clothing_environment_coastal_v1"
+    assert data["selected_clothing_slot_ids"]["activity"] == "clothing_activity_general_labour_v1"
+    assert data["selected_clothing_slot_ids"]["wealth"] == "clothing_wealth_modest_v1"
+    assert "A goblin of pipe-works canon" in data["compiled_prompt"]
+    assert "Practical coastal clothing" in data["compiled_prompt"]
+    assert "Linocut style with muted sepia palette." in data["compiled_prompt"]
+    assert data["policy_hash"]
+    assert data["axis_hash"]
+    assert "entity.identity.gender" in data["required_runtime_inputs"]
+
+
+@pytest.mark.api
+def test_compile_image_prompt_returns_409_when_species_block_unmatched(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Compile endpoint should reject requests with no matching species block."""
+    policies = tmp_path / "policies"
+    _write_manifest_compile_policy_package(policies)
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/compile-image-prompt",
+            json={
+                "session_id": sid,
+                "world_id": "test_world",
+                "species": "human",
+                "gender": "male",
+                "axes": {"wealth": {"label": "modest", "score": 0.33}},
+            },
+        )
+
+    assert resp.status_code == 409
+    assert "No active species block matched" in resp.json()["detail"]
+
+
+@pytest.mark.api
+def test_compile_image_prompt_gender_validation(test_db, temp_db_path, db_with_users, tmp_path):
+    """Compile endpoint should reject invalid gender values at request validation."""
+    policies = tmp_path / "policies"
+    _write_manifest_compile_policy_package(policies)
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/compile-image-prompt",
+            json={
+                "session_id": sid,
+                "world_id": "test_world",
+                "species": "goblin",
+                "gender": "invalid",
+                "axes": {"wealth": {"label": "modest", "score": 0.33}},
+            },
+        )
+
+    assert resp.status_code == 422
+
+
+@pytest.mark.api
+def test_compile_image_prompt_missing_axes_when_required_returns_409(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Compile endpoint should reject empty axes payload when manifest requires axes."""
+    policies = tmp_path / "policies"
+    _write_manifest_compile_policy_package(policies)
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.post(
+            "/api/lab/compile-image-prompt",
+            json={
+                "session_id": sid,
+                "world_id": "test_world",
+                "species": "goblin",
+                "gender": "male",
+                "axes": {},
+            },
+        )
+
+    assert resp.status_code == 409
+    assert "entity.axes" in resp.json()["detail"]
+
+
+@pytest.mark.api
+def test_compile_image_prompt_policy_hash_changes_on_block_content_change(
+    test_db, temp_db_path, db_with_users, tmp_path
+):
+    """Policy hash should change when referenced block content changes at same path."""
+    policies = tmp_path / "policies"
+    _write_manifest_compile_policy_package(policies)
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    payload = {
+        "world_id": "test_world",
+        "species": "goblin",
+        "gender": "male",
+        "axes": {
+            "wealth": {"label": "modest", "score": 0.33},
+            "demeanor": {"label": "alert", "score": 0.70},
+        },
+        "world_context": ["coastal"],
+        "occupation_signals": ["manual_labour"],
+    }
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp_one = client.post(
+            "/api/lab/compile-image-prompt",
+            json={"session_id": sid, **payload},
+        )
+        assert resp_one.status_code == 200
+        policy_hash_one = resp_one.json()["policy_hash"]
+
+        # Keep path stable; mutate referenced file content only.
+        block_path = (
+            policies / "image" / "blocks" / "clothing" / "activity" / "general_labour_v1.txt"
+        )
+        block_path.write_text(
+            "Garments suggest sustained manual work with reinforced seams.",
+            encoding="utf-8",
+        )
+
+        resp_two = client.post(
+            "/api/lab/compile-image-prompt",
+            json={"session_id": sid, **payload},
+        )
+        assert resp_two.status_code == 200
+        policy_hash_two = resp_two.json()["policy_hash"]
+
+    assert policy_hash_one != policy_hash_two
 
 
 # ── prompt draft routes ──────────────────────────────────────────────────────
