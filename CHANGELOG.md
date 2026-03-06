@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.10](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.9...mud_server-v0.4.10) (2026-03-06)
+
+
+### Features
+
+* **policy:** add manifest-first loader and image compile API ([66fcad9](https://github.com/pipe-works/pipeworks_mud_server/commit/66fcad9877d02851c96e580df926a3da55c37eaf))
+* **policy:** add manifest-first loader and image compile API ([fab856b](https://github.com/pipe-works/pipeworks_mud_server/commit/fab856b50ef63ff4f42389e6febe1a8442b79242))
+* **policy:** add pipeworks_web manifest package and bundle hash ([9f27106](https://github.com/pipe-works/pipeworks_mud_server/commit/9f271066209e39c3aecca721af31b5a255b19eb2))
+* **policy:** add pipeworks_web manifest package and bundle hash ([0b6b776](https://github.com/pipe-works/pipeworks_mud_server/commit/0b6b7762f2125de00ad7f34f13482adfc03c156f))
+
+
+### Bug Fixes
+
+* **version:** make metadata fallback patchable in tests ([4146b4a](https://github.com/pipe-works/pipeworks_mud_server/commit/4146b4a8cbf3416f540b53c3a333d25118383fdc))
+* **version:** make metadata fallback patchable in tests ([7beba70](https://github.com/pipe-works/pipeworks_mud_server/commit/7beba703d2de95b047b5048977bb2057283fbec6))
+* **version:** protect fallback from release-please rewrites ([e6fbd3f](https://github.com/pipe-works/pipeworks_mud_server/commit/e6fbd3f7f52398a8eb1fb822b22a4364b1222c63))
+* **version:** protect fallback from release-please rewrites ([24407e3](https://github.com/pipe-works/pipeworks_mud_server/commit/24407e337801e9bfcf8439166606aef4174f7fb9))
+
 ## [0.4.9](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.8...mud_server-v0.4.9) (2026-03-04)
 
 
