@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -12,6 +14,7 @@ from mud_server.db import database
 from mud_server.db.errors import DatabaseOperationContext, DatabaseReadError, DatabaseWriteError
 from mud_server.services import character_provisioning
 from mud_server.services.character_provisioning import CharacterProvisioningResult
+from mud_server.services.condition_axis_service import ConditionAxisServiceError
 from tests.constants import TEST_PASSWORD
 
 
@@ -291,48 +294,91 @@ def test_fetch_entity_state_for_seed_handles_blank_base_url(monkeypatch):
 
 
 @pytest.mark.unit
-def test_fetch_entity_state_for_seed_handles_non_200(monkeypatch):
-    """Entity helper should propagate upstream status failures."""
+def test_fetch_entity_state_for_seed_uses_condition_axis_service(monkeypatch):
+    """Entity helper should delegate to canonical condition-axis service."""
     monkeypatch.setattr(character_provisioning.config.integrations, "entity_state_enabled", True)
     monkeypatch.setattr(
         character_provisioning.config.integrations,
         "entity_state_base_url",
         "https://entity.example.org",
     )
+    monkeypatch.setattr(character_provisioning.config.worlds, "worlds_root", "/tmp/worlds")
+    monkeypatch.setattr(character_provisioning.config.worlds, "default_world_id", "pipeworks_web")
 
-    fake_response = Mock(status_code=500)
-    fake_response.json.return_value = {}
-    monkeypatch.setattr(character_provisioning.requests, "post", Mock(return_value=fake_response))
+    observed: dict[str, object] = {}
+
+    def _fake_generate_condition_axis(**kwargs):  # noqa: ANN003 - test double
+        observed.update(kwargs)
+        return SimpleNamespace(entity_state={"axes": {"demeanor": {"score": 0.42}}})
+
+    monkeypatch.setattr(
+        character_provisioning,
+        "service_generate_condition_axis",
+        _fake_generate_condition_axis,
+    )
 
     payload, error = character_provisioning.fetch_entity_state_for_seed(seed=1001)
 
-    assert payload is None
-    assert error == "Entity state API returned HTTP 500."
+    assert payload == {"axes": {"demeanor": {"score": 0.42}}}
+    assert error is None
+    assert observed["world_id"] == "pipeworks_web"
+    assert observed["world_root"] == Path("/tmp/worlds/pipeworks_web")
+    assert observed["seed"] == 1001
+    assert observed["strict_inputs"] is False
 
 
 @pytest.mark.unit
-def test_fetch_entity_state_for_seed_handles_non_object(monkeypatch):
-    """Entity helper should reject non-dictionary payloads."""
+def test_fetch_entity_state_for_seed_respects_explicit_world_override(monkeypatch):
+    """Entity helper should forward explicit world_id into service resolution."""
     monkeypatch.setattr(character_provisioning.config.integrations, "entity_state_enabled", True)
     monkeypatch.setattr(
         character_provisioning.config.integrations,
         "entity_state_base_url",
         "https://entity.example.org",
     )
+    monkeypatch.setattr(character_provisioning.config.worlds, "worlds_root", "/tmp/worlds")
 
-    fake_response = Mock(status_code=200)
-    fake_response.json.return_value = ["bad"]
-    monkeypatch.setattr(character_provisioning.requests, "post", Mock(return_value=fake_response))
+    observed: dict[str, object] = {}
 
-    payload, error = character_provisioning.fetch_entity_state_for_seed(seed=1001)
+    def _fake_generate_condition_axis(**kwargs):  # noqa: ANN003 - test double
+        observed.update(kwargs)
+        return SimpleNamespace(entity_state={"axes": {"wealth": 0.7}})
 
-    assert payload is None
-    assert error == "Entity state API returned a non-object payload."
+    monkeypatch.setattr(
+        character_provisioning,
+        "service_generate_condition_axis",
+        _fake_generate_condition_axis,
+    )
+
+    payload, error = character_provisioning.fetch_entity_state_for_seed(
+        seed=1001,
+        world_id="daily_undertaking",
+    )
+
+    assert payload == {"axes": {"wealth": 0.7}}
+    assert error is None
+    assert observed["world_id"] == "daily_undertaking"
+    assert observed["world_root"] == Path("/tmp/worlds/daily_undertaking")
 
 
 @pytest.mark.unit
-def test_fetch_entity_state_for_seed_handles_request_exception(monkeypatch):
-    """Entity helper should map network failures to a stable error message."""
+@pytest.mark.parametrize(
+    ("error_code", "expected_message"),
+    [
+        ("CONDITION_AXIS_UPSTREAM_GENERATION_FAILED", "Entity state API unavailable."),
+        ("CONDITION_AXIS_UPSTREAM_TIMEOUT", "Entity state API unavailable."),
+        (
+            "CONDITION_AXIS_VALIDATION_ERROR",
+            "Entity state generation request was invalid.",
+        ),
+    ],
+)
+def test_fetch_entity_state_for_seed_maps_service_errors_to_non_fatal_messages(
+    monkeypatch,
+    error_code: str,
+    expected_message: str,
+):
+    """Entity helper should map canonical service failures to stable warnings."""
     monkeypatch.setattr(character_provisioning.config.integrations, "entity_state_enabled", True)
     monkeypatch.setattr(
         character_provisioning.config.integrations,
@@ -340,20 +386,28 @@ def test_fetch_entity_state_for_seed_handles_request_exception(monkeypatch):
         "https://entity.example.org",
     )
 
-    def _boom(*_args, **_kwargs):  # noqa: ANN002,ANN003 - test double
-        raise character_provisioning.requests.exceptions.RequestException("boom")
+    def _raise_service_error(**_kwargs):  # noqa: ANN003 - test double
+        raise ConditionAxisServiceError(
+            status_code=502,
+            code=error_code,
+            detail="upstream failed",
+        )
 
-    monkeypatch.setattr(character_provisioning.requests, "post", _boom)
+    monkeypatch.setattr(
+        character_provisioning,
+        "service_generate_condition_axis",
+        _raise_service_error,
+    )
 
     payload, error = character_provisioning.fetch_entity_state_for_seed(seed=1001)
 
     assert payload is None
-    assert error == "Entity state API unavailable."
+    assert error == expected_message
 
 
 @pytest.mark.unit
-def test_fetch_entity_state_for_seed_handles_invalid_json(monkeypatch):
-    """Entity helper should guard against invalid JSON payloads."""
+def test_fetch_entity_state_for_seed_handles_blank_world_id_override(monkeypatch):
+    """Entity helper should reject blank world overrides before service calls."""
     monkeypatch.setattr(character_provisioning.config.integrations, "entity_state_enabled", True)
     monkeypatch.setattr(
         character_provisioning.config.integrations,
@@ -361,14 +415,10 @@ def test_fetch_entity_state_for_seed_handles_invalid_json(monkeypatch):
         "https://entity.example.org",
     )
 
-    fake_response = Mock(status_code=200)
-    fake_response.json.side_effect = ValueError("invalid")
-    monkeypatch.setattr(character_provisioning.requests, "post", Mock(return_value=fake_response))
-
-    payload, error = character_provisioning.fetch_entity_state_for_seed(seed=1001)
+    payload, error = character_provisioning.fetch_entity_state_for_seed(seed=1001, world_id=" ")
 
     assert payload is None
-    assert error == "Entity state API returned invalid JSON."
+    assert error == "Entity state generation request was invalid."
 
 
 @pytest.mark.api

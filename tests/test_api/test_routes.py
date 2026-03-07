@@ -315,11 +315,13 @@ def test_register_guest_falls_back_to_external_state_when_local_missing(
 
         class FakeEntityResponse:
             status_code = 200
+            headers: dict[str, str] = {}
 
             @staticmethod
             def json():
                 return {
                     "seed": 999,
+                    "axes": {"wealth": {"score": 0.2}},
                     "character": {"demeanor": "wary"},
                     "occupation": {"visibility": "routine"},
                 }

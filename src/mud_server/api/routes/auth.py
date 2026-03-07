@@ -5,7 +5,6 @@ import re
 import uuid
 from typing import Any
 
-import requests
 from fastapi import APIRouter, HTTPException, Request
 
 from mud_server.api.auth import remove_session, validate_session
@@ -31,6 +30,9 @@ from mud_server.config import config
 from mud_server.core.engine import GameEngine
 from mud_server.db import facade as database
 from mud_server.db.errors import DatabaseError
+from mud_server.services.character_provisioning import (
+    fetch_entity_state_for_seed as provisioning_fetch_entity_state_for_seed,
+)
 from mud_server.services.character_provisioning import provision_generated_character_for_user
 
 logger = logging.getLogger(__name__)
@@ -58,7 +60,11 @@ def _is_legacy_default_character_name(username: str, character_name: str) -> boo
     return re.match(pattern, character_name) is not None
 
 
-def _fetch_entity_state_for_character(seed: int) -> tuple[dict[str, Any] | None, str | None]:
+def _fetch_entity_state_for_character(
+    seed: int,
+    *,
+    world_id: str | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
     """
     Fetch entity-state payload for a newly created character.
 
@@ -72,34 +78,7 @@ def _fetch_entity_state_for_character(seed: int) -> tuple[dict[str, Any] | None,
         Tuple of (entity_state_payload, error_message). When successful,
         error_message is None. When unavailable, payload is None.
     """
-    if not config.integrations.entity_state_enabled:
-        return None, None
-
-    base_url = config.integrations.entity_state_base_url.strip().rstrip("/")
-    if not base_url:
-        return None, "Entity state integration is enabled but no base URL is configured."
-
-    endpoint = f"{base_url}/api/entity"
-    payload = {
-        "seed": seed,
-        "include_prompts": config.integrations.entity_state_include_prompts,
-    }
-    timeout = config.integrations.entity_state_timeout_seconds
-
-    try:
-        response = requests.post(endpoint, json=payload, timeout=timeout)
-        if response.status_code != 200:
-            return None, f"Entity state API returned HTTP {response.status_code}."
-        body = response.json()
-        if not isinstance(body, dict):
-            return None, "Entity state API returned a non-object payload."
-        return body, None
-    except requests.exceptions.RequestException as exc:
-        logger.warning("Entity state API request failed: %s", exc)
-        return None, "Entity state API unavailable."
-    except ValueError:
-        logger.warning("Entity state API returned invalid JSON.")
-        return None, "Entity state API returned invalid JSON."
+    return provisioning_fetch_entity_state_for_seed(seed=seed, world_id=world_id)
 
 
 def _fetch_local_axis_snapshot_for_character(
@@ -410,7 +389,8 @@ def router(engine: GameEngine) -> APIRouter:
             # fetch from the external entity integration when enabled.
             if entity_state is None:
                 external_state, external_error = _fetch_entity_state_for_character(
-                    seed=character_id
+                    seed=character_id,
+                    world_id=world_id,
                 )
                 if external_state is not None:
                     entity_state = external_state

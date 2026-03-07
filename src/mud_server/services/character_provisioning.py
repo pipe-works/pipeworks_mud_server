@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from secrets import randbelow
 from typing import Any
 
@@ -19,6 +20,12 @@ import requests
 
 from mud_server.config import config
 from mud_server.db import facade as database
+from mud_server.services.condition_axis_service import (
+    ConditionAxisServiceError,
+)
+from mud_server.services.condition_axis_service import (
+    generate_condition_axis as service_generate_condition_axis,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +145,54 @@ def fetch_generated_full_name(seed: int) -> tuple[str | None, str | None]:
     return full_name, None
 
 
-def fetch_entity_state_for_seed(seed: int) -> tuple[dict[str, Any] | None, str | None]:
+def _resolve_world_root(world_id: str) -> Path:
+    """Resolve on-disk world root for canonical service calls.
+
+    Args:
+        world_id: Target world identifier.
+
+    Returns:
+        Absolute or relative path to the configured world package root.
+    """
+    return Path(config.worlds.worlds_root) / world_id
+
+
+def _map_condition_axis_error_to_entity_state_error(exc: ConditionAxisServiceError) -> str:
+    """Map canonical condition-axis service errors to provisioning-friendly text.
+
+    Provisioning intentionally treats entity-state generation as a best-effort
+    enrichment step. This mapper preserves the existing non-fatal UX contract
+    while still surfacing deterministic failure messaging for logs and API
+    responses.
+
+    Args:
+        exc: Canonical service-layer exception from condition-axis generation.
+
+    Returns:
+        Stable human-readable error message for provisioning payloads.
+    """
+    if (
+        exc.code == "CONDITION_AXIS_UPSTREAM_UNSUPPORTED"
+        and not config.integrations.entity_state_base_url.strip()
+    ):
+        return "Entity state integration is enabled but no base URL is configured."
+    if exc.code == "CONDITION_AXIS_UPSTREAM_TIMEOUT":
+        return "Entity state API unavailable."
+    if exc.code in {
+        "CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
+        "CONDITION_AXIS_UPSTREAM_UNSUPPORTED",
+    }:
+        return "Entity state API unavailable."
+    if exc.code == "CONDITION_AXIS_VALIDATION_ERROR":
+        return "Entity state generation request was invalid."
+    return exc.detail or "Entity state API unavailable."
+
+
+def fetch_entity_state_for_seed(
+    seed: int,
+    *,
+    world_id: str | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
     """
     Fetch an optional entity-state payload for a provisioning seed.
 
@@ -148,33 +202,31 @@ def fetch_entity_state_for_seed(seed: int) -> tuple[dict[str, Any] | None, str |
     if not config.integrations.entity_state_enabled:
         return None, None
 
-    base_url = config.integrations.entity_state_base_url.strip().rstrip("/")
-    if not base_url:
+    if not config.integrations.entity_state_base_url.strip():
         return None, "Entity state integration is enabled but no base URL is configured."
 
-    endpoint = f"{base_url}/api/entity"
-    payload = {
-        "seed": seed,
-        "include_prompts": config.integrations.entity_state_include_prompts,
-    }
+    resolved_world_id = (world_id or config.worlds.default_world_id).strip()
+    if not resolved_world_id:
+        return None, "Entity state generation request was invalid."
+
+    world_root = _resolve_world_root(resolved_world_id)
     try:
-        response = requests.post(
-            endpoint,
-            json=payload,
-            timeout=config.integrations.entity_state_timeout_seconds,
+        result = service_generate_condition_axis(
+            world_id=resolved_world_id,
+            world_root=world_root,
+            seed=seed,
+            strict_inputs=False,
         )
-        if response.status_code != 200:
-            return None, f"Entity state API returned HTTP {response.status_code}."
-        body = response.json()
-        if not isinstance(body, dict):
-            return None, "Entity state API returned a non-object payload."
-        return body, None
-    except requests.exceptions.RequestException as exc:
-        logger.warning("Entity state API request failed during provisioning: %s", exc)
-        return None, "Entity state API unavailable."
-    except ValueError:
-        logger.warning("Entity state API returned invalid JSON during provisioning.")
-        return None, "Entity state API returned invalid JSON."
+        return result.entity_state, None
+    except ConditionAxisServiceError as exc:
+        logger.warning(
+            "Condition-axis service failed during provisioning (world=%s seed=%s): %s (%s)",
+            resolved_world_id,
+            seed,
+            exc.code,
+            exc.detail,
+        )
+        return None, _map_condition_axis_error_to_entity_state_error(exc)
 
 
 def get_world_slot_capacity(user_id: int, world_id: str) -> tuple[int, int]:
@@ -252,7 +304,10 @@ def provision_generated_character_for_user(
         )
 
     character_id = int(character["id"])
-    entity_state, entity_state_error = fetch_entity_state_for_seed(chosen_seed)
+    entity_state, entity_state_error = fetch_entity_state_for_seed(
+        chosen_seed,
+        world_id=world_id,
+    )
     if entity_state is not None:
         try:
             database.apply_entity_state_to_character(
