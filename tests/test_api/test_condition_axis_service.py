@@ -761,6 +761,97 @@ def test_fetch_entity_state_success_returns_payload_and_headers(monkeypatch) -> 
 
 
 @pytest.mark.unit
+def test_fetch_entity_state_retries_timeout_then_succeeds(monkeypatch) -> None:
+    """Upstream adapter should retry once with backoff after timeout failures."""
+    monkeypatch.setattr(condition_axis_service.config.integrations, "entity_state_enabled", True)
+    monkeypatch.setattr(
+        condition_axis_service.config.integrations,
+        "entity_state_base_url",
+        "https://entity.example.org/",
+    )
+
+    attempts: list[int] = []
+    backoffs: list[int] = []
+
+    def _post_mock(*_a, **_k):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise requests.exceptions.Timeout("slow")
+        return _FakeResponse(body={"axes": {"demeanor": {"score": 0.9}}}, headers={"x-test": "ok"})
+
+    monkeypatch.setattr(condition_axis_service.requests, "post", _post_mock)
+    monkeypatch.setattr(
+        condition_axis_service, "_retry_backoff", lambda attempt: backoffs.append(attempt)
+    )
+
+    body, headers = condition_axis_service._fetch_entity_state_from_upstream(77)
+    assert len(attempts) == 2
+    assert backoffs == [1]
+    assert body["axes"]["demeanor"]["score"] == pytest.approx(0.9)
+    assert headers["x-test"] == "ok"
+
+
+@pytest.mark.unit
+def test_fetch_entity_state_retries_transient_http_timeout_then_succeeds(monkeypatch) -> None:
+    """Upstream adapter should retry once when first HTTP response is timeout-class."""
+    monkeypatch.setattr(condition_axis_service.config.integrations, "entity_state_enabled", True)
+    monkeypatch.setattr(
+        condition_axis_service.config.integrations,
+        "entity_state_base_url",
+        "https://entity.example.org/",
+    )
+
+    attempts: list[int] = []
+    backoffs: list[int] = []
+
+    def _post_mock(*_a, **_k):
+        attempts.append(1)
+        if len(attempts) == 1:
+            return _FakeResponse(status_code=504)
+        return _FakeResponse(body={"axes": {"wealth": {"score": 0.4}}})
+
+    monkeypatch.setattr(condition_axis_service.requests, "post", _post_mock)
+    monkeypatch.setattr(
+        condition_axis_service, "_retry_backoff", lambda attempt: backoffs.append(attempt)
+    )
+
+    body, _headers = condition_axis_service._fetch_entity_state_from_upstream(91)
+    assert len(attempts) == 2
+    assert backoffs == [1]
+    assert body["axes"]["wealth"]["score"] == pytest.approx(0.4)
+
+
+@pytest.mark.unit
+def test_fetch_entity_state_does_not_retry_unsupported_http_status(monkeypatch) -> None:
+    """Upstream adapter should fail fast for unsupported endpoint status classes."""
+    monkeypatch.setattr(condition_axis_service.config.integrations, "entity_state_enabled", True)
+    monkeypatch.setattr(
+        condition_axis_service.config.integrations,
+        "entity_state_base_url",
+        "https://entity.example.org/",
+    )
+
+    attempts: list[int] = []
+    backoffs: list[int] = []
+
+    def _post_mock(*_a, **_k):
+        attempts.append(1)
+        return _FakeResponse(status_code=404)
+
+    monkeypatch.setattr(condition_axis_service.requests, "post", _post_mock)
+    monkeypatch.setattr(
+        condition_axis_service, "_retry_backoff", lambda attempt: backoffs.append(attempt)
+    )
+
+    with pytest.raises(condition_axis_service.ConditionAxisServiceError) as exc_info:
+        condition_axis_service._fetch_entity_state_from_upstream(12)
+
+    assert exc_info.value.status_code == 501
+    assert len(attempts) == 1
+    assert backoffs == []
+
+
+@pytest.mark.unit
 def test_normalize_axes_and_extract_helpers_cover_fallback_paths() -> None:
     """Axis normalization and metadata extraction helpers should cover fallbacks."""
     normalized = condition_axis_service._normalize_axes(
