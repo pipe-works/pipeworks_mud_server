@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.11](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.10...mud_server-v0.4.11) (2026-03-07)
+
+
+### Features
+
+* **api:** add canonical condition-axis pipeline endpoint ([2b4edb2](https://github.com/pipe-works/pipeworks_mud_server/commit/2b4edb2a17d99cf1346b3956dab8a0d79e363038))
+* **api:** add canonical condition-axis pipeline endpoint ([ecb3f39](https://github.com/pipe-works/pipeworks_mud_server/commit/ecb3f3927f2b348d308a2483203ab537cf3f7f60))
+* **condition-axis:** add retry backoff to upstream adapter ([1d4ac7a](https://github.com/pipe-works/pipeworks_mud_server/commit/1d4ac7af9ec957f48c89c1db3c2c8d42ca1d42e1))
+* **condition-axis:** add upstream retry backoff policy ([03a832a](https://github.com/pipe-works/pipeworks_mud_server/commit/03a832af894b3825ed042b89e949f7c97f0f0835))
+
 ## [0.4.10](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.9...mud_server-v0.4.10) (2026-03-06)
 
 
