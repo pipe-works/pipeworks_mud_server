@@ -60,6 +60,15 @@ WorldActiveCharacterSession = admin_models.WorldActiveCharacterSession
 
 ChangePasswordRequest = auth_game_models.ChangePasswordRequest
 CharactersResponse = auth_game_models.CharactersResponse
+# Canonical condition-axis pipeline models are re-exported here so route
+# modules can continue importing from ``mud_server.api.models`` without
+# splitting import surfaces by feature domain.
+ConditionAxisEntityInputs = auth_game_models.ConditionAxisEntityInputs
+ConditionAxisGenerateInputs = auth_game_models.ConditionAxisGenerateInputs
+ConditionAxisGenerateRequest = auth_game_models.ConditionAxisGenerateRequest
+ConditionAxisGenerateResponse = auth_game_models.ConditionAxisGenerateResponse
+ConditionAxisIdentityInputs = auth_game_models.ConditionAxisIdentityInputs
+ConditionAxisProvenanceResponse = auth_game_models.ConditionAxisProvenanceResponse
 CommandRequest = auth_game_models.CommandRequest
 CommandResponse = auth_game_models.CommandResponse
 LoginDirectRequest = auth_game_models.LoginDirectRequest
