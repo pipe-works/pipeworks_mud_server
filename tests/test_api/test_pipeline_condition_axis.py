@@ -28,7 +28,7 @@ from mud_server.services.condition_axis_service import (
 )
 
 
-def _build_pipeline_client(world_root: Path) -> TestClient:
+def _build_pipeline_client(world_root: Path | None) -> TestClient:
     """Build a test client with a world that has a concrete world-root path.
 
     Args:
@@ -48,7 +48,7 @@ def _build_pipeline_client(world_root: Path) -> TestClient:
     world.world_id = "pipeworks_web"
     world.world_name = "Pipeworks Web"
     world._world_root = world_root
-    world._world_json_path = world_root / "world.json"
+    world._world_json_path = (world_root or Path("/tmp")) / "world.json"
 
     def _get_world(world_id: str) -> World:
         if world_id == "pipeworks_web":
@@ -229,3 +229,45 @@ def test_pipeline_condition_axis_generate_maps_504_from_service(
     payload = response.json()
     assert payload["code"] == "CONDITION_AXIS_UPSTREAM_TIMEOUT"
     assert payload["stage"] == "axis_input"
+
+
+@pytest.mark.api
+def test_pipeline_condition_axis_generate_returns_404_for_unknown_world(
+    test_db, db_with_users, tmp_path: Path
+):
+    """Unknown worlds should map to structured 404 world-not-found responses."""
+    client = _build_pipeline_client(tmp_path / "pipeworks_web")
+    database.create_session("testplayer", "session-player")
+
+    payload = _valid_payload()
+    payload["world_id"] = "unknown_world"
+    response = client.post(
+        "/api/pipeline/condition-axis/generate",
+        params={"session_id": "session-player"},
+        json=payload,
+    )
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["code"] == "CONDITION_AXIS_WORLD_NOT_FOUND"
+    assert body["stage"] == "axis_input"
+
+
+@pytest.mark.api
+def test_pipeline_condition_axis_generate_returns_501_when_world_root_missing(
+    test_db, db_with_users
+):
+    """Worlds without resolved package roots should map to unsupported 501."""
+    client = _build_pipeline_client(None)
+    database.create_session("testplayer", "session-player")
+
+    response = client.post(
+        "/api/pipeline/condition-axis/generate",
+        params={"session_id": "session-player"},
+        json=_valid_payload(),
+    )
+
+    assert response.status_code == 501
+    body = response.json()
+    assert body["code"] == "CONDITION_AXIS_UPSTREAM_UNSUPPORTED"
+    assert body["stage"] == "axis_input"
