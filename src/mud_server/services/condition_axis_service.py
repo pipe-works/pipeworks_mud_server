@@ -13,11 +13,12 @@ Primary responsibilities:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from secrets import randbelow
-from time import sleep
+from time import monotonic, sleep
 from typing import Any
 
 import requests
@@ -32,6 +33,9 @@ SEED_MAX = 2_147_483_647
 _SERVICE_STAGE = "axis_input"
 _UPSTREAM_MAX_ATTEMPTS = 2
 _UPSTREAM_INITIAL_BACKOFF_SECONDS = 0.2
+_UPSTREAM_ENDPOINT_PATH = "/api/entity"
+_NO_CAPABILITIES = "none"
+logger = logging.getLogger(__name__)
 
 
 class ConditionAxisServiceError(RuntimeError):
@@ -88,6 +92,7 @@ class ConditionAxisProvenance:
         served_via: API route path that served the response.
         generator: Upstream generator system identifier.
         generator_version: Upstream generator version/capability value.
+        generator_capabilities: Ordered upstream capability tokens.
         generated_at: ISO-8601 timestamp for generation completion.
     """
 
@@ -95,6 +100,7 @@ class ConditionAxisProvenance:
     served_via: str
     generator: str
     generator_version: str
+    generator_capabilities: tuple[str, ...]
     generated_at: str
 
 
@@ -172,6 +178,7 @@ def generate_condition_axis(
         )
 
     generator_version = _extract_generator_version(entity_state, response_headers)
+    generator_capabilities = _extract_generator_capabilities(entity_state, response_headers)
     generated_at = _extract_generated_at(entity_state)
     return ConditionAxisGenerationResult(
         world_id=world_id,
@@ -185,6 +192,7 @@ def generate_condition_axis(
             served_via="/api/pipeline/condition-axis/generate",
             generator="entity_state_generation",
             generator_version=generator_version,
+            generator_capabilities=tuple(generator_capabilities),
             generated_at=generated_at,
         ),
         entity_state=entity_state,
@@ -517,18 +525,17 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
             ),
         )
 
-    endpoint = f"{base_url}/api/entity"
-    # Preserve current production adapter behavior until a dedicated upstream
-    # axis-only endpoint is introduced.
-    payload = {
-        "seed": seed,
-        "include_prompts": config.integrations.entity_state_include_prompts,
-    }
+    endpoint = f"{base_url}{_UPSTREAM_ENDPOINT_PATH}"
+    payload = _build_upstream_request_payload(seed=seed)
+    request_started_at = monotonic()
 
     last_timeout_error: Exception | None = None
     last_request_error: Exception | None = None
     response: requests.Response | None = None
+    attempts_used = 0
     for attempt in range(1, _UPSTREAM_MAX_ATTEMPTS + 1):
+        attempts_used = attempt
+        attempt_started_at = monotonic()
         try:
             response = requests.post(
                 endpoint,
@@ -536,29 +543,69 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
                 timeout=config.integrations.entity_state_timeout_seconds,
             )
         except requests.exceptions.Timeout as exc:
+            attempt_latency_ms = int((monotonic() - attempt_started_at) * 1000)
             last_timeout_error = exc
             if attempt < _UPSTREAM_MAX_ATTEMPTS:
+                logger.warning(
+                    "condition_axis_upstream_retry seed=%s attempt=%s/%s reason=timeout "
+                    "latency_ms=%s",
+                    seed,
+                    attempt,
+                    _UPSTREAM_MAX_ATTEMPTS,
+                    attempt_latency_ms,
+                )
                 _retry_backoff(attempt)
                 continue
+            logger.warning(
+                "condition_axis_upstream_failure seed=%s attempts=%s reason=timeout latency_ms=%s",
+                seed,
+                attempt,
+                attempt_latency_ms,
+            )
             raise ConditionAxisServiceError(
                 status_code=504,
                 code="CONDITION_AXIS_UPSTREAM_TIMEOUT",
                 detail="Timed out waiting for upstream condition-axis generation.",
             ) from exc
         except requests.exceptions.RequestException as exc:
+            attempt_latency_ms = int((monotonic() - attempt_started_at) * 1000)
             last_request_error = exc
             if attempt < _UPSTREAM_MAX_ATTEMPTS:
+                logger.warning(
+                    "condition_axis_upstream_retry seed=%s attempt=%s/%s reason=request_exception "
+                    "latency_ms=%s",
+                    seed,
+                    attempt,
+                    _UPSTREAM_MAX_ATTEMPTS,
+                    attempt_latency_ms,
+                )
                 _retry_backoff(attempt)
                 continue
+            logger.warning(
+                "condition_axis_upstream_failure seed=%s attempts=%s reason=request_exception "
+                "latency_ms=%s",
+                seed,
+                attempt,
+                attempt_latency_ms,
+            )
             raise ConditionAxisServiceError(
                 status_code=502,
                 code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
                 detail="Failed to generate condition axis from upstream entity generator.",
             ) from exc
 
+        attempt_latency_ms = int((monotonic() - attempt_started_at) * 1000)
         if response.status_code == 200:
             break
         if response.status_code in {404, 405, 501}:
+            logger.warning(
+                "condition_axis_upstream_failure seed=%s attempts=%s status_code=%s "
+                "reason=unsupported latency_ms=%s",
+                seed,
+                attempt,
+                response.status_code,
+                attempt_latency_ms,
+            )
             raise ConditionAxisServiceError(
                 status_code=501,
                 code="CONDITION_AXIS_UPSTREAM_UNSUPPORTED",
@@ -569,13 +616,38 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
             )
         if response.status_code in {408, 504}:
             if attempt < _UPSTREAM_MAX_ATTEMPTS:
+                logger.warning(
+                    "condition_axis_upstream_retry seed=%s attempt=%s/%s reason=http_timeout "
+                    "status_code=%s latency_ms=%s",
+                    seed,
+                    attempt,
+                    _UPSTREAM_MAX_ATTEMPTS,
+                    response.status_code,
+                    attempt_latency_ms,
+                )
                 _retry_backoff(attempt)
                 continue
+            logger.warning(
+                "condition_axis_upstream_failure seed=%s attempts=%s reason=http_timeout "
+                "status_code=%s latency_ms=%s",
+                seed,
+                attempt,
+                response.status_code,
+                attempt_latency_ms,
+            )
             raise ConditionAxisServiceError(
                 status_code=504,
                 code="CONDITION_AXIS_UPSTREAM_TIMEOUT",
                 detail="Timed out waiting for upstream condition-axis generation.",
             )
+        logger.warning(
+            "condition_axis_upstream_failure seed=%s attempts=%s reason=http_error "
+            "status_code=%s latency_ms=%s",
+            seed,
+            attempt,
+            response.status_code,
+            attempt_latency_ms,
+        )
         raise ConditionAxisServiceError(
             status_code=502,
             code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
@@ -617,7 +689,40 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
             detail="Failed to generate condition axis from upstream entity generator.",
         )
 
-    return body, dict(response.headers)
+    response_headers = dict(response.headers)
+    total_latency_ms = int((monotonic() - request_started_at) * 1000)
+    generator_version = _extract_generator_version(body, response_headers)
+    generator_capabilities = _extract_generator_capabilities(body, response_headers)
+    logger.info(
+        "condition_axis_upstream_success seed=%s attempts=%s latency_ms=%s "
+        "generator_version=%s capabilities=%s",
+        seed,
+        attempts_used,
+        total_latency_ms,
+        generator_version,
+        ",".join(generator_capabilities) or _NO_CAPABILITIES,
+    )
+    return body, response_headers
+
+
+def _build_upstream_request_payload(*, seed: int) -> dict[str, Any]:
+    """Build locked request payload for the upstream entity-generator contract.
+
+    The mud-server adapter intentionally sends only the canonical request keys
+    accepted by the currently deployed upstream ``/api/entity`` endpoint.
+
+    Args:
+        seed: Deterministic generation seed resolved by mud server.
+
+    Returns:
+        Canonical upstream request payload.
+    """
+    # Preserve current production adapter behavior until a dedicated upstream
+    # axis-only endpoint is introduced.
+    return {
+        "seed": seed,
+        "include_prompts": config.integrations.entity_state_include_prompts,
+    }
 
 
 def _retry_backoff(attempt: int) -> None:
@@ -706,6 +811,49 @@ def _extract_generator_version(
             return value.strip()
 
     return "unknown"
+
+
+def _extract_generator_capabilities(
+    payload: dict[str, Any],
+    headers: dict[str, str],
+) -> list[str]:
+    """Resolve upstream generator capabilities from payload or headers.
+
+    Args:
+        payload: Parsed upstream JSON payload.
+        headers: Upstream HTTP response headers.
+
+    Returns:
+        Ordered capability token list (unique, non-empty).
+    """
+    capabilities: list[str] = []
+
+    payload_caps = payload.get("generator_capabilities")
+    if isinstance(payload_caps, list):
+        for entry in payload_caps:
+            if isinstance(entry, str) and entry.strip():
+                capabilities.append(entry.strip())
+    elif isinstance(payload_caps, str):
+        for token in payload_caps.split(","):
+            stripped = token.strip()
+            if stripped:
+                capabilities.append(stripped)
+
+    header_caps = headers.get("x-generator-capabilities") or headers.get("X-Generator-Capabilities")
+    if isinstance(header_caps, str) and header_caps.strip():
+        for token in header_caps.split(","):
+            stripped = token.strip()
+            if stripped:
+                capabilities.append(stripped)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for capability in capabilities:
+        if capability in seen:
+            continue
+        seen.add(capability)
+        deduped.append(capability)
+    return deduped
 
 
 def _extract_generated_at(payload: dict[str, Any]) -> str:

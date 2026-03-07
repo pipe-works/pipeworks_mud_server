@@ -144,6 +144,7 @@ class ConditionAxisProvenanceResponse(BaseModel):
         served_via: API path that served the generated payload.
         generator: Upstream generator system name.
         generator_version: Upstream version/capability identifier.
+        generator_capabilities: Ordered upstream capability tokens.
         generated_at: Generation completion timestamp (ISO-8601).
     """
 
@@ -151,6 +152,7 @@ class ConditionAxisProvenanceResponse(BaseModel):
     served_via: str
     generator: str
     generator_version: str
+    generator_capabilities: list[str] = Field(default_factory=list)
     generated_at: str
 
 

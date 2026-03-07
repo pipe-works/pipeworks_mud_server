@@ -10,6 +10,7 @@ Coverage focus:
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -205,8 +206,10 @@ def test_generate_condition_axis_returns_canonical_provenance(monkeypatch, tmp_p
             body={
                 "axes": {"health": {"score": 0.77}},
                 "generator_version": "2.1.0",
+                "generator_capabilities": ["axes_v2"],
                 "generated_at": "2026-03-07T16:00:00Z",
-            }
+            },
+            headers={"x-generator-capabilities": "axes_v2, deterministic_seed"},
         ),
     )
 
@@ -225,6 +228,7 @@ def test_generate_condition_axis_returns_canonical_provenance(monkeypatch, tmp_p
     assert result.provenance.served_via == "/api/pipeline/condition-axis/generate"
     assert result.provenance.generator == "entity_state_generation"
     assert result.provenance.generator_version == "2.1.0"
+    assert result.provenance.generator_capabilities == ("axes_v2", "deterministic_seed")
     assert result.provenance.generated_at == "2026-03-07T16:00:00Z"
 
 
@@ -761,6 +765,39 @@ def test_fetch_entity_state_success_returns_payload_and_headers(monkeypatch) -> 
 
 
 @pytest.mark.unit
+def test_fetch_entity_state_uses_locked_upstream_request_contract(monkeypatch) -> None:
+    """Adapter should keep upstream endpoint/payload/timeout contract stable."""
+    monkeypatch.setattr(condition_axis_service.config.integrations, "entity_state_enabled", True)
+    monkeypatch.setattr(
+        condition_axis_service.config.integrations,
+        "entity_state_base_url",
+        "https://entity.example.org/",
+    )
+    monkeypatch.setattr(
+        condition_axis_service.config.integrations, "entity_state_timeout_seconds", 2.25
+    )
+    monkeypatch.setattr(
+        condition_axis_service.config.integrations, "entity_state_include_prompts", True
+    )
+
+    captured: dict[str, Any] = {}
+
+    def _post_mock(url: str, json: dict[str, Any], timeout: float) -> _FakeResponse:
+        captured["url"] = url
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return _FakeResponse(body={"axes": {"demeanor": {"score": 0.1}}})
+
+    monkeypatch.setattr(condition_axis_service.requests, "post", _post_mock)
+
+    condition_axis_service._fetch_entity_state_from_upstream(456)
+
+    assert captured["url"] == "https://entity.example.org/api/entity"
+    assert captured["json"] == {"seed": 456, "include_prompts": True}
+    assert captured["timeout"] == pytest.approx(2.25)
+
+
+@pytest.mark.unit
 def test_fetch_entity_state_retries_timeout_then_succeeds(monkeypatch) -> None:
     """Upstream adapter should retry once with backoff after timeout failures."""
     monkeypatch.setattr(condition_axis_service.config.integrations, "entity_state_enabled", True)
@@ -789,6 +826,56 @@ def test_fetch_entity_state_retries_timeout_then_succeeds(monkeypatch) -> None:
     assert backoffs == [1]
     assert body["axes"]["demeanor"]["score"] == pytest.approx(0.9)
     assert headers["x-test"] == "ok"
+
+
+@pytest.mark.unit
+def test_fetch_entity_state_emits_structured_retry_and_success_logs(
+    monkeypatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Adapter should emit retry/final success telemetry with attempts and latency."""
+    monkeypatch.setattr(condition_axis_service.config.integrations, "entity_state_enabled", True)
+    monkeypatch.setattr(
+        condition_axis_service.config.integrations,
+        "entity_state_base_url",
+        "https://entity.example.org/",
+    )
+
+    attempts: list[int] = []
+    monkeypatch.setattr(condition_axis_service, "_retry_backoff", lambda _attempt: None)
+
+    def _post_mock(*_a, **_k):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise requests.exceptions.Timeout("slow")
+        return _FakeResponse(
+            body={
+                "generator_version": "v3",
+                "generator_capabilities": ["axes_v2"],
+                "axes": {"health": {"score": 0.3}},
+            },
+            headers={"x-generator-capabilities": "axes_v2,deterministic_seed"},
+        )
+
+    monkeypatch.setattr(condition_axis_service.requests, "post", _post_mock)
+    caplog.set_level(logging.INFO, logger=condition_axis_service.__name__)
+
+    _body, _headers = condition_axis_service._fetch_entity_state_from_upstream(123)
+
+    retry_logs = [
+        record.message
+        for record in caplog.records
+        if "condition_axis_upstream_retry" in record.message
+    ]
+    success_logs = [
+        record.message
+        for record in caplog.records
+        if "condition_axis_upstream_success" in record.message
+    ]
+    assert retry_logs
+    assert success_logs
+    assert "attempts=2" in success_logs[-1]
+    assert "generator_version=v3" in success_logs[-1]
+    assert "capabilities=axes_v2,deterministic_seed" in success_logs[-1]
 
 
 @pytest.mark.unit
@@ -878,6 +965,19 @@ def test_normalize_axes_and_extract_helpers_cover_fallback_paths() -> None:
         == "9.9.9"
     )
     assert condition_axis_service._extract_generator_version({}, {}) == "unknown"
+    assert condition_axis_service._extract_generator_capabilities(
+        {"generator_capabilities": ["axes_v2", "deterministic_seed"]},
+        {},
+    ) == ["axes_v2", "deterministic_seed"]
+    assert condition_axis_service._extract_generator_capabilities(
+        {"generator_capabilities": "axes_v2, deterministic_seed"},
+        {},
+    ) == ["axes_v2", "deterministic_seed"]
+    assert condition_axis_service._extract_generator_capabilities(
+        {},
+        {"x-generator-capabilities": "axes_v2, deterministic_seed, axes_v2"},
+    ) == ["axes_v2", "deterministic_seed"]
+    assert condition_axis_service._extract_generator_capabilities({}, {}) == []
 
     assert condition_axis_service._extract_generated_at(
         {"generated_at": "2026-03-08T00:00:00Z"}
