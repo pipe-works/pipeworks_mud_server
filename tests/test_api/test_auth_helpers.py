@@ -2,114 +2,62 @@
 
 from __future__ import annotations
 
-from unittest.mock import Mock
-
 import pytest
 
 from mud_server.api.routes import auth
 
 
 @pytest.mark.unit
-def test_fetch_entity_state_returns_none_when_integration_disabled(monkeypatch):
-    """Entity helper should short-circuit when integration is disabled."""
-    monkeypatch.setattr(auth.config.integrations, "entity_state_enabled", False)
+def test_fetch_entity_state_delegates_to_provisioning_helper(monkeypatch):
+    """Auth helper should delegate entity fetch to shared provisioning helper."""
+    observed: dict[str, object] = {}
+
+    def _fake_fetch(*, seed: int, world_id: str | None):
+        observed["seed"] = seed
+        observed["world_id"] = world_id
+        return {"seed": seed, "axes": {"health": 0.5}}, None
+
+    monkeypatch.setattr(auth, "provisioning_fetch_entity_state_for_seed", _fake_fetch)
 
     payload, error = auth._fetch_entity_state_for_character(seed=101)
 
-    assert payload is None
+    assert payload == {"seed": 101, "axes": {"health": 0.5}}
     assert error is None
+    assert observed == {"seed": 101, "world_id": None}
 
 
 @pytest.mark.unit
-def test_fetch_entity_state_returns_error_for_blank_base_url(monkeypatch):
-    """Entity helper should reject empty/blank integration base URLs."""
-    monkeypatch.setattr(auth.config.integrations, "entity_state_enabled", True)
-    monkeypatch.setattr(auth.config.integrations, "entity_state_base_url", "   ")
+def test_fetch_entity_state_surfaces_provisioning_helper_error(monkeypatch):
+    """Auth helper should preserve stable non-fatal errors from shared helper."""
+    monkeypatch.setattr(
+        auth,
+        "provisioning_fetch_entity_state_for_seed",
+        lambda *, seed, world_id: (None, "Entity state API unavailable."),
+    )
 
     payload, error = auth._fetch_entity_state_for_character(seed=102)
 
     assert payload is None
-    assert error is not None
-    assert "base url" in error.lower()
+    assert error == "Entity state API unavailable."
 
 
 @pytest.mark.unit
-def test_fetch_entity_state_returns_error_for_non_200(monkeypatch):
-    """Entity helper should surface upstream HTTP status code failures."""
-    monkeypatch.setattr(auth.config.integrations, "entity_state_enabled", True)
-    monkeypatch.setattr(
-        auth.config.integrations, "entity_state_base_url", "https://entity.example.org"
-    )
+def test_fetch_entity_state_forwards_explicit_world_id(monkeypatch):
+    """Auth helper should forward explicit world overrides to shared helper."""
+    observed: dict[str, object] = {}
 
-    fake_response = Mock(status_code=503)
-    monkeypatch.setattr(auth.requests, "post", lambda *args, **kwargs: fake_response)
+    def _fake_fetch(*, seed: int, world_id: str | None):
+        observed["seed"] = seed
+        observed["world_id"] = world_id
+        return None, None
 
-    payload, error = auth._fetch_entity_state_for_character(seed=103)
+    monkeypatch.setattr(auth, "provisioning_fetch_entity_state_for_seed", _fake_fetch)
+
+    payload, error = auth._fetch_entity_state_for_character(seed=106, world_id="pipeworks_web")
 
     assert payload is None
-    assert error == "Entity state API returned HTTP 503."
-
-
-@pytest.mark.unit
-def test_fetch_entity_state_returns_error_for_non_object_payload(monkeypatch):
-    """Entity helper should reject JSON payloads that are not objects."""
-    monkeypatch.setattr(auth.config.integrations, "entity_state_enabled", True)
-    monkeypatch.setattr(
-        auth.config.integrations, "entity_state_base_url", "https://entity.example.org"
-    )
-
-    fake_response = Mock(status_code=200)
-    fake_response.json.return_value = ["not", "an", "object"]
-    monkeypatch.setattr(auth.requests, "post", lambda *args, **kwargs: fake_response)
-
-    payload, error = auth._fetch_entity_state_for_character(seed=104)
-
-    assert payload is None
-    assert error == "Entity state API returned a non-object payload."
-
-
-@pytest.mark.unit
-def test_fetch_entity_state_returns_error_for_invalid_json(monkeypatch):
-    """Entity helper should handle malformed JSON responses safely."""
-    monkeypatch.setattr(auth.config.integrations, "entity_state_enabled", True)
-    monkeypatch.setattr(
-        auth.config.integrations, "entity_state_base_url", "https://entity.example.org"
-    )
-
-    fake_response = Mock(status_code=200)
-    fake_response.json.side_effect = ValueError("invalid json")
-    monkeypatch.setattr(auth.requests, "post", lambda *args, **kwargs: fake_response)
-
-    payload, error = auth._fetch_entity_state_for_character(seed=105)
-
-    assert payload is None
-    assert error == "Entity state API returned invalid JSON."
-
-
-@pytest.mark.unit
-def test_fetch_entity_state_returns_payload_for_valid_response(monkeypatch):
-    """Entity helper should return upstream JSON object payloads."""
-    monkeypatch.setattr(auth.config.integrations, "entity_state_enabled", True)
-    monkeypatch.setattr(
-        auth.config.integrations, "entity_state_base_url", "https://entity.example.org/"
-    )
-    monkeypatch.setattr(auth.config.integrations, "entity_state_timeout_seconds", 9.5)
-    monkeypatch.setattr(auth.config.integrations, "entity_state_include_prompts", True)
-
-    fake_response = Mock(status_code=200)
-    fake_response.json.return_value = {"seed": 106, "character": {"wealth": "poor"}}
-    post_mock = Mock(return_value=fake_response)
-    monkeypatch.setattr(auth.requests, "post", post_mock)
-
-    payload, error = auth._fetch_entity_state_for_character(seed=106)
-
     assert error is None
-    assert payload == {"seed": 106, "character": {"wealth": "poor"}}
-    post_mock.assert_called_once_with(
-        "https://entity.example.org/api/entity",
-        json={"seed": 106, "include_prompts": True},
-        timeout=9.5,
-    )
+    assert observed == {"seed": 106, "world_id": "pipeworks_web"}
 
 
 @pytest.mark.unit
