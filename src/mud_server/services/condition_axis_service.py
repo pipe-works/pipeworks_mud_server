@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from secrets import randbelow
+from time import sleep
 from typing import Any
 
 import requests
@@ -29,6 +30,8 @@ from mud_server.policies import PolicyManifestLoader
 SEED_MIN = 1
 SEED_MAX = 2_147_483_647
 _SERVICE_STAGE = "axis_input"
+_UPSTREAM_MAX_ATTEMPTS = 2
+_UPSTREAM_INITIAL_BACKOFF_SECONDS = 0.2
 
 
 class ConditionAxisServiceError(RuntimeError):
@@ -522,26 +525,39 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
         "include_prompts": config.integrations.entity_state_include_prompts,
     }
 
-    try:
-        response = requests.post(
-            endpoint,
-            json=payload,
-            timeout=config.integrations.entity_state_timeout_seconds,
-        )
-    except requests.exceptions.Timeout as exc:
-        raise ConditionAxisServiceError(
-            status_code=504,
-            code="CONDITION_AXIS_UPSTREAM_TIMEOUT",
-            detail="Timed out waiting for upstream condition-axis generation.",
-        ) from exc
-    except requests.exceptions.RequestException as exc:
-        raise ConditionAxisServiceError(
-            status_code=502,
-            code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
-            detail="Failed to generate condition axis from upstream entity generator.",
-        ) from exc
+    last_timeout_error: Exception | None = None
+    last_request_error: Exception | None = None
+    response: requests.Response | None = None
+    for attempt in range(1, _UPSTREAM_MAX_ATTEMPTS + 1):
+        try:
+            response = requests.post(
+                endpoint,
+                json=payload,
+                timeout=config.integrations.entity_state_timeout_seconds,
+            )
+        except requests.exceptions.Timeout as exc:
+            last_timeout_error = exc
+            if attempt < _UPSTREAM_MAX_ATTEMPTS:
+                _retry_backoff(attempt)
+                continue
+            raise ConditionAxisServiceError(
+                status_code=504,
+                code="CONDITION_AXIS_UPSTREAM_TIMEOUT",
+                detail="Timed out waiting for upstream condition-axis generation.",
+            ) from exc
+        except requests.exceptions.RequestException as exc:
+            last_request_error = exc
+            if attempt < _UPSTREAM_MAX_ATTEMPTS:
+                _retry_backoff(attempt)
+                continue
+            raise ConditionAxisServiceError(
+                status_code=502,
+                code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
+                detail="Failed to generate condition axis from upstream entity generator.",
+            ) from exc
 
-    if response.status_code != 200:
+        if response.status_code == 200:
+            break
         if response.status_code in {404, 405, 501}:
             raise ConditionAxisServiceError(
                 status_code=501,
@@ -552,11 +568,33 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
                 ),
             )
         if response.status_code in {408, 504}:
+            if attempt < _UPSTREAM_MAX_ATTEMPTS:
+                _retry_backoff(attempt)
+                continue
             raise ConditionAxisServiceError(
                 status_code=504,
                 code="CONDITION_AXIS_UPSTREAM_TIMEOUT",
                 detail="Timed out waiting for upstream condition-axis generation.",
             )
+        raise ConditionAxisServiceError(
+            status_code=502,
+            code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
+            detail="Failed to generate condition axis from upstream entity generator.",
+        )
+
+    if response is None:
+        if last_timeout_error is not None:
+            raise ConditionAxisServiceError(
+                status_code=504,
+                code="CONDITION_AXIS_UPSTREAM_TIMEOUT",
+                detail="Timed out waiting for upstream condition-axis generation.",
+            ) from last_timeout_error
+        if last_request_error is not None:
+            raise ConditionAxisServiceError(
+                status_code=502,
+                code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
+                detail="Failed to generate condition axis from upstream entity generator.",
+            ) from last_request_error
         raise ConditionAxisServiceError(
             status_code=502,
             code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
@@ -580,6 +618,15 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
         )
 
     return body, dict(response.headers)
+
+
+def _retry_backoff(attempt: int) -> None:
+    """Sleep using exponential backoff between upstream retry attempts.
+
+    Args:
+        attempt: 1-based attempt index that just failed.
+    """
+    sleep(_UPSTREAM_INITIAL_BACKOFF_SECONDS * (2 ** (attempt - 1)))
 
 
 def _normalize_axes(payload: dict[str, Any]) -> dict[str, float]:
