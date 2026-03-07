@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LoginRequest(BaseModel):
@@ -76,6 +76,104 @@ class PlayerCreateCharacterRequest(BaseModel):
 
     session_id: str
     world_id: str
+
+
+class ConditionAxisIdentityInputs(BaseModel):
+    """Identity inputs required by canonical condition-axis generation.
+
+    Attributes:
+        gender: Canonical gender token used by policy/runtime selection.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    gender: str
+
+
+class ConditionAxisEntityInputs(BaseModel):
+    """Entity-level inputs accepted by condition-axis generation.
+
+    Attributes:
+        identity: Required identity metadata block.
+        species: Canonical species token.
+        axes: Optional pre-resolved axis payload for future parity flows.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    identity: ConditionAxisIdentityInputs
+    species: str
+    axes: dict[str, Any] | None = None
+
+
+class ConditionAxisGenerateInputs(BaseModel):
+    """Runtime input wrapper for condition-axis generation requests.
+
+    Attributes:
+        entity: Runtime entity input block consumed by strict validation.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    entity: ConditionAxisEntityInputs
+
+
+class ConditionAxisGenerateRequest(BaseModel):
+    """Canonical request for ``POST /api/pipeline/condition-axis/generate``.
+
+    Attributes:
+        world_id: Target canonical world identifier.
+        seed: Optional deterministic seed in ``1..2147483647``.
+        bundle_id: Optional policy-bundle override.
+        inputs: Runtime input payload validated against strict schema.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    world_id: str
+    seed: int | None = Field(default=None, ge=1, le=2_147_483_647)
+    bundle_id: str | None = None
+    inputs: ConditionAxisGenerateInputs
+
+
+class ConditionAxisProvenanceResponse(BaseModel):
+    """Provenance metadata for one condition-axis generation response.
+
+    Attributes:
+        source: Canonical source/ownership identifier.
+        served_via: API path that served the generated payload.
+        generator: Upstream generator system name.
+        generator_version: Upstream version/capability identifier.
+        generated_at: Generation completion timestamp (ISO-8601).
+    """
+
+    source: str
+    served_via: str
+    generator: str
+    generator_version: str
+    generated_at: str
+
+
+class ConditionAxisGenerateResponse(BaseModel):
+    """Canonical response for ``POST /api/pipeline/condition-axis/generate``.
+
+    Attributes:
+        world_id: Target world identifier.
+        bundle_id: Effective policy bundle id.
+        bundle_version: Effective policy bundle version.
+        policy_hash: Deterministic policy hash for reproducibility.
+        seed: Deterministic generation seed used upstream.
+        axes: Canonical axis map of ``axis_name -> score``.
+        provenance: Canonical provenance block.
+    """
+
+    world_id: str
+    bundle_id: str
+    bundle_version: str
+    policy_hash: str | None
+    seed: int
+    axes: dict[str, float]
+    provenance: ConditionAxisProvenanceResponse
 
 
 class LoginDirectRequest(BaseModel):
