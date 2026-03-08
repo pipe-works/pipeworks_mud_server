@@ -97,6 +97,7 @@ def test_pipeline_condition_axis_generate_success(
                 served_via="/api/pipeline/condition-axis/generate",
                 generator="entity_state_generation",
                 generator_version="2.0.0",
+                generator_capabilities=("axes_v2", "deterministic_seed"),
                 generated_at="2026-03-07T12:00:00Z",
             ),
             entity_state={"axes": {"demeanor": {"score": 0.42}}},
@@ -116,6 +117,7 @@ def test_pipeline_condition_axis_generate_success(
     assert payload["seed"] == 123456
     assert payload["axes"]["demeanor"] == pytest.approx(0.42)
     assert payload["provenance"]["source"] == "mud_server_canonical"
+    assert payload["provenance"]["generator_capabilities"] == ["axes_v2", "deterministic_seed"]
 
 
 @pytest.mark.api

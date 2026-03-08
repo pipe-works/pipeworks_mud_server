@@ -144,6 +144,7 @@ def router(engine: GameEngine) -> APIRouter:
                 served_via=result.provenance.served_via,
                 generator=result.provenance.generator,
                 generator_version=result.provenance.generator_version,
+                generator_capabilities=list(result.provenance.generator_capabilities),
                 generated_at=result.provenance.generated_at,
             ),
         )
