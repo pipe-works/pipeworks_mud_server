@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.13](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.12...mud_server-v0.4.13) (2026-03-08)
+
+
+### Bug Fixes
+
+* reject incomplete upstream condition-axis payloads ([099cc6f](https://github.com/pipe-works/pipeworks_mud_server/commit/099cc6fce72d6833995638408d114b385bf2cf3e))
+* reject incomplete upstream condition-axis payloads ([a58f0c2](https://github.com/pipe-works/pipeworks_mud_server/commit/a58f0c28b089ab071f6ec659e27838e9b394aa06))
+
 ## [0.4.12](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.11...mud_server-v0.4.12) (2026-03-08)
 
 
