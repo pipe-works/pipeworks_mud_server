@@ -342,10 +342,10 @@ def test_generate_condition_axis_maps_upstream_failure_to_502(monkeypatch, tmp_p
 
 
 @pytest.mark.unit
-def test_generate_condition_axis_raises_when_upstream_has_no_numeric_axes(
+def test_generate_condition_axis_accepts_label_only_payload_when_policy_lookup_available(
     monkeypatch, tmp_path: Path
 ):
-    """Service should reject upstream payloads that normalize to an empty axis map."""
+    """Service should normalize label-only payloads using policy-derived lookup."""
     monkeypatch.setattr(
         condition_axis_service,
         "_resolve_policy_context",
@@ -354,12 +354,58 @@ def test_generate_condition_axis_raises_when_upstream_has_no_numeric_axes(
             bundle_version="1",
             policy_hash="policy-hash",
             required_runtime_inputs={"entity.identity.gender", "entity.species"},
+            axis_label_scores={
+                "demeanor": {"timid": 0.1},
+                "physique": {"wiry": 0.56},
+                "legitimacy": {"tolerated": 0.37},
+            },
         ),
     )
     monkeypatch.setattr(
         condition_axis_service,
         "_fetch_entity_state_from_upstream",
-        lambda **_: ({"axes": {"demeanor": {"label": "timid"}}}, {}),
+        lambda **_: (
+            {
+                "character": {"physique": "wiry", "demeanor": {"label": "timid"}},
+                "occupation": {"legitimacy": "tolerated"},
+            },
+            {},
+        ),
+    )
+
+    result = condition_axis_service.generate_condition_axis(
+        world_id="pipeworks_web",
+        world_root=tmp_path,
+        seed=9,
+        inputs=_base_inputs(),
+        strict_inputs=True,
+    )
+
+    assert result.axes["physique"] == pytest.approx(0.56)
+    assert result.axes["demeanor"] == pytest.approx(0.1)
+    assert result.axes["legitimacy"] == pytest.approx(0.37)
+
+
+@pytest.mark.unit
+def test_generate_condition_axis_raises_when_label_only_payload_has_unknown_labels(
+    monkeypatch, tmp_path: Path
+):
+    """Unknown labels should still fail when no deterministic mapping exists."""
+    monkeypatch.setattr(
+        condition_axis_service,
+        "_resolve_policy_context",
+        lambda **_: condition_axis_service.ConditionAxisPolicyContext(
+            bundle_id="pipeworks_web_default",
+            bundle_version="1",
+            policy_hash="policy-hash",
+            required_runtime_inputs={"entity.identity.gender", "entity.species"},
+            axis_label_scores={"demeanor": {"timid": 0.1}},
+        ),
+    )
+    monkeypatch.setattr(
+        condition_axis_service,
+        "_fetch_entity_state_from_upstream",
+        lambda **_: ({"axes": {"demeanor": {"label": "unknown"}}}, {}),
     )
 
     with pytest.raises(condition_axis_service.ConditionAxisServiceError) as exc_info:
@@ -413,8 +459,21 @@ def test_resolve_policy_context_prefers_manifest_when_available(monkeypatch, tmp
                 {
                     "manifest": {"policy_bundle": {"id": "bundle-1"}},
                     "axis": {
-                        "axes": {"version": "3", "axes": {"demeanor": {}}},
-                        "thresholds": {"version": "3"},
+                        "axes": {
+                            "version": "3",
+                            "axes": {"demeanor": {"ordering": {"values": ["timid", "proud"]}}},
+                        },
+                        "thresholds": {
+                            "version": "3",
+                            "axes": {
+                                "demeanor": {
+                                    "values": {
+                                        "timid": {"min": 0.0, "max": 0.19},
+                                        "proud": {"min": 0.80, "max": 1.0},
+                                    }
+                                }
+                            },
+                        },
                         "resolution": {"version": "3"},
                     },
                 },
@@ -441,6 +500,8 @@ def test_resolve_policy_context_prefers_manifest_when_available(monkeypatch, tmp
     assert "entity.identity.gender" in ctx.required_runtime_inputs
     # Non-axis required inputs are filtered out for this endpoint.
     assert "entity.axes" not in ctx.required_runtime_inputs
+    assert ctx.axis_label_scores["demeanor"]["timid"] == pytest.approx(0.095)
+    assert ctx.axis_label_scores["demeanor"]["proud"] == pytest.approx(0.9)
 
 
 @pytest.mark.unit
@@ -1011,10 +1072,40 @@ def test_normalize_axes_and_extract_helpers_cover_fallback_paths() -> None:
     assert normalized["wealth"] == pytest.approx(0.8)
     assert normalized["legitimacy"] == pytest.approx(0.6)
 
+    normalized_labels = condition_axis_service._normalize_axes(
+        {
+            "axes": {"demeanor": {"label": "timid"}, "wealth": {"score": 0.9}},
+            "character": {"wealth": "poor", "physique": "wiry"},
+            "occupation": {"legitimacy": "tolerated"},
+        },
+        axis_label_scores={
+            "demeanor": {"timid": 0.1},
+            "wealth": {"poor": 0.05},
+            "physique": {"wiry": 0.56},
+            "legitimacy": {"tolerated": 0.37},
+        },
+    )
+    assert normalized_labels["demeanor"] == pytest.approx(0.1)
+    # Numeric value should win over label fallback.
+    assert normalized_labels["wealth"] == pytest.approx(0.9)
+    assert normalized_labels["physique"] == pytest.approx(0.56)
+    assert normalized_labels["legitimacy"] == pytest.approx(0.37)
+
     assert condition_axis_service._extract_score("bad") is None
     assert condition_axis_service._extract_score({"score": "bad"}) is None
     assert condition_axis_service._extract_score(1) == pytest.approx(1.0)
     assert condition_axis_service._extract_score({"score": 0.25}) == pytest.approx(0.25)
+
+    assert condition_axis_service._extract_label_token("Wiry") == "wiry"
+    assert condition_axis_service._extract_label_token({"label": "Tolerated"}) == "tolerated"
+    assert condition_axis_service._extract_label_token({"value": "Poor"}) == "poor"
+    assert condition_axis_service._extract_label_token({"name": "Timid"}) == "timid"
+    assert condition_axis_service._extract_label_token({"score": 0.5}) is None
+    assert condition_axis_service._extract_label_score(
+        axis_name="physique",
+        axis_value="wiry",
+        axis_label_scores={"physique": {"wiry": 0.56}},
+    ) == pytest.approx(0.56)
 
     assert condition_axis_service._extract_generator_version({"version": "1.2.3"}, {}) == "1.2.3"
     assert (
@@ -1041,3 +1132,32 @@ def test_normalize_axes_and_extract_helpers_cover_fallback_paths() -> None:
     ) == ("2026-03-08T00:00:00Z")
     fallback = condition_axis_service._extract_generated_at({})
     assert fallback.endswith("Z")
+
+
+@pytest.mark.unit
+def test_build_axis_label_scores_prefers_thresholds_and_falls_back_to_ordering() -> None:
+    """Policy helper should prefer thresholds and use ordering fallback when needed."""
+    lookup = condition_axis_service._build_axis_label_scores(
+        axes_payload={
+            "axes": {
+                "demeanor": {"ordering": {"values": ["timid", "alert", "proud"]}},
+                "wealth": {"ordering": {"values": ["poor", "wealthy"]}},
+            }
+        },
+        thresholds_payload={
+            "axes": {
+                "demeanor": {
+                    "values": {
+                        "timid": {"min": 0.0, "max": 0.2},
+                        "proud": {"min": 0.8, "max": 1.0},
+                    }
+                }
+            }
+        },
+    )
+
+    assert lookup["demeanor"]["timid"] == pytest.approx(0.1)
+    assert lookup["demeanor"]["proud"] == pytest.approx(0.9)
+    assert "alert" not in lookup["demeanor"]
+    assert lookup["wealth"]["poor"] == pytest.approx(0.0)
+    assert lookup["wealth"]["wealthy"] == pytest.approx(1.0)
