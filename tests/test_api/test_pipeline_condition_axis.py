@@ -121,6 +121,47 @@ def test_pipeline_condition_axis_generate_success(
 
 
 @pytest.mark.api
+def test_pipeline_condition_axis_generate_includes_empty_capabilities_field(
+    test_db, db_with_users, tmp_path: Path, monkeypatch
+):
+    """Response contract should include provenance generator_capabilities even when empty."""
+    client = _build_pipeline_client(tmp_path / "pipeworks_web")
+    database.create_session("testplayer", "session-player")
+
+    monkeypatch.setattr(
+        "mud_server.api.routes.pipeline.service_generate_condition_axis",
+        lambda **_kwargs: ConditionAxisGenerationResult(
+            world_id="pipeworks_web",
+            bundle_id="pipeworks_web_default",
+            bundle_version="1",
+            policy_hash="policy-hash",
+            seed=123456,
+            axes={"demeanor": 0.42},
+            provenance=ConditionAxisProvenance(
+                source="mud_server_canonical",
+                served_via="/api/pipeline/condition-axis/generate",
+                generator="entity_state_generation",
+                generator_version="2.0.0",
+                generator_capabilities=(),
+                generated_at="2026-03-08T09:00:00Z",
+            ),
+            entity_state={"axes": {"demeanor": {"score": 0.42}}},
+        ),
+    )
+
+    response = client.post(
+        "/api/pipeline/condition-axis/generate",
+        params={"session_id": "session-player"},
+        json=_valid_payload(),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "generator_capabilities" in payload["provenance"]
+    assert payload["provenance"]["generator_capabilities"] == []
+
+
+@pytest.mark.api
 def test_pipeline_condition_axis_generate_returns_structured_422_for_invalid_payload(
     test_db, db_with_users, tmp_path: Path
 ):
