@@ -231,6 +231,89 @@ These routes are intentionally lab-focused rather than general public editing
 APIs. They assume a trusted single-user tool and preserve create-only draft
 behavior until promotion.
 
+Pipeline Generation
+~~~~~~~~~~~~~~~~~~~
+
+The canonical condition-axis endpoint is:
+
+* ``POST /api/pipeline/condition-axis/generate``
+
+This endpoint is stateless and does not create or mutate character records.
+It is intended for clients (for example Axis Lab) that need deterministic axis
+generation with explicit provenance.
+
+Request body
+^^^^^^^^^^^^
+
+.. code-block:: json
+
+    {
+      "world_id": "pipeworks_web",
+      "seed": 123456789,
+      "bundle_id": "pipeworks_web_default",
+      "inputs": {
+        "entity": {
+          "identity": {"gender": "male"},
+          "species": "human"
+        }
+      }
+    }
+
+Response (200)
+^^^^^^^^^^^^^^
+
+.. code-block:: json
+
+    {
+      "world_id": "pipeworks_web",
+      "bundle_id": "pipeworks_web_default",
+      "bundle_version": "1",
+      "policy_hash": "537eb7b7a0a866a002aeb8640c01e671e60063f2c3b4b1f92e4b75b28c7173e4",
+      "seed": 123456789,
+      "axes": {
+        "demeanor": 0.42,
+        "health": 0.77
+      },
+      "provenance": {
+        "source": "mud_server_canonical",
+        "served_via": "/api/pipeline/condition-axis/generate",
+        "generator": "entity_state_generation",
+        "generator_version": "v2.1.0",
+        "generator_capabilities": ["axes_v2", "deterministic_seed"],
+        "generated_at": "2026-03-08T09:00:00Z"
+      }
+    }
+
+Structured error response
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+All known failures return the canonical shape:
+
+.. code-block:: json
+
+    {
+      "detail": "Human readable error message.",
+      "code": "CONDITION_AXIS_VALIDATION_ERROR",
+      "stage": "axis_input"
+    }
+
+Common error codes emitted by this endpoint include:
+
+* ``CONDITION_AXIS_VALIDATION_ERROR`` (422)
+* ``CONDITION_AXIS_WORLD_NOT_FOUND`` (404)
+* ``CONDITION_AXIS_UPSTREAM_UNSUPPORTED`` (501)
+* ``CONDITION_AXIS_UPSTREAM_GENERATION_FAILED`` (502)
+* ``CONDITION_AXIS_UPSTREAM_TIMEOUT`` (504)
+
+Operational telemetry
+^^^^^^^^^^^^^^^^^^^^^
+
+The condition-axis upstream adapter emits:
+
+* structured retry/failure/success logs containing ``attempts`` and ``latency_ms``
+* in-memory process metrics counters accessible via the service module helper
+  ``get_condition_axis_upstream_metrics()``
+
 
 Authentication
 --------------
