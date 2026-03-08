@@ -268,6 +268,9 @@ Upstream compatibility notes:
   thresholds/orderings.
 * When both numeric and label-derived values are present for an axis, the
   numeric value is authoritative.
+* Canonical generation requires all policy-defined axes for the active
+  world/bundle; incomplete upstream axis payloads are rejected with structured
+  ``502`` errors.
 
 Response (200)
 ^^^^^^^^^^^^^^
@@ -313,6 +316,7 @@ Common error codes emitted by this endpoint include:
 * ``CONDITION_AXIS_WORLD_NOT_FOUND`` (404)
 * ``CONDITION_AXIS_UPSTREAM_UNSUPPORTED`` (501)
 * ``CONDITION_AXIS_UPSTREAM_GENERATION_FAILED`` (502)
+* ``CONDITION_AXIS_UPSTREAM_INCOMPLETE`` (502)
 * ``CONDITION_AXIS_UPSTREAM_TIMEOUT`` (504)
 
 Operational telemetry
