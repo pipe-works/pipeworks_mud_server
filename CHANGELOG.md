@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.12](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.11...mud_server-v0.4.12) (2026-03-08)
+
+
+### Bug Fixes
+
+* normalize label-only upstream condition-axis payloads ([8b95313](https://github.com/pipe-works/pipeworks_mud_server/commit/8b953132384f596e06f48523acedcaca776c2b82))
+* normalize label-only upstream condition-axis payloads ([0b7fcaf](https://github.com/pipe-works/pipeworks_mud_server/commit/0b7fcaf6cc8dde1e3159367bcd3cea717b203c4f))
+
 ## [0.4.11](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.10...mud_server-v0.4.11) (2026-03-08)
 
 
