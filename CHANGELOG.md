@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.11](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.10...mud_server-v0.4.11) (2026-03-08)
+
+
+### Features
+
+* **api:** add canonical condition-axis pipeline endpoint ([2b4edb2](https://github.com/pipe-works/pipeworks_mud_server/commit/2b4edb2a17d99cf1346b3956dab8a0d79e363038))
+* **api:** add canonical condition-axis pipeline endpoint ([ecb3f39](https://github.com/pipe-works/pipeworks_mud_server/commit/ecb3f3927f2b348d308a2483203ab537cf3f7f60))
+* **condition-axis:** add retry backoff to upstream adapter ([1d4ac7a](https://github.com/pipe-works/pipeworks_mud_server/commit/1d4ac7af9ec957f48c89c1db3c2c8d42ca1d42e1))
+* **condition-axis:** add upstream retry backoff policy ([03a832a](https://github.com/pipe-works/pipeworks_mud_server/commit/03a832af894b3825ed042b89e949f7c97f0f0835))
+* **pipeline:** add condition-axis upstream metrics counters ([51bfee2](https://github.com/pipe-works/pipeworks_mud_server/commit/51bfee275139ad34b50c372a401c776d27a4c11c))
+* **pipeline:** add condition-axis upstream metrics counters ([02e9547](https://github.com/pipe-works/pipeworks_mud_server/commit/02e9547e14b3833ae69e6b81115c1f4fc26c8c7b))
+* **pipeline:** harden condition-axis upstream contract metadata ([99c43b3](https://github.com/pipe-works/pipeworks_mud_server/commit/99c43b3309228ce22ab46a1e0762c05c6bc70732))
+* **pipeline:** harden condition-axis upstream contract metadata ([6438abf](https://github.com/pipe-works/pipeworks_mud_server/commit/6438abfaaeb6314eeda9631c103291a381d90099))
+
+
+### Documentation
+
+* **api:** document canonical condition-axis pipeline contract ([ba93c30](https://github.com/pipe-works/pipeworks_mud_server/commit/ba93c30d640c6fbcf289b014273e025d838864bc))
+* **api:** document canonical condition-axis pipeline contract ([9ae5079](https://github.com/pipe-works/pipeworks_mud_server/commit/9ae5079dee112db788e9882d505e22edceb5f8d2))
+
 ## [0.4.10](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.9...mud_server-v0.4.10) (2026-03-06)
 
 
