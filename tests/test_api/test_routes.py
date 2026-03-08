@@ -321,7 +321,19 @@ def test_register_guest_falls_back_to_external_state_when_local_missing(
             def json():
                 return {
                     "seed": 999,
-                    "axes": {"wealth": {"score": 0.2}},
+                    "axes": {
+                        "physique": {"score": 0.6},
+                        "wealth": {"score": 0.2},
+                        "health": {"score": 0.4},
+                        "demeanor": {"score": 0.25},
+                        "age": {"score": 0.5},
+                        "facial_signal": {"score": 0.3},
+                        "legitimacy": {"score": 0.3333333333333333},
+                        "visibility": {"score": 0.6666666666666666},
+                        "moral_load": {"score": 0.0},
+                        "dependency": {"score": 0.6666666666666666},
+                        "risk_exposure": {"score": 0.3333333333333333},
+                    },
                     "character": {"demeanor": "wary"},
                     "occupation": {"visibility": "routine"},
                 }
