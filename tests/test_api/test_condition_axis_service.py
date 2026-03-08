@@ -387,6 +387,98 @@ def test_generate_condition_axis_accepts_label_only_payload_when_policy_lookup_a
 
 
 @pytest.mark.unit
+def test_generate_condition_axis_rejects_incomplete_upstream_payload_for_required_axes(
+    monkeypatch, tmp_path: Path
+):
+    """Service should reject upstream payloads missing policy-required axes."""
+    monkeypatch.setattr(
+        condition_axis_service,
+        "_resolve_policy_context",
+        lambda **_: condition_axis_service.ConditionAxisPolicyContext(
+            bundle_id="pipeworks_web_default",
+            bundle_version="1",
+            policy_hash="policy-hash",
+            required_runtime_inputs={"entity.identity.gender", "entity.species"},
+            required_axes={"physique", "wealth", "legitimacy"},
+            axis_label_scores={
+                "physique": {"wiry": 0.56},
+                "legitimacy": {"tolerated": 0.37},
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        condition_axis_service,
+        "_fetch_entity_state_from_upstream",
+        lambda **_: (
+            {
+                "character": {"physique": "wiry"},
+                "occupation": {"legitimacy": "tolerated"},
+            },
+            {},
+        ),
+    )
+
+    with pytest.raises(condition_axis_service.ConditionAxisServiceError) as exc_info:
+        condition_axis_service.generate_condition_axis(
+            world_id="pipeworks_web",
+            world_root=tmp_path,
+            seed=9,
+            inputs=_base_inputs(),
+            strict_inputs=True,
+        )
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.code == "CONDITION_AXIS_UPSTREAM_INCOMPLETE"
+    assert "wealth" in exc_info.value.detail
+
+
+@pytest.mark.unit
+def test_generate_condition_axis_accepts_complete_upstream_payload_for_required_axes(
+    monkeypatch, tmp_path: Path
+):
+    """Service should succeed when upstream payload includes all required axes."""
+    monkeypatch.setattr(
+        condition_axis_service,
+        "_resolve_policy_context",
+        lambda **_: condition_axis_service.ConditionAxisPolicyContext(
+            bundle_id="pipeworks_web_default",
+            bundle_version="1",
+            policy_hash="policy-hash",
+            required_runtime_inputs={"entity.identity.gender", "entity.species"},
+            required_axes={"physique", "wealth", "legitimacy"},
+            axis_label_scores={
+                "physique": {"wiry": 0.56},
+                "wealth": {"poor": 0.05},
+                "legitimacy": {"tolerated": 0.37},
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        condition_axis_service,
+        "_fetch_entity_state_from_upstream",
+        lambda **_: (
+            {
+                "character": {"physique": "wiry", "wealth": "poor"},
+                "occupation": {"legitimacy": "tolerated"},
+            },
+            {},
+        ),
+    )
+
+    result = condition_axis_service.generate_condition_axis(
+        world_id="pipeworks_web",
+        world_root=tmp_path,
+        seed=9,
+        inputs=_base_inputs(),
+        strict_inputs=True,
+    )
+
+    assert result.axes["physique"] == pytest.approx(0.56)
+    assert result.axes["wealth"] == pytest.approx(0.05)
+    assert result.axes["legitimacy"] == pytest.approx(0.37)
+
+
+@pytest.mark.unit
 def test_generate_condition_axis_raises_when_label_only_payload_has_unknown_labels(
     monkeypatch, tmp_path: Path
 ):
@@ -1161,3 +1253,19 @@ def test_build_axis_label_scores_prefers_thresholds_and_falls_back_to_ordering()
     assert "alert" not in lookup["demeanor"]
     assert lookup["wealth"]["poor"] == pytest.approx(0.0)
     assert lookup["wealth"]["wealthy"] == pytest.approx(1.0)
+
+
+@pytest.mark.unit
+def test_extract_required_axes_normalizes_axis_keys() -> None:
+    """Required-axis extraction should return a normalized lowercase key set."""
+    assert condition_axis_service._extract_required_axes(axes_payload={}) == set()
+    assert condition_axis_service._extract_required_axes(
+        axes_payload={
+            "axes": {
+                "Physique": {},
+                " wealth ": {},
+                "legitimacy": {},
+                "": {},
+            }
+        }
+    ) == {"physique", "wealth", "legitimacy"}

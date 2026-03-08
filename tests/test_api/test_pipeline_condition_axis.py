@@ -300,6 +300,37 @@ def test_pipeline_condition_axis_generate_maps_502_from_service(
 
 
 @pytest.mark.api
+def test_pipeline_condition_axis_generate_maps_502_incomplete_from_service(
+    test_db, db_with_users, tmp_path: Path, monkeypatch
+):
+    """Service incomplete-axis failures should return canonical structured 502 payload."""
+    client = _build_pipeline_client(tmp_path / "pipeworks_web")
+    database.create_session("testplayer", "session-player")
+
+    def _raise_incomplete(**_kwargs):
+        raise ConditionAxisServiceError(
+            status_code=502,
+            code="CONDITION_AXIS_UPSTREAM_INCOMPLETE",
+            detail="Upstream condition-axis payload is missing required policy axes: wealth.",
+        )
+
+    monkeypatch.setattr(
+        "mud_server.api.routes.pipeline.service_generate_condition_axis", _raise_incomplete
+    )
+
+    response = client.post(
+        "/api/pipeline/condition-axis/generate",
+        params={"session_id": "session-player"},
+        json=_valid_payload(),
+    )
+
+    assert response.status_code == 502
+    payload = response.json()
+    assert payload["code"] == "CONDITION_AXIS_UPSTREAM_INCOMPLETE"
+    assert payload["stage"] == "axis_input"
+
+
+@pytest.mark.api
 def test_pipeline_condition_axis_generate_maps_504_from_service(
     test_db, db_with_users, tmp_path: Path, monkeypatch
 ):

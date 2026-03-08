@@ -79,6 +79,7 @@ class ConditionAxisPolicyContext:
         bundle_version: Effective bundle version string.
         policy_hash: Deterministic hash of resolved policy inputs.
         required_runtime_inputs: Runtime keys required for strict validation.
+        required_axes: Canonical axis key set required by active policy bundle.
         axis_label_scores: Deterministic ``axis -> label -> score`` lookup
             derived from policy thresholds/orderings for label-only upstream
             normalization.
@@ -88,6 +89,7 @@ class ConditionAxisPolicyContext:
     bundle_version: str
     policy_hash: str | None
     required_runtime_inputs: set[str]
+    required_axes: set[str] = field(default_factory=set)
     axis_label_scores: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
@@ -186,6 +188,21 @@ def generate_condition_axis(
             status_code=502,
             code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
             detail="Failed to generate condition axis from upstream entity generator.",
+        )
+    normalized_axis_tokens = {axis_name.strip().lower() for axis_name in normalized_axes}
+    missing_required_axes = sorted(
+        axis_name
+        for axis_name in policy_context.required_axes
+        if axis_name not in normalized_axis_tokens
+    )
+    if missing_required_axes:
+        raise ConditionAxisServiceError(
+            status_code=502,
+            code="CONDITION_AXIS_UPSTREAM_INCOMPLETE",
+            detail=(
+                "Upstream condition-axis payload is missing required policy axes: "
+                f"{', '.join(missing_required_axes)}."
+            ),
         )
 
     generator_version = _extract_generator_version(entity_state, response_headers)
@@ -337,6 +354,7 @@ def _resolve_policy_context(
                 bundle_version=bundle_version,
                 policy_hash=policy_hash,
                 required_runtime_inputs=required_runtime_inputs,
+                required_axes=_extract_required_axes(axes_payload=axes_payload),
                 axis_label_scores=_build_axis_label_scores(
                     axes_payload=axes_payload,
                     thresholds_payload=thresholds_payload,
@@ -383,6 +401,7 @@ def _resolve_policy_context(
         bundle_version=bundle_version,
         policy_hash=policy_hash,
         required_runtime_inputs={"entity.identity.gender", "entity.species"},
+        required_axes=_extract_required_axes(axes_payload=axes_payload),
         axis_label_scores=_build_axis_label_scores(
             axes_payload=axes_payload,
             thresholds_payload=thresholds_payload,
@@ -493,6 +512,25 @@ def _build_axis_label_scores(
             lookup[axis_name] = axis_lookup
 
     return lookup
+
+
+def _extract_required_axes(*, axes_payload: dict[str, Any]) -> set[str]:
+    """Extract required canonical axis keys from resolved axis policy payload.
+
+    Args:
+        axes_payload: Axis policy payload (``axes.yaml`` or manifest equivalent).
+
+    Returns:
+        Lowercased canonical axis key set required by active policy.
+    """
+    axes_definitions = (axes_payload.get("axes") or {}) if isinstance(axes_payload, dict) else {}
+    if not isinstance(axes_definitions, dict):
+        return set()
+    return {
+        axis_name.strip().lower()
+        for axis_name in axes_definitions.keys()
+        if isinstance(axis_name, str) and axis_name.strip()
+    }
 
 
 def _validate_runtime_inputs(
