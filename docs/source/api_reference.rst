@@ -259,6 +259,16 @@ Request body
       }
     }
 
+Upstream compatibility notes:
+
+* The mud-server adapter accepts upstream payloads that provide numeric axis
+  values directly, label-only values in ``character``/``occupation`` groups, or
+  both.
+* Label-only values are mapped deterministically via world policy
+  thresholds/orderings.
+* When both numeric and label-derived values are present for an axis, the
+  numeric value is authoritative.
+
 Response (200)
 ^^^^^^^^^^^^^^
 

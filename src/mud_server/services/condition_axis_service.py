@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from secrets import randbelow
@@ -79,12 +79,16 @@ class ConditionAxisPolicyContext:
         bundle_version: Effective bundle version string.
         policy_hash: Deterministic hash of resolved policy inputs.
         required_runtime_inputs: Runtime keys required for strict validation.
+        axis_label_scores: Deterministic ``axis -> label -> score`` lookup
+            derived from policy thresholds/orderings for label-only upstream
+            normalization.
     """
 
     bundle_id: str
     bundle_version: str
     policy_hash: str | None
     required_runtime_inputs: set[str]
+    axis_label_scores: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 @dataclass(slots=True, frozen=True)
@@ -173,7 +177,10 @@ def generate_condition_axis(
 
     # The upstream adapter remains the current standalone entity API topology.
     entity_state, response_headers = _fetch_entity_state_from_upstream(seed=resolved_seed)
-    normalized_axes = _normalize_axes(entity_state)
+    normalized_axes = _normalize_axes(
+        entity_state,
+        axis_label_scores=policy_context.axis_label_scores,
+    )
     if not normalized_axes:
         raise ConditionAxisServiceError(
             status_code=502,
@@ -330,6 +337,10 @@ def _resolve_policy_context(
                 bundle_version=bundle_version,
                 policy_hash=policy_hash,
                 required_runtime_inputs=required_runtime_inputs,
+                axis_label_scores=_build_axis_label_scores(
+                    axes_payload=axes_payload,
+                    thresholds_payload=thresholds_payload,
+                ),
             )
 
     axes_payload = _read_yaml(policy_root / "axes.yaml")
@@ -372,6 +383,10 @@ def _resolve_policy_context(
         bundle_version=bundle_version,
         policy_hash=policy_hash,
         required_runtime_inputs={"entity.identity.gender", "entity.species"},
+        axis_label_scores=_build_axis_label_scores(
+            axes_payload=axes_payload,
+            thresholds_payload=thresholds_payload,
+        ),
     )
 
 
@@ -395,6 +410,89 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     if isinstance(loaded, dict):
         return loaded
     return {}
+
+
+def _build_axis_label_scores(
+    *,
+    axes_payload: dict[str, Any],
+    thresholds_payload: dict[str, Any],
+) -> dict[str, dict[str, float]]:
+    """Build deterministic ``axis -> label -> score`` lookup from policy payloads.
+
+    Threshold definitions are preferred because they provide explicit numeric
+    ranges. When thresholds are unavailable for an axis, ordering definitions
+    are used as a deterministic fallback spread over ``0..1``.
+
+    Args:
+        axes_payload: Axis policy payload (``axes.yaml`` or manifest equivalent).
+        thresholds_payload: Threshold policy payload.
+
+    Returns:
+        Mapping of lowercase axis name to lowercase label token and score.
+    """
+    axes_definitions = (axes_payload.get("axes") or {}) if isinstance(axes_payload, dict) else {}
+    threshold_definitions = (
+        (thresholds_payload.get("axes") or {}) if isinstance(thresholds_payload, dict) else {}
+    )
+
+    axis_names = {
+        str(axis_name).strip().lower()
+        for axis_name in (*axes_definitions.keys(), *threshold_definitions.keys())
+        if str(axis_name).strip()
+    }
+
+    lookup: dict[str, dict[str, float]] = {}
+    for axis_name in sorted(axis_names):
+        axis_lookup: dict[str, float] = {}
+
+        threshold_axis = threshold_definitions.get(axis_name)
+        values_payload = (
+            (threshold_axis.get("values") or {}) if isinstance(threshold_axis, dict) else {}
+        )
+        if isinstance(values_payload, dict):
+            for label_token, bounds in values_payload.items():
+                if not isinstance(label_token, str) or not label_token.strip():
+                    continue
+
+                score: float | None = None
+                if isinstance(bounds, (int, float)):
+                    score = float(bounds)
+                elif isinstance(bounds, dict):
+                    minimum = bounds.get("min")
+                    maximum = bounds.get("max")
+                    if isinstance(minimum, (int, float)) and isinstance(maximum, (int, float)):
+                        score = (float(minimum) + float(maximum)) / 2.0
+                    elif isinstance(minimum, (int, float)):
+                        score = float(minimum)
+                    elif isinstance(maximum, (int, float)):
+                        score = float(maximum)
+
+                if score is None:
+                    continue
+                axis_lookup[label_token.strip().lower()] = max(0.0, min(1.0, score))
+
+        if not axis_lookup:
+            axis_definition = axes_definitions.get(axis_name)
+            ordering_values = (
+                (((axis_definition or {}).get("ordering") or {}).get("values"))
+                if isinstance(axis_definition, dict)
+                else None
+            )
+            if isinstance(ordering_values, list) and ordering_values:
+                if len(ordering_values) == 1:
+                    single_label = ordering_values[0]
+                    if isinstance(single_label, str) and single_label.strip():
+                        axis_lookup[single_label.strip().lower()] = 0.5
+                else:
+                    denominator = len(ordering_values) - 1
+                    for index, value in enumerate(ordering_values):
+                        if isinstance(value, str) and value.strip():
+                            axis_lookup[value.strip().lower()] = float(index) / float(denominator)
+
+        if axis_lookup:
+            lookup[axis_name] = axis_lookup
+
+    return lookup
 
 
 def _validate_runtime_inputs(
@@ -778,21 +876,30 @@ def _retry_backoff(attempt: int) -> None:
     sleep(_UPSTREAM_INITIAL_BACKOFF_SECONDS * (2 ** (attempt - 1)))
 
 
-def _normalize_axes(payload: dict[str, Any]) -> dict[str, float]:
+def _normalize_axes(
+    payload: dict[str, Any],
+    *,
+    axis_label_scores: dict[str, dict[str, float]] | None = None,
+) -> dict[str, float]:
     """Normalize upstream axis payloads to ``axis_name -> score``.
 
     Supported source shapes:
     - ``payload["axes"][axis]["score"]``
     - ``payload["axes"][axis]`` as numeric scalar
     - ``payload["character"][axis]`` / ``payload["occupation"][axis]`` numeric
+    - label-only payloads (for example ``payload["character"]["physique"] = "wiry"``)
+
+    Numeric values always take precedence over label-derived values.
 
     Args:
         payload: Raw upstream generation payload.
+        axis_label_scores: Optional policy-derived label-to-score lookup.
 
     Returns:
         Sorted canonical axis map.
     """
     normalized: dict[str, float] = {}
+    label_scores = axis_label_scores or {}
 
     axes_payload = payload.get("axes")
     if isinstance(axes_payload, dict):
@@ -809,6 +916,35 @@ def _normalize_axes(payload: dict[str, Any]) -> dict[str, float]:
             score = _extract_score(axis_value)
             if score is not None and str(axis_name) not in normalized:
                 normalized[str(axis_name)] = score
+
+    if isinstance(axes_payload, dict):
+        for axis_name, axis_value in axes_payload.items():
+            axis_name_str = str(axis_name)
+            if axis_name_str in normalized:
+                continue
+            score = _extract_label_score(
+                axis_name=axis_name_str,
+                axis_value=axis_value,
+                axis_label_scores=label_scores,
+            )
+            if score is not None:
+                normalized[axis_name_str] = score
+
+    for group_name in ("character", "occupation"):
+        group_payload = payload.get(group_name)
+        if not isinstance(group_payload, dict):
+            continue
+        for axis_name, axis_value in group_payload.items():
+            axis_name_str = str(axis_name)
+            if axis_name_str in normalized:
+                continue
+            score = _extract_label_score(
+                axis_name=axis_name_str,
+                axis_value=axis_value,
+                axis_label_scores=label_scores,
+            )
+            if score is not None:
+                normalized[axis_name_str] = score
 
     return dict(sorted(normalized.items(), key=lambda item: item[0]))
 
@@ -828,6 +964,58 @@ def _extract_score(axis_value: Any) -> float | None:
         score = axis_value.get("score")
         if isinstance(score, (int, float)):
             return float(score)
+    return None
+
+
+def _extract_label_score(
+    *,
+    axis_name: str,
+    axis_value: Any,
+    axis_label_scores: dict[str, dict[str, float]],
+) -> float | None:
+    """Extract a deterministic score from label-only axis values.
+
+    Args:
+        axis_name: Axis key from upstream payload.
+        axis_value: Candidate upstream axis value payload.
+        axis_label_scores: Policy-derived ``axis -> label -> score`` lookup.
+
+    Returns:
+        Float score when the axis label is recognized; else ``None``.
+    """
+    label_token = _extract_label_token(axis_value)
+    if label_token is None:
+        return None
+
+    axis_token = axis_name.strip().lower()
+    axis_lookup = axis_label_scores.get(axis_token)
+    if not isinstance(axis_lookup, dict):
+        return None
+
+    score = axis_lookup.get(label_token)
+    if isinstance(score, (int, float)):
+        return float(score)
+    return None
+
+
+def _extract_label_token(axis_value: Any) -> str | None:
+    """Extract a normalized label token from one upstream axis value payload.
+
+    Args:
+        axis_value: Candidate value from one upstream axis entry.
+
+    Returns:
+        Lowercase label token when present, else ``None``.
+    """
+    if isinstance(axis_value, str) and axis_value.strip():
+        return axis_value.strip().lower()
+
+    if isinstance(axis_value, dict):
+        for key in ("label", "value", "name"):
+            candidate = axis_value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip().lower()
+
     return None
 
 

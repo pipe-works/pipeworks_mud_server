@@ -21,6 +21,7 @@ from mud_server.api.routes.register import register_routes
 from mud_server.core.engine import GameEngine
 from mud_server.core.world import World
 from mud_server.db import database
+from mud_server.services import condition_axis_service
 from mud_server.services.condition_axis_service import (
     ConditionAxisGenerationResult,
     ConditionAxisProvenance,
@@ -118,6 +119,61 @@ def test_pipeline_condition_axis_generate_success(
     assert payload["axes"]["demeanor"] == pytest.approx(0.42)
     assert payload["provenance"]["source"] == "mud_server_canonical"
     assert payload["provenance"]["generator_capabilities"] == ["axes_v2", "deterministic_seed"]
+
+
+@pytest.mark.api
+def test_pipeline_condition_axis_generate_succeeds_for_label_only_upstream_payload(
+    test_db, db_with_users, tmp_path: Path, monkeypatch
+):
+    """Endpoint should succeed when upstream entity payload is label-only."""
+    client = _build_pipeline_client(tmp_path / "pipeworks_web")
+    database.create_session("testplayer", "session-player")
+
+    monkeypatch.setattr(
+        "mud_server.api.routes.pipeline.service_generate_condition_axis",
+        condition_axis_service.generate_condition_axis,
+    )
+    monkeypatch.setattr(
+        condition_axis_service,
+        "_resolve_policy_context",
+        lambda **_: condition_axis_service.ConditionAxisPolicyContext(
+            bundle_id="pipeworks_web_default",
+            bundle_version="1",
+            policy_hash="policy-hash",
+            required_runtime_inputs={"entity.identity.gender", "entity.species"},
+            axis_label_scores={
+                "physique": {"wiry": 0.56},
+                "demeanor": {"timid": 0.1},
+                "legitimacy": {"tolerated": 0.37},
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        condition_axis_service,
+        "_fetch_entity_state_from_upstream",
+        lambda **_: (
+            {
+                "character": {"physique": "wiry", "demeanor": "timid"},
+                "occupation": {"legitimacy": "tolerated"},
+                "generator_version": "v-test",
+                "generator_capabilities": ["numeric_axis_scores"],
+                "generated_at": "2026-03-08T12:00:00Z",
+            },
+            {},
+        ),
+    )
+
+    response = client.post(
+        "/api/pipeline/condition-axis/generate",
+        params={"session_id": "session-player"},
+        json=_valid_payload(),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["axes"]["physique"] == pytest.approx(0.56)
+    assert payload["axes"]["demeanor"] == pytest.approx(0.1)
+    assert payload["axes"]["legitimacy"] == pytest.approx(0.37)
 
 
 @pytest.mark.api
