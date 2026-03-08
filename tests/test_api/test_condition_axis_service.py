@@ -829,6 +829,37 @@ def test_fetch_entity_state_retries_timeout_then_succeeds(monkeypatch) -> None:
 
 
 @pytest.mark.unit
+def test_fetch_entity_state_records_metrics_for_retry_then_success(monkeypatch) -> None:
+    """Retry-then-success flow should increment request/retry/success counters."""
+    condition_axis_service._reset_condition_axis_upstream_metrics_for_tests()
+    monkeypatch.setattr(condition_axis_service.config.integrations, "entity_state_enabled", True)
+    monkeypatch.setattr(
+        condition_axis_service.config.integrations,
+        "entity_state_base_url",
+        "https://entity.example.org/",
+    )
+
+    attempts: list[int] = []
+    monkeypatch.setattr(condition_axis_service, "_retry_backoff", lambda _attempt: None)
+
+    def _post_mock(*_a, **_k):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise requests.exceptions.Timeout("slow")
+        return _FakeResponse(body={"axes": {"demeanor": {"score": 0.2}}})
+
+    monkeypatch.setattr(condition_axis_service.requests, "post", _post_mock)
+
+    condition_axis_service._fetch_entity_state_from_upstream(10)
+    metrics = condition_axis_service.get_condition_axis_upstream_metrics()
+
+    assert metrics.get("requests_total") == 1
+    assert metrics.get("retries_total") == 1
+    assert metrics.get("success_total") == 1
+    assert metrics.get("timeouts_total", 0) == 0
+
+
+@pytest.mark.unit
 def test_fetch_entity_state_emits_structured_retry_and_success_logs(
     monkeypatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -876,6 +907,32 @@ def test_fetch_entity_state_emits_structured_retry_and_success_logs(
     assert "attempts=2" in success_logs[-1]
     assert "generator_version=v3" in success_logs[-1]
     assert "capabilities=axes_v2,deterministic_seed" in success_logs[-1]
+
+
+@pytest.mark.unit
+def test_fetch_entity_state_records_metrics_for_timeout_failure(monkeypatch) -> None:
+    """Terminal timeout flow should increment timeout counters without success."""
+    condition_axis_service._reset_condition_axis_upstream_metrics_for_tests()
+    monkeypatch.setattr(condition_axis_service.config.integrations, "entity_state_enabled", True)
+    monkeypatch.setattr(
+        condition_axis_service.config.integrations,
+        "entity_state_base_url",
+        "https://entity.example.org/",
+    )
+    monkeypatch.setattr(condition_axis_service, "_retry_backoff", lambda _attempt: None)
+    monkeypatch.setattr(
+        condition_axis_service.requests, "post", lambda *_a, **_k: _FakeResponse(status_code=504)
+    )
+
+    with pytest.raises(condition_axis_service.ConditionAxisServiceError) as exc_info:
+        condition_axis_service._fetch_entity_state_from_upstream(55)
+
+    assert exc_info.value.status_code == 504
+    metrics = condition_axis_service.get_condition_axis_upstream_metrics()
+    assert metrics.get("requests_total") == 1
+    assert metrics.get("retries_total") == 1
+    assert metrics.get("timeouts_total") == 1
+    assert metrics.get("success_total", 0) == 0
 
 
 @pytest.mark.unit

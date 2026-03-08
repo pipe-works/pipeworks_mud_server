@@ -14,10 +14,12 @@ Primary responsibilities:
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from secrets import randbelow
+from threading import Lock
 from time import monotonic, sleep
 from typing import Any
 
@@ -36,6 +38,8 @@ _UPSTREAM_INITIAL_BACKOFF_SECONDS = 0.2
 _UPSTREAM_ENDPOINT_PATH = "/api/entity"
 _NO_CAPABILITIES = "none"
 logger = logging.getLogger(__name__)
+_UPSTREAM_METRICS_LOCK = Lock()
+_UPSTREAM_METRICS: Counter[str] = Counter()
 
 
 class ConditionAxisServiceError(RuntimeError):
@@ -528,6 +532,7 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
     endpoint = f"{base_url}{_UPSTREAM_ENDPOINT_PATH}"
     payload = _build_upstream_request_payload(seed=seed)
     request_started_at = monotonic()
+    _record_upstream_metric("requests_total")
 
     last_timeout_error: Exception | None = None
     last_request_error: Exception | None = None
@@ -546,6 +551,7 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
             attempt_latency_ms = int((monotonic() - attempt_started_at) * 1000)
             last_timeout_error = exc
             if attempt < _UPSTREAM_MAX_ATTEMPTS:
+                _record_upstream_metric("retries_total")
                 logger.warning(
                     "condition_axis_upstream_retry seed=%s attempt=%s/%s reason=timeout "
                     "latency_ms=%s",
@@ -562,6 +568,7 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
                 attempt,
                 attempt_latency_ms,
             )
+            _record_upstream_metric("timeouts_total")
             raise ConditionAxisServiceError(
                 status_code=504,
                 code="CONDITION_AXIS_UPSTREAM_TIMEOUT",
@@ -571,6 +578,7 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
             attempt_latency_ms = int((monotonic() - attempt_started_at) * 1000)
             last_request_error = exc
             if attempt < _UPSTREAM_MAX_ATTEMPTS:
+                _record_upstream_metric("retries_total")
                 logger.warning(
                     "condition_axis_upstream_retry seed=%s attempt=%s/%s reason=request_exception "
                     "latency_ms=%s",
@@ -588,6 +596,7 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
                 attempt,
                 attempt_latency_ms,
             )
+            _record_upstream_metric("request_exceptions_total")
             raise ConditionAxisServiceError(
                 status_code=502,
                 code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
@@ -606,6 +615,7 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
                 response.status_code,
                 attempt_latency_ms,
             )
+            _record_upstream_metric("unsupported_total")
             raise ConditionAxisServiceError(
                 status_code=501,
                 code="CONDITION_AXIS_UPSTREAM_UNSUPPORTED",
@@ -616,6 +626,7 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
             )
         if response.status_code in {408, 504}:
             if attempt < _UPSTREAM_MAX_ATTEMPTS:
+                _record_upstream_metric("retries_total")
                 logger.warning(
                     "condition_axis_upstream_retry seed=%s attempt=%s/%s reason=http_timeout "
                     "status_code=%s latency_ms=%s",
@@ -635,6 +646,7 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
                 response.status_code,
                 attempt_latency_ms,
             )
+            _record_upstream_metric("timeouts_total")
             raise ConditionAxisServiceError(
                 status_code=504,
                 code="CONDITION_AXIS_UPSTREAM_TIMEOUT",
@@ -648,6 +660,7 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
             response.status_code,
             attempt_latency_ms,
         )
+        _record_upstream_metric("http_failures_total")
         raise ConditionAxisServiceError(
             status_code=502,
             code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
@@ -656,17 +669,20 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
 
     if response is None:
         if last_timeout_error is not None:
+            _record_upstream_metric("timeouts_total")
             raise ConditionAxisServiceError(
                 status_code=504,
                 code="CONDITION_AXIS_UPSTREAM_TIMEOUT",
                 detail="Timed out waiting for upstream condition-axis generation.",
             ) from last_timeout_error
         if last_request_error is not None:
+            _record_upstream_metric("request_exceptions_total")
             raise ConditionAxisServiceError(
                 status_code=502,
                 code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
                 detail="Failed to generate condition axis from upstream entity generator.",
             ) from last_request_error
+        _record_upstream_metric("http_failures_total")
         raise ConditionAxisServiceError(
             status_code=502,
             code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
@@ -676,6 +692,7 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
     try:
         body = response.json()
     except ValueError as exc:
+        _record_upstream_metric("json_failures_total")
         raise ConditionAxisServiceError(
             status_code=502,
             code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
@@ -683,6 +700,7 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
         ) from exc
 
     if not isinstance(body, dict):
+        _record_upstream_metric("shape_failures_total")
         raise ConditionAxisServiceError(
             status_code=502,
             code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
@@ -702,7 +720,33 @@ def _fetch_entity_state_from_upstream(seed: int) -> tuple[dict[str, Any], dict[s
         generator_version,
         ",".join(generator_capabilities) or _NO_CAPABILITIES,
     )
+    _record_upstream_metric("success_total")
     return body, response_headers
+
+
+def get_condition_axis_upstream_metrics() -> dict[str, int]:
+    """Return an in-memory snapshot of upstream adapter metrics counters.
+
+    Returns:
+        Mapping of metric name to cumulative count since process start.
+    """
+    with _UPSTREAM_METRICS_LOCK:
+        return dict(_UPSTREAM_METRICS)
+
+
+def _reset_condition_axis_upstream_metrics_for_tests() -> None:
+    """Clear in-memory upstream adapter metrics counters.
+
+    This helper exists solely to keep unit tests deterministic and isolated.
+    """
+    with _UPSTREAM_METRICS_LOCK:
+        _UPSTREAM_METRICS.clear()
+
+
+def _record_upstream_metric(metric_name: str) -> None:
+    """Increment one upstream adapter metric counter by name."""
+    with _UPSTREAM_METRICS_LOCK:
+        _UPSTREAM_METRICS[metric_name] += 1
 
 
 def _build_upstream_request_payload(*, seed: int) -> dict[str, Any]:
