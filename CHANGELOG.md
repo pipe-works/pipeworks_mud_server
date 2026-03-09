@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.14](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.13...mud_server-v0.4.14) (2026-03-09)
+
+
+### Features
+
+* **ci:** add content-only fast validation lane ([#191](https://github.com/pipe-works/pipeworks_mud_server/issues/191)) ([d78cc53](https://github.com/pipe-works/pipeworks_mud_server/commit/d78cc5338044204806660d5fec34694393b2e02a))
+* **policies:** add goblin canon clothing block expansions ([#196](https://github.com/pipe-works/pipeworks_mud_server/issues/196)) ([1031eef](https://github.com/pipe-works/pipeworks_mud_server/commit/1031eef18b051281210e86d3a704f8a2d798a4dc))
+
+
+### Performance Improvements
+
+* **ci:** parallelize mud test lanes with pytest-xdist ([471c568](https://github.com/pipe-works/pipeworks_mud_server/commit/471c568d7399e4b11ab31a403fe79e0bcb7dff26))
+
+
+### Documentation
+
+* **ci:** document content-only fast lane behavior ([#193](https://github.com/pipe-works/pipeworks_mud_server/issues/193)) ([7ecec46](https://github.com/pipe-works/pipeworks_mud_server/commit/7ecec461e00ae5629ec77c846f5e8c0cf6c56d23))
+
 ## [0.4.13](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.12...mud_server-v0.4.13) (2026-03-08)
 
 
