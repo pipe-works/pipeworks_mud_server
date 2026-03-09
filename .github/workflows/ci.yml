@@ -25,4 +25,11 @@ jobs:
       requires-models: true
       coverage-on-matrix: false
       pytest-matrix-markers: not slow and not requires_model
+      run-content-validation: true
+      skip-full-ci-on-content-only-pr: true
+      content-paths: |
+        data/worlds/**
+        docs/**
+        *.md
+      content-validation-command: pytest --override-ini addopts= -q tests/test_core/test_policy_manifest.py
     secrets: inherit
