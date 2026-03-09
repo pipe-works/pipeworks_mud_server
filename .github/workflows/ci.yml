@@ -25,7 +25,9 @@ jobs:
       requires-models: true
       coverage-on-matrix: false
       pytest-matrix-markers: not slow and not requires_model
+      pytest-matrix-args: -n 4 --dist=loadfile
       pytest-coverage-markers: not slow and not requires_model
+      pytest-coverage-args: -n 4 --dist=loadfile
       run-supplemental-tests: true
       pytest-supplemental-markers: slow or requires_model
       run-content-validation: true
