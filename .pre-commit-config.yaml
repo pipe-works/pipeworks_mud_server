@@ -72,6 +72,12 @@ repos:
     args: [-c, pyproject.toml]
     additional_dependencies: ['bandit[toml]']
 
+  # Secret scanning with gitleaks
+- repo: https://github.com/gitleaks/gitleaks
+  rev: v8.24.2
+  hooks:
+  - id: gitleaks
+
   # Check for common security issues in dependencies
 - repo: https://github.com/Lucas-C/pre-commit-hooks-safety
   rev: v1.3.3

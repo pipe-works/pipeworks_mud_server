@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, 'release-please--*']
+    branches: [main, develop, release-please--*]
   pull_request:
     branches: [main, develop]
   workflow_dispatch:  # Allow manual triggering
@@ -21,5 +21,8 @@ jobs:
       coverage-threshold: 80
       run-security: true
       run-docs: true
+      run-gitleaks: true
       requires-models: true
+      coverage-on-matrix: false
+      pytest-matrix-markers: not slow and not requires_model
     secrets: inherit
