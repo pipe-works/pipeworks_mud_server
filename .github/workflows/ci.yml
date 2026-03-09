@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   ci:
-    uses: pipe-works/.github/.github/workflows/reusable-python-ci.yml@main
+    uses: pipe-works/.github/.github/workflows/reusable-python-ci.yml@codex/ci-phase2b-mud-runtime-split
     with:
       python-version: '3.12'
       python-versions: '["3.12", "3.13"]'
@@ -25,6 +25,9 @@ jobs:
       requires-models: true
       coverage-on-matrix: false
       pytest-matrix-markers: not slow and not requires_model
+      pytest-coverage-markers: not slow and not requires_model
+      run-supplemental-tests: true
+      pytest-supplemental-markers: slow or requires_model
       run-content-validation: true
       skip-full-ci-on-content-only-pr: true
       content-paths: |
