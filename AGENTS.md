@@ -35,12 +35,14 @@
 ## CI, Coverage, and Pre-Commit
 
 - CI uses the pipe-works reusable workflow (`.github/workflows/ci.yml`).
-- Matrix: Python 3.12 and 3.13; security + docs checks enabled.
+- Matrix: Python 3.12 and 3.13 with fast marker-based matrix tests (`not slow and not requires_model`).
+- Full coverage threshold enforcement runs once on Python 3.12 (dedicated coverage job).
+- Security gates include Bandit/Trivy plus mandatory gitleaks secret scanning.
 - Coverage threshold is 80% in this repo (org minimum is 50%).
 - Pre-commit is configured in `.pre-commit-config.yaml`:
   - Install: `pip install pre-commit && pre-commit install`
   - Run all: `pre-commit run --all-files`
-  - Hooks include Black, Ruff, mypy, Bandit, Safety, markdownlint, YAML formatting, and codespell.
+  - Hooks include Black, Ruff, mypy, Bandit, gitleaks, Safety, markdownlint, YAML formatting, and codespell.
 
 ## Commit & Pull Request Guidelines
 

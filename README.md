@@ -407,11 +407,13 @@ export MUD_ADMIN_PASSWORD="your-secure-password"
 
 Every push and pull request runs:
 
-- Tests on Python 3.12 and 3.13
+- Fast matrix tests on Python 3.12 and 3.13
+- Full coverage suite on Python 3.12
 - Code linting with Ruff
 - Formatting check with Black
 - Type checking with mypy
 - Coverage reporting to Codecov
+- Secret scanning with gitleaks
 - Security scanning with Bandit and Trivy
 - Documentation build with Sphinx
 
