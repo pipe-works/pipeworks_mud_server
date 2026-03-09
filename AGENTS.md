@@ -1,4 +1,21 @@
-# Repository Guidelines
+# AGENTS.md
+
+## Foundation Must-Dos (Org-Wide)
+
+Read and apply these before repo-specific instructions:
+
+- Local workspace path: `../.github/.github/docs/AGENT_FOUNDATION.md`
+- Local workspace path: `../.github/.github/docs/TEST_TAGGING_AND_GITHUB_CHECKLIST.md`
+- Canonical URL: `https://github.com/pipe-works/.github/blob/main/.github/docs/AGENT_FOUNDATION.md`
+- Canonical URL: `https://github.com/pipe-works/.github/blob/main/.github/docs/TEST_TAGGING_AND_GITHUB_CHECKLIST.md`
+
+Mandatory requirements:
+
+1. Run the GitHub preflight checklist before any `gh` interaction, CI edits, or
+   test-tag changes.
+2. Preserve required checks (`All Checks Passed`, `Secret Scan (Gitleaks)`).
+3. Do not weaken test-tag semantics to reduce runtime.
+4. Keep CI optimization changes evidence-based (run IDs, timings, check states).
 
 ## Project Structure & Module Organization
 
@@ -29,7 +46,7 @@
 ## Testing Guidelines
 
 - Framework: `pytest` with strict markers (`--strict-markers`).
-- Registered markers include `unit`, `integration`, `slow`, `api`, `db`, `auth`, `game`, `admin`, `security`.
+- Registered markers include `unit`, `integration`, `slow`, `requires_model`, `api`, `db`, `auth`, `game`, `admin`, `security`.
 - Example: `pytest -m "not slow"` or `pytest tests/test_api/test_auth.py -v`.
 
 ## CI, Coverage, and Pre-Commit
@@ -37,11 +54,13 @@
 - CI uses the pipe-works reusable workflow (`.github/workflows/ci.yml`).
 - Matrix: Python 3.12 and 3.13 with fast marker-based matrix tests (`not slow and not requires_model`).
 - Full coverage threshold enforcement runs once on Python 3.12 (dedicated coverage job).
+- Slow/model suites run in a supplemental non-coverage lane (`slow or requires_model`).
 - Security gates include Bandit/Trivy plus mandatory gitleaks secret scanning.
 - Content-only pull requests can use the fast lane:
   - `Change Classification` detects content-only deltas.
   - `Content Validation` runs targeted policy/package checks.
   - Full matrix + coverage jobs are skipped only for content-only PRs in configured paths (`data/worlds/**`, `docs/**`, `*.md`).
+- Weekly schedule (`cron`) runs a full-sweep CI pass on the default branch.
 - Coverage threshold is 80% in this repo (org minimum is 50%).
 - Pre-commit is configured in `.pre-commit-config.yaml`:
   - Install: `pip install pre-commit && pre-commit install`
