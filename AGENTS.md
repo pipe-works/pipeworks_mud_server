@@ -38,6 +38,10 @@
 - Matrix: Python 3.12 and 3.13 with fast marker-based matrix tests (`not slow and not requires_model`).
 - Full coverage threshold enforcement runs once on Python 3.12 (dedicated coverage job).
 - Security gates include Bandit/Trivy plus mandatory gitleaks secret scanning.
+- Content-only pull requests can use the fast lane:
+  - `Change Classification` detects content-only deltas.
+  - `Content Validation` runs targeted policy/package checks.
+  - Full matrix + coverage jobs are skipped only for content-only PRs in configured paths (`data/worlds/**`, `docs/**`, `*.md`).
 - Coverage threshold is 80% in this repo (org minimum is 50%).
 - Pre-commit is configured in `.pre-commit-config.yaml`:
   - Install: `pip install pre-commit && pre-commit install`
