@@ -45,6 +45,7 @@ dev = [
     "pytest-cov>=6.0.0",
     "pytest-asyncio>=0.24.0",
     "pytest-mock>=3.14.0",
+    "pytest-xdist>=3.8.0",
     "httpx>=0.28.1",
     "respx>=0.22.0",
     "textual>=0.47.0",
