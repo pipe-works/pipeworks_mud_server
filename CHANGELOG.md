@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.17](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.16...mud_server-v0.4.17) (2026-03-10)
+
+
+### Bug Fixes
+
+* **logging:** prefix mud server output with service label ([3282752](https://github.com/pipe-works/pipeworks_mud_server/commit/328275213ca5a52ffcdba3588eb75ac2ee9567da))
+* **logging:** prefix mud server output with service label ([db0c892](https://github.com/pipe-works/pipeworks_mud_server/commit/db0c8927653a41e2ffd51cb8baabbfac1c9ea7b8))
+
 ## [0.4.16](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.15...mud_server-v0.4.16) (2026-03-10)
 
 
