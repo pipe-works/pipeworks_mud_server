@@ -25,6 +25,8 @@ Configuration:
 import asyncio
 import socket
 from contextlib import asynccontextmanager, suppress
+from copy import deepcopy
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,6 +37,36 @@ from mud_server.config import config, print_config_summary
 from mud_server.core.engine import GameEngine
 from mud_server.db import facade as database
 from mud_server.web.routes import ADMIN_ASSET_VERSION, register_web_routes
+
+# Prefix all server-process log lines so tmux panes are identifiable at a glance.
+SERVICE_LOG_LABEL = "mud-server"
+
+
+def _service_info(message: str) -> None:
+    """Print a consistently-prefixed informational server line."""
+    print(f"{SERVICE_LOG_LABEL} INFO: {message}")
+
+
+def _build_uvicorn_log_config(service_label: str = SERVICE_LOG_LABEL) -> dict[str, Any]:
+    """Build Uvicorn log config with a service label prefix."""
+    from uvicorn.config import LOGGING_CONFIG
+
+    log_config = deepcopy(LOGGING_CONFIG)
+    formatters = log_config.get("formatters")
+    if isinstance(formatters, dict):
+        default_formatter = formatters.get("default")
+        if isinstance(default_formatter, dict):
+            default_formatter["fmt"] = f"{service_label} %(levelprefix)s %(message)s"
+
+        access_formatter = formatters.get("access")
+        if isinstance(access_formatter, dict):
+            access_formatter["fmt"] = (
+                f'{service_label} %(levelprefix)s %(client_addr)s - "%(request_line)s" '
+                "%(status_code)s"
+            )
+
+    return log_config
+
 
 # ============================================================================
 # LIFESPAN EVENTS
@@ -56,13 +88,13 @@ async def lifespan(app: FastAPI):
     # Startup: Remove expired sessions so stale tokens cannot be reused
     removed = database.cleanup_expired_sessions()
     if removed > 0:
-        print(f"Removed {removed} expired session(s) from previous run")
+        _service_info(f"Removed {removed} expired session(s) from previous run")
 
     # Startup: Delete expired guest accounts.
     removed_visitors = database.cleanup_expired_guest_accounts()
     if removed_visitors > 0:
-        print(f"Deleted {removed_visitors} expired guest account(s) on startup")
-    print(f"Admin WebUI asset version: {ADMIN_ASSET_VERSION}")
+        _service_info(f"Deleted {removed_visitors} expired guest account(s) on startup")
+    _service_info(f"Admin WebUI asset version: {ADMIN_ASSET_VERSION}")
 
     async def temporary_account_sweeper() -> None:
         """Periodic cleanup for expired guest accounts."""
@@ -70,7 +102,7 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(24 * 60 * 60)
             removed_temp = database.cleanup_expired_guest_accounts()
             if removed_temp > 0:
-                print(f"Deleted {removed_temp} expired guest account(s)")
+                _service_info(f"Deleted {removed_temp} expired guest account(s)")
 
     sweeper_task = asyncio.create_task(temporary_account_sweeper())
 
@@ -390,7 +422,7 @@ def start_server(
 
         # Inform user when using an alternate port
         if available_port != port:
-            print(f"Port {port} is in use. Using port {available_port} instead.")
+            _service_info(f"Port {port} is in use. Using port {available_port} instead.")
 
         port = available_port
 
@@ -398,11 +430,16 @@ def start_server(
     # SERVER STARTUP
     # ========================================================================
 
-    print(f"Starting MUD server on {host}:{port}")
+    _service_info(f"Starting MUD server on {host}:{port}")
 
     # Run uvicorn ASGI server
     # This blocks until the server is stopped (Ctrl+C, signal, or programmatic stop)
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        log_config=_build_uvicorn_log_config(),
+    )
 
 
 if __name__ == "__main__":
