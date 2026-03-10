@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.18](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.17...mud_server-v0.4.18) (2026-03-10)
+
+
+### Bug Fixes
+
+* **auth:** require randomized axis seeding for guest signup ([356310e](https://github.com/pipe-works/pipeworks_mud_server/commit/356310e59a848647a887145cfac5ef5ec51d9dd0))
+* **auth:** require randomized axis seeding for guest signup ([dd396d0](https://github.com/pipe-works/pipeworks_mud_server/commit/dd396d0ca87d56ae696fe1e184638ec3dad48c18))
+
 ## [0.4.17](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.16...mud_server-v0.4.17) (2026-03-10)
 
 
