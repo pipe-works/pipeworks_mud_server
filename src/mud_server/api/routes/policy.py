@@ -196,9 +196,11 @@ def _compute_directory_hashes(entries: list[_PolicyEntry]) -> list[PolicyHashDir
 def _normalize_relative_path(relative_path: str) -> str:
     """Normalize policy-relative paths into canonical POSIX shape."""
 
-    normalized = PurePosixPath(relative_path.replace("\\", "/")).as_posix().lstrip("./")
+    as_posix = PurePosixPath(relative_path.replace("\\", "/")).as_posix()
+    if as_posix.startswith("../") or "/../" in f"/{as_posix}":
+        raise ValueError(f"Policy relative path must not traverse upwards: {relative_path!r}")
+
+    normalized = as_posix.lstrip("./")
     if normalized in {"", "."}:
         raise ValueError("Policy relative path must not be empty")
-    if normalized.startswith("../") or "/../" in f"/{normalized}":
-        raise ValueError(f"Policy relative path must not traverse upwards: {relative_path!r}")
     return normalized

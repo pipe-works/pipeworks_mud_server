@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -89,3 +90,63 @@ def test_hash_snapshot_returns_404_when_canonical_root_is_missing(
 
     assert response.status_code == 404
     assert "Canonical policy root not found" in response.json()["detail"]
+
+
+@pytest.mark.api
+def test_policy_hash_helpers_use_ipc_branch_when_helpers_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fallback helpers should switch to IPC helpers when available."""
+
+    class FakePolicyHashEntry:
+        def __init__(self, *, relative_path: str, content_hash: str) -> None:
+            self.relative_path = relative_path
+            self.content_hash = content_hash
+
+    fake_hashing = SimpleNamespace(
+        PolicyHashEntry=FakePolicyHashEntry,
+        compute_policy_file_hash=lambda relative_path, _bytes: f"file::{relative_path}",
+        compute_policy_tree_hash=lambda entries: f"tree::{len(entries)}",
+        compute_policy_directory_hashes=lambda entries: [
+            SimpleNamespace(path="image", file_count=len(entries), hash="dir::hash")
+        ],
+    )
+    monkeypatch.setattr(policy_routes, "ipc_hashing", fake_hashing)
+
+    assert policy_routes._compute_file_hash("image/prompts/scene.txt", b"x") == (
+        "file::image/prompts/scene.txt"
+    )
+
+    entries = [
+        policy_routes._PolicyEntry(relative_path="image/prompts/scene.txt", content_hash="h1"),
+    ]
+    assert policy_routes._compute_tree_hash(entries) == "tree::1"
+
+    directories = policy_routes._compute_directory_hashes(entries)
+    assert directories == [
+        policy_routes.PolicyHashDirectoryResponse(path="image", file_count=1, hash="dir::hash")
+    ]
+
+
+@pytest.mark.api
+def test_normalize_relative_path_supports_posix_and_rejects_traversal() -> None:
+    """Relative path normalizer should normalize separators and reject unsafe values."""
+
+    assert policy_routes._normalize_relative_path(r"image\prompts\scene.txt") == (
+        "image/prompts/scene.txt"
+    )
+
+    with pytest.raises(ValueError, match="must not be empty"):
+        policy_routes._normalize_relative_path("")
+
+    with pytest.raises(ValueError, match="must not traverse upwards"):
+        policy_routes._normalize_relative_path("../scene.txt")
+
+
+@pytest.mark.api
+def test_canonical_policy_root_points_at_world_policy_directory() -> None:
+    """Canonical policy root helper should resolve to data/worlds/<id>/policies."""
+
+    resolved = policy_routes._canonical_policy_root("pipeworks_web")
+
+    assert str(resolved).endswith("data/worlds/pipeworks_web/policies")
