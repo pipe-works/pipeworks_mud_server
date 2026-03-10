@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.16](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.15...mud_server-v0.4.16) (2026-03-10)
+
+
+### Bug Fixes
+
+* **deps:** bump pipeworks-ipc to v0.1.2 ([5066206](https://github.com/pipe-works/pipeworks_mud_server/commit/50662066ce44d3c11a20920ec696486d4cab0146))
+* **deps:** bump pipeworks-ipc to v0.1.2 ([6d3ec6d](https://github.com/pipe-works/pipeworks_mud_server/commit/6d3ec6dffccd0829628a521ea105bfd8003bfe97))
+
 ## [0.4.15](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.14...mud_server-v0.4.15) (2026-03-10)
 
 
