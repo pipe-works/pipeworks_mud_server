@@ -33,7 +33,10 @@ from mud_server.db.errors import DatabaseError
 from mud_server.services.character_provisioning import (
     fetch_entity_state_for_seed as provisioning_fetch_entity_state_for_seed,
 )
-from mud_server.services.character_provisioning import provision_generated_character_for_user
+from mud_server.services.character_provisioning import (
+    generate_provisioning_seed,
+    provision_generated_character_for_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +115,27 @@ def _fetch_local_axis_snapshot_for_character(
         return current_state, None
 
     return None, "Character axis snapshot missing."
+
+
+def _rollback_guest_registration(*, username: str | None, character_id: int | None) -> None:
+    """Best-effort rollback for partially created guest registration records."""
+    if character_id is not None:
+        try:
+            database.delete_character(character_id)
+        except Exception:
+            logger.exception(
+                "Guest registration rollback failed while deleting character_id=%s",
+                character_id,
+            )
+
+    if username:
+        try:
+            database.delete_user(username)
+        except Exception:
+            logger.exception(
+                "Guest registration rollback failed while deleting username=%s",
+                username,
+            )
 
 
 def router(engine: GameEngine) -> APIRouter:
@@ -328,6 +352,23 @@ def router(engine: GameEngine) -> APIRouter:
                 error_detail = " ".join(result.errors)
                 raise HTTPException(status_code=400, detail=error_detail)
 
+            target_world_id = config.worlds.default_world_id
+            provisioning_seed = generate_provisioning_seed()
+            generated_entity_state, generated_entity_state_error = (
+                _fetch_entity_state_for_character(
+                    seed=provisioning_seed,
+                    world_id=target_world_id,
+                )
+            )
+            if generated_entity_state is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        generated_entity_state_error
+                        or "Randomized guest axis generation is currently unavailable."
+                    ),
+                )
+
             # Generate a short, unique guest username (fits 2-20 char constraint).
             guest_prefix = "guest_"
             max_attempts = 20
@@ -365,7 +406,8 @@ def router(engine: GameEngine) -> APIRouter:
                 user_id,
                 character_name,
                 is_guest_created=True,
-                world_id=config.worlds.default_world_id,
+                world_id=target_world_id,
+                state_seed=provisioning_seed,
             ):
                 database.delete_user(username)
                 raise HTTPException(status_code=400, detail="Character name already taken")
@@ -374,32 +416,45 @@ def router(engine: GameEngine) -> APIRouter:
             # bind deterministic external entity-state generation to this character.
             character = database.get_character_by_name(character_name)
             if character is None:
-                database.delete_user(username)
+                _rollback_guest_registration(username=username, character_id=None)
                 raise HTTPException(status_code=500, detail="Failed to resolve created character")
             character_id = int(character["id"])
-            world_id = str(character.get("world_id") or config.worlds.default_world_id)
+            world_id = str(character.get("world_id") or target_world_id)
 
-            # Prefer local snapshot state from the MUD DB so onboarding reflects
-            # the same canonical state used by gameplay mechanics.
+            try:
+                event_id = database.apply_entity_state_to_character(
+                    character_id=character_id,
+                    world_id=world_id,
+                    entity_state=generated_entity_state,
+                    seed=provisioning_seed,
+                )
+            except Exception:
+                _rollback_guest_registration(username=username, character_id=character_id)
+                raise HTTPException(
+                    status_code=503,
+                    detail="Randomized guest axis seeding failed.",
+                ) from None
+
+            if event_id is None:
+                _rollback_guest_registration(username=username, character_id=character_id)
+                raise HTTPException(
+                    status_code=503,
+                    detail="Randomized guest axis seeding produced no axis changes.",
+                )
+
+            # Return canonical post-apply snapshot from local DB state.
             entity_state, entity_state_error = _fetch_local_axis_snapshot_for_character(
                 character_id
             )
-
-            # Optional fallback: if local snapshot data is unavailable, attempt to
-            # fetch from the external entity integration when enabled.
             if entity_state is None:
-                external_state, external_error = _fetch_entity_state_for_character(
-                    seed=character_id,
-                    world_id=world_id,
+                _rollback_guest_registration(username=username, character_id=character_id)
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        entity_state_error
+                        or "Character axis snapshot unavailable after randomized seeding."
+                    ),
                 )
-                if external_state is not None:
-                    entity_state = external_state
-                    entity_state_error = None
-                elif external_error:
-                    if entity_state_error:
-                        entity_state_error = f"{entity_state_error} {external_error}"
-                    else:
-                        entity_state_error = external_error
 
             return RegisterGuestResponse(
                 success=True,
@@ -412,7 +467,7 @@ def router(engine: GameEngine) -> APIRouter:
                 character_name=character_name,
                 world_id=world_id,
                 entity_state=entity_state,
-                entity_state_error=entity_state_error,
+                entity_state_error=None,
             )
         except DatabaseError as exc:
             logger.exception("Guest registration failed due to database error")

@@ -197,18 +197,42 @@ def test_register_closed_by_policy(test_client, test_db, temp_db_path):
 # ============================================================================
 
 
+GUEST_ENTITY_STATE_FIXTURE = {
+    "seed": 777,
+    "character": {
+        "wealth": "poor",
+        "health": "hale",
+        "demeanor": "proud",
+        "physique": "stocky",
+        "age": "ancient",
+        "facial_signal": "sharp-featured",
+    },
+    "occupation": {
+        "legitimacy": "illicit",
+        "visibility": "hidden",
+        "moral_load": "corrosive",
+        "dependency": "optional",
+        "risk_exposure": "eroding",
+    },
+}
+
+
 @pytest.mark.api
 def test_register_guest_success(test_client, test_db, temp_db_path):
     """Test successful guest registration with server-generated username."""
     with use_test_database(temp_db_path):
-        response = test_client.post(
-            "/register-guest",
-            json={
-                "password": TEST_PASSWORD,
-                "password_confirm": TEST_PASSWORD,
-                "character_name": "Guest Traveler",
-            },
-        )
+        with patch(
+            "mud_server.api.routes.auth._fetch_entity_state_for_character",
+            return_value=(GUEST_ENTITY_STATE_FIXTURE, None),
+        ):
+            response = test_client.post(
+                "/register-guest",
+                json={
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                    "character_name": "Guest Traveler",
+                },
+            )
 
         assert response.status_code == 200
         data = response.json()
@@ -223,13 +247,18 @@ def test_register_guest_success(test_client, test_db, temp_db_path):
         assert "axes" in data["entity_state"]
         assert isinstance(data["entity_state"]["seed"], int)
         assert data["entity_state"]["seed"] > 0
-        assert "wealth" in data["entity_state"]["axes"]
-        assert "legitimacy" in data["entity_state"]["axes"]
+        assert data["entity_state"]["axes"]["wealth"]["score"] != 0.5
+        assert data["entity_state"]["axes"]["legitimacy"]["score"] != 0.5
         assert data["entity_state_error"] is None
 
         character = database.get_character_by_name("Guest Traveler")
         assert character is not None
         assert character["is_guest_created"] is True
+        axis_state = database.get_character_axis_state(data["character_id"])
+        assert axis_state is not None
+        score_by_axis = {row["axis_name"]: row["axis_score"] for row in axis_state["axes"]}
+        assert score_by_axis["wealth"] != 0.5
+        assert score_by_axis["legitimacy"] != 0.5
 
 
 @pytest.mark.api
@@ -254,14 +283,13 @@ def test_register_guest_disabled_by_policy(test_client, test_db, temp_db_path):
 
 
 @pytest.mark.api
-def test_register_guest_entity_service_failure_does_not_block_signup(
-    test_client, test_db, temp_db_path
-):
-    """Local snapshot should keep guest registration resilient to entity API outages."""
-    import requests
-
+def test_register_guest_entity_service_failure_returns_503(test_client, test_db, temp_db_path):
+    """Entity-state generation is required for guest registration."""
     with use_test_database(temp_db_path):
-        with patch("requests.post", side_effect=requests.exceptions.ConnectionError):
+        with patch(
+            "mud_server.api.routes.auth._fetch_entity_state_for_character",
+            return_value=(None, "Entity state API unavailable."),
+        ):
             response = test_client.post(
                 "/register-guest",
                 json={
@@ -271,121 +299,103 @@ def test_register_guest_entity_service_failure_does_not_block_signup(
                 },
             )
 
-    assert response.status_code == 200
+    assert response.status_code == 503
     payload = response.json()
-    assert payload["success"] is True
-    assert payload["entity_state"] is not None
-    assert "axes" in payload["entity_state"]
-    assert payload["entity_state_error"] is None
+    assert "entity state api unavailable" in payload["detail"].lower()
+    assert database.get_character_by_name("Guest Cartographer") is None
 
 
 @pytest.mark.api
-def test_register_guest_returns_error_when_local_and_external_state_unavailable(
+def test_register_guest_entity_service_failure_uses_generic_503_message(
     test_client, test_db, temp_db_path
 ):
-    """When both snapshot and integration fail, registration should still succeed."""
-    import requests
-
-    with use_test_database(temp_db_path):
-        with patch.object(database, "get_character_axis_state", return_value=None):
-            with patch("requests.post", side_effect=requests.exceptions.ConnectionError):
-                response = test_client.post(
-                    "/register-guest",
-                    json={
-                        "password": TEST_PASSWORD,
-                        "password_confirm": TEST_PASSWORD,
-                        "character_name": "Guest Cartographer 2",
-                    },
-                )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["success"] is True
-    assert payload["entity_state"] is None
-    assert payload["entity_state_error"] is not None
-    assert "unavailable" in payload["entity_state_error"].lower()
-
-
-@pytest.mark.api
-def test_register_guest_falls_back_to_external_state_when_local_missing(
-    test_client, test_db, temp_db_path
-):
-    """Local snapshot miss should fall back to external entity API payload."""
-    with use_test_database(temp_db_path):
-
-        class FakeEntityResponse:
-            status_code = 200
-            headers: dict[str, str] = {}
-
-            @staticmethod
-            def json():
-                return {
-                    "seed": 999,
-                    "axes": {
-                        "physique": {"score": 0.6},
-                        "wealth": {"score": 0.2},
-                        "health": {"score": 0.4},
-                        "demeanor": {"score": 0.25},
-                        "age": {"score": 0.5},
-                        "facial_signal": {"score": 0.3},
-                        "legitimacy": {"score": 0.3333333333333333},
-                        "visibility": {"score": 0.6666666666666666},
-                        "moral_load": {"score": 0.0},
-                        "dependency": {"score": 0.6666666666666666},
-                        "risk_exposure": {"score": 0.3333333333333333},
-                    },
-                    "character": {"demeanor": "wary"},
-                    "occupation": {"visibility": "routine"},
-                }
-
-        with patch.object(database, "get_character_axis_state", return_value=None):
-            with patch("requests.post", return_value=FakeEntityResponse()):
-                response = test_client.post(
-                    "/register-guest",
-                    json={
-                        "password": TEST_PASSWORD,
-                        "password_confirm": TEST_PASSWORD,
-                        "character_name": "Guest Fallback",
-                    },
-                )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["success"] is True
-    assert payload["entity_state"] is not None
-    assert payload["entity_state"]["seed"] == 999
-    assert payload["entity_state"]["character"]["demeanor"] == "wary"
-    assert payload["entity_state_error"] is None
-
-
-@pytest.mark.api
-def test_register_guest_returns_external_error_when_local_error_is_empty(
-    test_client, test_db, temp_db_path
-):
-    """External fallback error should be used when local helper gives no message."""
+    """Generic 503 message should be used when helper has no detail."""
     with use_test_database(temp_db_path):
         with patch(
-            "mud_server.api.routes.auth._fetch_local_axis_snapshot_for_character",
+            "mud_server.api.routes.auth._fetch_entity_state_for_character",
             return_value=(None, None),
         ):
-            with patch(
-                "mud_server.api.routes.auth._fetch_entity_state_for_character",
-                return_value=(None, "Entity fallback unavailable."),
-            ):
-                response = test_client.post(
-                    "/register-guest",
-                    json={
-                        "password": TEST_PASSWORD,
-                        "password_confirm": TEST_PASSWORD,
-                        "character_name": "Guest Fallback Error",
-                    },
-                )
+            response = test_client.post(
+                "/register-guest",
+                json={
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                    "character_name": "Guest Cartographer 2",
+                },
+            )
 
-    assert response.status_code == 200
+    assert response.status_code == 503
     payload = response.json()
-    assert payload["success"] is True
-    assert payload["entity_state"] is None
-    assert payload["entity_state_error"] == "Entity fallback unavailable."
+    assert "randomized guest axis generation" in payload["detail"].lower()
+    assert database.get_character_by_name("Guest Cartographer 2") is None
+
+
+@pytest.mark.api
+def test_register_guest_apply_failure_rolls_back_and_returns_503(
+    test_client, test_db, temp_db_path
+):
+    """Mapped/no-delta apply results should fail signup and rollback guest rows."""
+    generated_entity_state = {
+        "seed": 888,
+        "character": {"wealth": "poor"},
+        "occupation": {"legitimacy": "illicit"},
+    }
+    with use_test_database(temp_db_path):
+        with (
+            patch(
+                "mud_server.api.routes.auth._fetch_entity_state_for_character",
+                return_value=(generated_entity_state, None),
+            ),
+            patch.object(database, "apply_entity_state_to_character", return_value=None),
+        ):
+            response = test_client.post(
+                "/register-guest",
+                json={
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                    "character_name": "Guest Apply Failure",
+                },
+            )
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert "produced no axis changes" in payload["detail"].lower()
+    assert database.get_character_by_name("Guest Apply Failure") is None
+
+
+@pytest.mark.api
+def test_register_guest_apply_exception_rolls_back_and_returns_503(
+    test_client, test_db, temp_db_path
+):
+    """Apply exceptions should fail signup and rollback guest rows."""
+    generated_entity_state = {
+        "seed": 889,
+        "character": {"wealth": "poor"},
+        "occupation": {"legitimacy": "illicit"},
+    }
+    with use_test_database(temp_db_path):
+        with (
+            patch(
+                "mud_server.api.routes.auth._fetch_entity_state_for_character",
+                return_value=(generated_entity_state, None),
+            ),
+            patch.object(
+                database, "apply_entity_state_to_character", side_effect=RuntimeError("boom")
+            ),
+        ):
+            response = test_client.post(
+                "/register-guest",
+                json={
+                    "password": TEST_PASSWORD,
+                    "password_confirm": TEST_PASSWORD,
+                    "character_name": "Guest Apply Exception",
+                },
+            )
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert "randomized guest axis seeding failed" in payload["detail"].lower()
+    assert database.get_character_by_name("Guest Apply Exception") is None
 
 
 @pytest.mark.api
@@ -394,7 +404,13 @@ def test_register_guest_fails_when_created_character_cannot_be_resolved(
 ):
     """If character lookup fails post-create, endpoint should rollback with 500."""
     with use_test_database(temp_db_path):
-        with patch.object(database, "get_character_by_name", return_value=None):
+        with (
+            patch(
+                "mud_server.api.routes.auth._fetch_entity_state_for_character",
+                return_value=(GUEST_ENTITY_STATE_FIXTURE, None),
+            ),
+            patch.object(database, "get_character_by_name", return_value=None),
+        ):
             response = test_client.post(
                 "/register-guest",
                 json={
@@ -454,7 +470,13 @@ def test_register_guest_passwords_dont_match(test_client):
 def test_register_guest_username_allocation_failure(test_client, test_db, temp_db_path):
     """Test guest registration fails when no usernames can be allocated."""
     with use_test_database(temp_db_path):
-        with patch.object(database, "user_exists", return_value=True):
+        with (
+            patch(
+                "mud_server.api.routes.auth._fetch_entity_state_for_character",
+                return_value=(GUEST_ENTITY_STATE_FIXTURE, None),
+            ),
+            patch.object(database, "user_exists", return_value=True),
+        ):
             response = test_client.post(
                 "/register-guest",
                 json={
@@ -472,7 +494,13 @@ def test_register_guest_username_allocation_failure(test_client, test_db, temp_d
 def test_register_guest_create_user_failure(test_client, test_db, temp_db_path):
     """Test guest registration fails when account creation returns False."""
     with use_test_database(temp_db_path):
-        with patch.object(database, "create_user_with_password", return_value=False):
+        with (
+            patch(
+                "mud_server.api.routes.auth._fetch_entity_state_for_character",
+                return_value=(GUEST_ENTITY_STATE_FIXTURE, None),
+            ),
+            patch.object(database, "create_user_with_password", return_value=False),
+        ):
             response = test_client.post(
                 "/register-guest",
                 json={
@@ -539,6 +567,10 @@ def test_register_guest_user_id_missing_rolls_back(test_client, test_db, temp_db
     """Test guest registration rolls back when user id cannot be resolved."""
     with use_test_database(temp_db_path):
         with (
+            patch(
+                "mud_server.api.routes.auth._fetch_entity_state_for_character",
+                return_value=(GUEST_ENTITY_STATE_FIXTURE, None),
+            ),
             patch.object(database, "get_user_id", return_value=None),
             patch.object(database, "delete_user") as delete_user,
         ):
@@ -559,7 +591,13 @@ def test_register_guest_user_id_missing_rolls_back(test_client, test_db, temp_db
 def test_register_guest_character_creation_failure(test_client, test_db, temp_db_path):
     """Test guest registration fails when character creation returns False."""
     with use_test_database(temp_db_path):
-        with patch.object(database, "create_character_for_user", return_value=False):
+        with (
+            patch(
+                "mud_server.api.routes.auth._fetch_entity_state_for_character",
+                return_value=(GUEST_ENTITY_STATE_FIXTURE, None),
+            ),
+            patch.object(database, "create_character_for_user", return_value=False),
+        ):
             response = test_client.post(
                 "/register-guest",
                 json={
