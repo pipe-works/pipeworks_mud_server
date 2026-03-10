@@ -19,6 +19,7 @@ from mud_server.api.server import (
     DEFAULT_PORT,
     PORT_RANGE_END,
     PORT_RANGE_START,
+    _build_uvicorn_log_config,
     find_available_port,
     is_port_available,
 )
@@ -164,6 +165,13 @@ class TestFindAvailablePort:
         assert DEFAULT_PORT == 8000
         assert PORT_RANGE_START == 8000
         assert PORT_RANGE_END == 8099
+
+    def test_build_uvicorn_log_config_adds_service_prefix(self):
+        """Uvicorn default/access formatters should include the service prefix."""
+        log_config = _build_uvicorn_log_config()
+        formatters = log_config["formatters"]
+        assert formatters["default"]["fmt"].startswith("mud-server ")
+        assert formatters["access"]["fmt"].startswith("mud-server ")
 
 
 # ============================================================================
