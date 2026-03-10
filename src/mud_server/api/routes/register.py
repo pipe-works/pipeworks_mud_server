@@ -7,7 +7,7 @@ splitting implementation into focused router modules.
 
 from fastapi import FastAPI
 
-from mud_server.api.routes import admin, auth, game, health, lab, ollama, pipeline
+from mud_server.api.routes import admin, auth, game, health, lab, ollama, pipeline, policy
 from mud_server.core.engine import GameEngine
 
 
@@ -28,5 +28,6 @@ def register_routes(app: FastAPI, engine: GameEngine) -> None:
     app.include_router(admin.router(engine))
     app.include_router(ollama.router(engine))
     app.include_router(lab.router(engine))
+    app.include_router(policy.router(engine))
     # Pipeline routes expose stateless generation primitives under /api/pipeline/*.
     app.include_router(pipeline.router(engine))
