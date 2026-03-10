@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.15](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.14...mud_server-v0.4.15) (2026-03-10)
+
+
+### Features
+
+* **api:** add canonical policy hash snapshot endpoint ([ef19705](https://github.com/pipe-works/pipeworks_mud_server/commit/ef197053f706f24bd131907513b714a21f6607ed))
+* **api:** add canonical policy hash snapshot endpoint ([7f6f744](https://github.com/pipe-works/pipeworks_mud_server/commit/7f6f7447a35f0ba715b2e2d5c20d362b3f686086))
+
+
+### Bug Fixes
+
+* **api:** harden policy hash path normalization ([759b78a](https://github.com/pipe-works/pipeworks_mud_server/commit/759b78ad3d58c9204d6fbd23c9b8fbcca0898027))
+
 ## [0.4.14](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.13...mud_server-v0.4.14) (2026-03-09)
 
 
