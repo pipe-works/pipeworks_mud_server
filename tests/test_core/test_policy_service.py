@@ -313,6 +313,70 @@ def test_validate_policy_variant_accepts_descriptor_layer_references(test_db) ->
 
 
 @pytest.mark.unit
+def test_validate_policy_variant_accepts_prompt_layer1_content(test_db) -> None:
+    """Prompt Layer 1 objects should accept non-empty ``content.text`` payloads."""
+    result = policy_service.validate_policy_variant(
+        policy_id="prompt:image.prompts:ic_default",
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="candidate",
+        content={"text": "Respond in-character with concise output."},
+        validated_by="tester",
+    )
+    assert result.is_valid is True
+    assert result.errors == []
+
+
+@pytest.mark.unit
+def test_validate_policy_variant_rejects_prompt_layer1_empty_text(test_db) -> None:
+    """Prompt Layer 1 objects should reject empty ``content.text`` payloads."""
+    result = policy_service.validate_policy_variant(
+        policy_id="prompt:image.prompts:ic_default",
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="candidate",
+        content={"text": "   "},
+        validated_by="tester",
+    )
+    assert result.is_valid is False
+    assert result.errors == ["prompt content.text must be a non-empty string"]
+
+
+@pytest.mark.unit
+def test_validate_policy_variant_accepts_tone_profile_layer1_content(test_db) -> None:
+    """Tone profile Layer 1 objects should accept non-empty ``prompt_block`` text."""
+    result = policy_service.validate_policy_variant(
+        policy_id="tone_profile:image.tone_profiles:ledger_engraving",
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="candidate",
+        content={"prompt_block": "Muted engraving style on archival texture."},
+        validated_by="tester",
+    )
+    assert result.is_valid is True
+    assert result.errors == []
+
+
+@pytest.mark.unit
+def test_validate_policy_variant_rejects_tone_profile_missing_prompt_block(test_db) -> None:
+    """Tone profile Layer 1 objects should reject missing/empty ``prompt_block`` text."""
+    result = policy_service.validate_policy_variant(
+        policy_id="tone_profile:image.tone_profiles:ledger_engraving",
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="candidate",
+        content={"prompt_block": ""},
+        validated_by="tester",
+    )
+    assert result.is_valid is False
+    assert result.errors == ["tone_profile content.prompt_block must be a non-empty string"]
+
+
+@pytest.mark.unit
 def test_validate_policy_variant_rejects_invalid_descriptor_layer_references(test_db) -> None:
     """Layer 2 validation should fail for missing/non-Layer-1 references."""
     _seed_descriptor_layer_variant(
@@ -625,9 +689,9 @@ def test_validate_common_fields_and_policy_type_content_private_helpers() -> Non
     assert "status must be one of: draft, candidate, active, archived" in errors
 
     unsupported_identity = policy_service.PolicyIdentity(
-        policy_id="prompt:image.prompts:scene",
-        policy_type="prompt",
-        namespace="image.prompts",
+        policy_id="image_block:image.blocks:scene",
+        policy_type="image_block",
+        namespace="image.blocks",
         policy_key="scene",
     )
     type_errors = policy_service._validate_policy_type_content(  # noqa: SLF001
@@ -637,6 +701,6 @@ def test_validate_common_fields_and_policy_type_content_private_helpers() -> Non
     assert type_errors == [
         (
             "Validation/writes currently support policy_type values: "
-            "'species_block', 'descriptor_layer', 'registry'."
+            "'species_block', 'prompt', 'tone_profile', 'descriptor_layer', 'registry'."
         )
     ]

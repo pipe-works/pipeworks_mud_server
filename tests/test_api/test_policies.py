@@ -46,6 +46,33 @@ def _descriptor_layer_payload(
     }
 
 
+def _prompt_payload(
+    *, text: str, policy_version: int = 1, status: str = "draft"
+) -> dict[str, object]:
+    """Build one canonical ``prompt`` request body."""
+    return {
+        "schema_version": "1.0",
+        "policy_version": policy_version,
+        "status": status,
+        "content": {"text": text},
+    }
+
+
+def _tone_profile_payload(
+    *,
+    prompt_block: str,
+    policy_version: int = 1,
+    status: str = "draft",
+) -> dict[str, object]:
+    """Build one canonical ``tone_profile`` request body."""
+    return {
+        "schema_version": "1.0",
+        "policy_version": policy_version,
+        "status": status,
+        "content": {"prompt_block": prompt_block},
+    }
+
+
 @pytest.mark.api
 def test_species_policy_validate_upsert_get_and_list(test_client, db_with_users) -> None:
     """Species pilot should support validate->upsert->read/list flow."""
@@ -115,6 +142,52 @@ def test_species_policy_validation_rejects_empty_text(test_client, db_with_users
     payload = upsert_response.json()
     assert payload["code"] == "POLICY_VALIDATION_ERROR"
     assert "species_block content.text must be a non-empty string" in payload["detail"]
+
+
+@pytest.mark.api
+def test_prompt_policy_validate_and_upsert_flow(test_client, db_with_users) -> None:
+    """Prompt Layer 1 policy objects should validate and persist through unified API routes."""
+    session_id = _session_id_for("testbuilder")
+    policy_id = "prompt:image.prompts:ic_default"
+    encoded_id = quote(policy_id, safe="")
+
+    validate_response = test_client.post(
+        f"/api/policies/{encoded_id}/validate",
+        params={"session_id": session_id, "variant": "v1"},
+        json=_prompt_payload(text="Keep responses in-character and concise."),
+    )
+    assert validate_response.status_code == 200
+    assert validate_response.json()["is_valid"] is True
+
+    upsert_response = test_client.put(
+        f"/api/policies/{encoded_id}/variants/v1",
+        params={"session_id": session_id},
+        json=_prompt_payload(text="Keep responses in-character and concise."),
+    )
+    assert upsert_response.status_code == 200
+    payload = upsert_response.json()
+    assert payload["policy_type"] == "prompt"
+    assert payload["namespace"] == "image.prompts"
+    assert payload["policy_key"] == "ic_default"
+    assert payload["content"]["text"] == "Keep responses in-character and concise."
+
+
+@pytest.mark.api
+def test_tone_profile_policy_rejects_empty_prompt_block(test_client, db_with_users) -> None:
+    """Tone profile Layer 1 objects should reject empty ``prompt_block`` payload text."""
+    session_id = _session_id_for("testbuilder")
+    policy_id = "tone_profile:image.tone_profiles:ledger_engraving"
+    encoded_id = quote(policy_id, safe="")
+
+    upsert_response = test_client.put(
+        f"/api/policies/{encoded_id}/variants/v1",
+        params={"session_id": session_id},
+        json=_tone_profile_payload(prompt_block="  "),
+    )
+    assert upsert_response.status_code == 422
+    payload = upsert_response.json()
+    assert payload["code"] == "POLICY_VALIDATION_ERROR"
+    assert "tone_profile content.prompt_block must be a non-empty string" in payload["detail"]
 
 
 @pytest.mark.api
