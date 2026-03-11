@@ -545,7 +545,8 @@ def _validate_policy_type_content(
 ) -> list[str]:
     """Validate policy-type-specific content payload rules.
 
-    Phase 3 keeps ``species_block`` as the first migration pilot while adding
+    Phase 5 extends Layer 1 writes beyond the ``species_block`` pilot to
+    include ``tone_profile`` and ``prompt`` objects while preserving existing
     Layer 2 composition contract checks for ``descriptor_layer`` and
     ``registry``.
     """
@@ -560,13 +561,25 @@ def _validate_policy_type_content(
             errors.append("species_block content.text must be a non-empty string")
         return errors
 
+    if identity.policy_type == "prompt":
+        prompt_text = content.get("text")
+        if not isinstance(prompt_text, str) or not prompt_text.strip():
+            errors.append("prompt content.text must be a non-empty string")
+        return errors
+
+    if identity.policy_type == "tone_profile":
+        prompt_block = content.get("prompt_block")
+        if not isinstance(prompt_block, str) or not prompt_block.strip():
+            errors.append("tone_profile content.prompt_block must be a non-empty string")
+        return errors
+
     if identity.policy_type in _LAYER2_POLICY_TYPES:
         errors.extend(_validate_layer2_references(content=content))
         return errors
 
     errors.append(
         "Validation/writes currently support policy_type values: "
-        "'species_block', 'descriptor_layer', 'registry'."
+        "'species_block', 'prompt', 'tone_profile', 'descriptor_layer', 'registry'."
     )
     return errors
 
