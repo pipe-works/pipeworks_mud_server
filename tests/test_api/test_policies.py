@@ -6,7 +6,9 @@ from urllib.parse import quote
 
 import pytest
 
+from mud_server.api.routes import policies as policies_routes
 from mud_server.db import constants, database
+from mud_server.services.policy_service import PolicyServiceError
 
 
 def _session_id_for(username: str) -> str:
@@ -301,3 +303,57 @@ def test_policy_activation_rejects_unknown_world_scope(test_client, db_with_user
     assert activation_response.status_code == 404
     payload = activation_response.json()
     assert payload["code"] == "POLICY_WORLD_NOT_FOUND"
+
+
+@pytest.mark.api
+def test_policy_routes_map_service_errors_to_canonical_payloads(
+    test_client,
+    db_with_users,
+    monkeypatch,
+) -> None:
+    """Route handlers should translate service errors into structured API payloads."""
+    session_id = _session_id_for("testbuilder")
+    policy_id = "species_block:image.blocks.species:goblin"
+    encoded_id = quote(policy_id, safe="")
+
+    def _raise_service_error(*args, **kwargs):
+        raise PolicyServiceError(status_code=409, code="POLICY_TEST_ERROR", detail="forced failure")
+
+    monkeypatch.setattr(policies_routes, "service_list_policies", _raise_service_error)
+    list_response = test_client.get("/api/policies", params={"session_id": session_id})
+    assert list_response.status_code == 409
+    assert list_response.json()["code"] == "POLICY_TEST_ERROR"
+
+    monkeypatch.setattr(policies_routes, "service_get_policy", _raise_service_error)
+    get_response = test_client.get(
+        f"/api/policies/{encoded_id}",
+        params={"session_id": session_id, "variant": "v1"},
+    )
+    assert get_response.status_code == 409
+    assert get_response.json()["code"] == "POLICY_TEST_ERROR"
+
+    monkeypatch.setattr(policies_routes, "service_validate_policy_variant", _raise_service_error)
+    validate_response = test_client.post(
+        f"/api/policies/{encoded_id}/validate",
+        params={"session_id": session_id, "variant": "v1"},
+        json=_species_payload(text="x"),
+    )
+    assert validate_response.status_code == 409
+    assert validate_response.json()["code"] == "POLICY_TEST_ERROR"
+
+    monkeypatch.setattr(policies_routes, "service_list_policy_activations", _raise_service_error)
+    activations_response = test_client.get(
+        "/api/policy-activations",
+        params={"session_id": session_id, "scope": constants.DEFAULT_WORLD_ID},
+    )
+    assert activations_response.status_code == 409
+    assert activations_response.json()["code"] == "POLICY_TEST_ERROR"
+
+    monkeypatch.setattr(policies_routes, "service_publish_scope", _raise_service_error)
+    publish_response = test_client.post(
+        "/api/policy-publish",
+        params={"session_id": session_id},
+        json={"world_id": constants.DEFAULT_WORLD_ID},
+    )
+    assert publish_response.status_code == 409
+    assert publish_response.json()["code"] == "POLICY_TEST_ERROR"

@@ -133,3 +133,110 @@ def test_publish_scope_rejects_unknown_world(test_db) -> None:
             actor="tester",
         )
     assert error.value.code == "POLICY_WORLD_NOT_FOUND"
+
+
+@pytest.mark.unit
+def test_get_policy_raises_not_found_for_missing_variant(test_db) -> None:
+    """Service get should return POLICY_NOT_FOUND when no row matches."""
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.get_policy(
+            policy_id="species_block:image.blocks.species:missing",
+            variant="v1",
+        )
+    assert error.value.code == "POLICY_NOT_FOUND"
+
+
+@pytest.mark.unit
+def test_set_policy_activation_rollback_rejects_unknown_event(test_db) -> None:
+    """Rollback should fail with 404 when event id does not exist."""
+    policy_id = _seed_species_variant(policy_key="troll", variant="v1", policy_version=1)
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.set_policy_activation(
+            scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+            policy_id=policy_id,
+            variant="v1",
+            activated_by="tester",
+            rollback_of_activation_id=999999,
+        )
+    assert error.value.code == "POLICY_ROLLBACK_EVENT_NOT_FOUND"
+
+
+@pytest.mark.unit
+def test_set_policy_activation_wraps_repo_errors(test_db, monkeypatch) -> None:
+    """Repository exceptions should map to POLICY_ACTIVATION_ERROR."""
+    policy_id = _seed_species_variant(policy_key="ratfolk", variant="v1", policy_version=1)
+    monkeypatch.setattr(
+        policy_service.policy_repo,
+        "set_policy_activation",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("activation broken")),
+    )
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.set_policy_activation(
+            scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+            policy_id=policy_id,
+            variant="v1",
+            activated_by="tester",
+        )
+    assert error.value.code == "POLICY_ACTIVATION_ERROR"
+
+
+@pytest.mark.unit
+def test_publish_scope_rejects_activation_pointer_to_missing_variant(test_db, monkeypatch) -> None:
+    """Publish should fail when activation points at a missing policy row."""
+    monkeypatch.setattr(
+        policy_service,
+        "list_policy_activations",
+        lambda scope: [
+            {
+                "policy_id": "species_block:image.blocks.species:goblin",
+                "variant": "v404",
+            }
+        ],
+    )
+    monkeypatch.setattr(policy_service.policy_repo, "get_policy", lambda **kwargs: None)
+
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.publish_scope(
+            scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+            actor="tester",
+        )
+    assert error.value.code == "POLICY_PUBLISH_REFERENCE_MISSING"
+
+
+@pytest.mark.unit
+def test_validate_common_fields_and_policy_type_content_private_helpers() -> None:
+    """Private helper branches should produce expected validation errors."""
+    identity = policy_service.PolicyIdentity(
+        policy_id="species_block::",
+        policy_type="species_block",
+        namespace="",
+        policy_key="",
+    )
+    errors = policy_service._validate_common_fields(  # noqa: SLF001
+        identity=identity,
+        variant="",
+        schema_version="",
+        policy_version=0,
+        status="bad-status",
+        content={"text": "x"},
+    )
+    assert "namespace must not be empty" in errors
+    assert "policy_key must not be empty" in errors
+    assert "variant must not be empty" in errors
+    assert "schema_version must not be empty" in errors
+    assert "policy_version must be >= 1" in errors
+    assert "status must be one of: draft, candidate, active, archived" in errors
+
+    unsupported_identity = policy_service.PolicyIdentity(
+        policy_id="prompt:image.prompts:scene",
+        policy_type="prompt",
+        namespace="image.prompts",
+        policy_key="scene",
+    )
+    type_errors = policy_service._validate_policy_type_content(  # noqa: SLF001
+        identity=unsupported_identity,
+        content={"text": "x"},
+    )
+    assert type_errors == [
+        "Phase 1 only supports writes/validation for policy_type='species_block'."
+    ]

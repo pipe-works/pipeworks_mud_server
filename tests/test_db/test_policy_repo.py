@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from mud_server.db import policy_repo
-from mud_server.db.errors import DatabaseWriteError
+from mud_server.db.errors import DatabaseOperationContext, DatabaseReadError, DatabaseWriteError
 
 
 def _seed_species_policy_item(policy_key: str = "goblin") -> str:
@@ -24,6 +24,53 @@ def _seed_species_policy_item(policy_key: str = "goblin") -> str:
         policy_key=policy_key,
     )
     return policy_id
+
+
+class _ExplodingContextManager:
+    """Test helper that raises at context-entry to simulate DB failures."""
+
+    def __enter__(self):
+        raise RuntimeError("boom")
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakeConnectionScope:
+    """Minimal context manager wrapper returning a fake DB connection."""
+
+    def __init__(self, cursor) -> None:
+        self._cursor = cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def cursor(self):
+        return self._cursor
+
+
+class _FakeCursor:
+    """Minimal cursor helper for targeted error-branch tests."""
+
+    def __init__(
+        self,
+        *,
+        fetchone_values: list[tuple[object, ...] | None] | None = None,
+        lastrowid: int | None = None,
+    ) -> None:
+        self._fetchone_values = list(fetchone_values or [])
+        self.lastrowid = lastrowid
+
+    def execute(self, _query: str, _params: tuple[object, ...] = ()) -> None:
+        return None
+
+    def fetchone(self):
+        if not self._fetchone_values:
+            return None
+        return self._fetchone_values.pop(0)
 
 
 @pytest.mark.db
@@ -223,3 +270,190 @@ def test_activation_and_publish_runs_write_audit_rows(test_db) -> None:
         created_at="2026-03-11T12:02:00Z",
     )
     assert run_id > 0
+
+
+@pytest.mark.db
+def test_raise_error_helpers_passthrough_and_wrap_behaviors() -> None:
+    """Private raise helpers should pass through DB errors and wrap others."""
+    passthrough_read = DatabaseReadError(
+        context=DatabaseOperationContext(operation="read.op", details="x")
+    )
+    with pytest.raises(DatabaseReadError):
+        policy_repo._raise_read_error("read.op", passthrough_read)  # noqa: SLF001
+
+    passthrough_write = DatabaseWriteError(
+        context=DatabaseOperationContext(operation="write.op", details="y")
+    )
+    with pytest.raises(DatabaseWriteError):
+        policy_repo._raise_write_error("write.op", passthrough_write)  # noqa: SLF001
+
+    with pytest.raises(DatabaseReadError):
+        policy_repo._raise_read_error("read.wrap", RuntimeError("x"))  # noqa: SLF001
+    with pytest.raises(DatabaseWriteError):
+        policy_repo._raise_write_error("write.wrap", RuntimeError("y"))  # noqa: SLF001
+
+
+@pytest.mark.db
+def test_repo_operations_wrap_connection_failures(test_db, monkeypatch) -> None:
+    """Repository entry points should convert raw exceptions into DB typed errors."""
+    monkeypatch.setattr(
+        policy_repo,
+        "connection_scope",
+        lambda *args, **kwargs: _ExplodingContextManager(),
+    )
+
+    with pytest.raises(DatabaseWriteError):
+        policy_repo.upsert_policy_item(
+            policy_id="species_block:image.blocks.species:ogre",
+            policy_type="species_block",
+            namespace="image.blocks.species",
+            policy_key="ogre",
+        )
+
+    with pytest.raises(DatabaseWriteError):
+        policy_repo.upsert_policy_variant(
+            policy_id="species_block:image.blocks.species:ogre",
+            variant="v1",
+            schema_version="1.0",
+            policy_version=1,
+            status="draft",
+            content={"text": "v1"},
+            content_hash="h",
+            updated_at="2026-03-11T12:00:00Z",
+            updated_by="tester",
+        )
+
+    with pytest.raises(DatabaseReadError):
+        policy_repo.list_policies(policy_type=None, namespace=None, status=None)
+
+    with pytest.raises(DatabaseReadError):
+        policy_repo.get_policy(policy_id="species_block:image.blocks.species:ogre", variant="v1")
+
+    with pytest.raises(DatabaseWriteError):
+        policy_repo.insert_validation_run(
+            policy_id="species_block:image.blocks.species:ogre",
+            variant="v1",
+            is_valid=True,
+            errors=[],
+            validated_at="2026-03-11T12:00:00Z",
+            validated_by="tester",
+        )
+
+    with pytest.raises(DatabaseReadError):
+        policy_repo.get_activation_event(1)
+
+    with pytest.raises(DatabaseWriteError):
+        policy_repo.set_policy_activation(
+            world_id="pipeworks_web",
+            client_profile="",
+            policy_id="species_block:image.blocks.species:ogre",
+            variant="v1",
+            activated_by="tester",
+            activated_at="2026-03-11T12:00:00Z",
+            rollback_of_activation_id=None,
+        )
+
+    with pytest.raises(DatabaseReadError):
+        policy_repo.list_policy_activations(world_id="pipeworks_web", client_profile="")
+
+    with pytest.raises(DatabaseWriteError):
+        policy_repo.insert_publish_run(
+            world_id="pipeworks_web",
+            client_profile="",
+            actor="tester",
+            manifest={},
+            created_at="2026-03-11T12:00:00Z",
+        )
+
+
+@pytest.mark.db
+def test_getters_return_none_when_rows_do_not_exist(test_db) -> None:
+    """Lookup helpers should return ``None`` for absent rows."""
+    assert (
+        policy_repo.get_policy(policy_id="species_block:image.blocks.species:missing", variant="v1")
+        is None
+    )
+    assert policy_repo.get_activation_event(999999) is None
+
+
+@pytest.mark.db
+def test_upsert_policy_variant_raises_when_reload_returns_none(test_db, monkeypatch) -> None:
+    """Variant upsert should fail if read-after-write unexpectedly returns no row."""
+    policy_id = _seed_species_policy_item("minotaur")
+    monkeypatch.setattr(policy_repo, "get_policy", lambda **kwargs: None)
+
+    with pytest.raises(DatabaseWriteError):
+        policy_repo.upsert_policy_variant(
+            policy_id=policy_id,
+            variant="v1",
+            schema_version="1.0",
+            policy_version=1,
+            status="draft",
+            content={"text": "v1"},
+            content_hash="h1",
+            updated_at="2026-03-11T12:00:00Z",
+            updated_by="tester",
+        )
+
+
+@pytest.mark.db
+def test_insert_validation_run_raises_when_lastrowid_missing(test_db, monkeypatch) -> None:
+    """Validation insert should fail when sqlite cursor does not provide ``lastrowid``."""
+    fake_cursor = _FakeCursor(lastrowid=None)
+    monkeypatch.setattr(
+        policy_repo,
+        "connection_scope",
+        lambda *args, **kwargs: _FakeConnectionScope(fake_cursor),
+    )
+
+    with pytest.raises(DatabaseWriteError):
+        policy_repo.insert_validation_run(
+            policy_id="species_block:image.blocks.species:goblin",
+            variant="v1",
+            is_valid=True,
+            errors=[],
+            validated_at="2026-03-11T12:00:00Z",
+            validated_by="tester",
+        )
+
+
+@pytest.mark.db
+def test_set_policy_activation_raises_when_reload_returns_none(test_db, monkeypatch) -> None:
+    """Activation should fail when pointer reload unexpectedly returns no row."""
+    fake_cursor = _FakeCursor(fetchone_values=[(1,), None], lastrowid=1)
+    monkeypatch.setattr(
+        policy_repo,
+        "connection_scope",
+        lambda *args, **kwargs: _FakeConnectionScope(fake_cursor),
+    )
+
+    with pytest.raises(DatabaseWriteError):
+        policy_repo.set_policy_activation(
+            world_id="pipeworks_web",
+            client_profile="",
+            policy_id="species_block:image.blocks.species:goblin",
+            variant="v1",
+            activated_by="tester",
+            activated_at="2026-03-11T12:00:00Z",
+            rollback_of_activation_id=None,
+        )
+
+
+@pytest.mark.db
+def test_insert_publish_run_raises_when_lastrowid_missing(test_db, monkeypatch) -> None:
+    """Publish insert should fail when sqlite cursor omits ``lastrowid``."""
+    fake_cursor = _FakeCursor(lastrowid=None)
+    monkeypatch.setattr(
+        policy_repo,
+        "connection_scope",
+        lambda *args, **kwargs: _FakeConnectionScope(fake_cursor),
+    )
+
+    with pytest.raises(DatabaseWriteError):
+        policy_repo.insert_publish_run(
+            world_id="pipeworks_web",
+            client_profile="",
+            actor="tester",
+            manifest={"world_id": "pipeworks_web", "items": []},
+            created_at="2026-03-11T12:00:00Z",
+        )
