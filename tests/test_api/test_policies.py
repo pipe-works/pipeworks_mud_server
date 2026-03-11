@@ -8,6 +8,7 @@ import pytest
 
 from mud_server.api.routes import policies as policies_routes
 from mud_server.db import constants, database
+from mud_server.services import policy_service
 from mud_server.services.policy_service import PolicyServiceError
 
 
@@ -303,8 +304,11 @@ def test_descriptor_layer_upsert_enforces_layer1_reference_rules(
 
 
 @pytest.mark.api
-def test_policy_publish_returns_deterministic_manifest(test_client, db_with_users) -> None:
+def test_policy_publish_returns_deterministic_manifest(
+    test_client, db_with_users, monkeypatch, tmp_path
+) -> None:
     """Publish should emit manifest rows based on active scope pointers."""
+    monkeypatch.setattr(policy_service.config.worlds, "worlds_root", str(tmp_path))
     session_id = _session_id_for("testbuilder")
     policy_id = "species_block:image.blocks.species:goblin"
     encoded_id = quote(policy_id, safe="")
@@ -338,8 +342,33 @@ def test_policy_publish_returns_deterministic_manifest(test_client, db_with_user
     manifest = payload["manifest"]
     assert manifest["world_id"] == constants.DEFAULT_WORLD_ID
     assert manifest["item_count"] == 1
+    assert manifest["items_hash"]
     assert manifest["manifest_hash"]
     assert manifest["items"][0]["policy_id"] == policy_id
+    artifact = payload["artifact"]
+    assert artifact["artifact_hash"]
+    assert artifact["artifact_path"]
+
+    second_publish_response = test_client.post(
+        "/api/policy-publish",
+        params={"session_id": session_id},
+        json={"world_id": constants.DEFAULT_WORLD_ID},
+    )
+    assert second_publish_response.status_code == 200
+    second_payload = second_publish_response.json()
+    assert second_payload["manifest"]["manifest_hash"] == manifest["manifest_hash"]
+    assert second_payload["manifest"]["items_hash"] == manifest["items_hash"]
+    assert second_payload["artifact"]["artifact_hash"] == artifact["artifact_hash"]
+
+    get_publish_run = test_client.get(
+        f"/api/policy-publish/{payload['publish_run_id']}",
+        params={"session_id": session_id},
+    )
+    assert get_publish_run.status_code == 200
+    run_payload = get_publish_run.json()
+    assert run_payload["publish_run_id"] == payload["publish_run_id"]
+    assert run_payload["manifest"]["manifest_hash"] == manifest["manifest_hash"]
+    assert run_payload["artifact"]["artifact_hash"] == artifact["artifact_hash"]
 
 
 @pytest.mark.api
@@ -490,3 +519,11 @@ def test_policy_routes_map_service_errors_to_canonical_payloads(
     )
     assert publish_response.status_code == 409
     assert publish_response.json()["code"] == "POLICY_TEST_ERROR"
+
+    monkeypatch.setattr(policies_routes, "service_get_publish_run", _raise_service_error)
+    publish_run_response = test_client.get(
+        "/api/policy-publish/1",
+        params={"session_id": session_id},
+    )
+    assert publish_run_response.status_code == 409
+    assert publish_run_response.json()["code"] == "POLICY_TEST_ERROR"

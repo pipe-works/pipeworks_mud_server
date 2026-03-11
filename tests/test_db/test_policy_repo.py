@@ -316,6 +316,13 @@ def test_activation_and_publish_runs_write_audit_rows(test_db) -> None:
         created_at="2026-03-11T12:02:00Z",
     )
     assert run_id > 0
+    publish_run = policy_repo.get_publish_run(publish_run_id=run_id)
+    assert publish_run is not None
+    assert publish_run["publish_run_id"] == run_id
+    assert publish_run["world_id"] == "pipeworks_web"
+    assert publish_run["client_profile"] == "mobile"
+    assert publish_run["actor"] == "tester"
+    assert publish_run["manifest"]["manifest_hash"] == "mh1"
 
     events = policy_repo.list_activation_events(world_id="pipeworks_web", client_profile="mobile")
     assert len(events) == 1
@@ -432,6 +439,9 @@ def test_repo_operations_wrap_connection_failures(test_db, monkeypatch) -> None:
     with pytest.raises(DatabaseReadError):
         policy_repo.list_policy_activations(world_id="pipeworks_web", client_profile="")
 
+    with pytest.raises(DatabaseReadError):
+        policy_repo.get_publish_run(publish_run_id=1)
+
     with pytest.raises(DatabaseWriteError):
         policy_repo.insert_publish_run(
             world_id="pipeworks_web",
@@ -450,6 +460,7 @@ def test_getters_return_none_when_rows_do_not_exist(test_db) -> None:
         is None
     )
     assert policy_repo.get_activation_event(999999) is None
+    assert policy_repo.get_publish_run(publish_run_id=999999) is None
 
 
 @pytest.mark.db
