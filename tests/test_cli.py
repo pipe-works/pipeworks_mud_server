@@ -219,6 +219,100 @@ def test_cmd_create_superuser_interactive(monkeypatch):
 
 
 # ============================================================================
+# IMPORT-SPECIES-POLICIES COMMAND TESTS
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_cmd_import_species_policies_success(monkeypatch) -> None:
+    """Import command should return 0 for successful runs without errors."""
+    captured_kwargs: dict[str, object] = {}
+
+    def _fake_import(**kwargs):
+        captured_kwargs.update(kwargs)
+        return SimpleNamespace(
+            world_id="pipeworks_web",
+            activate=True,
+            scanned_files=2,
+            imported_count=2,
+            updated_count=0,
+            skipped_count=0,
+            error_count=0,
+            activated_count=2,
+            activation_skipped_count=0,
+            entries=[],
+        )
+
+    monkeypatch.setattr("mud_server.db.database.init_database", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "mud_server.services.policy_service.import_species_blocks_from_legacy_yaml",
+        _fake_import,
+    )
+
+    args = argparse.Namespace(
+        world_id="pipeworks_web",
+        actor="importer",
+        status="active",
+        activate=True,
+    )
+    result = cli.cmd_import_species_policies(args)
+
+    assert result == 0
+    assert captured_kwargs == {
+        "world_id": "pipeworks_web",
+        "actor": "importer",
+        "activate": True,
+        "status": "active",
+    }
+
+
+@pytest.mark.unit
+def test_cmd_import_species_policies_returns_nonzero_when_errors(monkeypatch) -> None:
+    """Import command should return 1 when summary contains per-file errors."""
+    monkeypatch.setattr("mud_server.db.database.init_database", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "mud_server.services.policy_service.import_species_blocks_from_legacy_yaml",
+        lambda **kwargs: SimpleNamespace(
+            world_id="pipeworks_web",
+            activate=False,
+            scanned_files=1,
+            imported_count=0,
+            updated_count=0,
+            skipped_count=0,
+            error_count=1,
+            activated_count=0,
+            activation_skipped_count=0,
+            entries=[
+                SimpleNamespace(
+                    source_path="/tmp/broken.yaml",
+                    policy_id=None,
+                    variant=None,
+                    action="error",
+                    detail="boom",
+                )
+            ],
+        ),
+    )
+
+    args = argparse.Namespace(
+        world_id="pipeworks_web",
+        actor="importer",
+        status="candidate",
+        activate=False,
+    )
+    result = cli.cmd_import_species_policies(args)
+    assert result == 1
+
+
+@pytest.mark.unit
+def test_main_import_species_policies_routes_command(monkeypatch) -> None:
+    """Main parser should route import-species-policies to the command handler."""
+    monkeypatch.setattr("mud_server.cli.cmd_import_species_policies", lambda args: 0)
+    with patch("sys.argv", ["mud-server", "import-species-policies"]):
+        assert cli.main() == 0
+
+
+# ============================================================================
 # MAIN ENTRY POINT TESTS
 # ============================================================================
 

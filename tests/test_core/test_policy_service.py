@@ -60,6 +60,29 @@ def _set_temp_worlds_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     monkeypatch.setattr(policy_service.config.worlds, "worlds_root", str(tmp_path))
 
 
+def _write_species_yaml(
+    *,
+    worlds_root: Path,
+    world_id: str,
+    filename: str,
+    text: str,
+    version: int,
+) -> None:
+    """Write one legacy species YAML fixture file under the canonical path."""
+    species_root = worlds_root / world_id / "policies" / "image" / "blocks" / "species"
+    species_root.mkdir(parents=True, exist_ok=True)
+    species_path = species_root / filename
+    species_path.write_text(
+        (
+            f"id: {filename.removesuffix('.yaml')}\n"
+            f"version: {version}\n"
+            "text: |\n"
+            f"  {text}\n"
+        ),
+        encoding="utf-8",
+    )
+
+
 @pytest.mark.unit
 def test_parse_scope_supports_world_only_and_world_plus_client() -> None:
     """Scope parser should normalize world-only and world+client forms."""
@@ -342,6 +365,142 @@ def test_validate_policy_variant_rejects_prompt_layer1_empty_text(test_db) -> No
     )
     assert result.is_valid is False
     assert result.errors == ["prompt content.text must be a non-empty string"]
+
+
+@pytest.mark.unit
+def test_import_species_blocks_from_legacy_yaml_backfills_and_activates(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Importer should create canonical variants and seed world-scope activations."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _write_species_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="goblin_v1.yaml",
+        text="Goblin source text",
+        version=1,
+    )
+    _write_species_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="human_v1.yaml",
+        text="Human source text",
+        version=1,
+    )
+
+    summary = policy_service.import_species_blocks_from_legacy_yaml(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=True,
+        status="active",
+    )
+
+    assert summary.scanned_files == 2
+    assert summary.imported_count == 2
+    assert summary.updated_count == 0
+    assert summary.skipped_count == 0
+    assert summary.error_count == 0
+    assert summary.activated_count == 2
+    assert summary.activation_skipped_count == 0
+
+    policies = policy_service.list_policies(
+        policy_type="species_block",
+        namespace="image.blocks.species",
+        status="active",
+    )
+    assert len(policies) == 2
+    by_policy_id = {policy["policy_id"]: policy for policy in policies}
+    assert by_policy_id["species_block:image.blocks.species:goblin"]["content"] == {
+        "text": "Goblin source text"
+    }
+    assert by_policy_id["species_block:image.blocks.species:human"]["content"] == {
+        "text": "Human source text"
+    }
+
+    effective_rows = policy_service.resolve_effective_policy_activations(
+        scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+    )
+    by_activation_policy_id = {row["policy_id"]: row for row in effective_rows}
+    assert by_activation_policy_id["species_block:image.blocks.species:goblin"]["variant"] == "v1"
+    assert by_activation_policy_id["species_block:image.blocks.species:human"]["variant"] == "v1"
+
+
+@pytest.mark.unit
+def test_import_species_blocks_from_legacy_yaml_is_idempotent_for_unchanged_content(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """A second import pass should skip unchanged variants and activations."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _write_species_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="goblin_v1.yaml",
+        text="Goblin source text",
+        version=1,
+    )
+
+    first = policy_service.import_species_blocks_from_legacy_yaml(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=True,
+        status="active",
+    )
+    second = policy_service.import_species_blocks_from_legacy_yaml(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=True,
+        status="active",
+    )
+
+    assert first.imported_count == 1
+    assert second.imported_count == 0
+    assert second.updated_count == 0
+    assert second.skipped_count == 1
+    assert second.error_count == 0
+    assert second.activated_count == 0
+    assert second.activation_skipped_count == 1
+
+
+@pytest.mark.unit
+def test_import_species_blocks_from_legacy_yaml_continues_after_invalid_file(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Importer should report invalid files and continue processing valid ones."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _write_species_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="goblin_v1.yaml",
+        text="Goblin source text",
+        version=1,
+    )
+    _write_species_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="broken_name.yaml",
+        text="Broken source text",
+        version=1,
+    )
+
+    summary = policy_service.import_species_blocks_from_legacy_yaml(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=False,
+        status="candidate",
+    )
+
+    assert summary.scanned_files == 2
+    assert summary.imported_count == 1
+    assert summary.error_count == 1
+    error_rows = [entry for entry in summary.entries if entry.action == "error"]
+    assert len(error_rows) == 1
+    assert "filename must match '<policy_key>_v<version>.yaml'" in error_rows[0].detail
 
 
 @pytest.mark.unit

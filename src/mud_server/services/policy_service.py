@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
 from pipeworks_ipc import compute_payload_hash
 
 from mud_server.config import PROJECT_ROOT, config
@@ -48,6 +49,11 @@ _SPECIES_PILOT_NAMESPACE = "image.blocks.species"
 _SUPPORTED_STATUSES = {"draft", "candidate", "active", "archived"}
 _POLICY_EXPORT_SCHEMA_VERSION = "1.0"
 _POLICY_EXPORT_DIRNAME = "policy_exports"
+_POLICY_SCHEMA_VERSION_V1 = "1.0"
+_SPECIES_SOURCE_RELATIVE_DIR = Path("policies") / "image" / "blocks" / "species"
+_SPECIES_FILENAME_PATTERN = re.compile(
+    r"^(?P<policy_key>[A-Za-z0-9_.-]+)_v(?P<version>[1-9][0-9]*)$"
+)
 
 
 class PolicyServiceError(RuntimeError):
@@ -102,6 +108,33 @@ class PolicyValidationResult:
     validation_run_id: int
 
 
+@dataclass(frozen=True, slots=True)
+class SpeciesImportEntry:
+    """One legacy species import outcome row."""
+
+    source_path: str
+    policy_id: str | None
+    variant: str | None
+    action: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class SpeciesImportSummary:
+    """Aggregate result for one species backfill/import run."""
+
+    world_id: str
+    activate: bool
+    scanned_files: int
+    imported_count: int
+    updated_count: int
+    skipped_count: int
+    error_count: int
+    activated_count: int
+    activation_skipped_count: int
+    entries: list[SpeciesImportEntry]
+
+
 def list_policies(
     *,
     policy_type: str | None,
@@ -113,6 +146,170 @@ def list_policies(
     This function is intentionally thin and delegates filtering to the repo.
     """
     return policy_repo.list_policies(policy_type=policy_type, namespace=namespace, status=status)
+
+
+def import_species_blocks_from_legacy_yaml(
+    *,
+    world_id: str,
+    actor: str,
+    activate: bool,
+    status: str = "active",
+) -> SpeciesImportSummary:
+    """Backfill legacy ``species/*.yaml`` files into canonical policy DB rows.
+
+    The importer is idempotent:
+    - unchanged variants are skipped
+    - existing variants with changed payload/status/version are updated
+    - new variants are imported
+    - optional world-scope activation only mutates pointers when needed
+    """
+    _ensure_world_exists(world_id)
+    normalized_status = status.strip()
+    if normalized_status not in _SUPPORTED_STATUSES:
+        raise PolicyServiceError(
+            status_code=422,
+            code="POLICY_IMPORT_STATUS_INVALID",
+            detail=(
+                "Import status must be one of: draft, candidate, active, archived; "
+                f"got {status!r}."
+            ),
+        )
+
+    normalized_actor = actor.strip() or "policy-importer"
+    species_root = _resolve_world_root_path(world_id) / _SPECIES_SOURCE_RELATIVE_DIR
+    if not species_root.exists() or not species_root.is_dir():
+        raise PolicyServiceError(
+            status_code=404,
+            code="POLICY_SPECIES_SOURCE_NOT_FOUND",
+            detail=f"Species source directory not found: {species_root}",
+        )
+
+    species_files = sorted(
+        [*species_root.glob("*.yaml"), *species_root.glob("*.yml")],
+        key=lambda path: path.name,
+    )
+
+    entries: list[SpeciesImportEntry] = []
+    imported_count = 0
+    updated_count = 0
+    skipped_count = 0
+    error_count = 0
+    activation_targets: dict[str, str] = {}
+
+    for species_path in species_files:
+        source_path = str(species_path)
+        try:
+            policy_key, variant, file_policy_version = _parse_species_filename(species_path)
+            payload = _read_species_yaml_payload(species_path)
+            policy_version = _resolve_species_policy_version(
+                payload=payload,
+                file_policy_version=file_policy_version,
+                species_path=species_path,
+            )
+            content = _extract_species_text_content(payload=payload, species_path=species_path)
+            policy_id = f"{_SPECIES_PILOT_POLICY_TYPE}:{_SPECIES_PILOT_NAMESPACE}:{policy_key}"
+            existing_row = policy_repo.get_policy(policy_id=policy_id, variant=variant)
+            if _is_species_variant_unchanged(
+                existing_row=existing_row,
+                policy_version=policy_version,
+                status=normalized_status,
+                content=content,
+            ):
+                skipped_count += 1
+                entries.append(
+                    SpeciesImportEntry(
+                        source_path=source_path,
+                        policy_id=policy_id,
+                        variant=variant,
+                        action="skipped",
+                        detail="unchanged",
+                    )
+                )
+                activation_targets[policy_id] = variant
+                continue
+
+            upsert_policy_variant(
+                policy_id=policy_id,
+                variant=variant,
+                schema_version=_POLICY_SCHEMA_VERSION_V1,
+                policy_version=policy_version,
+                status=normalized_status,
+                content=content,
+                updated_by=normalized_actor,
+            )
+            action = "imported" if existing_row is None else "updated"
+            if action == "imported":
+                imported_count += 1
+            else:
+                updated_count += 1
+            entries.append(
+                SpeciesImportEntry(
+                    source_path=source_path,
+                    policy_id=policy_id,
+                    variant=variant,
+                    action=action,
+                    detail=f"{action} {policy_id}:{variant}",
+                )
+            )
+            activation_targets[policy_id] = variant
+        except (PolicyServiceError, ValueError, OSError, yaml.YAMLError) as exc:
+            error_count += 1
+            entries.append(
+                SpeciesImportEntry(
+                    source_path=source_path,
+                    policy_id=None,
+                    variant=None,
+                    action="error",
+                    detail=str(exc),
+                )
+            )
+
+    activated_count = 0
+    activation_skipped_count = 0
+    if activate and activation_targets:
+        current_activations = {
+            str(row["policy_id"]): str(row["variant"])
+            for row in policy_repo.list_policy_activations(world_id=world_id, client_profile="")
+        }
+        world_scope = ActivationScope(world_id=world_id, client_profile="")
+        for policy_id in sorted(activation_targets):
+            target_variant = activation_targets[policy_id]
+            if current_activations.get(policy_id) == target_variant:
+                activation_skipped_count += 1
+                continue
+            try:
+                set_policy_activation(
+                    scope=world_scope,
+                    policy_id=policy_id,
+                    variant=target_variant,
+                    activated_by=normalized_actor,
+                )
+                current_activations[policy_id] = target_variant
+                activated_count += 1
+            except PolicyServiceError as exc:
+                error_count += 1
+                entries.append(
+                    SpeciesImportEntry(
+                        source_path="<activation>",
+                        policy_id=policy_id,
+                        variant=target_variant,
+                        action="error",
+                        detail=f"activation failed: {exc.detail}",
+                    )
+                )
+
+    return SpeciesImportSummary(
+        world_id=world_id,
+        activate=activate,
+        scanned_files=len(species_files),
+        imported_count=imported_count,
+        updated_count=updated_count,
+        skipped_count=skipped_count,
+        error_count=error_count,
+        activated_count=activated_count,
+        activation_skipped_count=activation_skipped_count,
+        entries=entries,
+    )
 
 
 def get_policy(*, policy_id: str, variant: str | None) -> dict[str, Any]:
@@ -482,6 +679,99 @@ def parse_scope(scope_text: str) -> ActivationScope:
             detail="Scope world_id must not be empty.",
         )
     return ActivationScope(world_id=world_id, client_profile=client_profile)
+
+
+def _parse_species_filename(species_path: Path) -> tuple[str, str, int]:
+    """Extract ``policy_key``, ``variant``, and version from species filename."""
+    match = _SPECIES_FILENAME_PATTERN.fullmatch(species_path.stem)
+    if match is None:
+        raise ValueError(
+            "Species filename must match '<policy_key>_v<version>.yaml'; "
+            f"got {species_path.name!r}."
+        )
+
+    policy_key = match.group("policy_key")
+    file_version = int(match.group("version"))
+    return policy_key, f"v{file_version}", file_version
+
+
+def _read_species_yaml_payload(species_path: Path) -> dict[str, Any]:
+    """Read one legacy species YAML file into a dictionary payload."""
+    try:
+        loaded = yaml.safe_load(species_path.read_text(encoding="utf-8")) or {}
+    except OSError as exc:
+        raise OSError(f"Unable to read species source file {species_path}: {exc}") from exc
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML in species source file {species_path}: {exc}") from exc
+
+    if not isinstance(loaded, dict):
+        raise ValueError(f"Species source file {species_path} must contain a YAML object.")
+    return loaded
+
+
+def _resolve_species_policy_version(
+    *,
+    payload: dict[str, Any],
+    file_policy_version: int,
+    species_path: Path,
+) -> int:
+    """Resolve policy version from payload and ensure it matches filename version."""
+    payload_version = payload.get("version")
+    if payload_version is None:
+        return file_policy_version
+
+    if isinstance(payload_version, bool):
+        raise ValueError(f"Species file {species_path} has invalid boolean version value.")
+
+    if isinstance(payload_version, int):
+        parsed_version = payload_version
+    elif isinstance(payload_version, str) and payload_version.strip().isdigit():
+        parsed_version = int(payload_version.strip())
+    else:
+        raise ValueError(
+            f"Species file {species_path} version must be a positive integer; got {payload_version!r}."
+        )
+
+    if parsed_version < 1:
+        raise ValueError(f"Species file {species_path} version must be >= 1.")
+    if parsed_version != file_policy_version:
+        raise ValueError(
+            f"Species file {species_path} version={parsed_version} must match filename v{file_policy_version}."
+        )
+    return parsed_version
+
+
+def _extract_species_text_content(
+    *,
+    payload: dict[str, Any],
+    species_path: Path,
+) -> dict[str, Any]:
+    """Extract canonical species policy content payload from legacy YAML fields."""
+    text_value = payload.get("text")
+    if not isinstance(text_value, str) or not text_value.strip():
+        raise ValueError(f"Species file {species_path} must define non-empty text content.")
+    # Normalize trailing YAML block newline so repeated imports are stable.
+    return {"text": text_value.rstrip()}
+
+
+def _is_species_variant_unchanged(
+    *,
+    existing_row: dict[str, Any] | None,
+    policy_version: int,
+    status: str,
+    content: dict[str, Any],
+) -> bool:
+    """Return ``True`` when existing species variant already matches import payload."""
+    if existing_row is None:
+        return False
+
+    return (
+        str(existing_row["schema_version"]) == _POLICY_SCHEMA_VERSION_V1
+        and int(existing_row["policy_version"]) == policy_version
+        and str(existing_row["status"]) == status
+        and isinstance(existing_row.get("content"), dict)
+        and existing_row["content"] == content
+    )
 
 
 def _parse_policy_id(policy_id: str) -> PolicyIdentity:

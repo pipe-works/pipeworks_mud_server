@@ -127,6 +127,18 @@ mud-server create-superuser
 MUD_ADMIN_USER=myadmin MUD_ADMIN_PASSWORD=securepass123 mud-server init-db
 ```
 
+### Import Legacy Species Policies
+
+Backfill legacy `species/*.yaml` files into canonical policy tables and seed
+world-level activation pointers:
+
+```bash
+mud-server import-species-policies --world-id pipeworks_web
+```
+
+Use `--no-activate` to import/update variants without changing activation
+state.
+
 ---
 
 ## Features
