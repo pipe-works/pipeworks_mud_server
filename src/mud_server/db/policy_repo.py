@@ -688,6 +688,52 @@ def insert_publish_run(
         )
 
 
+def get_publish_run(*, publish_run_id: int) -> dict[str, Any] | None:
+    """Return one publish-run row with parsed manifest payload.
+
+    Args:
+        publish_run_id: Integer primary key from ``policy_publish_run``.
+
+    Returns:
+        Normalized dictionary when found, otherwise ``None``.
+    """
+    try:
+        with connection_scope() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    world_id,
+                    client_profile,
+                    actor,
+                    manifest_json,
+                    created_at
+                FROM policy_publish_run
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (publish_run_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return {
+                "publish_run_id": int(row[0]),
+                "world_id": row[1],
+                "client_profile": row[2],
+                "actor": row[3],
+                "manifest": json.loads(row[4]),
+                "created_at": row[5],
+            }
+    except Exception as exc:
+        _raise_read_error(
+            "policy.get_publish_run",
+            exc,
+            details=f"publish_run_id={publish_run_id}",
+        )
+
+
 def _deserialize_policy_variant_row(row: tuple[Any, ...]) -> dict[str, Any]:
     """Normalize one joined ``policy_item`` + ``policy_variant`` row.
 

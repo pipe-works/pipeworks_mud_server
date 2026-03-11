@@ -169,8 +169,16 @@ class PolicyPublishManifestResponse(BaseModel):
     client_profile: str | None
     generated_at: str
     item_count: int
+    items_hash: str
     manifest_hash: str
     items: list[PolicyPublishManifestItemResponse]
+
+
+class PolicyPublishArtifactResponse(BaseModel):
+    """Deterministic export artifact metadata for downstream mirrors."""
+
+    artifact_hash: str
+    artifact_path: str
 
 
 class PolicyPublishResponse(BaseModel):
@@ -178,3 +186,16 @@ class PolicyPublishResponse(BaseModel):
 
     publish_run_id: int
     manifest: PolicyPublishManifestResponse
+    artifact: PolicyPublishArtifactResponse
+
+
+class PolicyPublishRunResponse(BaseModel):
+    """API response for one persisted publish run."""
+
+    publish_run_id: int
+    world_id: str
+    client_profile: str | None
+    actor: str
+    created_at: str
+    manifest: PolicyPublishManifestResponse
+    artifact: PolicyPublishArtifactResponse

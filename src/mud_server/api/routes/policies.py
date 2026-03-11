@@ -22,6 +22,7 @@ from mud_server.api.models_policy import (
     PolicyObjectResponse,
     PolicyPublishRequest,
     PolicyPublishResponse,
+    PolicyPublishRunResponse,
     PolicyUpsertRequest,
     PolicyValidateRequest,
     PolicyValidateResponse,
@@ -33,6 +34,9 @@ from mud_server.services.policy_service import (
 )
 from mud_server.services.policy_service import (
     get_policy as service_get_policy,
+)
+from mud_server.services.policy_service import (
+    get_publish_run as service_get_publish_run,
 )
 from mud_server.services.policy_service import (
     list_policies as service_list_policies,
@@ -244,6 +248,16 @@ def router(_engine: GameEngine) -> APIRouter:
             scope = parse_scope(scope_text)
             result = service_publish_scope(scope=scope, actor=actor)
             return PolicyPublishResponse.model_validate(result)
+        except PolicyServiceError as error:
+            return _error_response(error)
+
+    @api.get("/api/policy-publish/{publish_run_id}", response_model=PolicyPublishRunResponse)
+    async def get_publish_run(publish_run_id: int, session_id: str):
+        """Fetch one publish run with deterministic export artifact metadata."""
+        validate_session(session_id)
+        try:
+            result = service_get_publish_run(publish_run_id=publish_run_id)
+            return PolicyPublishRunResponse.model_validate(result)
         except PolicyServiceError as error:
             return _error_response(error)
 

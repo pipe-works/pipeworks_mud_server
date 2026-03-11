@@ -9,6 +9,9 @@ round-tripping through HTTP:
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from mud_server.db import constants, database
@@ -50,6 +53,11 @@ def _seed_descriptor_layer_variant(
         updated_by="tester",
     )
     return policy_id
+
+
+def _set_temp_worlds_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Redirect policy export writes to a temporary world root."""
+    monkeypatch.setattr(policy_service.config.worlds, "worlds_root", str(tmp_path))
 
 
 @pytest.mark.unit
@@ -165,6 +173,14 @@ def test_get_policy_raises_not_found_for_missing_variant(test_db) -> None:
             variant="v1",
         )
     assert error.value.code == "POLICY_NOT_FOUND"
+
+
+@pytest.mark.unit
+def test_get_publish_run_raises_not_found_for_missing_row(test_db) -> None:
+    """Publish-run lookup should return stable not-found service error."""
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.get_publish_run(publish_run_id=999999)
+    assert error.value.code == "POLICY_PUBLISH_RUN_NOT_FOUND"
 
 
 @pytest.mark.unit
@@ -421,6 +437,167 @@ def test_publish_scope_rejects_activation_pointer_to_missing_variant(test_db, mo
             actor="tester",
         )
     assert error.value.code == "POLICY_PUBLISH_REFERENCE_MISSING"
+
+
+@pytest.mark.unit
+def test_publish_scope_is_deterministic_and_writes_artifact(test_db, monkeypatch, tmp_path) -> None:
+    """Repeated publishes for equal activation state should keep stable hashes."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    policy_id = _seed_species_variant(policy_key="satyr", variant="v1", policy_version=1)
+    policy_service.set_policy_activation(
+        scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+        policy_id=policy_id,
+        variant="v1",
+        activated_by="tester",
+    )
+
+    first = policy_service.publish_scope(
+        scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+        actor="tester",
+    )
+    second = policy_service.publish_scope(
+        scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+        actor="tester",
+    )
+    assert first["manifest"]["items_hash"] == second["manifest"]["items_hash"]
+    assert first["manifest"]["manifest_hash"] == second["manifest"]["manifest_hash"]
+    assert first["artifact"]["artifact_hash"] == second["artifact"]["artifact_hash"]
+    assert first["artifact"]["artifact_path"] == second["artifact"]["artifact_path"]
+    assert Path(first["artifact"]["artifact_path"]).exists()
+
+
+@pytest.mark.unit
+def test_get_publish_run_materializes_artifact_for_legacy_manifest(
+    test_db, monkeypatch, tmp_path
+) -> None:
+    """Read path should normalize legacy manifests and write export artifact."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    run_id = policy_service.policy_repo.insert_publish_run(
+        world_id=constants.DEFAULT_WORLD_ID,
+        client_profile="",
+        actor="tester",
+        manifest={
+            "world_id": constants.DEFAULT_WORLD_ID,
+            "client_profile": None,
+            "generated_at": "2026-03-11T12:00:00Z",
+            "item_count": 1,
+            "items": [
+                {
+                    "policy_id": "species_block:image.blocks.species:goblin",
+                    "policy_type": "species_block",
+                    "namespace": "image.blocks.species",
+                    "policy_key": "goblin",
+                    "variant": "v1",
+                    "schema_version": "1.0",
+                    "policy_version": 1,
+                    "status": "candidate",
+                    "content_hash": "hash-goblin-v1",
+                    "updated_at": "2026-03-11T12:00:00Z",
+                }
+            ],
+        },
+        created_at="2026-03-11T12:00:00Z",
+    )
+    result = policy_service.get_publish_run(publish_run_id=run_id)
+    assert result["publish_run_id"] == run_id
+    assert result["manifest"]["items_hash"]
+    assert result["manifest"]["manifest_hash"]
+    artifact_path = Path(result["artifact"]["artifact_path"])
+    assert artifact_path.exists()
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert payload["mirror_mode"] == "non_authoritative"
+    assert payload["manifest_hash"] == result["manifest"]["manifest_hash"]
+
+
+@pytest.mark.unit
+def test_get_publish_run_normalizes_non_list_manifest_items(test_db, monkeypatch, tmp_path) -> None:
+    """Legacy manifests with invalid items shape should normalize safely."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    run_id = policy_service.policy_repo.insert_publish_run(
+        world_id=constants.DEFAULT_WORLD_ID,
+        client_profile="",
+        actor="tester",
+        manifest={
+            "world_id": constants.DEFAULT_WORLD_ID,
+            "client_profile": None,
+            "generated_at": "2026-03-11T12:00:00Z",
+            "item_count": 99,
+            "items": {"unexpected": True},
+        },
+        created_at="2026-03-11T12:00:00Z",
+    )
+    result = policy_service.get_publish_run(publish_run_id=run_id)
+    assert result["manifest"]["item_count"] == 99
+    assert result["manifest"]["items"] == []
+    assert result["manifest"]["items_hash"]
+    assert result["manifest"]["manifest_hash"]
+
+
+@pytest.mark.unit
+def test_publish_scope_is_not_affected_by_mirror_artifact_drift(
+    test_db, monkeypatch, tmp_path
+) -> None:
+    """Tampering with export artifact must not affect runtime publish result."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    policy_id = _seed_species_variant(policy_key="nymph", variant="v1", policy_version=1)
+    policy_service.set_policy_activation(
+        scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+        policy_id=policy_id,
+        variant="v1",
+        activated_by="tester",
+    )
+    first = policy_service.publish_scope(
+        scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+        actor="tester",
+    )
+    artifact_path = Path(first["artifact"]["artifact_path"])
+    artifact_path.write_text(
+        json.dumps({"tampered": True}, ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    second = policy_service.publish_scope(
+        scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+        actor="tester",
+    )
+    assert second["manifest"]["manifest_hash"] == first["manifest"]["manifest_hash"]
+    restored_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert restored_payload["mirror_mode"] == "non_authoritative"
+    assert restored_payload["manifest_hash"] == second["manifest"]["manifest_hash"]
+
+
+@pytest.mark.unit
+def test_publish_scope_surfaces_artifact_write_failures(test_db, monkeypatch, tmp_path) -> None:
+    """Artifact write failures should raise a stable service error."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    policy_id = _seed_species_variant(policy_key="dryad", variant="v1", policy_version=1)
+    policy_service.set_policy_activation(
+        scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+        policy_id=policy_id,
+        variant="v1",
+        activated_by="tester",
+    )
+    monkeypatch.setattr(
+        Path,
+        "write_text",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")),
+    )
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.publish_scope(
+            scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+            actor="tester",
+        )
+    assert error.value.code == "POLICY_PUBLISH_ARTIFACT_WRITE_ERROR"
+
+
+@pytest.mark.unit
+def test_scope_segment_and_relative_world_root_helpers(monkeypatch) -> None:
+    """Private helper branches should normalize scope and relative world roots."""
+    relative_root = "tmp/worlds_relative_for_policy_tests"
+    monkeypatch.setattr(policy_service.config.worlds, "worlds_root", relative_root)
+    resolved = policy_service._resolve_world_root_path("alpha")  # noqa: SLF001
+    assert resolved == policy_service.PROJECT_ROOT / relative_root / "alpha"  # noqa: SLF001
+    assert policy_service._scope_segment("!!!") == "client_client"  # noqa: SLF001
 
 
 @pytest.mark.unit
