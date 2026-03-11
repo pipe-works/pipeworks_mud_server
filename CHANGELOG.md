@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.19](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.18...mud_server-v0.4.19) (2026-03-11)
+
+
+### Features
+
+* **policy:** add canonical policy api foundations ([#205](https://github.com/pipe-works/pipeworks_mud_server/issues/205)) ([73aae99](https://github.com/pipe-works/pipeworks_mud_server/commit/73aae996168a9b811149ab25c8bf5de22fe8c16c))
+* **policy:** add tone profile and prompt layer1 validation ([58c9c87](https://github.com/pipe-works/pipeworks_mud_server/commit/58c9c87c49687af79866832118b1caa45bcade6c))
+* **policy:** harden activation scope resolution ([#207](https://github.com/pipe-works/pipeworks_mud_server/issues/207)) ([c4fb2da](https://github.com/pipe-works/pipeworks_mud_server/commit/c4fb2da1bc581d0e904c59b1224d6f1a3d08d7b7))
+* **policy:** migrate prompt and tone_profile Layer 1 validation ([547fa39](https://github.com/pipe-works/pipeworks_mud_server/commit/547fa390fabd4dbdf3b681086eadef41c6b941d6))
+* **policy:** simplify publish and mirror workflow ([613d861](https://github.com/pipe-works/pipeworks_mud_server/commit/613d861c9ad57272dc018437f71882b0f4403857))
+* **policy:** simplify publish and mirror workflow ([0e6a877](https://github.com/pipe-works/pipeworks_mud_server/commit/0e6a877439d9672a6089703047d02077b53bcb78))
+
 ## [0.4.18](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.17...mud_server-v0.4.18) (2026-03-10)
 
 
