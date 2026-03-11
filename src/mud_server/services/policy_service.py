@@ -29,6 +29,16 @@ _SUPPORTED_POLICY_TYPES = {
     "descriptor_layer",
     "tone_profile",
 }
+_LAYER1_POLICY_TYPES = {
+    "image_block",
+    "species_block",
+    "prompt",
+    "tone_profile",
+}
+_LAYER2_POLICY_TYPES = {
+    "descriptor_layer",
+    "registry",
+}
 _SPECIES_PILOT_POLICY_TYPE = "species_block"
 _SPECIES_PILOT_NAMESPACE = "image.blocks.species"
 _SUPPORTED_STATUSES = {"draft", "candidate", "active", "archived"}
@@ -270,7 +280,7 @@ def set_policy_activation(
 
     try:
         # Repository call performs atomic pointer update + audit event insert.
-        return policy_repo.set_policy_activation(
+        activation_row = policy_repo.set_policy_activation(
             world_id=scope.world_id,
             client_profile=scope.client_profile,
             policy_id=policy_id,
@@ -285,6 +295,8 @@ def set_policy_activation(
             code="POLICY_ACTIVATION_ERROR",
             detail=str(exc),
         ) from exc
+    _assert_activation_replay_consistency(scope=scope)
+    return activation_row
 
 
 def list_policy_activations(*, scope: ActivationScope) -> list[dict[str, Any]]:
@@ -296,6 +308,34 @@ def list_policy_activations(*, scope: ActivationScope) -> list[dict[str, Any]]:
     )
 
 
+def resolve_effective_policy_activations(*, scope: ActivationScope) -> list[dict[str, Any]]:
+    """Resolve effective active pointers for one runtime scope.
+
+    Resolution rules:
+    1. World-level (`client_profile == ""`) returns world-level pointers only.
+    2. World+client scope overlays client pointers on top of world pointers by
+       ``policy_id`` so client entries override world defaults.
+    """
+    _ensure_world_exists(scope.world_id)
+    world_rows = policy_repo.list_policy_activations(
+        world_id=scope.world_id,
+        client_profile="",
+    )
+    if not scope.client_profile:
+        return world_rows
+
+    client_rows = policy_repo.list_policy_activations(
+        world_id=scope.world_id,
+        client_profile=scope.client_profile,
+    )
+    merged_by_policy_id: dict[str, dict[str, Any]] = {
+        str(row["policy_id"]): row for row in world_rows
+    }
+    for row in client_rows:
+        merged_by_policy_id[str(row["policy_id"])] = row
+    return [merged_by_policy_id[policy_id] for policy_id in sorted(merged_by_policy_id)]
+
+
 def publish_scope(*, scope: ActivationScope, actor: str) -> dict[str, Any]:
     """Build and persist one deterministic publish manifest for a scope.
 
@@ -304,7 +344,7 @@ def publish_scope(*, scope: ActivationScope, actor: str) -> dict[str, Any]:
     equivalent activation sets.
     """
     _ensure_world_exists(scope.world_id)
-    activations = list_policy_activations(scope=scope)
+    activations = resolve_effective_policy_activations(scope=scope)
     manifest_items: list[dict[str, Any]] = []
     for activation in activations:
         policy = policy_repo.get_policy(
@@ -450,18 +490,29 @@ def _validate_policy_type_content(
 ) -> list[str]:
     """Validate policy-type-specific content payload rules.
 
-    Phase 1/2 intentionally limits write support to ``species_block`` in the
-    ``image.blocks.species`` namespace.
+    Phase 3 keeps ``species_block`` as the first migration pilot while adding
+    Layer 2 composition contract checks for ``descriptor_layer`` and
+    ``registry``.
     """
     errors: list[str] = []
-    if identity.policy_type != _SPECIES_PILOT_POLICY_TYPE:
-        errors.append("Phase 1 only supports writes/validation for policy_type='species_block'.")
+    if identity.policy_type == _SPECIES_PILOT_POLICY_TYPE:
+        if identity.namespace != _SPECIES_PILOT_NAMESPACE:
+            errors.append(
+                "species_block namespace must be exactly 'image.blocks.species' in Phase 1."
+            )
+        text_value = content.get("text")
+        if not isinstance(text_value, str) or not text_value.strip():
+            errors.append("species_block content.text must be a non-empty string")
         return errors
-    if identity.namespace != _SPECIES_PILOT_NAMESPACE:
-        errors.append("species_block namespace must be exactly 'image.blocks.species' in Phase 1.")
-    text_value = content.get("text")
-    if not isinstance(text_value, str) or not text_value.strip():
-        errors.append("species_block content.text must be a non-empty string")
+
+    if identity.policy_type in _LAYER2_POLICY_TYPES:
+        errors.extend(_validate_layer2_references(content=content))
+        return errors
+
+    errors.append(
+        "Validation/writes currently support policy_type values: "
+        "'species_block', 'descriptor_layer', 'registry'."
+    )
     return errors
 
 
@@ -495,3 +546,94 @@ def _ensure_world_exists(world_id: str) -> None:
 def _now_iso() -> str:
     """Return UTC timestamp string in canonical ISO-8601 format."""
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _validate_layer2_references(*, content: dict[str, Any]) -> list[str]:
+    """Validate Layer 2 composition references against Layer 1 identities.
+
+    Expected payload shape:
+    ``{"references": [{"policy_id": "...", "variant": "..."}]}``
+    """
+    errors: list[str] = []
+    references = content.get("references")
+    if not isinstance(references, list) or len(references) == 0:
+        return ["Layer 2 content.references must be a non-empty list."]
+
+    for index, reference in enumerate(references):
+        prefix = f"content.references[{index}]"
+        if not isinstance(reference, dict):
+            errors.append(f"{prefix} must be an object with policy_id and variant.")
+            continue
+        referenced_policy_id = reference.get("policy_id")
+        referenced_variant = reference.get("variant")
+        if not isinstance(referenced_policy_id, str) or not referenced_policy_id.strip():
+            errors.append(f"{prefix}.policy_id must be a non-empty string.")
+            continue
+        if not isinstance(referenced_variant, str) or not referenced_variant.strip():
+            errors.append(f"{prefix}.variant must be a non-empty string.")
+            continue
+
+        try:
+            referenced_identity = _parse_policy_id(referenced_policy_id.strip())
+        except PolicyServiceError as error:
+            errors.append(f"{prefix}.policy_id is invalid: {error.detail}")
+            continue
+        if referenced_identity.policy_type not in _LAYER1_POLICY_TYPES:
+            errors.append(
+                f"{prefix}.policy_id must reference a Layer 1 policy type "
+                f"{sorted(_LAYER1_POLICY_TYPES)}; got {referenced_identity.policy_type!r}."
+            )
+            continue
+
+        referenced_row = policy_repo.get_policy(
+            policy_id=referenced_identity.policy_id,
+            variant=referenced_variant.strip(),
+        )
+        if referenced_row is None:
+            errors.append(
+                f"{prefix} references missing Layer 1 variant: "
+                f"{referenced_identity.policy_id}:{referenced_variant.strip()}"
+            )
+    return errors
+
+
+def _assert_activation_replay_consistency(*, scope: ActivationScope) -> None:
+    """Verify activation pointers are replayable from activation audit events.
+
+    This invariant guarantees deterministic state reconstruction for one scope.
+    """
+    try:
+        active_rows = policy_repo.list_policy_activations(
+            world_id=scope.world_id,
+            client_profile=scope.client_profile,
+        )
+        activation_events = policy_repo.list_activation_events(
+            world_id=scope.world_id,
+            client_profile=scope.client_profile,
+        )
+    except Exception as exc:
+        raise PolicyServiceError(
+            status_code=500,
+            code="POLICY_AUDIT_REPLAY_READ_ERROR",
+            detail=str(exc),
+        ) from exc
+
+    pointer_state = _activation_map_from_rows(active_rows)
+    replay_state: dict[str, str] = {}
+    for event in activation_events:
+        replay_state[str(event["policy_id"])] = str(event["variant"])
+
+    if replay_state != pointer_state:
+        raise PolicyServiceError(
+            status_code=500,
+            code="POLICY_ACTIVATION_REPLAY_MISMATCH",
+            detail=(
+                "Activation pointer state does not match replayed activation events "
+                f"for scope {scope.world_id}:{scope.client_profile}."
+            ),
+        )
+
+
+def _activation_map_from_rows(rows: list[dict[str, Any]]) -> dict[str, str]:
+    """Return ``policy_id -> variant`` map from activation row dictionaries."""
+    return {str(row["policy_id"]): str(row["variant"]) for row in rows}
