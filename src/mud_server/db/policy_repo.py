@@ -376,6 +376,87 @@ def get_activation_event(event_id: int) -> dict[str, Any] | None:
         _raise_read_error("policy.get_activation_event", exc, details=f"event_id={event_id}")
 
 
+def list_activation_events(
+    *,
+    world_id: str,
+    client_profile: str,
+    policy_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """List activation audit events for one scope ordered by write sequence.
+
+    Replay logic in the service layer depends on deterministic ordering by
+    monotonically increasing event id. Optional ``policy_id`` filtering allows
+    focused checks without scanning unrelated policy streams.
+    """
+    try:
+        with connection_scope() as conn:
+            cursor = conn.cursor()
+            if policy_id is None:
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        world_id,
+                        client_profile,
+                        policy_id,
+                        variant,
+                        actor,
+                        event_payload_json,
+                        created_at
+                    FROM policy_audit_event
+                    WHERE event_type = 'activation'
+                        AND world_id = ?
+                        AND client_profile = ?
+                    ORDER BY id ASC
+                    """,
+                    (world_id, client_profile),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        world_id,
+                        client_profile,
+                        policy_id,
+                        variant,
+                        actor,
+                        event_payload_json,
+                        created_at
+                    FROM policy_audit_event
+                    WHERE event_type = 'activation'
+                        AND world_id = ?
+                        AND client_profile = ?
+                        AND policy_id = ?
+                    ORDER BY id ASC
+                    """,
+                    (world_id, client_profile, policy_id),
+                )
+            rows = cursor.fetchall()
+            return [
+                {
+                    "id": int(row[0]),
+                    "world_id": row[1],
+                    "client_profile": row[2],
+                    "policy_id": row[3],
+                    "variant": row[4],
+                    "actor": row[5],
+                    "event_payload": json.loads(row[6]),
+                    "created_at": row[7],
+                }
+                for row in rows
+            ]
+    except Exception as exc:
+        _raise_read_error(
+            "policy.list_activation_events",
+            exc,
+            details=(
+                f"world_id={world_id!r}, client_profile={client_profile!r}, "
+                f"policy_id={policy_id!r}"
+            ),
+        )
+
+
 def set_policy_activation(
     *,
     world_id: str,

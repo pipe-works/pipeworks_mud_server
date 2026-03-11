@@ -44,6 +44,9 @@ from mud_server.services.policy_service import (
     publish_scope as service_publish_scope,
 )
 from mud_server.services.policy_service import (
+    resolve_effective_policy_activations as service_resolve_effective_policy_activations,
+)
+from mud_server.services.policy_service import (
     set_policy_activation as service_set_policy_activation,
 )
 from mud_server.services.policy_service import (
@@ -200,12 +203,25 @@ def router(_engine: GameEngine) -> APIRouter:
             return _error_response(error)
 
     @api.get("/api/policy-activations", response_model=PolicyActivationListResponse)
-    async def list_policy_activations(scope: str = Query(min_length=1), session_id: str = Query()):
-        """List active policy pointers for one activation scope."""
+    async def list_policy_activations(
+        scope: str = Query(min_length=1),
+        session_id: str = Query(),
+        effective: bool = Query(default=True),
+    ):
+        """List active pointers for one scope, optionally with world-default overlay.
+
+        ``effective=true`` applies Layer 3 scope resolution:
+        - world scope returns world pointers
+        - world+client scope overlays client pointers on world defaults
+        """
         validate_session(session_id)
         try:
             parsed_scope = parse_scope(scope)
-            rows = service_list_policy_activations(scope=parsed_scope)
+            rows = (
+                service_resolve_effective_policy_activations(scope=parsed_scope)
+                if effective
+                else service_list_policy_activations(scope=parsed_scope)
+            )
             return PolicyActivationListResponse(
                 world_id=parsed_scope.world_id,
                 client_profile=parsed_scope.client_profile or None,

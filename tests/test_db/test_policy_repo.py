@@ -172,6 +172,52 @@ def test_policy_activation_scope_overwrites_pointer_for_same_scope(test_db) -> N
 
 
 @pytest.mark.db
+def test_policy_activation_scope_is_isolated_between_world_and_client(test_db) -> None:
+    """World scope pointers should not be overwritten by client-scope updates."""
+    policy_id = _seed_species_policy_item("saurian")
+    for policy_version, variant in ((1, "v1"), (2, "v2")):
+        policy_repo.upsert_policy_variant(
+            policy_id=policy_id,
+            variant=variant,
+            schema_version="1.0",
+            policy_version=policy_version,
+            status="candidate",
+            content={"text": f"saurian-{variant}"},
+            content_hash=f"h-{variant}",
+            updated_at=f"2026-03-11T12:0{policy_version}:00Z",
+            updated_by="tester",
+        )
+
+    policy_repo.set_policy_activation(
+        world_id="pipeworks_web",
+        client_profile="",
+        policy_id=policy_id,
+        variant="v1",
+        activated_by="tester",
+        activated_at="2026-03-11T12:10:00Z",
+        rollback_of_activation_id=None,
+    )
+    policy_repo.set_policy_activation(
+        world_id="pipeworks_web",
+        client_profile="mobile",
+        policy_id=policy_id,
+        variant="v2",
+        activated_by="tester",
+        activated_at="2026-03-11T12:11:00Z",
+        rollback_of_activation_id=None,
+    )
+
+    world_rows = policy_repo.list_policy_activations(world_id="pipeworks_web", client_profile="")
+    client_rows = policy_repo.list_policy_activations(
+        world_id="pipeworks_web", client_profile="mobile"
+    )
+    assert len(world_rows) == 1
+    assert len(client_rows) == 1
+    assert world_rows[0]["variant"] == "v1"
+    assert client_rows[0]["variant"] == "v2"
+
+
+@pytest.mark.db
 def test_get_policy_without_variant_returns_latest_policy_version(test_db) -> None:
     """Read without variant should return highest policy_version row."""
     policy_id = _seed_species_policy_item("kobold")
@@ -271,24 +317,51 @@ def test_activation_and_publish_runs_write_audit_rows(test_db) -> None:
     )
     assert run_id > 0
 
+    events = policy_repo.list_activation_events(world_id="pipeworks_web", client_profile="mobile")
+    assert len(events) == 1
+    assert events[0]["id"] == audit_event_id
+    assert events[0]["policy_id"] == policy_id
+    assert events[0]["variant"] == "v1"
+
+    filtered_events = policy_repo.list_activation_events(
+        world_id="pipeworks_web",
+        client_profile="mobile",
+        policy_id=policy_id,
+    )
+    assert len(filtered_events) == 1
+    assert filtered_events[0]["policy_id"] == policy_id
+
 
 @pytest.mark.db
-def test_raise_error_helpers_passthrough_and_wrap_behaviors() -> None:
-    """Private raise helpers should pass through DB errors and wrap others."""
+def test_raise_read_error_helper_passthrough_behavior() -> None:
+    """Read helper should pass through existing DatabaseError subclasses."""
     passthrough_read = DatabaseReadError(
         context=DatabaseOperationContext(operation="read.op", details="x")
     )
     with pytest.raises(DatabaseReadError):
         policy_repo._raise_read_error("read.op", passthrough_read)  # noqa: SLF001
 
+
+@pytest.mark.db
+def test_raise_read_error_helper_wrap_behavior() -> None:
+    """Read helper should wrap raw exceptions in DatabaseReadError."""
+    with pytest.raises(DatabaseReadError):
+        policy_repo._raise_read_error("read.wrap", RuntimeError("x"))  # noqa: SLF001
+
+
+@pytest.mark.db
+def test_raise_write_error_helper_passthrough_behavior() -> None:
+    """Write helper should pass through existing DatabaseError subclasses."""
     passthrough_write = DatabaseWriteError(
         context=DatabaseOperationContext(operation="write.op", details="y")
     )
     with pytest.raises(DatabaseWriteError):
         policy_repo._raise_write_error("write.op", passthrough_write)  # noqa: SLF001
 
-    with pytest.raises(DatabaseReadError):
-        policy_repo._raise_read_error("read.wrap", RuntimeError("x"))  # noqa: SLF001
+
+@pytest.mark.db
+def test_raise_write_error_helper_wrap_behavior() -> None:
+    """Write helper should wrap raw exceptions in DatabaseWriteError."""
     with pytest.raises(DatabaseWriteError):
         policy_repo._raise_write_error("write.wrap", RuntimeError("y"))  # noqa: SLF001
 
@@ -341,6 +414,9 @@ def test_repo_operations_wrap_connection_failures(test_db, monkeypatch) -> None:
 
     with pytest.raises(DatabaseReadError):
         policy_repo.get_activation_event(1)
+
+    with pytest.raises(DatabaseReadError):
+        policy_repo.list_activation_events(world_id="pipeworks_web", client_profile="")
 
     with pytest.raises(DatabaseWriteError):
         policy_repo.set_policy_activation(

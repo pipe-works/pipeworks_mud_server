@@ -30,6 +30,21 @@ def _species_payload(
     }
 
 
+def _descriptor_layer_payload(
+    *,
+    references: list[dict[str, str]],
+    policy_version: int = 1,
+    status: str = "candidate",
+) -> dict[str, object]:
+    """Build one canonical descriptor-layer request body."""
+    return {
+        "schema_version": "1.0",
+        "policy_version": policy_version,
+        "status": status,
+        "content": {"references": references},
+    }
+
+
 @pytest.mark.api
 def test_species_policy_validate_upsert_get_and_list(test_client, db_with_users) -> None:
     """Species pilot should support validate->upsert->read/list flow."""
@@ -171,6 +186,120 @@ def test_policy_activation_and_rollback_flow(test_client, db_with_users) -> None
     assert list_payload["client_profile"] is None
     assert len(list_payload["items"]) == 1
     assert list_payload["items"][0]["variant"] == "v1"
+
+
+@pytest.mark.api
+def test_policy_activation_effective_scope_overlays_world_defaults(
+    test_client, db_with_users
+) -> None:
+    """Client scope listing should inherit world defaults and apply client overrides."""
+    session_id = _session_id_for("testbuilder")
+    goblin_id = "species_block:image.blocks.species:goblin"
+    kobold_id = "species_block:image.blocks.species:kobold"
+
+    for policy_id, text, version, variant in (
+        (goblin_id, "Goblin v1", 1, "v1"),
+        (kobold_id, "Kobold v1", 1, "v1"),
+        (kobold_id, "Kobold v2", 2, "v2"),
+    ):
+        write_response = test_client.put(
+            f"/api/policies/{quote(policy_id, safe='')}/variants/{variant}",
+            params={"session_id": session_id},
+            json=_species_payload(text=text, policy_version=version, status="candidate"),
+        )
+        assert write_response.status_code == 200
+
+    for policy_id, variant in ((goblin_id, "v1"), (kobold_id, "v1")):
+        activation_response = test_client.post(
+            "/api/policy-activations",
+            params={"session_id": session_id},
+            json={
+                "world_id": constants.DEFAULT_WORLD_ID,
+                "policy_id": policy_id,
+                "variant": variant,
+            },
+        )
+        assert activation_response.status_code == 200
+
+    client_override_response = test_client.post(
+        "/api/policy-activations",
+        params={"session_id": session_id},
+        json={
+            "world_id": constants.DEFAULT_WORLD_ID,
+            "client_profile": "mobile",
+            "policy_id": kobold_id,
+            "variant": "v2",
+        },
+    )
+    assert client_override_response.status_code == 200
+
+    effective_response = test_client.get(
+        "/api/policy-activations",
+        params={"session_id": session_id, "scope": f"{constants.DEFAULT_WORLD_ID}:mobile"},
+    )
+    assert effective_response.status_code == 200
+    effective_payload = effective_response.json()
+    assert len(effective_payload["items"]) == 2
+    by_policy_id = {row["policy_id"]: row for row in effective_payload["items"]}
+    assert by_policy_id[goblin_id]["variant"] == "v1"
+    assert by_policy_id[kobold_id]["variant"] == "v2"
+    assert by_policy_id[kobold_id]["client_profile"] == "mobile"
+
+    exact_scope_response = test_client.get(
+        "/api/policy-activations",
+        params={
+            "session_id": session_id,
+            "scope": f"{constants.DEFAULT_WORLD_ID}:mobile",
+            "effective": "false",
+        },
+    )
+    assert exact_scope_response.status_code == 200
+    exact_scope_payload = exact_scope_response.json()
+    assert len(exact_scope_payload["items"]) == 1
+    assert exact_scope_payload["items"][0]["policy_id"] == kobold_id
+    assert exact_scope_payload["items"][0]["variant"] == "v2"
+
+
+@pytest.mark.api
+def test_descriptor_layer_upsert_enforces_layer1_reference_rules(
+    test_client, db_with_users
+) -> None:
+    """Descriptor-layer writes should require valid Layer 1 references."""
+    session_id = _session_id_for("testbuilder")
+    species_policy_id = "species_block:image.blocks.species:elf"
+    descriptor_policy_id = "descriptor_layer:image.descriptors:combat"
+
+    species_write = test_client.put(
+        f"/api/policies/{quote(species_policy_id, safe='')}/variants/v1",
+        params={"session_id": session_id},
+        json=_species_payload(text="Elf v1", policy_version=1, status="candidate"),
+    )
+    assert species_write.status_code == 200
+
+    descriptor_write = test_client.put(
+        f"/api/policies/{quote(descriptor_policy_id, safe='')}/variants/v1",
+        params={"session_id": session_id},
+        json=_descriptor_layer_payload(
+            references=[{"policy_id": species_policy_id, "variant": "v1"}],
+        ),
+    )
+    assert descriptor_write.status_code == 200
+    assert descriptor_write.json()["policy_type"] == "descriptor_layer"
+
+    invalid_descriptor = test_client.put(
+        f"/api/policies/{quote(descriptor_policy_id, safe='')}/variants/v2",
+        params={"session_id": session_id},
+        json=_descriptor_layer_payload(
+            references=[
+                {"policy_id": "descriptor_layer:image.descriptors:combat", "variant": "v1"}
+            ],
+            policy_version=2,
+        ),
+    )
+    assert invalid_descriptor.status_code == 422
+    payload = invalid_descriptor.json()
+    assert payload["code"] == "POLICY_VALIDATION_ERROR"
+    assert "must reference a Layer 1 policy type" in payload["detail"]
 
 
 @pytest.mark.api
@@ -341,7 +470,11 @@ def test_policy_routes_map_service_errors_to_canonical_payloads(
     assert validate_response.status_code == 409
     assert validate_response.json()["code"] == "POLICY_TEST_ERROR"
 
-    monkeypatch.setattr(policies_routes, "service_list_policy_activations", _raise_service_error)
+    monkeypatch.setattr(
+        policies_routes,
+        "service_resolve_effective_policy_activations",
+        _raise_service_error,
+    )
     activations_response = test_client.get(
         "/api/policy-activations",
         params={"session_id": session_id, "scope": constants.DEFAULT_WORLD_ID},
