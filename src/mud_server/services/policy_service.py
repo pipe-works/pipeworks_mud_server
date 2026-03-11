@@ -18,7 +18,8 @@ from typing import Any
 
 from pipeworks_ipc import compute_payload_hash
 
-from mud_server.db import database, policy_repo
+from mud_server.db import facade as db_facade
+from mud_server.db import policy_repo
 
 _SUPPORTED_POLICY_TYPES = {
     "image_block",
@@ -483,7 +484,7 @@ def _compute_content_hash(*, policy_id: str, variant: str, content: dict[str, An
 
 def _ensure_world_exists(world_id: str) -> None:
     """Raise 404 when activation/publish target world does not exist."""
-    if database.get_world_by_id(world_id) is None:
+    if db_facade.get_world_by_id(world_id) is None:
         raise PolicyServiceError(
             status_code=404,
             code="POLICY_WORLD_NOT_FOUND",
