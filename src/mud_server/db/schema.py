@@ -390,6 +390,121 @@ def init_database(*, skip_superuser: bool = False) -> None:
         )
     """)
 
+    # Phase 1 control-plane identity table. One row per logical policy object.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS policy_item (
+            policy_id TEXT PRIMARY KEY,
+            policy_type TEXT NOT NULL,
+            namespace TEXT NOT NULL,
+            policy_key TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(policy_type, namespace, policy_key)
+        )
+    """)
+
+    # Phase 1 variant table. Content is versioned by explicit variant key while
+    # the service layer controls version semantics and status transitions.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS policy_variant (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            policy_id TEXT NOT NULL,
+            variant TEXT NOT NULL,
+            schema_version TEXT NOT NULL,
+            policy_version INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('draft', 'candidate', 'active', 'archived')),
+            content_json TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            updated_by TEXT NOT NULL,
+            FOREIGN KEY(policy_id) REFERENCES policy_item(policy_id) ON DELETE CASCADE,
+            UNIQUE(policy_id, variant)
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_policy_variant_status
+        ON policy_variant(status)
+        """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_policy_variant_policy_version
+        ON policy_variant(policy_id, policy_version DESC)
+        """)
+
+    # Layer 3 activation pointer table. Exactly one active variant per
+    # (world_id, client_profile, policy_id) scope tuple.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS policy_activation (
+            world_id TEXT NOT NULL,
+            client_profile TEXT NOT NULL DEFAULT '',
+            policy_id TEXT NOT NULL,
+            variant TEXT NOT NULL,
+            activated_at TEXT NOT NULL,
+            activated_by TEXT NOT NULL,
+            rollback_of_activation_id INTEGER,
+            PRIMARY KEY (world_id, client_profile, policy_id),
+            FOREIGN KEY(world_id) REFERENCES worlds(id) ON DELETE CASCADE,
+            FOREIGN KEY(policy_id) REFERENCES policy_item(policy_id) ON DELETE CASCADE,
+            FOREIGN KEY(policy_id, variant) REFERENCES policy_variant(policy_id, variant)
+                ON DELETE CASCADE
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_policy_activation_scope
+        ON policy_activation(world_id, client_profile)
+        """)
+
+    # Append-only validation run history for audit/debug and acceptance checks.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS policy_validation_run (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            policy_id TEXT NOT NULL,
+            variant TEXT NOT NULL,
+            is_valid INTEGER NOT NULL CHECK (is_valid IN (0, 1)),
+            errors_json TEXT NOT NULL DEFAULT '[]',
+            validated_at TEXT NOT NULL,
+            validated_by TEXT NOT NULL
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_policy_validation_run_policy_variant
+        ON policy_validation_run(policy_id, variant, validated_at DESC)
+        """)
+
+    # Unified audit stream for activation/publish events.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS policy_audit_event (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            world_id TEXT,
+            client_profile TEXT NOT NULL DEFAULT '',
+            policy_id TEXT,
+            variant TEXT,
+            actor TEXT NOT NULL,
+            event_payload_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_policy_audit_event_scope
+        ON policy_audit_event(world_id, client_profile, created_at DESC)
+        """)
+
+    # Publish run history stores deterministic manifest payload snapshots.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS policy_publish_run (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id TEXT NOT NULL,
+            client_profile TEXT NOT NULL DEFAULT '',
+            actor TEXT NOT NULL,
+            manifest_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(world_id) REFERENCES worlds(id) ON DELETE CASCADE
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_policy_publish_run_scope
+        ON policy_publish_run(world_id, client_profile, created_at DESC)
+        """)
+
     cursor.execute(
         """
         INSERT OR IGNORE INTO worlds (id, name, description, is_active, config_json)
