@@ -8,6 +8,15 @@ from types import SimpleNamespace
 import pytest
 
 from mud_server.api.routes import policy as policy_routes
+from mud_server.db import database
+
+
+def _session_id_for(username: str) -> str:
+    """Create and return a deterministic test session id for ``username``."""
+
+    session_id = f"session-{username}"
+    assert database.create_session(username, session_id) is True
+    return session_id
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -20,6 +29,7 @@ def _write_text(path: Path, content: str) -> None:
 @pytest.mark.api
 def test_hash_snapshot_is_deterministic_and_filters_file_scope(
     test_client,
+    db_with_users,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -33,9 +43,10 @@ def test_hash_snapshot_is_deterministic_and_filters_file_scope(
     _write_text(policy_root / "image" / "notes.md", "ignored")
 
     monkeypatch.setattr(policy_routes, "_canonical_policy_root", lambda _world_id: policy_root)
+    session_id = _session_id_for("testadmin")
 
-    first = test_client.get("/api/policy/hash-snapshot")
-    second = test_client.get("/api/policy/hash-snapshot")
+    first = test_client.get("/api/policy/hash-snapshot", params={"session_id": session_id})
+    second = test_client.get("/api/policy/hash-snapshot", params={"session_id": session_id})
 
     assert first.status_code == 200
     assert second.status_code == 200
@@ -57,6 +68,7 @@ def test_hash_snapshot_is_deterministic_and_filters_file_scope(
 @pytest.mark.api
 def test_hash_snapshot_changes_after_policy_content_change(
     test_client,
+    db_with_users,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -67,10 +79,15 @@ def test_hash_snapshot_changes_after_policy_content_change(
     _write_text(target_file, "scene one")
 
     monkeypatch.setattr(policy_routes, "_canonical_policy_root", lambda _world_id: policy_root)
+    session_id = _session_id_for("testadmin")
 
-    first_hash = test_client.get("/api/policy/hash-snapshot").json()["root_hash"]
+    first_hash = test_client.get(
+        "/api/policy/hash-snapshot", params={"session_id": session_id}
+    ).json()["root_hash"]
     _write_text(target_file, "scene one updated")
-    second_hash = test_client.get("/api/policy/hash-snapshot").json()["root_hash"]
+    second_hash = test_client.get(
+        "/api/policy/hash-snapshot", params={"session_id": session_id}
+    ).json()["root_hash"]
 
     assert first_hash != second_hash
 
@@ -78,6 +95,7 @@ def test_hash_snapshot_changes_after_policy_content_change(
 @pytest.mark.api
 def test_hash_snapshot_returns_404_when_canonical_root_is_missing(
     test_client,
+    db_with_users,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -85,11 +103,59 @@ def test_hash_snapshot_returns_404_when_canonical_root_is_missing(
 
     missing_root = tmp_path / "missing" / "policies"
     monkeypatch.setattr(policy_routes, "_canonical_policy_root", lambda _world_id: missing_root)
+    session_id = _session_id_for("testadmin")
 
-    response = test_client.get("/api/policy/hash-snapshot")
+    response = test_client.get("/api/policy/hash-snapshot", params={"session_id": session_id})
 
     assert response.status_code == 404
     assert "Canonical policy root not found" in response.json()["detail"]
+
+
+@pytest.mark.api
+@pytest.mark.parametrize("username", ["testplayer", "testbuilder"])
+def test_hash_snapshot_rejects_non_admin_roles(
+    test_client,
+    db_with_users,
+    username: str,
+) -> None:
+    """Hash snapshot route should reject player/worldbuilder sessions."""
+
+    session_id = _session_id_for(username)
+    response = test_client.get("/api/policy/hash-snapshot", params={"session_id": session_id})
+
+    assert response.status_code == 403
+    assert "admin or superuser" in response.json()["detail"]
+
+
+@pytest.mark.api
+def test_hash_snapshot_allows_superuser_role(
+    test_client,
+    db_with_users,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hash snapshot route should allow superuser sessions."""
+
+    policy_root = tmp_path / "data" / "worlds" / "pipeworks_web" / "policies"
+    _write_text(policy_root / "image" / "prompts" / "scene.txt", "scene one")
+    monkeypatch.setattr(policy_routes, "_canonical_policy_root", lambda _world_id: policy_root)
+
+    session_id = _session_id_for("testsuperuser")
+    response = test_client.get("/api/policy/hash-snapshot", params={"session_id": session_id})
+
+    assert response.status_code == 200
+    assert response.json()["file_count"] == 1
+
+
+@pytest.mark.api
+def test_hash_snapshot_requires_session_id_query_param(
+    test_client,
+    db_with_users,
+) -> None:
+    """Hash snapshot route should reject requests that omit ``session_id``."""
+
+    response = test_client.get("/api/policy/hash-snapshot")
+    assert response.status_code == 422
 
 
 @pytest.mark.api

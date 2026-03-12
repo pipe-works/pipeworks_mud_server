@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from fastapi import APIRouter, HTTPException, Query
 from pipeworks_ipc import compute_payload_hash
 
+from mud_server.api.auth import validate_session
 from mud_server.api.models_policy import PolicyHashDirectoryResponse, PolicyHashSnapshotResponse
 from mud_server.core.engine import GameEngine
 
@@ -21,6 +22,7 @@ except ImportError:  # pragma: no cover - import path is expected in normal runt
 _HASH_VERSION = "policy_tree_hash_v1"
 _DEFAULT_WORLD_ID = "pipeworks_web"
 _SUPPORTED_SUFFIXES = {".txt", ".yaml", ".yml"}
+_ADMIN_OR_SUPERUSER_ROLES = {"admin", "superuser"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,9 +40,11 @@ def router(_engine: GameEngine) -> APIRouter:
 
     @api.get("/hash-snapshot", response_model=PolicyHashSnapshotResponse)
     async def hash_snapshot(
+        session_id: str = Query(min_length=1),
         world_id: str = Query(default=_DEFAULT_WORLD_ID, min_length=1),
     ) -> PolicyHashSnapshotResponse:
         """Return deterministic canonical policy tree hashes for one world."""
+        _require_policy_hash_snapshot_role(session_id)
 
         policy_root = _canonical_policy_root(world_id)
         if not policy_root.exists() or not policy_root.is_dir():
@@ -70,6 +74,18 @@ def router(_engine: GameEngine) -> APIRouter:
         )
 
     return api
+
+
+def _require_policy_hash_snapshot_role(session_id: str) -> str:
+    """Validate session and enforce admin/superuser role for hash snapshots."""
+
+    _user_id, _username, role = validate_session(session_id)
+    if role not in _ADMIN_OR_SUPERUSER_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail="Policy hash snapshot endpoint requires admin or superuser role.",
+        )
+    return role
 
 
 def _canonical_policy_root(world_id: str) -> Path:
