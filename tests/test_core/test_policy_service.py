@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from mud_server.db import constants, database
 from mud_server.services import policy_service
@@ -81,6 +82,37 @@ def _write_species_yaml(
         ),
         encoding="utf-8",
     )
+
+
+def _write_registry_yaml(
+    *,
+    worlds_root: Path,
+    world_id: str,
+    filename: str,
+    payload: dict[str, object],
+) -> None:
+    """Write one legacy registry YAML fixture file under the canonical path."""
+    registry_root = worlds_root / world_id / "policies" / "image" / "registries"
+    registry_root.mkdir(parents=True, exist_ok=True)
+    registry_path = registry_root / filename
+    registry_path.write_text(
+        yaml.safe_dump(payload, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
+def _write_descriptor_file(
+    *,
+    worlds_root: Path,
+    world_id: str,
+    filename: str,
+    text: str,
+) -> None:
+    """Write one legacy descriptor-layer fixture file under the canonical path."""
+    descriptor_root = worlds_root / world_id / "policies" / "image" / "descriptor_layers"
+    descriptor_root.mkdir(parents=True, exist_ok=True)
+    descriptor_path = descriptor_root / filename
+    descriptor_path.write_text(text, encoding="utf-8")
 
 
 @pytest.mark.unit
@@ -725,6 +757,556 @@ def test_extract_species_text_content_requires_non_empty_text(tmp_path: Path) ->
             species_path=species_file,
         )
     assert "must define non-empty text content" in str(error.value)
+
+
+@pytest.mark.unit
+def test_import_layer2_policies_from_legacy_files_backfills_and_activates(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Layer 2 importer should create registry/descriptor rows and seed activations."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _seed_species_variant(policy_key="goblin", variant="v1", policy_version=1)
+    _seed_species_variant(policy_key="human", variant="v1", policy_version=1)
+
+    _write_registry_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="species_registry.yaml",
+        payload={
+            "registry": {"id": "species_registry", "version": 1},
+            "entries": [
+                {"block_path": "policies/image/blocks/species/goblin_v1.yaml"},
+                {"block_path": "policies/image/blocks/species/human_v1.yaml"},
+            ],
+        },
+    )
+    _write_descriptor_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="id_card_v1.txt",
+        text="Descriptor text payload.",
+    )
+
+    summary = policy_service.import_layer2_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=True,
+        status="active",
+    )
+
+    assert summary.scanned_descriptor_files == 1
+    assert summary.scanned_registry_files == 1
+    assert summary.imported_count == 2
+    assert summary.updated_count == 0
+    assert summary.skipped_count == 0
+    assert summary.error_count == 0
+    assert summary.activated_count == 2
+    assert summary.activation_skipped_count == 0
+
+    species_refs = [
+        {"policy_id": "species_block:image.blocks.species:goblin", "variant": "v1"},
+        {"policy_id": "species_block:image.blocks.species:human", "variant": "v1"},
+    ]
+    registry_row = policy_service.get_policy(
+        policy_id="registry:image.registries:species_registry",
+        variant="v1",
+    )
+    descriptor_row = policy_service.get_policy(
+        policy_id="descriptor_layer:image.descriptors:id_card",
+        variant="v1",
+    )
+    assert registry_row["content"] == {"references": species_refs}
+    assert descriptor_row["content"] == {"references": species_refs}
+
+    effective_rows = policy_service.resolve_effective_policy_activations(
+        scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+    )
+    by_policy_id = {row["policy_id"]: row for row in effective_rows}
+    assert by_policy_id["registry:image.registries:species_registry"]["variant"] == "v1"
+    assert by_policy_id["descriptor_layer:image.descriptors:id_card"]["variant"] == "v1"
+
+
+@pytest.mark.unit
+def test_import_layer2_policies_from_legacy_files_is_idempotent(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """A second Layer 2 import pass should skip unchanged variants/activations."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _seed_species_variant(policy_key="goblin", variant="v1", policy_version=1)
+    _write_registry_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="species_registry.yaml",
+        payload={
+            "registry": {"id": "species_registry", "version": 1},
+            "entries": [{"block_path": "policies/image/blocks/species/goblin_v1.yaml"}],
+        },
+    )
+    _write_descriptor_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="id_card_v1.txt",
+        text="Descriptor text payload.",
+    )
+
+    first = policy_service.import_layer2_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=True,
+        status="active",
+    )
+    second = policy_service.import_layer2_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=True,
+        status="active",
+    )
+    assert first.imported_count == 2
+    assert second.imported_count == 0
+    assert second.updated_count == 0
+    assert second.skipped_count == 2
+    assert second.error_count == 0
+    assert second.activated_count == 0
+    assert second.activation_skipped_count == 2
+
+
+@pytest.mark.unit
+def test_import_layer2_policies_from_legacy_files_reports_unmappable_registry(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Layer 2 importer should report unmappable registry files and continue."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _seed_species_variant(policy_key="goblin", variant="v1", policy_version=1)
+
+    _write_registry_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="species_registry.yaml",
+        payload={
+            "registry": {"id": "species_registry", "version": 1},
+            "entries": [{"block_path": "policies/image/blocks/species/goblin_v1.yaml"}],
+        },
+    )
+    _write_registry_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="clothing_registry.yaml",
+        payload={
+            "registry": {"id": "clothing_registry", "version": 1},
+            "slots": {
+                "environment": [
+                    {
+                        "fragment_path": (
+                            "policies/image/blocks/clothing/environment/maritime_v2.txt"
+                        )
+                    }
+                ]
+            },
+        },
+    )
+    _write_descriptor_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="id_card_v1.txt",
+        text="Descriptor text payload.",
+    )
+
+    summary = policy_service.import_layer2_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=False,
+        status="candidate",
+    )
+
+    assert summary.scanned_registry_files == 2
+    assert summary.scanned_descriptor_files == 1
+    assert summary.imported_count == 2
+    assert summary.error_count == 1
+    error_rows = [entry for entry in summary.entries if entry.action == "error"]
+    assert len(error_rows) == 1
+    assert "no mappable Layer 1 references" in error_rows[0].detail
+
+
+@pytest.mark.unit
+def test_import_layer2_policies_from_legacy_files_rejects_missing_source_roots(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Layer 2 importer should fail when both source roots are absent."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    (tmp_path / constants.DEFAULT_WORLD_ID).mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.import_layer2_policies_from_legacy_files(
+            world_id=constants.DEFAULT_WORLD_ID,
+            actor="importer",
+            activate=False,
+            status="active",
+        )
+    assert error.value.code == "POLICY_LAYER2_SOURCE_NOT_FOUND"
+
+
+@pytest.mark.unit
+def test_import_layer2_policies_from_legacy_files_rejects_invalid_status(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Layer 2 importer should reject unsupported status values before scanning."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _write_descriptor_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="id_card_v1.txt",
+        text="Descriptor text payload.",
+    )
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.import_layer2_policies_from_legacy_files(
+            world_id=constants.DEFAULT_WORLD_ID,
+            actor="importer",
+            activate=False,
+            status="invalid-status",
+        )
+    assert error.value.code == "POLICY_IMPORT_STATUS_INVALID"
+
+
+@pytest.mark.unit
+def test_import_layer2_policies_from_legacy_files_updates_changed_variants(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Layer 2 importer should mark both registry and descriptor rows as updated."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _seed_species_variant(policy_key="goblin", variant="v1", policy_version=1)
+    _seed_species_variant(policy_key="human", variant="v1", policy_version=1)
+
+    _write_registry_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="species_registry.yaml",
+        payload={
+            "registry": {"id": "species_registry", "version": 1},
+            "entries": [{"block_path": "policies/image/blocks/species/goblin_v1.yaml"}],
+        },
+    )
+    _write_descriptor_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="id_card_v1.txt",
+        text="Descriptor text payload.",
+    )
+    first = policy_service.import_layer2_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=False,
+        status="candidate",
+    )
+    assert first.imported_count == 2
+
+    _write_registry_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="species_registry.yaml",
+        payload={
+            "registry": {"id": "species_registry", "version": 1},
+            "entries": [
+                {"block_path": "policies/image/blocks/species/goblin_v1.yaml"},
+                {"block_path": "policies/image/blocks/species/human_v1.yaml"},
+            ],
+        },
+    )
+    second = policy_service.import_layer2_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=False,
+        status="candidate",
+    )
+    assert second.imported_count == 0
+    assert second.updated_count == 2
+    assert second.error_count == 0
+    updated_entries = [entry for entry in second.entries if entry.action == "updated"]
+    assert len(updated_entries) == 2
+
+
+@pytest.mark.unit
+def test_import_layer2_policies_from_legacy_files_errors_when_descriptor_refs_unavailable(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Descriptor rows should error when no valid Layer 1 references can be inferred."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _write_descriptor_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="id_card_v1.txt",
+        text="Descriptor text payload.",
+    )
+    summary = policy_service.import_layer2_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=False,
+        status="active",
+    )
+    assert summary.imported_count == 0
+    assert summary.error_count == 1
+    assert "could not infer Layer 1 references" in summary.entries[0].detail
+
+
+@pytest.mark.unit
+def test_import_layer2_policies_from_legacy_files_reports_activation_failure(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Layer 2 importer should record activation errors without discarding import success."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _seed_species_variant(policy_key="goblin", variant="v1", policy_version=1)
+    _write_registry_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="species_registry.yaml",
+        payload={
+            "registry": {"id": "species_registry", "version": 1},
+            "entries": [{"block_path": "policies/image/blocks/species/goblin_v1.yaml"}],
+        },
+    )
+    _write_descriptor_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="id_card_v1.txt",
+        text="Descriptor text payload.",
+    )
+
+    def _raise_activation_error(**_kwargs):
+        raise PolicyServiceError(
+            status_code=422,
+            code="POLICY_ACTIVATION_INVALID",
+            detail="simulated activation failure",
+        )
+
+    monkeypatch.setattr(policy_service, "set_policy_activation", _raise_activation_error)
+
+    summary = policy_service.import_layer2_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=True,
+        status="active",
+    )
+    assert summary.imported_count == 2
+    assert summary.activated_count == 0
+    assert summary.error_count == 2
+    activation_errors = [
+        entry
+        for entry in summary.entries
+        if entry.action == "error" and entry.source_path == "<activation>"
+    ]
+    assert len(activation_errors) == 2
+
+
+@pytest.mark.unit
+def test_parse_descriptor_filename_rejects_invalid_names(tmp_path: Path) -> None:
+    """Descriptor filename parser should enforce versioned naming contract."""
+    with pytest.raises(ValueError) as error:
+        policy_service._parse_descriptor_filename(tmp_path / "id_card.txt")
+    assert "Descriptor filename must match" in str(error.value)
+
+
+@pytest.mark.unit
+def test_read_registry_yaml_payload_wraps_io_yaml_and_shape_errors(tmp_path: Path) -> None:
+    """Registry reader should wrap IO/YAML errors and reject non-object payloads."""
+    missing_file = tmp_path / "missing.yaml"
+    with pytest.raises(OSError) as io_error:
+        policy_service._read_registry_yaml_payload(missing_file)
+    assert "Unable to read registry source file" in str(io_error.value)
+
+    invalid_yaml = tmp_path / "invalid.yaml"
+    invalid_yaml.write_text("registry: [unclosed\n", encoding="utf-8")
+    with pytest.raises(ValueError) as yaml_error:
+        policy_service._read_registry_yaml_payload(invalid_yaml)
+    assert "Invalid YAML in registry source file" in str(yaml_error.value)
+
+    list_payload = tmp_path / "list.yaml"
+    list_payload.write_text("- bad\n", encoding="utf-8")
+    with pytest.raises(ValueError) as shape_error:
+        policy_service._read_registry_yaml_payload(list_payload)
+    assert "must contain a YAML object" in str(shape_error.value)
+
+
+@pytest.mark.unit
+def test_resolve_registry_identity_validates_meta_and_versions(tmp_path: Path) -> None:
+    """Registry identity resolver should enforce id/version consistency rules."""
+    with pytest.raises(ValueError) as meta_error:
+        policy_service._resolve_registry_identity(
+            registry_path=tmp_path / "species_registry.yaml",
+            payload={"registry": []},
+        )
+    assert "field 'registry' must be an object" in str(meta_error.value)
+
+    with pytest.raises(ValueError) as version_missing_error:
+        policy_service._resolve_registry_identity(
+            registry_path=tmp_path / "species_registry.yaml",
+            payload={"registry": {"id": "species_registry"}},
+        )
+    assert "registry.version must be a positive integer" in str(version_missing_error.value)
+
+    with pytest.raises(ValueError) as mismatch_error:
+        policy_service._resolve_registry_identity(
+            registry_path=tmp_path / "species_registry_v1.yaml",
+            payload={"registry": {"id": "species_registry", "version": 2}},
+        )
+    assert "must match filename v1" in str(mismatch_error.value)
+
+    with pytest.raises(ValueError) as key_mismatch_error:
+        policy_service._resolve_registry_identity(
+            registry_path=tmp_path / "species_registry_v1.yaml",
+            payload={"registry": {"id": "other_registry", "version": 1}},
+        )
+    assert "must match filename policy_key" in str(key_mismatch_error.value)
+
+
+@pytest.mark.unit
+def test_resolve_registry_identity_versioned_success_uses_filename_version(tmp_path: Path) -> None:
+    """Versioned registry filenames should resolve canonical key/variant from filename."""
+    policy_key, variant, policy_version = policy_service._resolve_registry_identity(
+        registry_path=tmp_path / "species_registry_v2.yaml",
+        payload={"registry": {"id": "species_registry"}},
+    )
+    assert policy_key == "species_registry"
+    assert variant == "v2"
+    assert policy_version == 2
+
+
+@pytest.mark.unit
+def test_resolve_positive_int_version_parses_and_rejects_invalid_values() -> None:
+    """Positive-int resolver should parse valid values and reject invalid ones."""
+    assert (
+        policy_service._resolve_positive_int_version(value=None, default=4, context="test context")
+        == 4
+    )
+    assert (
+        policy_service._resolve_positive_int_version(
+            value="7", default=None, context="test context"
+        )
+        == 7
+    )
+    with pytest.raises(ValueError) as bool_error:
+        policy_service._resolve_positive_int_version(
+            value=True, default=None, context="test context"
+        )
+    assert "must not be a boolean" in str(bool_error.value)
+
+    with pytest.raises(ValueError) as non_numeric_error:
+        policy_service._resolve_positive_int_version(
+            value="v1", default=None, context="test context"
+        )
+    assert "must be a positive integer" in str(non_numeric_error.value)
+
+    with pytest.raises(ValueError) as low_error:
+        policy_service._resolve_positive_int_version(value=0, default=None, context="test context")
+    assert "must be >= 1" in str(low_error.value)
+
+
+@pytest.mark.unit
+def test_extract_registry_references_accepts_explicit_and_rejects_invalid(tmp_path: Path) -> None:
+    """Registry reference extraction should handle explicit references and invalid shapes."""
+    path = tmp_path / "species_registry.yaml"
+    explicit = policy_service._extract_registry_references(
+        payload={
+            "references": [
+                {"policy_id": "species_block:image.blocks.species:goblin", "variant": "v1"}
+            ]
+        },
+        registry_path=path,
+    )
+    assert explicit == [{"policy_id": "species_block:image.blocks.species:goblin", "variant": "v1"}]
+
+    with pytest.raises(ValueError) as error:
+        policy_service._extract_registry_references(
+            payload={"references": []},
+            registry_path=path,
+        )
+    assert "content.references must be a non-empty list" in str(error.value)
+
+
+@pytest.mark.unit
+def test_extract_registry_references_deduplicates_legacy_paths(tmp_path: Path) -> None:
+    """Registry extraction should dedupe repeated legacy path entries."""
+    path = tmp_path / "species_registry.yaml"
+    references = policy_service._extract_registry_references(
+        payload={
+            "entries": [
+                {"block_path": "policies/image/blocks/species/goblin_v1.yaml"},
+                {"block_path": "policies/image/blocks/species/goblin_v1.yaml"},
+            ]
+        },
+        registry_path=path,
+    )
+    assert references == [
+        {"policy_id": "species_block:image.blocks.species:goblin", "variant": "v1"}
+    ]
+
+
+@pytest.mark.unit
+def test_normalize_reference_entries_rejects_invalid_shapes() -> None:
+    """Reference normalizer should reject malformed list entries and missing fields."""
+    with pytest.raises(ValueError) as non_object_error:
+        policy_service._normalize_reference_entries(
+            references=["bad-item"],
+            policy_type="registry",
+        )
+    assert "must be an object with 'policy_id' and 'variant'" in str(non_object_error.value)
+
+    with pytest.raises(ValueError) as missing_policy_error:
+        policy_service._normalize_reference_entries(
+            references=[{"variant": "v1"}],
+            policy_type="registry",
+        )
+    assert ".policy_id is required" in str(missing_policy_error.value)
+
+    with pytest.raises(ValueError) as missing_variant_error:
+        policy_service._normalize_reference_entries(
+            references=[{"policy_id": "species_block:image.blocks.species:goblin"}],
+            policy_type="registry",
+        )
+    assert ".variant is required" in str(missing_variant_error.value)
+
+
+@pytest.mark.unit
+def test_collect_legacy_path_fields_skips_non_objects() -> None:
+    """Legacy path collector should ignore non-dictionary entry rows."""
+    values = policy_service._collect_legacy_path_fields_from_entries(
+        entries=[None, "bad", {"block_path": "policies/image/blocks/species/goblin_v1.yaml"}]
+    )
+    assert values == ["policies/image/blocks/species/goblin_v1.yaml"]
+
+
+@pytest.mark.unit
+def test_policy_reference_from_legacy_path_maps_prompt_and_tone_paths() -> None:
+    """Legacy path mapper should resolve prompt/tone profile references."""
+    prompt_reference = policy_service._policy_reference_from_legacy_path(
+        "policies/translation/prompts/ic/default_v1.txt"
+    )
+    assert prompt_reference == {
+        "policy_id": "prompt:translation.prompts.ic:default",
+        "variant": "v1",
+    }
+
+    tone_reference = policy_service._policy_reference_from_legacy_path(
+        "policies/image/tone_profiles/ledger_engraving_v1.json"
+    )
+    assert tone_reference == {
+        "policy_id": "tone_profile:image.tone_profiles:ledger_engraving",
+        "variant": "v1",
+    }
 
 
 @pytest.mark.unit
