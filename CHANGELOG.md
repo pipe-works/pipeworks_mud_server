@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.20](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.19...mud_server-v0.4.20) (2026-03-12)
+
+
+### Features
+
+* **policy:** add layer2 legacy importer and cli command ([197ca71](https://github.com/pipe-works/pipeworks_mud_server/commit/197ca7182d490ae4d6496ebc84de9c6de7572833))
+* **policy:** add layer2 legacy importer and cli command ([a1847fa](https://github.com/pipe-works/pipeworks_mud_server/commit/a1847fa14193c325ac131e71ee640fe9dafd1dea))
+* **policy:** add species YAML backfill importer and CLI ([740cb18](https://github.com/pipe-works/pipeworks_mud_server/commit/740cb185ac40aa7af3ace6dcb15078dafce0cbdf))
+* **policy:** add species yaml backfill importer and cli command ([22764e3](https://github.com/pipe-works/pipeworks_mud_server/commit/22764e3381516cfdebf51db42b46c4a56db5060c))
+* **policy:** add tone/prompt importer and align admin header ([16c7113](https://github.com/pipe-works/pipeworks_mud_server/commit/16c7113f5022f70208fc658b2f0890e8c0050c2c))
+* **policy:** add tone/prompt importer and align admin shell header ([cb65c7e](https://github.com/pipe-works/pipeworks_mud_server/commit/cb65c7efa24dfd9d98f1935a6ca1f6775e356212))
+
+
+### Bug Fixes
+
+* **data:** update goblin species block ([15bffc0](https://github.com/pipe-works/pipeworks_mud_server/commit/15bffc0422923f40a2fc2fd35a5b26f46c9b0690))
+* **data:** update goblin species block [skip ci] ([c1c0318](https://github.com/pipe-works/pipeworks_mud_server/commit/c1c03186a3838e41e197a5a079e927e10863e8a9))
+
 ## [0.4.19](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.18...mud_server-v0.4.19) (2026-03-11)
 
 
