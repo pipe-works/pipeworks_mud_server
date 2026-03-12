@@ -6,6 +6,12 @@ registry:
   version: 1
   kind: clothing
 
+references:
+- policy_id: species_block:image.blocks.species:goblin
+  variant: v1
+- policy_id: species_block:image.blocks.species:human
+  variant: v1
+
 composition_contract:
   slots: [environment, activity, wealth]
   max_entries_per_slot: 1

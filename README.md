@@ -121,12 +121,6 @@ mud-server create-superuser
 # Enter username and password when prompted
 ```
 
-**Via environment variables** (for CI/Docker):
-
-```bash
-MUD_ADMIN_USER=myadmin MUD_ADMIN_PASSWORD=securepass123 mud-server init-db
-```
-
 ### Import Legacy Species Policies
 
 Backfill legacy `species/*.yaml` files into canonical policy tables and seed
@@ -437,10 +431,6 @@ sqlite3 data/mud.db "SELECT username, role, current_room FROM players;"
 export MUD_HOST="0.0.0.0"          # Bind address
 export MUD_PORT=8000                # API port
 export MUD_SERVER_URL="http://localhost:8000"  # Admin TUI endpoint
-
-# Superuser creation (for CI/Docker)
-export MUD_ADMIN_USER="admin"
-export MUD_ADMIN_PASSWORD="your-secure-password"
 ```
 
 ---
