@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.21](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.20...mud_server-v0.4.21) (2026-03-12)
+
+
+### Bug Fixes
+
+* **api:** restrict policy hash snapshot to admin and superuser ([#219](https://github.com/pipe-works/pipeworks_mud_server/issues/219)) ([e0b1fe0](https://github.com/pipe-works/pipeworks_mud_server/commit/e0b1fe050bc05c24120915587f3c195b6882ff40))
+* **api:** restrict policy routes to admin and superuser ([5d7c6e2](https://github.com/pipe-works/pipeworks_mud_server/commit/5d7c6e28cd688b73f142ee3e246887161aa16067))
+* **api:** restrict policy routes to admin and superuser ([27ddffb](https://github.com/pipe-works/pipeworks_mud_server/commit/27ddffb99d650510694291a10bfaa716ca2b0d7e))
+
 ## [0.4.20](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.19...mud_server-v0.4.20) (2026-03-12)
 
 
