@@ -5,12 +5,14 @@ Provides CLI commands for server management:
 - init-db: Initialize the database schema
 - create-superuser: Create a superuser account interactively or via environment variables
 - import-species-policies: Backfill legacy species YAML into canonical policy DB rows
+- import-layer2-policies: Backfill descriptor/registry legacy policies into Layer 2 DB rows
 - run: Start the MUD server (API and web UI)
 
 Usage:
     mud-server init-db
     mud-server create-superuser
     mud-server import-species-policies [--world-id WORLD_ID]
+    mud-server import-layer2-policies [--world-id WORLD_ID]
     mud-server run [--port PORT] [--host HOST]
 
 Environment Variables:
@@ -315,6 +317,56 @@ def cmd_import_species_policies(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_import_layer2_policies(args: argparse.Namespace) -> int:
+    """Import legacy descriptor/registry files into canonical Layer 2 policy variants."""
+    from mud_server.config import config
+    from mud_server.db import facade as database
+    from mud_server.services import policy_service
+
+    world_id = (args.world_id or "").strip() or config.worlds.default_world_id
+    actor = (args.actor or "").strip() or "policy-importer"
+    status = str(args.status)
+    activate = bool(args.activate)
+
+    try:
+        database.init_database(skip_superuser=True)
+        summary = policy_service.import_layer2_policies_from_legacy_files(
+            world_id=world_id,
+            actor=actor,
+            activate=activate,
+            status=status,
+        )
+    except policy_service.PolicyServiceError as exc:
+        print(f"Layer 2 import failed [{exc.code}]: {exc.detail}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"Layer 2 import failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(
+        "Layer 2 import summary: "
+        f"world={summary.world_id} descriptors={summary.scanned_descriptor_files} "
+        f"registries={summary.scanned_registry_files} imported={summary.imported_count} "
+        f"updated={summary.updated_count} skipped={summary.skipped_count} "
+        f"errors={summary.error_count}"
+    )
+    if summary.activate:
+        print(
+            "Activation summary: "
+            f"activated={summary.activated_count} "
+            f"unchanged={summary.activation_skipped_count}"
+        )
+
+    error_entries = [entry for entry in summary.entries if entry.action == "error"]
+    if error_entries:
+        print("Import errors:", file=sys.stderr)
+        for entry in error_entries:
+            print(f"- {entry.source_path}: {entry.detail}", file=sys.stderr)
+        return 1
+
+    return 0
+
+
 # ============================================================================
 # SERVER PROCESS FUNCTIONS
 # ============================================================================
@@ -563,6 +615,43 @@ def main() -> int:
     )
     import_species_parser.set_defaults(activate=True)
     import_species_parser.set_defaults(func=cmd_import_species_policies)
+
+    import_layer2_parser = subparsers.add_parser(
+        "import-layer2-policies",
+        help="Import legacy descriptor/registry files into canonical Layer 2 policy state",
+        description=(
+            "Backfill data/worlds/<world_id>/policies/image/descriptor_layers/* and "
+            "data/worlds/<world_id>/policies/image/registries/*.yaml into "
+            "policy_item/policy_variant and optionally seed world activation pointers."
+        ),
+    )
+    import_layer2_parser.add_argument(
+        "--world-id",
+        type=str,
+        default=None,
+        help=("Target world id. Defaults to configured worlds.default_world_id when omitted."),
+    )
+    import_layer2_parser.add_argument(
+        "--actor",
+        type=str,
+        default="policy-importer",
+        help="Actor value used for updated_by / activated_by audit fields.",
+    )
+    import_layer2_parser.add_argument(
+        "--status",
+        type=str,
+        choices=["draft", "candidate", "active", "archived"],
+        default="active",
+        help="Status assigned to imported/updated policy variants (default: active).",
+    )
+    import_layer2_parser.add_argument(
+        "--no-activate",
+        action="store_false",
+        dest="activate",
+        help="Import variants only; do not seed world-scope activation pointers.",
+    )
+    import_layer2_parser.set_defaults(activate=True)
+    import_layer2_parser.set_defaults(func=cmd_import_layer2_policies)
 
     # run command
     run_parser = subparsers.add_parser(

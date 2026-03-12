@@ -139,6 +139,22 @@ mud-server import-species-policies --world-id pipeworks_web
 Use `--no-activate` to import/update variants without changing activation
 state.
 
+### Import Legacy Layer 2 Policies
+
+Backfill legacy descriptor and registry files into canonical Layer 2 policy
+tables and optionally seed world-level activation pointers:
+
+```bash
+mud-server import-layer2-policies --world-id pipeworks_web
+```
+
+Notes:
+
+- Run species import first so registry/descriptor references can resolve
+  against existing Layer 1 `species_block` rows.
+- Registry files with only unmappable legacy paths are reported as import
+  errors and do not block other valid Layer 2 files.
+
 ---
 
 ## Features

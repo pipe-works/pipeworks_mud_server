@@ -54,6 +54,26 @@ _SPECIES_SOURCE_RELATIVE_DIR = Path("policies") / "image" / "blocks" / "species"
 _SPECIES_FILENAME_PATTERN = re.compile(
     r"^(?P<policy_key>[A-Za-z0-9_.-]+)_v(?P<version>[1-9][0-9]*)$"
 )
+_DESCRIPTOR_SOURCE_RELATIVE_DIR = Path("policies") / "image" / "descriptor_layers"
+_REGISTRY_SOURCE_RELATIVE_DIR = Path("policies") / "image" / "registries"
+_DESCRIPTOR_FILENAME_PATTERN = re.compile(
+    r"^(?P<policy_key>[A-Za-z0-9_.-]+)_v(?P<version>[1-9][0-9]*)\.(?P<ext>txt|json|ya?ml)$"
+)
+_REGISTRY_VERSIONED_FILENAME_PATTERN = re.compile(
+    r"^(?P<policy_key>[A-Za-z0-9_.-]+)_v(?P<version>[1-9][0-9]*)$"
+)
+_LEGACY_SPECIES_BLOCK_PATH_PATTERN = re.compile(
+    r"^(?:policies/)?image/blocks/species/(?P<policy_key>.+)_"
+    r"(?P<variant>v[0-9][A-Za-z0-9_-]*)\.ya?ml$"
+)
+_LEGACY_PROMPT_PATH_PATTERN = re.compile(
+    r"^(?:policies/)?(?P<namespace_path>(?:image|translation)/prompts(?:/[A-Za-z0-9._-]+)*)/"
+    r"(?P<policy_key>.+)_(?P<variant>v[0-9][A-Za-z0-9_-]*)\.txt$"
+)
+_LEGACY_TONE_PROFILE_PATH_PATTERN = re.compile(
+    r"^(?:policies/)?image/tone_profiles/(?P<policy_key>.+)_"
+    r"(?P<variant>v[0-9][A-Za-z0-9_-]*)\.json$"
+)
 
 
 class PolicyServiceError(RuntimeError):
@@ -133,6 +153,34 @@ class SpeciesImportSummary:
     activated_count: int
     activation_skipped_count: int
     entries: list[SpeciesImportEntry]
+
+
+@dataclass(frozen=True, slots=True)
+class Layer2ImportEntry:
+    """One legacy Layer 2 import outcome row."""
+
+    source_path: str
+    policy_id: str | None
+    variant: str | None
+    action: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class Layer2ImportSummary:
+    """Aggregate result for one Layer 2 backfill/import run."""
+
+    world_id: str
+    activate: bool
+    scanned_descriptor_files: int
+    scanned_registry_files: int
+    imported_count: int
+    updated_count: int
+    skipped_count: int
+    error_count: int
+    activated_count: int
+    activation_skipped_count: int
+    entries: list[Layer2ImportEntry]
 
 
 def list_policies(
@@ -302,6 +350,270 @@ def import_species_blocks_from_legacy_yaml(
         world_id=world_id,
         activate=activate,
         scanned_files=len(species_files),
+        imported_count=imported_count,
+        updated_count=updated_count,
+        skipped_count=skipped_count,
+        error_count=error_count,
+        activated_count=activated_count,
+        activation_skipped_count=activation_skipped_count,
+        entries=entries,
+    )
+
+
+def import_layer2_policies_from_legacy_files(
+    *,
+    world_id: str,
+    actor: str,
+    activate: bool,
+    status: str = "active",
+) -> Layer2ImportSummary:
+    """Backfill legacy descriptor-layer and registry files into canonical Layer 2 rows.
+
+    Current migration behavior:
+    - registry files are read from ``policies/image/registries/*.yaml|*.yml``
+    - descriptor files are read from ``policies/image/descriptor_layers/*``
+    - registry references are inferred from legacy path fields
+    - descriptor references are inferred from successfully parsed registry refs
+    - unchanged variants are skipped, changed variants are updated, new variants are imported
+    """
+    _ensure_world_exists(world_id)
+    normalized_status = status.strip()
+    if normalized_status not in _SUPPORTED_STATUSES:
+        raise PolicyServiceError(
+            status_code=422,
+            code="POLICY_IMPORT_STATUS_INVALID",
+            detail=(
+                "Import status must be one of: draft, candidate, active, archived; "
+                f"got {status!r}."
+            ),
+        )
+
+    normalized_actor = actor.strip() or "policy-importer"
+    world_root = _resolve_world_root_path(world_id)
+    descriptor_root = world_root / _DESCRIPTOR_SOURCE_RELATIVE_DIR
+    registry_root = world_root / _REGISTRY_SOURCE_RELATIVE_DIR
+
+    descriptor_files = (
+        sorted(
+            [
+                *descriptor_root.glob("*.txt"),
+                *descriptor_root.glob("*.json"),
+                *descriptor_root.glob("*.yaml"),
+                *descriptor_root.glob("*.yml"),
+            ],
+            key=lambda path: path.name,
+        )
+        if descriptor_root.exists() and descriptor_root.is_dir()
+        else []
+    )
+    registry_files = (
+        sorted(
+            [*registry_root.glob("*.yaml"), *registry_root.glob("*.yml")],
+            key=lambda path: path.name,
+        )
+        if registry_root.exists() and registry_root.is_dir()
+        else []
+    )
+    if not descriptor_files and not registry_files:
+        raise PolicyServiceError(
+            status_code=404,
+            code="POLICY_LAYER2_SOURCE_NOT_FOUND",
+            detail=(
+                "Layer 2 source directories not found under world root: "
+                f"{descriptor_root} and {registry_root}"
+            ),
+        )
+
+    entries: list[Layer2ImportEntry] = []
+    imported_count = 0
+    updated_count = 0
+    skipped_count = 0
+    error_count = 0
+    activation_targets: dict[str, str] = {}
+    descriptor_reference_pool: set[tuple[str, str]] = set()
+
+    for registry_path in registry_files:
+        source_path = str(registry_path)
+        try:
+            payload = _read_registry_yaml_payload(registry_path)
+            policy_key, variant, policy_version = _resolve_registry_identity(
+                registry_path=registry_path,
+                payload=payload,
+            )
+            references = _extract_registry_references(payload=payload, registry_path=registry_path)
+            for reference in references:
+                descriptor_reference_pool.add((reference["policy_id"], reference["variant"]))
+            content = {"references": references}
+            policy_id = f"registry:image.registries:{policy_key}"
+            existing_row = policy_repo.get_policy(policy_id=policy_id, variant=variant)
+            if _is_policy_variant_unchanged(
+                existing_row=existing_row,
+                policy_version=policy_version,
+                status=normalized_status,
+                content=content,
+            ):
+                skipped_count += 1
+                entries.append(
+                    Layer2ImportEntry(
+                        source_path=source_path,
+                        policy_id=policy_id,
+                        variant=variant,
+                        action="skipped",
+                        detail="unchanged",
+                    )
+                )
+                activation_targets[policy_id] = variant
+                continue
+
+            upsert_policy_variant(
+                policy_id=policy_id,
+                variant=variant,
+                schema_version=_POLICY_SCHEMA_VERSION_V1,
+                policy_version=policy_version,
+                status=normalized_status,
+                content=content,
+                updated_by=normalized_actor,
+            )
+            action = "imported" if existing_row is None else "updated"
+            if action == "imported":
+                imported_count += 1
+            else:
+                updated_count += 1
+            entries.append(
+                Layer2ImportEntry(
+                    source_path=source_path,
+                    policy_id=policy_id,
+                    variant=variant,
+                    action=action,
+                    detail=f"{action} {policy_id}:{variant}",
+                )
+            )
+            activation_targets[policy_id] = variant
+        except (PolicyServiceError, ValueError, OSError) as exc:
+            error_count += 1
+            entries.append(
+                Layer2ImportEntry(
+                    source_path=source_path,
+                    policy_id=None,
+                    variant=None,
+                    action="error",
+                    detail=str(exc),
+                )
+            )
+
+    descriptor_references = [
+        {"policy_id": policy_id, "variant": variant}
+        for policy_id, variant in sorted(descriptor_reference_pool)
+    ]
+    for descriptor_path in descriptor_files:
+        source_path = str(descriptor_path)
+        try:
+            policy_key, variant, policy_version = _parse_descriptor_filename(descriptor_path)
+            # Ensure descriptor source files are still readable for audit and diagnostics.
+            descriptor_path.read_text(encoding="utf-8")
+            if not descriptor_references:
+                raise ValueError(
+                    "Descriptor import could not infer Layer 1 references from registry files. "
+                    "Import valid registries first."
+                )
+
+            content = {"references": descriptor_references}
+            policy_id = f"descriptor_layer:image.descriptors:{policy_key}"
+            existing_row = policy_repo.get_policy(policy_id=policy_id, variant=variant)
+            if _is_policy_variant_unchanged(
+                existing_row=existing_row,
+                policy_version=policy_version,
+                status=normalized_status,
+                content=content,
+            ):
+                skipped_count += 1
+                entries.append(
+                    Layer2ImportEntry(
+                        source_path=source_path,
+                        policy_id=policy_id,
+                        variant=variant,
+                        action="skipped",
+                        detail="unchanged",
+                    )
+                )
+                activation_targets[policy_id] = variant
+                continue
+
+            upsert_policy_variant(
+                policy_id=policy_id,
+                variant=variant,
+                schema_version=_POLICY_SCHEMA_VERSION_V1,
+                policy_version=policy_version,
+                status=normalized_status,
+                content=content,
+                updated_by=normalized_actor,
+            )
+            action = "imported" if existing_row is None else "updated"
+            if action == "imported":
+                imported_count += 1
+            else:
+                updated_count += 1
+            entries.append(
+                Layer2ImportEntry(
+                    source_path=source_path,
+                    policy_id=policy_id,
+                    variant=variant,
+                    action=action,
+                    detail=f"{action} {policy_id}:{variant}",
+                )
+            )
+            activation_targets[policy_id] = variant
+        except (PolicyServiceError, ValueError, OSError) as exc:
+            error_count += 1
+            entries.append(
+                Layer2ImportEntry(
+                    source_path=source_path,
+                    policy_id=None,
+                    variant=None,
+                    action="error",
+                    detail=str(exc),
+                )
+            )
+
+    activated_count = 0
+    activation_skipped_count = 0
+    if activate and activation_targets:
+        current_activations = {
+            str(row["policy_id"]): str(row["variant"])
+            for row in policy_repo.list_policy_activations(world_id=world_id, client_profile="")
+        }
+        world_scope = ActivationScope(world_id=world_id, client_profile="")
+        for policy_id in sorted(activation_targets):
+            target_variant = activation_targets[policy_id]
+            if current_activations.get(policy_id) == target_variant:
+                activation_skipped_count += 1
+                continue
+            try:
+                set_policy_activation(
+                    scope=world_scope,
+                    policy_id=policy_id,
+                    variant=target_variant,
+                    activated_by=normalized_actor,
+                )
+                current_activations[policy_id] = target_variant
+                activated_count += 1
+            except PolicyServiceError as exc:
+                error_count += 1
+                entries.append(
+                    Layer2ImportEntry(
+                        source_path="<activation>",
+                        policy_id=policy_id,
+                        variant=target_variant,
+                        action="error",
+                        detail=f"activation failed: {exc.detail}",
+                    )
+                )
+
+    return Layer2ImportSummary(
+        world_id=world_id,
+        activate=activate,
+        scanned_descriptor_files=len(descriptor_files),
+        scanned_registry_files=len(registry_files),
         imported_count=imported_count,
         updated_count=updated_count,
         skipped_count=skipped_count,
@@ -762,6 +1074,221 @@ def _is_species_variant_unchanged(
     content: dict[str, Any],
 ) -> bool:
     """Return ``True`` when existing species variant already matches import payload."""
+    return _is_policy_variant_unchanged(
+        existing_row=existing_row,
+        policy_version=policy_version,
+        status=status,
+        content=content,
+    )
+
+
+def _parse_descriptor_filename(descriptor_path: Path) -> tuple[str, str, int]:
+    """Extract ``policy_key``, ``variant``, and version from descriptor filename."""
+    match = _DESCRIPTOR_FILENAME_PATTERN.fullmatch(descriptor_path.name)
+    if match is None:
+        raise ValueError(
+            "Descriptor filename must match '<policy_key>_v<version>.(txt|json|yaml|yml)'; "
+            f"got {descriptor_path.name!r}."
+        )
+    policy_key = match.group("policy_key")
+    policy_version = int(match.group("version"))
+    return policy_key, f"v{policy_version}", policy_version
+
+
+def _read_registry_yaml_payload(registry_path: Path) -> dict[str, Any]:
+    """Read one legacy registry YAML file into a dictionary payload."""
+    try:
+        loaded = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
+    except OSError as exc:
+        raise OSError(f"Unable to read registry source file {registry_path}: {exc}") from exc
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML in registry source file {registry_path}: {exc}") from exc
+
+    if not isinstance(loaded, dict):
+        raise ValueError(f"Registry source file {registry_path} must contain a YAML object.")
+    return loaded
+
+
+def _resolve_registry_identity(
+    *,
+    registry_path: Path,
+    payload: dict[str, Any],
+) -> tuple[str, str, int]:
+    """Resolve canonical registry identity tuple from filename and payload metadata."""
+    filename_match = _REGISTRY_VERSIONED_FILENAME_PATTERN.fullmatch(registry_path.stem)
+    registry_meta = payload.get("registry")
+    if registry_meta is not None and not isinstance(registry_meta, dict):
+        raise ValueError(f"Registry file {registry_path} field 'registry' must be an object.")
+
+    payload_policy_key = str((registry_meta or {}).get("id", "")).strip()
+    payload_version = (registry_meta or {}).get("version")
+    if filename_match is not None:
+        policy_key = filename_match.group("policy_key")
+        file_version = int(filename_match.group("version"))
+        resolved_version = _resolve_positive_int_version(
+            value=payload_version,
+            default=file_version,
+            context=f"Registry file {registry_path} version",
+        )
+        if resolved_version != file_version:
+            raise ValueError(
+                f"Registry file {registry_path} version={resolved_version} must match "
+                f"filename v{file_version}."
+            )
+        if payload_policy_key and payload_policy_key != policy_key:
+            raise ValueError(
+                f"Registry file {registry_path} id={payload_policy_key!r} must match "
+                f"filename policy_key={policy_key!r}."
+            )
+        return policy_key, f"v{resolved_version}", resolved_version
+
+    policy_key = payload_policy_key or registry_path.stem
+    if not policy_key:
+        raise ValueError(f"Registry file {registry_path} must define a non-empty policy key.")
+    resolved_version = _resolve_positive_int_version(
+        value=payload_version,
+        default=None,
+        context=f"Registry file {registry_path} registry.version",
+    )
+    return policy_key, f"v{resolved_version}", resolved_version
+
+
+def _resolve_positive_int_version(*, value: Any, default: int | None, context: str) -> int:
+    """Resolve one positive integer version value with strict type checks."""
+    if value is None:
+        if default is None:
+            raise ValueError(f"{context} must be a positive integer.")
+        return default
+    if isinstance(value, bool):
+        raise ValueError(f"{context} must not be a boolean.")
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, str) and value.strip().isdigit():
+        parsed = int(value.strip())
+    else:
+        raise ValueError(f"{context} must be a positive integer; got {value!r}.")
+    if parsed < 1:
+        raise ValueError(f"{context} must be >= 1.")
+    return parsed
+
+
+def _extract_registry_references(
+    *,
+    payload: dict[str, Any],
+    registry_path: Path,
+) -> list[dict[str, str]]:
+    """Extract canonical Layer 2 references from legacy registry payload fields."""
+    explicit_references = payload.get("references")
+    if explicit_references is not None:
+        normalized = _normalize_reference_entries(
+            references=explicit_references,
+            policy_type="registry",
+        )
+        if normalized:
+            return normalized
+
+    candidates: list[str] = []
+    entries = payload.get("entries")
+    if isinstance(entries, list):
+        candidates.extend(_collect_legacy_path_fields_from_entries(entries))
+    slots = payload.get("slots")
+    if isinstance(slots, dict):
+        for slot_rows in slots.values():
+            if isinstance(slot_rows, list):
+                candidates.extend(_collect_legacy_path_fields_from_entries(slot_rows))
+
+    resolved: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for candidate in candidates:
+        reference = _policy_reference_from_legacy_path(candidate)
+        if reference is None:
+            continue
+        identity = (reference["policy_id"], reference["variant"])
+        if identity in seen:
+            continue
+        seen.add(identity)
+        resolved.append(reference)
+    if not resolved:
+        raise ValueError(
+            "Registry file "
+            f"{registry_path} has no mappable Layer 1 references. "
+            "Expected explicit content.references or legacy block/fragment/prompt/tone paths."
+        )
+    return resolved
+
+
+def _normalize_reference_entries(*, references: Any, policy_type: str) -> list[dict[str, str]]:
+    """Validate/normalize explicit Layer 2 references into canonical list form."""
+    if not isinstance(references, list) or len(references) == 0:
+        raise ValueError(f"{policy_type} content.references must be a non-empty list.")
+
+    normalized: list[dict[str, str]] = []
+    for index, item in enumerate(references):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"{policy_type} content.references[{index}] must be an object with "
+                "'policy_id' and 'variant'."
+            )
+        policy_id = str(item.get("policy_id", "")).strip()
+        variant = str(item.get("variant", "")).strip()
+        if not policy_id:
+            raise ValueError(f"{policy_type} content.references[{index}].policy_id is required.")
+        if not variant:
+            raise ValueError(f"{policy_type} content.references[{index}].variant is required.")
+        normalized.append({"policy_id": policy_id, "variant": variant})
+    return normalized
+
+
+def _collect_legacy_path_fields_from_entries(entries: list[Any]) -> list[str]:
+    """Return recognized legacy path values from one list of registry row objects."""
+    values: list[str] = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        for key in ("block_path", "fragment_path", "prompt_path", "tone_profile_path"):
+            raw_value = item.get(key)
+            if isinstance(raw_value, str) and raw_value.strip():
+                values.append(raw_value.strip())
+    return values
+
+
+def _policy_reference_from_legacy_path(path_value: str) -> dict[str, str] | None:
+    """Map one legacy path value to canonical Layer 1 policy id + variant."""
+    normalized = path_value.replace("\\", "/").strip().lstrip("./")
+
+    species_match = _LEGACY_SPECIES_BLOCK_PATH_PATTERN.fullmatch(normalized)
+    if species_match is not None:
+        return {
+            "policy_id": f"species_block:image.blocks.species:{species_match.group('policy_key')}",
+            "variant": species_match.group("variant"),
+        }
+
+    prompt_match = _LEGACY_PROMPT_PATH_PATTERN.fullmatch(normalized)
+    if prompt_match is not None:
+        namespace = prompt_match.group("namespace_path").replace("/", ".")
+        return {
+            "policy_id": f"prompt:{namespace}:{prompt_match.group('policy_key')}",
+            "variant": prompt_match.group("variant"),
+        }
+
+    tone_match = _LEGACY_TONE_PROFILE_PATH_PATTERN.fullmatch(normalized)
+    if tone_match is not None:
+        return {
+            "policy_id": f"tone_profile:image.tone_profiles:{tone_match.group('policy_key')}",
+            "variant": tone_match.group("variant"),
+        }
+
+    return None
+
+
+def _is_policy_variant_unchanged(
+    *,
+    existing_row: dict[str, Any] | None,
+    policy_version: int,
+    status: str,
+    content: dict[str, Any],
+) -> bool:
+    """Return ``True`` when existing variant row already matches import payload."""
     if existing_row is None:
         return False
 
