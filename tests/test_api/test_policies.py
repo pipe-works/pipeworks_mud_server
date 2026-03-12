@@ -74,9 +74,42 @@ def _tone_profile_payload(
 
 
 @pytest.mark.api
+@pytest.mark.parametrize("username", ["testplayer", "testbuilder"])
+def test_policy_routes_require_admin_or_superuser_role(
+    test_client,
+    db_with_users,
+    username: str,
+) -> None:
+    """Policy routes should reject non-admin roles with HTTP 403."""
+    session_id = _session_id_for(username)
+    policy_id = quote("species_block:image.blocks.species:goblin", safe="")
+
+    list_response = test_client.get("/api/policies", params={"session_id": session_id})
+    assert list_response.status_code == 403
+    assert "admin or superuser" in list_response.json()["detail"]
+
+    upsert_response = test_client.put(
+        f"/api/policies/{policy_id}/variants/v1",
+        params={"session_id": session_id},
+        json=_species_payload(text="forbidden write"),
+    )
+    assert upsert_response.status_code == 403
+    assert "admin or superuser" in upsert_response.json()["detail"]
+
+
+@pytest.mark.api
+def test_policy_routes_allow_superuser_role(test_client, db_with_users) -> None:
+    """Policy routes should allow superuser sessions."""
+    session_id = _session_id_for("testsuperuser")
+    list_response = test_client.get("/api/policies", params={"session_id": session_id})
+    assert list_response.status_code == 200
+    assert isinstance(list_response.json().get("items"), list)
+
+
+@pytest.mark.api
 def test_species_policy_validate_upsert_get_and_list(test_client, db_with_users) -> None:
     """Species pilot should support validate->upsert->read/list flow."""
-    session_id = _session_id_for("testbuilder")
+    session_id = _session_id_for("testadmin")
     policy_id = "species_block:image.blocks.species:goblin"
     encoded_id = quote(policy_id, safe="")
 
@@ -129,7 +162,7 @@ def test_species_policy_validate_upsert_get_and_list(test_client, db_with_users)
 @pytest.mark.api
 def test_species_policy_validation_rejects_empty_text(test_client, db_with_users) -> None:
     """Species pilot validation should reject empty content.text."""
-    session_id = _session_id_for("testbuilder")
+    session_id = _session_id_for("testadmin")
     policy_id = "species_block:image.blocks.species:goblin"
     encoded_id = quote(policy_id, safe="")
 
@@ -147,7 +180,7 @@ def test_species_policy_validation_rejects_empty_text(test_client, db_with_users
 @pytest.mark.api
 def test_prompt_policy_validate_and_upsert_flow(test_client, db_with_users) -> None:
     """Prompt Layer 1 policy objects should validate and persist through unified API routes."""
-    session_id = _session_id_for("testbuilder")
+    session_id = _session_id_for("testadmin")
     policy_id = "prompt:image.prompts:ic_default"
     encoded_id = quote(policy_id, safe="")
 
@@ -175,7 +208,7 @@ def test_prompt_policy_validate_and_upsert_flow(test_client, db_with_users) -> N
 @pytest.mark.api
 def test_tone_profile_policy_rejects_empty_prompt_block(test_client, db_with_users) -> None:
     """Tone profile Layer 1 objects should reject empty ``prompt_block`` payload text."""
-    session_id = _session_id_for("testbuilder")
+    session_id = _session_id_for("testadmin")
     policy_id = "tone_profile:image.tone_profiles:ledger_engraving"
     encoded_id = quote(policy_id, safe="")
 
@@ -193,7 +226,7 @@ def test_tone_profile_policy_rejects_empty_prompt_block(test_client, db_with_use
 @pytest.mark.api
 def test_policy_activation_and_rollback_flow(test_client, db_with_users) -> None:
     """Activation should be scope-based and rollback should restore prior variant."""
-    session_id = _session_id_for("testbuilder")
+    session_id = _session_id_for("testadmin")
     policy_id = "species_block:image.blocks.species:goblin"
     encoded_id = quote(policy_id, safe="")
 
@@ -267,7 +300,7 @@ def test_policy_activation_effective_scope_overlays_world_defaults(
     test_client, db_with_users
 ) -> None:
     """Client scope listing should inherit world defaults and apply client overrides."""
-    session_id = _session_id_for("testbuilder")
+    session_id = _session_id_for("testadmin")
     goblin_id = "species_block:image.blocks.species:goblin"
     kobold_id = "species_block:image.blocks.species:kobold"
 
@@ -339,7 +372,7 @@ def test_descriptor_layer_upsert_enforces_layer1_reference_rules(
     test_client, db_with_users
 ) -> None:
     """Descriptor-layer writes should require valid Layer 1 references."""
-    session_id = _session_id_for("testbuilder")
+    session_id = _session_id_for("testadmin")
     species_policy_id = "species_block:image.blocks.species:elf"
     descriptor_policy_id = "descriptor_layer:image.descriptors:combat"
 
@@ -382,7 +415,7 @@ def test_policy_publish_returns_deterministic_manifest(
 ) -> None:
     """Publish should emit manifest rows based on active scope pointers."""
     monkeypatch.setattr(policy_service.config.worlds, "worlds_root", str(tmp_path))
-    session_id = _session_id_for("testbuilder")
+    session_id = _session_id_for("testadmin")
     policy_id = "species_block:image.blocks.species:goblin"
     encoded_id = quote(policy_id, safe="")
 
@@ -447,7 +480,7 @@ def test_policy_publish_returns_deterministic_manifest(
 @pytest.mark.api
 def test_policy_upsert_rejects_invalid_policy_id_shape(test_client, db_with_users) -> None:
     """Route should return contract error when ``policy_id`` format is invalid."""
-    session_id = _session_id_for("testbuilder")
+    session_id = _session_id_for("testadmin")
     invalid_policy_id = quote("species_block:image.blocks.species", safe="")
 
     response = test_client.put(
@@ -464,7 +497,7 @@ def test_policy_upsert_rejects_invalid_policy_id_shape(test_client, db_with_user
 @pytest.mark.api
 def test_policy_upsert_rejects_unsupported_policy_type(test_client, db_with_users) -> None:
     """Route should reject unknown policy types before write."""
-    session_id = _session_id_for("testbuilder")
+    session_id = _session_id_for("testadmin")
     policy_id = quote("unknown_type:image.blocks.species:goblin", safe="")
 
     response = test_client.put(
@@ -483,7 +516,7 @@ def test_policy_get_without_variant_returns_latest_policy_version(
     test_client, db_with_users
 ) -> None:
     """GET without variant should return the newest policy_version row."""
-    session_id = _session_id_for("testbuilder")
+    session_id = _session_id_for("testadmin")
     policy_id = "species_block:image.blocks.species:kobold"
     encoded_id = quote(policy_id, safe="")
 
@@ -511,7 +544,7 @@ def test_policy_get_without_variant_returns_latest_policy_version(
 @pytest.mark.api
 def test_policy_activation_rejects_unknown_world_scope(test_client, db_with_users) -> None:
     """Activation should return a world-not-found error for unknown world scope."""
-    session_id = _session_id_for("testbuilder")
+    session_id = _session_id_for("testadmin")
     policy_id = "species_block:image.blocks.species:goblin"
     encoded_id = quote(policy_id, safe="")
 
@@ -543,7 +576,7 @@ def test_policy_routes_map_service_errors_to_canonical_payloads(
     monkeypatch,
 ) -> None:
     """Route handlers should translate service errors into structured API payloads."""
-    session_id = _session_id_for("testbuilder")
+    session_id = _session_id_for("testadmin")
     policy_id = "species_block:image.blocks.species:goblin"
     encoded_id = quote(policy_id, safe="")
 
