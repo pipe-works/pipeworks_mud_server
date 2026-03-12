@@ -26,10 +26,16 @@
   background: var(--col-bg);
 }
 
+.app-shell > .app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
 .layout {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
-  min-height: 100vh;
+  min-height: calc(100vh - var(--header-h));
   width: 100%;
   background: var(--col-bg);
 }
@@ -43,7 +49,7 @@
   position: sticky;
   top: 0;
   align-self: start;
-  height: 100vh;
+  height: calc(100vh - var(--header-h));
   display: flex;
   flex-direction: column;
   gap: 2rem;
@@ -104,36 +110,8 @@
 .main {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--header-h));
   background: var(--col-bg);
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--sp-4);
-  padding: var(--sp-3) var(--layout-pad);
-  border-bottom: 1px solid var(--col-border);
-  background: var(--col-surface);
-  position: sticky;
-  top: 0;
-  z-index: 5;
-}
-
-.header-title {
-  display: grid;
-  gap: var(--sp-1);
-}
-
-.header-title h1 {
-  margin: 0;
-  font-size: var(--text-xl);
-}
-
-.header-title span {
-  color: var(--col-text-muted);
-  font-size: var(--text-sm);
 }
 
 .content {
@@ -143,6 +121,24 @@
   margin: 0;
   display: grid;
   gap: var(--sp-6);
+}
+
+.theme-toggle {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--col-border-hi);
+  border-radius: var(--radius-sm);
+  color: var(--col-text-muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: 2px var(--sp-2);
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.theme-toggle:hover {
+  color: var(--col-accent);
+  border-color: var(--col-accent);
 }
 
 

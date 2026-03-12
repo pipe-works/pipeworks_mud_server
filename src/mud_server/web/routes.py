@@ -21,6 +21,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from mud_server import __version__
+
 # Resolve paths relative to this file for predictable packaging.
 _WEB_ROOT = Path(__file__).resolve().parent
 _TEMPLATES_DIR = _WEB_ROOT / "templates"
@@ -31,6 +33,7 @@ ADMIN_ASSET_VERSION = "20260220b"
 # Static asset version token for play shell cache busting.
 # Keep separate from admin so play-shell rollouts can be versioned independently.
 PLAY_ASSET_VERSION = "20260226c"
+APP_VERSION = __version__
 
 
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -52,6 +55,7 @@ def build_admin_router() -> APIRouter:
             "admin_shell.html",
             {
                 "asset_version": ADMIN_ASSET_VERSION,
+                "app_version": APP_VERSION,
             },
         )
 

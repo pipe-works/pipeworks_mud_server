@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from mud_server import __version__
 from mud_server.web.routes import register_web_routes
 
 
@@ -18,6 +19,7 @@ def test_admin_shell_served_at_root():
 
     assert response.status_code == 200
     assert "PipeWorks Admin Dashboard" in response.text
+    assert f'data-app-version="{__version__}"' in response.text
 
 
 def test_admin_shell_served_for_subpaths():

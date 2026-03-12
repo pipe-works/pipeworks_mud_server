@@ -115,6 +115,38 @@ def _write_descriptor_file(
     descriptor_path.write_text(text, encoding="utf-8")
 
 
+def _write_tone_profile_json(
+    *,
+    worlds_root: Path,
+    world_id: str,
+    filename: str,
+    payload: dict[str, object],
+) -> None:
+    """Write one legacy tone-profile JSON fixture under the canonical path."""
+    tone_root = worlds_root / world_id / "policies" / "image" / "tone_profiles"
+    tone_root.mkdir(parents=True, exist_ok=True)
+    tone_path = tone_root / filename
+    tone_path.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_prompt_file(
+    *,
+    worlds_root: Path,
+    world_id: str,
+    namespace_path: str,
+    filename: str,
+    text: str,
+) -> None:
+    """Write one legacy prompt fixture under translation/image prompt trees."""
+    prompt_root = worlds_root / world_id / "policies" / Path(namespace_path)
+    prompt_root.mkdir(parents=True, exist_ok=True)
+    prompt_path = prompt_root / filename
+    prompt_path.write_text(text, encoding="utf-8")
+
+
 @pytest.mark.unit
 def test_parse_scope_supports_world_only_and_world_plus_client() -> None:
     """Scope parser should normalize world-only and world+client forms."""
@@ -1113,11 +1145,349 @@ def test_import_layer2_policies_from_legacy_files_reports_activation_failure(
 
 
 @pytest.mark.unit
+def test_import_tone_prompt_policies_from_legacy_files_backfills_and_activates(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Importer should backfill tone-profile/prompt files and seed activations."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _write_tone_profile_json(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="ledger_engraving_v1.json",
+        payload={
+            "name": "ledger_engraving_v1",
+            "prompt_block": "Muted engraving style on archival texture.",
+        },
+    )
+    _write_prompt_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        namespace_path="translation/prompts/ic",
+        filename="default_v1.txt",
+        text="Translation prompt text.\n",
+    )
+    _write_prompt_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        namespace_path="image/prompts/species",
+        filename="goblin_v1.txt",
+        text="Image prompt text.\n",
+    )
+
+    summary = policy_service.import_tone_prompt_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=True,
+        status="active",
+    )
+
+    assert summary.scanned_tone_profile_files == 1
+    assert summary.scanned_prompt_files == 2
+    assert summary.imported_count == 3
+    assert summary.updated_count == 0
+    assert summary.skipped_count == 0
+    assert summary.error_count == 0
+    assert summary.activated_count == 3
+    assert summary.activation_skipped_count == 0
+
+    tone_row = policy_service.get_policy(
+        policy_id="tone_profile:image.tone_profiles:ledger_engraving",
+        variant="v1",
+    )
+    translation_prompt_row = policy_service.get_policy(
+        policy_id="prompt:translation.prompts.ic:default",
+        variant="v1",
+    )
+    image_prompt_row = policy_service.get_policy(
+        policy_id="prompt:image.prompts.species:goblin",
+        variant="v1",
+    )
+    assert tone_row["content"]["prompt_block"] == "Muted engraving style on archival texture."
+    assert translation_prompt_row["content"] == {"text": "Translation prompt text."}
+    assert image_prompt_row["content"] == {"text": "Image prompt text."}
+
+    effective_rows = policy_service.resolve_effective_policy_activations(
+        scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+    )
+    by_policy_id = {row["policy_id"]: row for row in effective_rows}
+    assert by_policy_id["tone_profile:image.tone_profiles:ledger_engraving"]["variant"] == "v1"
+    assert by_policy_id["prompt:translation.prompts.ic:default"]["variant"] == "v1"
+    assert by_policy_id["prompt:image.prompts.species:goblin"]["variant"] == "v1"
+
+
+@pytest.mark.unit
+def test_import_tone_prompt_policies_from_legacy_files_is_idempotent(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Second import pass should skip unchanged tone-profile/prompt variants."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _write_tone_profile_json(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="ledger_engraving_v1.json",
+        payload={"prompt_block": "Muted engraving style on archival texture."},
+    )
+    _write_prompt_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        namespace_path="translation/prompts/ic",
+        filename="default_v1.txt",
+        text="Translation prompt text.",
+    )
+
+    first = policy_service.import_tone_prompt_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=True,
+        status="active",
+    )
+    second = policy_service.import_tone_prompt_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=True,
+        status="active",
+    )
+    assert first.imported_count == 2
+    assert second.imported_count == 0
+    assert second.updated_count == 0
+    assert second.skipped_count == 2
+    assert second.error_count == 0
+    assert second.activated_count == 0
+    assert second.activation_skipped_count == 2
+
+
+@pytest.mark.unit
+def test_import_tone_prompt_policies_from_legacy_files_continues_after_invalid_file(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Importer should report invalid files and continue importing valid files."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _write_tone_profile_json(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="ledger_engraving_v1.json",
+        payload={"prompt_block": "Muted engraving style on archival texture."},
+    )
+    _write_prompt_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        namespace_path="translation/prompts/ic",
+        filename="broken_prompt.txt",
+        text="Broken filename prompt.",
+    )
+
+    summary = policy_service.import_tone_prompt_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=False,
+        status="candidate",
+    )
+    assert summary.scanned_tone_profile_files == 1
+    assert summary.scanned_prompt_files == 1
+    assert summary.imported_count == 1
+    assert summary.error_count == 1
+    error_rows = [entry for entry in summary.entries if entry.action == "error"]
+    assert len(error_rows) == 1
+    assert "Prompt filename must match '<policy_key>_v<version>.txt'" in error_rows[0].detail
+
+
+@pytest.mark.unit
+def test_import_tone_prompt_policies_from_legacy_files_rejects_missing_source_roots(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Importer should fail when no tone-profile/prompt roots exist."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    (tmp_path / constants.DEFAULT_WORLD_ID).mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.import_tone_prompt_policies_from_legacy_files(
+            world_id=constants.DEFAULT_WORLD_ID,
+            actor="importer",
+            activate=False,
+            status="active",
+        )
+    assert error.value.code == "POLICY_TONE_PROMPT_SOURCE_NOT_FOUND"
+
+
+@pytest.mark.unit
+def test_import_tone_prompt_policies_from_legacy_files_rejects_invalid_status(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Importer should reject unsupported status values before scanning."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _write_tone_profile_json(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="ledger_engraving_v1.json",
+        payload={"prompt_block": "Muted engraving style on archival texture."},
+    )
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.import_tone_prompt_policies_from_legacy_files(
+            world_id=constants.DEFAULT_WORLD_ID,
+            actor="importer",
+            activate=False,
+            status="invalid-status",
+        )
+    assert error.value.code == "POLICY_IMPORT_STATUS_INVALID"
+
+
+@pytest.mark.unit
+def test_import_tone_prompt_policies_from_legacy_files_reports_activation_failure(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Importer should record activation failures while preserving import success."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _write_tone_profile_json(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="ledger_engraving_v1.json",
+        payload={"prompt_block": "Muted engraving style on archival texture."},
+    )
+    _write_prompt_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        namespace_path="translation/prompts/ic",
+        filename="default_v1.txt",
+        text="Translation prompt text.",
+    )
+
+    def _raise_activation_error(**_kwargs):
+        raise PolicyServiceError(
+            status_code=422,
+            code="POLICY_ACTIVATION_INVALID",
+            detail="simulated activation failure",
+        )
+
+    monkeypatch.setattr(policy_service, "set_policy_activation", _raise_activation_error)
+    summary = policy_service.import_tone_prompt_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=True,
+        status="active",
+    )
+    assert summary.imported_count == 2
+    assert summary.activated_count == 0
+    assert summary.error_count == 2
+    activation_errors = [
+        entry
+        for entry in summary.entries
+        if entry.action == "error" and entry.source_path == "<activation>"
+    ]
+    assert len(activation_errors) == 2
+
+
+@pytest.mark.unit
 def test_parse_descriptor_filename_rejects_invalid_names(tmp_path: Path) -> None:
     """Descriptor filename parser should enforce versioned naming contract."""
     with pytest.raises(ValueError) as error:
         policy_service._parse_descriptor_filename(tmp_path / "id_card.txt")
     assert "Descriptor filename must match" in str(error.value)
+
+
+@pytest.mark.unit
+def test_parse_tone_profile_filename_rejects_invalid_names(tmp_path: Path) -> None:
+    """Tone-profile filename parser should enforce versioned naming contract."""
+    with pytest.raises(ValueError) as error:
+        policy_service._parse_tone_profile_filename(tmp_path / "ledger_engraving.json")
+    assert "Tone profile filename must match" in str(error.value)
+
+
+@pytest.mark.unit
+def test_read_tone_profile_json_content_wraps_io_json_and_shape_errors(tmp_path: Path) -> None:
+    """Tone-profile reader should wrap IO/JSON errors and reject non-object payloads."""
+    missing_file = tmp_path / "missing.json"
+    with pytest.raises(OSError) as io_error:
+        policy_service._read_tone_profile_json_content(missing_file)
+    assert "Unable to read tone profile source file" in str(io_error.value)
+
+    invalid_json = tmp_path / "invalid.json"
+    invalid_json.write_text("{bad json}", encoding="utf-8")
+    with pytest.raises(ValueError) as json_error:
+        policy_service._read_tone_profile_json_content(invalid_json)
+    assert "Invalid JSON in tone profile source file" in str(json_error.value)
+
+    list_payload = tmp_path / "list.json"
+    list_payload.write_text("[1, 2, 3]\n", encoding="utf-8")
+    with pytest.raises(ValueError) as shape_error:
+        policy_service._read_tone_profile_json_content(list_payload)
+    assert "must contain a JSON object" in str(shape_error.value)
+
+
+@pytest.mark.unit
+def test_parse_prompt_file_identity_validates_filename_and_namespace(tmp_path: Path) -> None:
+    """Prompt identity parser should enforce filename and allowed prompt roots."""
+    world_root = tmp_path / "world"
+    prompt_file = world_root / "policies" / "translation" / "prompts" / "ic" / "default_v2.txt"
+    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    prompt_file.write_text("prompt text", encoding="utf-8")
+    namespace, policy_key, variant, policy_version = policy_service._parse_prompt_file_identity(
+        prompt_path=prompt_file,
+        world_root=world_root,
+    )
+    assert namespace == "translation.prompts.ic"
+    assert policy_key == "default"
+    assert variant == "v2"
+    assert policy_version == 2
+
+    with pytest.raises(ValueError) as filename_error:
+        policy_service._parse_prompt_file_identity(
+            prompt_path=world_root / "policies" / "translation" / "prompts" / "ic" / "default.txt",
+            world_root=world_root,
+        )
+    assert "Prompt filename must match" in str(filename_error.value)
+
+    invalid_namespace_file = world_root / "policies" / "translation" / "templates" / "ic_v1.txt"
+    invalid_namespace_file.parent.mkdir(parents=True, exist_ok=True)
+    invalid_namespace_file.write_text("prompt text", encoding="utf-8")
+    with pytest.raises(ValueError) as namespace_error:
+        policy_service._parse_prompt_file_identity(
+            prompt_path=invalid_namespace_file,
+            world_root=world_root,
+        )
+    assert "must be under 'policies/image/prompts' or 'policies/translation/prompts'" in str(
+        namespace_error.value
+    )
+
+    outside_file = tmp_path / "outside" / "default_v1.txt"
+    outside_file.parent.mkdir(parents=True, exist_ok=True)
+    outside_file.write_text("prompt text", encoding="utf-8")
+    with pytest.raises(ValueError) as outside_error:
+        policy_service._parse_prompt_file_identity(
+            prompt_path=outside_file,
+            world_root=world_root,
+        )
+    assert "must be located under" in str(outside_error.value)
+
+
+@pytest.mark.unit
+def test_read_prompt_text_content_requires_non_empty_and_wraps_io(tmp_path: Path) -> None:
+    """Prompt reader should reject empty content and normalize trailing newlines."""
+    missing_file = tmp_path / "missing.txt"
+    with pytest.raises(OSError) as io_error:
+        policy_service._read_prompt_text_content(missing_file)
+    assert "Unable to read prompt source file" in str(io_error.value)
+
+    empty_file = tmp_path / "empty.txt"
+    empty_file.write_text("   \n", encoding="utf-8")
+    with pytest.raises(ValueError) as empty_error:
+        policy_service._read_prompt_text_content(empty_file)
+    assert "must define non-empty text content" in str(empty_error.value)
+
+    content_file = tmp_path / "default_v1.txt"
+    content_file.write_text("Prompt body.\n\n", encoding="utf-8")
+    assert policy_service._read_prompt_text_content(content_file) == "Prompt body."
 
 
 @pytest.mark.unit

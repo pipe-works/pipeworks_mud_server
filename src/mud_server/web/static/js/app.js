@@ -53,24 +53,26 @@ function getSessionState() {
   return { session, isAuthorized };
 }
 
-function buildShell() {
+function buildShell({ appVersion }) {
   return `
+    <header class="app-header">
+      <span class="app-header__title">🛠 Mud Server Admin</span>
+      <span class="app-header__subtitle">Pipe-Works · Admin Control Surface · v${appVersion}</span>
+      <button
+        id="theme-toggle"
+        class="theme-toggle"
+        type="button"
+        data-theme-toggle
+        aria-label="Toggle dark and light theme"
+      >☀ Light</button>
+      <button class="btn btn--secondary btn--sm" type="button" data-logout>Logout</button>
+    </header>
     <div class="layout">
       <aside class="sidebar">
         <div class="brand">PipeWorks Admin</div>
         <nav class="nav" data-nav></nav>
       </aside>
       <main class="main">
-        <header class="header">
-          <div class="header-title">
-            <h1 data-header-title>Admin Dashboard</h1>
-            <span data-header-subtitle>Overview</span>
-          </div>
-          <div class="actions">
-            <button class="btn btn--secondary" type="button" data-theme-toggle>Toggle Theme</button>
-            <button class="btn btn--secondary" type="button" data-logout>Logout</button>
-          </div>
-        </header>
         <section class="content" data-content></section>
       </main>
     </div>
@@ -106,35 +108,12 @@ function render() {
     return;
   }
 
-  root.innerHTML = buildShell();
+  const appVersion = document.body?.dataset?.appVersion?.trim() || '0.0.0-dev';
+  root.innerHTML = buildShell({ appVersion });
 
   const content = root.querySelector('[data-content]');
   const activePath = window.location.pathname;
   const view = ROUTES[activePath] || renderDashboard;
-  const titleMap = {
-    '/admin': 'Dashboard',
-    '/admin/': 'Dashboard',
-    '/admin/users': 'Users',
-    '/admin/accounts': 'Accounts',
-    '/admin/characters': 'Characters',
-    '/admin/tombstones': 'Tombstones',
-    '/admin/sessions': 'Sessions',
-    '/admin/connections': 'Connections',
-    '/admin/locations': 'Locations',
-    '/admin/chat': 'Chat',
-    '/admin/tables': 'Tables',
-    '/admin/schema': 'Schema',
-    '/admin/worlds': 'Worlds',
-    '/admin/superuser': 'Superuser',
-  };
-
-  const headerTitle = root.querySelector('[data-header-title]');
-  const headerSubtitle = root.querySelector('[data-header-subtitle]');
-  if (headerTitle && headerSubtitle) {
-    const title = titleMap[activePath] || 'Dashboard';
-    headerTitle.textContent = title;
-    headerSubtitle.textContent = `Admin • ${session.role}`;
-  }
 
   renderNav({ root, activePath, role: session.role });
 

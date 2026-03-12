@@ -150,10 +150,24 @@ mud-server import-layer2-policies --world-id pipeworks_web
 
 Notes:
 
-- Run species import first so registry/descriptor references can resolve
-  against existing Layer 1 `species_block` rows.
+- Run Layer 1 import commands first (`import-species-policies` and
+  `import-tone-prompt-policies`) so registry/descriptor references can resolve
+  against existing Layer 1 rows.
 - Registry files with only unmappable legacy paths are reported as import
   errors and do not block other valid Layer 2 files.
+
+### Import Legacy Tone-Profile and Prompt Policies
+
+Backfill legacy `tone_profiles/*.json` and `prompts/**/*.txt` files into
+canonical Layer 1 policy tables and optionally seed world-level activation
+pointers:
+
+```bash
+mud-server import-tone-prompt-policies --world-id pipeworks_web
+```
+
+Use `--no-activate` to import/update variants without changing activation
+state.
 
 ---
 

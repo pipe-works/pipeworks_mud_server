@@ -54,6 +54,15 @@ _SPECIES_SOURCE_RELATIVE_DIR = Path("policies") / "image" / "blocks" / "species"
 _SPECIES_FILENAME_PATTERN = re.compile(
     r"^(?P<policy_key>[A-Za-z0-9_.-]+)_v(?P<version>[1-9][0-9]*)$"
 )
+_TONE_PROFILE_SOURCE_RELATIVE_DIR = Path("policies") / "image" / "tone_profiles"
+_PROMPT_TRANSLATION_SOURCE_RELATIVE_DIR = Path("policies") / "translation" / "prompts"
+_PROMPT_IMAGE_SOURCE_RELATIVE_DIR = Path("policies") / "image" / "prompts"
+_TONE_PROFILE_FILENAME_PATTERN = re.compile(
+    r"^(?P<policy_key>[A-Za-z0-9_.-]+)_v(?P<version>[1-9][0-9]*)\.json$"
+)
+_PROMPT_FILENAME_PATTERN = re.compile(
+    r"^(?P<policy_key>[A-Za-z0-9_.-]+)_v(?P<version>[1-9][0-9]*)\.txt$"
+)
 _DESCRIPTOR_SOURCE_RELATIVE_DIR = Path("policies") / "image" / "descriptor_layers"
 _REGISTRY_SOURCE_RELATIVE_DIR = Path("policies") / "image" / "registries"
 _DESCRIPTOR_FILENAME_PATTERN = re.compile(
@@ -181,6 +190,34 @@ class Layer2ImportSummary:
     activated_count: int
     activation_skipped_count: int
     entries: list[Layer2ImportEntry]
+
+
+@dataclass(frozen=True, slots=True)
+class TonePromptImportEntry:
+    """One legacy tone-profile/prompt import outcome row."""
+
+    source_path: str
+    policy_id: str | None
+    variant: str | None
+    action: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class TonePromptImportSummary:
+    """Aggregate result for one tone-profile/prompt backfill/import run."""
+
+    world_id: str
+    activate: bool
+    scanned_tone_profile_files: int
+    scanned_prompt_files: int
+    imported_count: int
+    updated_count: int
+    skipped_count: int
+    error_count: int
+    activated_count: int
+    activation_skipped_count: int
+    entries: list[TonePromptImportEntry]
 
 
 def list_policies(
@@ -614,6 +651,249 @@ def import_layer2_policies_from_legacy_files(
         activate=activate,
         scanned_descriptor_files=len(descriptor_files),
         scanned_registry_files=len(registry_files),
+        imported_count=imported_count,
+        updated_count=updated_count,
+        skipped_count=skipped_count,
+        error_count=error_count,
+        activated_count=activated_count,
+        activation_skipped_count=activation_skipped_count,
+        entries=entries,
+    )
+
+
+def import_tone_prompt_policies_from_legacy_files(
+    *,
+    world_id: str,
+    actor: str,
+    activate: bool,
+    status: str = "active",
+) -> TonePromptImportSummary:
+    """Backfill legacy tone-profile/prompt files into canonical Layer 1 policy rows.
+
+    Current migration behavior:
+    - tone profiles are read from ``policies/image/tone_profiles/*.json``
+    - prompts are read from ``policies/translation/prompts/**/*.txt`` and
+      ``policies/image/prompts/**/*.txt``
+    - unchanged variants are skipped, changed variants are updated, and new variants
+      are imported
+    - optional world-scope activation only mutates pointers when needed
+    """
+    _ensure_world_exists(world_id)
+    normalized_status = status.strip()
+    if normalized_status not in _SUPPORTED_STATUSES:
+        raise PolicyServiceError(
+            status_code=422,
+            code="POLICY_IMPORT_STATUS_INVALID",
+            detail=(
+                "Import status must be one of: draft, candidate, active, archived; "
+                f"got {status!r}."
+            ),
+        )
+
+    normalized_actor = actor.strip() or "policy-importer"
+    world_root = _resolve_world_root_path(world_id)
+    tone_profile_root = world_root / _TONE_PROFILE_SOURCE_RELATIVE_DIR
+    translation_prompt_root = world_root / _PROMPT_TRANSLATION_SOURCE_RELATIVE_DIR
+    image_prompt_root = world_root / _PROMPT_IMAGE_SOURCE_RELATIVE_DIR
+
+    tone_profile_files = (
+        sorted(tone_profile_root.glob("*.json"), key=lambda path: path.name)
+        if tone_profile_root.exists() and tone_profile_root.is_dir()
+        else []
+    )
+    prompt_files: list[Path] = []
+    for prompt_root in (translation_prompt_root, image_prompt_root):
+        if prompt_root.exists() and prompt_root.is_dir():
+            prompt_files.extend(path for path in prompt_root.rglob("*.txt") if path.is_file())
+    prompt_files = sorted(
+        prompt_files,
+        key=lambda path: str(path.relative_to(world_root)).replace("\\", "/"),
+    )
+
+    if not tone_profile_files and not prompt_files:
+        raise PolicyServiceError(
+            status_code=404,
+            code="POLICY_TONE_PROMPT_SOURCE_NOT_FOUND",
+            detail=(
+                "Tone profile/prompt source directories not found under world root: "
+                f"{tone_profile_root}, {translation_prompt_root}, and {image_prompt_root}"
+            ),
+        )
+
+    entries: list[TonePromptImportEntry] = []
+    imported_count = 0
+    updated_count = 0
+    skipped_count = 0
+    error_count = 0
+    activation_targets: dict[str, str] = {}
+
+    for tone_profile_path in tone_profile_files:
+        source_path = str(tone_profile_path)
+        try:
+            policy_key, variant, policy_version = _parse_tone_profile_filename(tone_profile_path)
+            content = _read_tone_profile_json_content(tone_profile_path)
+            policy_id = f"tone_profile:image.tone_profiles:{policy_key}"
+            existing_row = policy_repo.get_policy(policy_id=policy_id, variant=variant)
+            if _is_policy_variant_unchanged(
+                existing_row=existing_row,
+                policy_version=policy_version,
+                status=normalized_status,
+                content=content,
+            ):
+                skipped_count += 1
+                entries.append(
+                    TonePromptImportEntry(
+                        source_path=source_path,
+                        policy_id=policy_id,
+                        variant=variant,
+                        action="skipped",
+                        detail="unchanged",
+                    )
+                )
+                activation_targets[policy_id] = variant
+                continue
+
+            upsert_policy_variant(
+                policy_id=policy_id,
+                variant=variant,
+                schema_version=_POLICY_SCHEMA_VERSION_V1,
+                policy_version=policy_version,
+                status=normalized_status,
+                content=content,
+                updated_by=normalized_actor,
+            )
+            action = "imported" if existing_row is None else "updated"
+            if action == "imported":
+                imported_count += 1
+            else:
+                updated_count += 1
+            entries.append(
+                TonePromptImportEntry(
+                    source_path=source_path,
+                    policy_id=policy_id,
+                    variant=variant,
+                    action=action,
+                    detail=f"{action} {policy_id}:{variant}",
+                )
+            )
+            activation_targets[policy_id] = variant
+        except (PolicyServiceError, ValueError, OSError) as exc:
+            error_count += 1
+            entries.append(
+                TonePromptImportEntry(
+                    source_path=source_path,
+                    policy_id=None,
+                    variant=None,
+                    action="error",
+                    detail=str(exc),
+                )
+            )
+
+    for prompt_path in prompt_files:
+        source_path = str(prompt_path)
+        try:
+            namespace, policy_key, variant, policy_version = _parse_prompt_file_identity(
+                prompt_path=prompt_path,
+                world_root=world_root,
+            )
+            prompt_text = _read_prompt_text_content(prompt_path)
+            policy_id = f"prompt:{namespace}:{policy_key}"
+            content = {"text": prompt_text}
+            existing_row = policy_repo.get_policy(policy_id=policy_id, variant=variant)
+            if _is_policy_variant_unchanged(
+                existing_row=existing_row,
+                policy_version=policy_version,
+                status=normalized_status,
+                content=content,
+            ):
+                skipped_count += 1
+                entries.append(
+                    TonePromptImportEntry(
+                        source_path=source_path,
+                        policy_id=policy_id,
+                        variant=variant,
+                        action="skipped",
+                        detail="unchanged",
+                    )
+                )
+                activation_targets[policy_id] = variant
+                continue
+
+            upsert_policy_variant(
+                policy_id=policy_id,
+                variant=variant,
+                schema_version=_POLICY_SCHEMA_VERSION_V1,
+                policy_version=policy_version,
+                status=normalized_status,
+                content=content,
+                updated_by=normalized_actor,
+            )
+            action = "imported" if existing_row is None else "updated"
+            if action == "imported":
+                imported_count += 1
+            else:
+                updated_count += 1
+            entries.append(
+                TonePromptImportEntry(
+                    source_path=source_path,
+                    policy_id=policy_id,
+                    variant=variant,
+                    action=action,
+                    detail=f"{action} {policy_id}:{variant}",
+                )
+            )
+            activation_targets[policy_id] = variant
+        except (PolicyServiceError, ValueError, OSError) as exc:
+            error_count += 1
+            entries.append(
+                TonePromptImportEntry(
+                    source_path=source_path,
+                    policy_id=None,
+                    variant=None,
+                    action="error",
+                    detail=str(exc),
+                )
+            )
+
+    activated_count = 0
+    activation_skipped_count = 0
+    if activate and activation_targets:
+        current_activations = {
+            str(row["policy_id"]): str(row["variant"])
+            for row in policy_repo.list_policy_activations(world_id=world_id, client_profile="")
+        }
+        world_scope = ActivationScope(world_id=world_id, client_profile="")
+        for policy_id in sorted(activation_targets):
+            target_variant = activation_targets[policy_id]
+            if current_activations.get(policy_id) == target_variant:
+                activation_skipped_count += 1
+                continue
+            try:
+                set_policy_activation(
+                    scope=world_scope,
+                    policy_id=policy_id,
+                    variant=target_variant,
+                    activated_by=normalized_actor,
+                )
+                current_activations[policy_id] = target_variant
+                activated_count += 1
+            except PolicyServiceError as exc:
+                error_count += 1
+                entries.append(
+                    TonePromptImportEntry(
+                        source_path="<activation>",
+                        policy_id=policy_id,
+                        variant=target_variant,
+                        action="error",
+                        detail=f"activation failed: {exc.detail}",
+                    )
+                )
+
+    return TonePromptImportSummary(
+        world_id=world_id,
+        activate=activate,
+        scanned_tone_profile_files=len(tone_profile_files),
+        scanned_prompt_files=len(prompt_files),
         imported_count=imported_count,
         updated_count=updated_count,
         skipped_count=skipped_count,
@@ -1093,6 +1373,84 @@ def _parse_descriptor_filename(descriptor_path: Path) -> tuple[str, str, int]:
     policy_key = match.group("policy_key")
     policy_version = int(match.group("version"))
     return policy_key, f"v{policy_version}", policy_version
+
+
+def _parse_tone_profile_filename(tone_profile_path: Path) -> tuple[str, str, int]:
+    """Extract ``policy_key``, ``variant``, and version from tone-profile filename."""
+    match = _TONE_PROFILE_FILENAME_PATTERN.fullmatch(tone_profile_path.name)
+    if match is None:
+        raise ValueError(
+            "Tone profile filename must match '<policy_key>_v<version>.json'; "
+            f"got {tone_profile_path.name!r}."
+        )
+    policy_key = match.group("policy_key")
+    policy_version = int(match.group("version"))
+    return policy_key, f"v{policy_version}", policy_version
+
+
+def _read_tone_profile_json_content(tone_profile_path: Path) -> dict[str, Any]:
+    """Read one legacy tone-profile JSON file into dictionary content."""
+    try:
+        loaded = json.loads(tone_profile_path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise OSError(
+            f"Unable to read tone profile source file {tone_profile_path}: {exc}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Invalid JSON in tone profile source file {tone_profile_path}: {exc}"
+        ) from exc
+    if not isinstance(loaded, dict):
+        raise ValueError(
+            f"Tone profile source file {tone_profile_path} must contain a JSON object."
+        )
+    return loaded
+
+
+def _parse_prompt_file_identity(
+    *, prompt_path: Path, world_root: Path
+) -> tuple[str, str, str, int]:
+    """Resolve prompt namespace, policy_key, variant, and policy_version from file path."""
+    match = _PROMPT_FILENAME_PATTERN.fullmatch(prompt_path.name)
+    if match is None:
+        raise ValueError(
+            "Prompt filename must match '<policy_key>_v<version>.txt'; "
+            f"got {prompt_path.name!r}."
+        )
+
+    policies_root = world_root / "policies"
+    try:
+        relative_path = prompt_path.relative_to(policies_root)
+    except ValueError as exc:
+        raise ValueError(
+            f"Prompt source file {prompt_path} must be located under {policies_root}."
+        ) from exc
+
+    namespace_parts = relative_path.parts[:-1]
+    if (
+        len(namespace_parts) < 2
+        or namespace_parts[0] not in {"image", "translation"}
+        or namespace_parts[1] != "prompts"
+    ):
+        raise ValueError(
+            f"Prompt source file {prompt_path} must be under "
+            "'policies/image/prompts' or 'policies/translation/prompts'."
+        )
+    namespace = ".".join(namespace_parts)
+    policy_key = match.group("policy_key")
+    policy_version = int(match.group("version"))
+    return namespace, policy_key, f"v{policy_version}", policy_version
+
+
+def _read_prompt_text_content(prompt_path: Path) -> str:
+    """Read one legacy prompt text file and return trimmed non-empty text."""
+    try:
+        prompt_text = prompt_path.read_text(encoding="utf-8").rstrip()
+    except OSError as exc:
+        raise OSError(f"Unable to read prompt source file {prompt_path}: {exc}") from exc
+    if not prompt_text.strip():
+        raise ValueError(f"Prompt source file {prompt_path} must define non-empty text content.")
+    return prompt_text
 
 
 def _read_registry_yaml_payload(registry_path: Path) -> dict[str, Any]:
