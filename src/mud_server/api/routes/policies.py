@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from mud_server.api.auth import validate_session
@@ -80,6 +80,17 @@ def _normalize_activation_response(row: dict[str, Any]) -> PolicyActivationEntry
     )
 
 
+def _validate_policy_session_admin_or_superuser(session_id: str) -> tuple[int, str, str]:
+    """Validate session and enforce admin/superuser-only policy API access."""
+    user_id, username, role = validate_session(session_id)
+    if role not in {"admin", "superuser"}:
+        raise HTTPException(
+            status_code=403,
+            detail="Policy API requires admin or superuser role.",
+        )
+    return user_id, username, role
+
+
 def router(_engine: GameEngine) -> APIRouter:
     """Build API router for canonical policy-object endpoints.
 
@@ -97,7 +108,7 @@ def router(_engine: GameEngine) -> APIRouter:
         status: str | None = Query(default=None),
     ) -> Any:
         """List policy variants filtered by optional policy-type predicates."""
-        validate_session(session_id)
+        _validate_policy_session_admin_or_superuser(session_id)
         try:
             rows = service_list_policies(
                 policy_type=policy_type, namespace=namespace, status=status
@@ -115,7 +126,7 @@ def router(_engine: GameEngine) -> APIRouter:
         variant: str | None = Query(default=None),
     ) -> Any:
         """Get one policy variant by id with optional variant selector."""
-        validate_session(session_id)
+        _validate_policy_session_admin_or_superuser(session_id)
         try:
             row = service_get_policy(policy_id=policy_id, variant=variant)
             return PolicyObjectResponse.model_validate(row)
@@ -130,7 +141,7 @@ def router(_engine: GameEngine) -> APIRouter:
         variant: str = Query(min_length=1),
     ) -> Any:
         """Validate one policy variant payload and persist validation history."""
-        _user_id, username, _role = validate_session(session_id)
+        _user_id, username, _role = _validate_policy_session_admin_or_superuser(session_id)
         validated_by = payload.validated_by or username
         try:
             result = service_validate_policy_variant(
@@ -167,7 +178,7 @@ def router(_engine: GameEngine) -> APIRouter:
         The service enforces validate-before-write so this endpoint is safe as
         the primary Phase 2 save path for API-only authoring.
         """
-        _user_id, username, _role = validate_session(session_id)
+        _user_id, username, _role = _validate_policy_session_admin_or_superuser(session_id)
         updated_by = payload.updated_by or username
         try:
             row = service_upsert_policy_variant(
@@ -186,7 +197,7 @@ def router(_engine: GameEngine) -> APIRouter:
     @api.post("/api/policy-activations", response_model=PolicyActivationEntryResponse)
     async def set_policy_activation(payload: PolicyActivationRequest, session_id: str):
         """Create or switch one activation pointer for a scope."""
-        _user_id, username, _role = validate_session(session_id)
+        _user_id, username, _role = _validate_policy_session_admin_or_superuser(session_id)
         activated_by = payload.activated_by or username
         scope_text = (
             payload.world_id
@@ -218,7 +229,7 @@ def router(_engine: GameEngine) -> APIRouter:
         - world scope returns world pointers
         - world+client scope overlays client pointers on world defaults
         """
-        validate_session(session_id)
+        _validate_policy_session_admin_or_superuser(session_id)
         try:
             parsed_scope = parse_scope(scope)
             rows = (
@@ -237,7 +248,7 @@ def router(_engine: GameEngine) -> APIRouter:
     @api.post("/api/policy-publish", response_model=PolicyPublishResponse)
     async def publish_policies(payload: PolicyPublishRequest, session_id: str):
         """Generate and persist one deterministic policy publish manifest."""
-        _user_id, username, _role = validate_session(session_id)
+        _user_id, username, _role = _validate_policy_session_admin_or_superuser(session_id)
         actor = payload.actor or username
         scope_text = (
             payload.world_id
@@ -254,7 +265,7 @@ def router(_engine: GameEngine) -> APIRouter:
     @api.get("/api/policy-publish/{publish_run_id}", response_model=PolicyPublishRunResponse)
     async def get_publish_run(publish_run_id: int, session_id: str):
         """Fetch one publish run with deterministic export artifact metadata."""
-        validate_session(session_id)
+        _validate_policy_session_admin_or_superuser(session_id)
         try:
             result = service_get_publish_run(publish_run_id=publish_run_id)
             return PolicyPublishRunResponse.model_validate(result)
