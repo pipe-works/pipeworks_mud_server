@@ -12,9 +12,11 @@ Uses TestClient for HTTP request testing.
 """
 
 import sqlite3
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import yaml
 
 from mud_server.config import config, use_test_database
 from mud_server.db import database
@@ -225,21 +227,74 @@ def test_register_guest_success(test_client, test_db, temp_db_path):
     with use_test_database(temp_db_path):
         # DB-first runtime contract: guest axis seeding requires canonical
         # manifest/axis activation plus seeded axis registry rows.
-        import_summary = policy_service.import_world_policies_from_legacy_files(
-            world_id=database.DEFAULT_WORLD_ID,
-            actor="test-bootstrap",
-            activate=True,
-            status="active",
+        world_id = database.DEFAULT_WORLD_ID
+        worlds_root = Path(config.worlds.worlds_root)
+        if not worlds_root.is_absolute():
+            worlds_root = Path(__file__).resolve().parents[2] / worlds_root
+        world_root = worlds_root / world_id
+        axis_root = world_root / "policies" / "axis"
+        manifest_path = world_root / "policies" / "manifest.yaml"
+
+        axes_payload = yaml.safe_load((axis_root / "axes.yaml").read_text(encoding="utf-8")) or {}
+        thresholds_payload = (
+            yaml.safe_load((axis_root / "thresholds.yaml").read_text(encoding="utf-8")) or {}
         )
-        assert import_summary.error_count == 0
+        resolution_payload = (
+            yaml.safe_load((axis_root / "resolution.yaml").read_text(encoding="utf-8")) or {}
+        )
+        manifest_payload = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+
+        active_bundle = (manifest_payload.get("axis") or {}).get("active_bundle") or {}
+        axis_bundle_id = str(active_bundle.get("id") or "default").strip() or "default"
+        axis_bundle_version = int(active_bundle.get("version") or 1)
+        axis_policy_id = f"axis_bundle:axis.bundles:{axis_bundle_id}"
+        axis_variant = f"v{axis_bundle_version}"
+        manifest_policy_id = f"manifest_bundle:world.manifests:{world_id}"
+        scope = policy_service.ActivationScope(world_id=world_id, client_profile="")
+
+        policy_service.upsert_policy_variant(
+            policy_id=axis_policy_id,
+            variant=axis_variant,
+            schema_version="1.0",
+            policy_version=axis_bundle_version,
+            status="active",
+            content={
+                "axes": axes_payload,
+                "thresholds": thresholds_payload,
+                "resolution": resolution_payload,
+            },
+            updated_by="test-bootstrap",
+        )
+        policy_service.upsert_policy_variant(
+            policy_id=manifest_policy_id,
+            variant="v1",
+            schema_version="1.0",
+            policy_version=1,
+            status="active",
+            content={"manifest": manifest_payload},
+            updated_by="test-bootstrap",
+        )
+        policy_service.set_policy_activation(
+            scope=scope,
+            policy_id=axis_policy_id,
+            variant=axis_variant,
+            activated_by="test-bootstrap",
+        )
+        policy_service.set_policy_activation(
+            scope=scope,
+            policy_id=manifest_policy_id,
+            variant="v1",
+            activated_by="test-bootstrap",
+        )
+
         resolved_bundle = policy_service.resolve_effective_axis_bundle(
             scope=policy_service.ActivationScope(
-                world_id=database.DEFAULT_WORLD_ID,
+                world_id=world_id,
                 client_profile="",
             )
         )
         database.seed_axis_registry(
-            world_id=database.DEFAULT_WORLD_ID,
+            world_id=world_id,
             axes_payload=resolved_bundle.axes_payload,
             thresholds_payload=resolved_bundle.thresholds_payload,
         )

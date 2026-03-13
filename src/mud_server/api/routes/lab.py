@@ -973,21 +973,13 @@ def _resolve_registry_entry_policy_text(
     """Resolve one registry-selected Layer 1 text block from canonical DB rows."""
     policy_reference = entry.get("policy_ref")
     if not isinstance(policy_reference, dict):
-        for key in ("block_path", "fragment_path", "prompt_path", "tone_profile_path"):
-            value = entry.get(key)
-            if isinstance(value, str) and value.strip():
-                mapped = policy_service.policy_reference_from_legacy_path(value.strip())
-                if mapped is not None:
-                    policy_reference = mapped
-                    break
-        if not isinstance(policy_reference, dict):
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Registry entry missing canonical policy_ref mapping for scope "
-                    f"(world_id={scope.world_id!r}): {entry.get('id')!r}"
-                ),
-            )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Registry entry missing canonical policy_ref mapping for scope "
+                f"(world_id={scope.world_id!r}): {entry.get('id')!r}"
+            ),
+        )
 
     policy_id = str(policy_reference.get("policy_id") or "").strip()
     variant = str(policy_reference.get("variant") or "").strip()

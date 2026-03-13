@@ -4,10 +4,6 @@ Command-line interface for PipeWorks MUD Server.
 Provides CLI commands for server management:
 - init-db: Initialize the database schema
 - create-superuser: Create a superuser account interactively or via environment variables
-- import-species-policies: Backfill legacy species YAML into canonical policy DB rows
-- import-layer2-policies: Backfill descriptor/registry legacy policies into Layer 2 DB rows
-- import-tone-prompt-policies: Backfill tone-profile/prompt legacy policies into Layer 1 DB rows
-- import-world-policies: Backfill all legacy policy-like files into canonical policy DB rows
 - import-policy-artifact: Import a published artifact into canonical policy DB rows
 - run: Start the MUD server (API and web UI)
 
@@ -15,10 +11,6 @@ Usage:
     mud-server init-db
     mud-server init-db --skip-policy-import
     mud-server create-superuser
-    mud-server import-species-policies [--world-id WORLD_ID]
-    mud-server import-layer2-policies [--world-id WORLD_ID]
-    mud-server import-tone-prompt-policies [--world-id WORLD_ID]
-    mud-server import-world-policies [--world-id WORLD_ID]
     mud-server import-policy-artifact --artifact-path PATH
     mud-server run [--port PORT] [--host HOST]
 
@@ -140,62 +132,93 @@ def prompt_for_credentials() -> tuple[str, str]:
     return username, password
 
 
-def _import_registered_world_policies_for_init(
-    *, actor: str, status: str, world_ids: list[str] | None = None
+def _import_registered_world_artifacts_for_init(
+    *, actor: str, world_ids: list[str] | None = None
 ) -> int:
-    """Import canonical policy objects for selected worlds.
+    """Import canonical policy artifacts for registered worlds during ``init-db``.
 
-    This helper is used by ``init-db`` so fresh environments produce canonical
-    DB policy state before runtime startup. Runtime remains activation-driven
-    and does not import legacy files implicitly.
+    The bootstrap path is DB/artifact-first. Legacy world policy files are no
+    longer used as a bootstrap source in this command.
 
     Returns:
-        Number of import failures across all worlds.
+        Number of failed world imports.
     """
+    import json
+    from pathlib import Path
+
+    from mud_server.config import PROJECT_ROOT
     from mud_server.core.world_registry import WorldRegistry
     from mud_server.services import policy_service
+    from mud_server.services.policy.constants import (
+        _POLICY_EXPORT_REPO_NAME,
+        _POLICY_EXPORT_ROOT_ENV,
+        _POLICY_EXPORT_WORLD_DIRNAME,
+    )
 
     if world_ids is None:
         registry = WorldRegistry()
         worlds = registry.list_worlds(include_inactive=True)
         if not worlds:
-            print("No registered worlds found; skipping world policy import.")
+            print("No registered worlds found; skipping artifact import bootstrap.")
             return 0
         selected_world_ids = [str(world.get("id") or "").strip() for world in worlds]
     else:
         selected_world_ids = [str(world_id).strip() for world_id in world_ids]
 
+    configured_root = os.environ.get(_POLICY_EXPORT_ROOT_ENV, "").strip()
+    export_root = (
+        Path(configured_root)
+        if configured_root
+        else (PROJECT_ROOT.parent / _POLICY_EXPORT_REPO_NAME)
+    )
+    if not export_root.is_absolute():
+        export_root = (PROJECT_ROOT / export_root).resolve()
+
     failures = 0
     for world_id in selected_world_ids:
         if not world_id:
             failures += 1
+            print("Skipping malformed world id during artifact bootstrap.", file=sys.stderr)
+            continue
+
+        latest_path = (
+            export_root / _POLICY_EXPORT_WORLD_DIRNAME / world_id / "world" / "latest.json"
+        )
+        if not latest_path.exists():
             print(
-                "Skipping malformed world id during policy import bootstrap.",
+                f"No canonical artifact pointer found for world {world_id}: {latest_path}",
                 file=sys.stderr,
             )
             continue
 
         try:
-            summary = policy_service.import_world_policies_from_legacy_files(
-                world_id=world_id,
+            latest_payload = json.loads(latest_path.read_text(encoding="utf-8"))
+            artifact_path_value = str(latest_payload.get("artifact_path", "")).strip()
+            if not artifact_path_value:
+                raise ValueError("latest.json is missing artifact_path.")
+            artifact_path = Path(artifact_path_value)
+            if not artifact_path.is_absolute():
+                artifact_path = (export_root / artifact_path).resolve()
+            artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+            summary = policy_service.import_published_artifact(
+                artifact=artifact_payload,
                 actor=actor,
                 activate=True,
-                status=status,
             )
         except policy_service.PolicyServiceError as exc:
             failures += 1
             print(
-                f"World policy import failed for {world_id} [{exc.code}]: {exc.detail}",
+                f"World artifact import failed for {world_id} [{exc.code}]: {exc.detail}",
                 file=sys.stderr,
             )
             continue
         except Exception as exc:
             failures += 1
-            print(f"World policy import failed for {world_id}: {exc}", file=sys.stderr)
+            print(f"World artifact import failed for {world_id}: {exc}", file=sys.stderr)
             continue
 
         print(
-            "World policy import summary: "
+            "World artifact import summary: "
             f"world={world_id} imported={summary.imported_count} "
             f"updated={summary.updated_count} skipped={summary.skipped_count} "
             f"errors={summary.error_count} activated={summary.activated_count} "
@@ -266,23 +289,22 @@ def cmd_init_db(args: argparse.Namespace) -> int:
         print("Database initialized successfully.")
 
         if getattr(args, "skip_policy_import", False):
-            print("Skipping world policy import (--skip-policy-import).")
+            print("Skipping world artifact import bootstrap (--skip-policy-import).")
             return 0
 
-        failures = _import_registered_world_policies_for_init(
+        failures = _import_registered_world_artifacts_for_init(
             actor="system-bootstrap",
-            status="active",
             world_ids=[config.worlds.default_world_id],
         )
         if failures > 0:
             print(
-                "Database initialized, but world policy import reported failures. "
-                "Review output and rerun 'mud-server import-world-policies' as needed.",
+                "Database initialized, but world artifact bootstrap reported failures. "
+                "Review output and rerun 'mud-server import-policy-artifact' as needed.",
                 file=sys.stderr,
             )
             return 1
 
-        print("World policy import completed successfully.")
+        print("World artifact bootstrap completed successfully.")
         return 0
     except Exception as e:
         print(f"Error initializing database: {e}", file=sys.stderr)
@@ -355,203 +377,6 @@ def cmd_create_superuser(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"Error creating superuser: {e}", file=sys.stderr)
         return 1
-
-
-def cmd_import_species_policies(args: argparse.Namespace) -> int:
-    """Import legacy species YAML files into canonical policy DB variants.
-
-    This command performs idempotent backfill/update and can optionally seed
-    world-scope activation pointers to the imported variants.
-    """
-    from mud_server.config import config
-    from mud_server.db import facade as database
-    from mud_server.services import policy_service
-
-    world_id = (args.world_id or "").strip() or config.worlds.default_world_id
-    actor = (args.actor or "").strip() or "policy-importer"
-    status = str(args.status)
-    activate = bool(args.activate)
-
-    try:
-        database.init_database(skip_superuser=True)
-        summary = policy_service.import_species_blocks_from_legacy_yaml(
-            world_id=world_id,
-            actor=actor,
-            activate=activate,
-            status=status,
-        )
-    except policy_service.PolicyServiceError as exc:
-        print(f"Species import failed [{exc.code}]: {exc.detail}", file=sys.stderr)
-        return 1
-    except Exception as exc:
-        print(f"Species import failed: {exc}", file=sys.stderr)
-        return 1
-
-    print(
-        "Species import summary: "
-        f"world={summary.world_id} scanned={summary.scanned_files} "
-        f"imported={summary.imported_count} updated={summary.updated_count} "
-        f"skipped={summary.skipped_count} errors={summary.error_count}"
-    )
-    if summary.activate:
-        print(
-            "Activation summary: "
-            f"activated={summary.activated_count} "
-            f"unchanged={summary.activation_skipped_count}"
-        )
-
-    error_entries = [entry for entry in summary.entries if entry.action == "error"]
-    if error_entries:
-        print("Import errors:", file=sys.stderr)
-        for entry in error_entries:
-            print(f"- {entry.source_path}: {entry.detail}", file=sys.stderr)
-        return 1
-
-    return 0
-
-
-def cmd_import_layer2_policies(args: argparse.Namespace) -> int:
-    """Import legacy descriptor/registry files into canonical Layer 2 policy variants."""
-    from mud_server.config import config
-    from mud_server.db import facade as database
-    from mud_server.services import policy_service
-
-    world_id = (args.world_id or "").strip() or config.worlds.default_world_id
-    actor = (args.actor or "").strip() or "policy-importer"
-    status = str(args.status)
-    activate = bool(args.activate)
-
-    try:
-        database.init_database(skip_superuser=True)
-        summary = policy_service.import_layer2_policies_from_legacy_files(
-            world_id=world_id,
-            actor=actor,
-            activate=activate,
-            status=status,
-        )
-    except policy_service.PolicyServiceError as exc:
-        print(f"Layer 2 import failed [{exc.code}]: {exc.detail}", file=sys.stderr)
-        return 1
-    except Exception as exc:
-        print(f"Layer 2 import failed: {exc}", file=sys.stderr)
-        return 1
-
-    print(
-        "Layer 2 import summary: "
-        f"world={summary.world_id} descriptors={summary.scanned_descriptor_files} "
-        f"registries={summary.scanned_registry_files} imported={summary.imported_count} "
-        f"updated={summary.updated_count} skipped={summary.skipped_count} "
-        f"errors={summary.error_count}"
-    )
-    if summary.activate:
-        print(
-            "Activation summary: "
-            f"activated={summary.activated_count} "
-            f"unchanged={summary.activation_skipped_count}"
-        )
-
-    error_entries = [entry for entry in summary.entries if entry.action == "error"]
-    if error_entries:
-        print("Import errors:", file=sys.stderr)
-        for entry in error_entries:
-            print(f"- {entry.source_path}: {entry.detail}", file=sys.stderr)
-        return 1
-
-    return 0
-
-
-def cmd_import_tone_prompt_policies(args: argparse.Namespace) -> int:
-    """Import legacy tone-profile/prompt files into canonical Layer 1 policy variants."""
-    from mud_server.config import config
-    from mud_server.db import facade as database
-    from mud_server.services import policy_service
-
-    world_id = (args.world_id or "").strip() or config.worlds.default_world_id
-    actor = (args.actor or "").strip() or "policy-importer"
-    status = str(args.status)
-    activate = bool(args.activate)
-
-    try:
-        database.init_database(skip_superuser=True)
-        summary = policy_service.import_tone_prompt_policies_from_legacy_files(
-            world_id=world_id,
-            actor=actor,
-            activate=activate,
-            status=status,
-        )
-    except policy_service.PolicyServiceError as exc:
-        print(f"Tone/prompt import failed [{exc.code}]: {exc.detail}", file=sys.stderr)
-        return 1
-    except Exception as exc:
-        print(f"Tone/prompt import failed: {exc}", file=sys.stderr)
-        return 1
-
-    print(
-        "Tone/prompt import summary: "
-        f"world={summary.world_id} tone_profiles={summary.scanned_tone_profile_files} "
-        f"prompts={summary.scanned_prompt_files} imported={summary.imported_count} "
-        f"updated={summary.updated_count} skipped={summary.skipped_count} "
-        f"errors={summary.error_count}"
-    )
-    if summary.activate:
-        print(
-            "Activation summary: "
-            f"activated={summary.activated_count} "
-            f"unchanged={summary.activation_skipped_count}"
-        )
-
-    error_entries = [entry for entry in summary.entries if entry.action == "error"]
-    if error_entries:
-        print("Import errors:", file=sys.stderr)
-        for entry in error_entries:
-            print(f"- {entry.source_path}: {entry.detail}", file=sys.stderr)
-        return 1
-
-    return 0
-
-
-def cmd_import_world_policies(args: argparse.Namespace) -> int:
-    """Import all known legacy policy-like domains into canonical policy state."""
-    from mud_server.config import config
-    from mud_server.db import facade as database
-    from mud_server.services import policy_service
-
-    world_id = (args.world_id or "").strip() or config.worlds.default_world_id
-    actor = (args.actor or "").strip() or "policy-importer"
-    status = str(args.status)
-    activate = bool(args.activate)
-
-    try:
-        database.init_database(skip_superuser=True)
-        summary = policy_service.import_world_policies_from_legacy_files(
-            world_id=world_id,
-            actor=actor,
-            activate=activate,
-            status=status,
-        )
-    except policy_service.PolicyServiceError as exc:
-        print(f"World policy import failed [{exc.code}]: {exc.detail}", file=sys.stderr)
-        return 1
-    except Exception as exc:
-        print(f"World policy import failed: {exc}", file=sys.stderr)
-        return 1
-
-    print(
-        "World policy import summary: "
-        f"world={summary.world_id} imported={summary.imported_count} "
-        f"updated={summary.updated_count} skipped={summary.skipped_count} "
-        f"errors={summary.error_count}"
-    )
-    if summary.activate:
-        print(
-            "Activation summary: "
-            f"activated={summary.activated_count} "
-            f"unchanged={summary.activation_skipped_count}"
-        )
-    for entry in summary.entries:
-        print(f"- {entry}")
-
-    return 1 if summary.error_count > 0 else 0
 
 
 def cmd_import_policy_artifact(args: argparse.Namespace) -> int:
@@ -836,7 +661,7 @@ def main() -> int:
     init_parser.add_argument(
         "--skip-policy-import",
         action="store_true",
-        help="Skip world policy bootstrap import during init-db.",
+        help="Skip world artifact bootstrap import during init-db.",
     )
     init_parser.set_defaults(func=cmd_init_db)
 
@@ -850,153 +675,6 @@ def main() -> int:
         ),
     )
     superuser_parser.set_defaults(func=cmd_create_superuser)
-
-    import_species_parser = subparsers.add_parser(
-        "import-species-policies",
-        help="Import legacy species YAML files into canonical policy DB state",
-        description=(
-            "Backfill data/worlds/<world_id>/policies/image/blocks/species/*.yaml "
-            "into policy_item/policy_variant and optionally seed world activation pointers."
-        ),
-    )
-    import_species_parser.add_argument(
-        "--world-id",
-        type=str,
-        default=None,
-        help=("Target world id. Defaults to configured worlds.default_world_id when omitted."),
-    )
-    import_species_parser.add_argument(
-        "--actor",
-        type=str,
-        default="policy-importer",
-        help="Actor value used for updated_by / activated_by audit fields.",
-    )
-    import_species_parser.add_argument(
-        "--status",
-        type=str,
-        choices=["draft", "candidate", "active", "archived"],
-        default="active",
-        help="Status assigned to imported/updated policy variants (default: active).",
-    )
-    import_species_parser.add_argument(
-        "--no-activate",
-        action="store_false",
-        dest="activate",
-        help="Import variants only; do not seed world-scope activation pointers.",
-    )
-    import_species_parser.set_defaults(activate=True)
-    import_species_parser.set_defaults(func=cmd_import_species_policies)
-
-    import_layer2_parser = subparsers.add_parser(
-        "import-layer2-policies",
-        help="Import legacy descriptor/registry files into canonical Layer 2 policy state",
-        description=(
-            "Backfill data/worlds/<world_id>/policies/image/descriptor_layers/* and "
-            "data/worlds/<world_id>/policies/image/registries/*.yaml into "
-            "policy_item/policy_variant and optionally seed world activation pointers."
-        ),
-    )
-    import_layer2_parser.add_argument(
-        "--world-id",
-        type=str,
-        default=None,
-        help=("Target world id. Defaults to configured worlds.default_world_id when omitted."),
-    )
-    import_layer2_parser.add_argument(
-        "--actor",
-        type=str,
-        default="policy-importer",
-        help="Actor value used for updated_by / activated_by audit fields.",
-    )
-    import_layer2_parser.add_argument(
-        "--status",
-        type=str,
-        choices=["draft", "candidate", "active", "archived"],
-        default="active",
-        help="Status assigned to imported/updated policy variants (default: active).",
-    )
-    import_layer2_parser.add_argument(
-        "--no-activate",
-        action="store_false",
-        dest="activate",
-        help="Import variants only; do not seed world-scope activation pointers.",
-    )
-    import_layer2_parser.set_defaults(activate=True)
-    import_layer2_parser.set_defaults(func=cmd_import_layer2_policies)
-
-    import_tone_prompt_parser = subparsers.add_parser(
-        "import-tone-prompt-policies",
-        help="Import legacy tone-profile/prompt files into canonical Layer 1 policy state",
-        description=(
-            "Backfill data/worlds/<world_id>/policies/image/tone_profiles/*.json plus "
-            "data/worlds/<world_id>/policies/translation/prompts/**/*.txt and "
-            "data/worlds/<world_id>/policies/image/prompts/**/*.txt into "
-            "policy_item/policy_variant and optionally seed world activation pointers."
-        ),
-    )
-    import_tone_prompt_parser.add_argument(
-        "--world-id",
-        type=str,
-        default=None,
-        help=("Target world id. Defaults to configured worlds.default_world_id when omitted."),
-    )
-    import_tone_prompt_parser.add_argument(
-        "--actor",
-        type=str,
-        default="policy-importer",
-        help="Actor value used for updated_by / activated_by audit fields.",
-    )
-    import_tone_prompt_parser.add_argument(
-        "--status",
-        type=str,
-        choices=["draft", "candidate", "active", "archived"],
-        default="active",
-        help="Status assigned to imported/updated policy variants (default: active).",
-    )
-    import_tone_prompt_parser.add_argument(
-        "--no-activate",
-        action="store_false",
-        dest="activate",
-        help="Import variants only; do not seed world-scope activation pointers.",
-    )
-    import_tone_prompt_parser.set_defaults(activate=True)
-    import_tone_prompt_parser.set_defaults(func=cmd_import_tone_prompt_policies)
-
-    import_world_parser = subparsers.add_parser(
-        "import-world-policies",
-        help="Import all legacy policy-like files into canonical policy state",
-        description=(
-            "Run the full world-scoped policy migration in dependency order: "
-            "species, tone/prompt, clothing blocks, Layer 2, and axis/manifest bundles."
-        ),
-    )
-    import_world_parser.add_argument(
-        "--world-id",
-        type=str,
-        default=None,
-        help=("Target world id. Defaults to configured worlds.default_world_id when omitted."),
-    )
-    import_world_parser.add_argument(
-        "--actor",
-        type=str,
-        default="policy-importer",
-        help="Actor value used for updated_by / activated_by audit fields.",
-    )
-    import_world_parser.add_argument(
-        "--status",
-        type=str,
-        choices=["draft", "candidate", "active", "archived"],
-        default="active",
-        help="Status assigned to imported/updated policy variants (default: active).",
-    )
-    import_world_parser.add_argument(
-        "--no-activate",
-        action="store_false",
-        dest="activate",
-        help="Import variants only; do not seed world-scope activation pointers.",
-    )
-    import_world_parser.set_defaults(activate=True)
-    import_world_parser.set_defaults(func=cmd_import_world_policies)
 
     import_artifact_parser = subparsers.add_parser(
         "import-policy-artifact",

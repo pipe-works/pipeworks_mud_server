@@ -1,0 +1,108 @@
+"""Data contracts for policy service modules.
+
+The classes in this module are pure data containers used by multiple policy
+subsystems. They intentionally avoid storage or API concerns so they can be
+reused by service, CLI, and tests without cross-module coupling.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyIdentity:
+    """Parsed canonical policy identity tuple.
+
+    Attributes:
+        policy_id: Canonical string form ``policy_type:namespace:policy_key``.
+        policy_type: Parsed policy family token.
+        namespace: Parsed namespace token.
+        policy_key: Parsed logical policy key.
+    """
+
+    policy_id: str
+    policy_type: str
+    namespace: str
+    policy_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class ActivationScope:
+    """Canonical activation scope for Layer 3 policy selection.
+
+    Attributes:
+        world_id: Required world identifier.
+        client_profile: Optional client selector; empty string means world-level
+            defaults.
+    """
+
+    world_id: str
+    client_profile: str
+
+
+@dataclass(frozen=True, slots=True)
+class EffectiveAxisBundle:
+    """Resolved canonical axis-bundle context for one scope.
+
+    Runtime systems consume this object instead of reading policy YAML files.
+    """
+
+    manifest_policy_id: str
+    manifest_variant: str
+    axis_policy_id: str
+    axis_variant: str
+    bundle_id: str
+    bundle_version: str
+    manifest_payload: dict[str, Any]
+    axes_payload: dict[str, Any]
+    thresholds_payload: dict[str, Any]
+    resolution_payload: dict[str, Any]
+    required_runtime_inputs: set[str]
+    policy_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyValidationResult:
+    """Validation-run result for one candidate policy variant payload."""
+
+    policy_id: str
+    variant: str
+    is_valid: bool
+    errors: list[str]
+    content_hash: str
+    validated_at: str
+    validated_by: str
+    validation_run_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactImportEntry:
+    """One import outcome row for an artifact variant payload."""
+
+    policy_id: str | None
+    variant: str | None
+    action: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactImportSummary:
+    """Aggregate result for one artifact import run."""
+
+    world_id: str
+    client_profile: str
+    activate: bool
+    item_count: int
+    imported_count: int
+    updated_count: int
+    skipped_count: int
+    error_count: int
+    activated_count: int
+    activation_skipped_count: int
+    manifest_hash: str
+    items_hash: str
+    artifact_hash: str
+    variants_hash: str
+    entries: list[ArtifactImportEntry]
