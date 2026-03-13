@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.22](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.21...mud_server-v0.4.22) (2026-03-13)
+
+
+### Features
+
+* **policy:** complete db-first runtime axis and import slice ([32e3edf](https://github.com/pipe-works/pipeworks_mud_server/commit/32e3edfed9432b09164e14ccd08055c57e4170d5))
+* **policy:** complete db-first runtime axis and import slice ([6037c35](https://github.com/pipe-works/pipeworks_mud_server/commit/6037c35f0a5dc59ce7f3c927ad8973f3a6489829))
+
+
+### Bug Fixes
+
+* **core:** avoid bootstrap activation side effects in policy tests ([99104e8](https://github.com/pipe-works/pipeworks_mud_server/commit/99104e83086575770b0b0cf1521c0a4e03a92633))
+* **core:** bootstrap axis policies from legacy source when activation missing ([aac99fa](https://github.com/pipe-works/pipeworks_mud_server/commit/aac99fa43ca4f0db99647d2a509d623041483115))
+* **policy:** resolve clothing layer2 import and remove insecure env docs ([1c7267b](https://github.com/pipe-works/pipeworks_mud_server/commit/1c7267ba925d4652a610753d2c61cf910fd93571))
+* **policy:** resolve clothing layer2 import and remove insecure env docs ([eb4b1cf](https://github.com/pipe-works/pipeworks_mud_server/commit/eb4b1cf24c63904f008e3ac335670d0c5ec792f6))
+
 ## [0.4.21](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.20...mud_server-v0.4.21) (2026-03-12)
 
 
