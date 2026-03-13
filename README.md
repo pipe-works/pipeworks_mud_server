@@ -90,6 +90,10 @@ mud-server init-db
 mud-server create-superuser  # Follow prompts to create admin account
 ```
 
+`mud-server init-db` now bootstraps canonical policy objects/activations for
+the configured default world. Use `--skip-policy-import` only when you need a
+schema-only setup.
+
 ### Running the Server
 
 ```bash
@@ -244,6 +248,7 @@ A minimal world package looks like this:
   "translation_layer": {
     "enabled": true,
     "model": "gemma2:2b",
+    "prompt_policy_id": "prompt:translation.prompts.ic:default",
     "prompt_template_path": "policies/ic_prompt.txt",
     "active_axes": ["demeanor", "health"]
   },
@@ -285,7 +290,9 @@ And the zone data lives separately in `zones/<zone>.json`:
 
 No server code changes are required when you add a new world package or tune
 its policies. The server loads the world from disk and the axis engine and
-translation layer read their canonical configuration from that package.
+translation layer read canonical runtime policy state from DB activation
+mappings. World `policies/*` files are import/bootstrap sources and artifact
+exchange outputs, not runtime authority.
 
 ## Axis Descriptor Lab Integration
 
@@ -312,7 +319,7 @@ When explicitly enabled, the lab can:
 
 - inspect canonical prompt templates in `policies/*.txt`
 - create prompt drafts under `policies/drafts/*.txt`
-- promote a prompt draft into a new canonical prompt and make it the active `translation_layer.prompt_template_path`
+- promote a prompt draft into a new canonical prompt and map world config to that policy selector
 - inspect the canonical policy package as one normalized JSON bundle
 - create policy bundle drafts under `policies/drafts/*.json`
 - promote a policy bundle draft back into canonical `axes.yaml`, `thresholds.yaml`, and `resolution.yaml`
@@ -321,7 +328,7 @@ Important semantics:
 
 - `canonical` means the server-owned files in the world package
 - `draft` means a lab-created artifact under `policies/drafts/`
-- `active` for prompts means the file currently referenced by `world.json -> translation_layer.prompt_template_path`
+- `active` means the effective DB activation pointer for the current scope
 
 Promotion updates the running world immediately:
 

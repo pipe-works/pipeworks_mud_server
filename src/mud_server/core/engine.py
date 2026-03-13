@@ -131,8 +131,9 @@ class GameEngine:
         """
         Load world axis policies, emit validation reports, and seed registry tables.
 
-        This is a startup-only routine. It keeps policy files and the axis
-        registry in sync, and surfaces configuration gaps early via logs.
+        This is a startup-only routine. It validates canonical activation-driven
+        axis policy readiness and keeps the axis registry tables in sync with
+        the effective canonical bundle.
         """
         import logging
 
@@ -166,44 +167,15 @@ class GameEngine:
                     "POLICY_EFFECTIVE_MANIFEST_NOT_FOUND",
                     "POLICY_EFFECTIVE_AXIS_BUNDLE_NOT_FOUND",
                 }:
-                    try:
-                        # Bootstrap canonical axis/manifest rows from legacy world package
-                        # only when activation pointers are missing. Import runs
-                        # without activation so startup seeding does not mutate
-                        # Layer 3 activation history.
-                        import_summary = (
-                            policy_service.import_axis_manifest_policies_from_legacy_files(
-                                world_id=world_id,
-                                actor="system-bootstrap",
-                                activate=False,
-                                status="active",
-                            )
-                        )
-                        logger.info(
-                            "Axis policy bootstrap imported canonical axis bundle for %s: "
-                            "imported=%s updated=%s skipped=%s errors=%s",
-                            world_id,
-                            import_summary.imported_count,
-                            import_summary.updated_count,
-                            import_summary.skipped_count,
-                            import_summary.error_count,
-                        )
-                        (
-                            axes_payload,
-                            thresholds_payload,
-                            policy_hash,
-                            bundle_version,
-                        ) = self._resolve_bootstrap_axis_payload_from_import(
-                            import_summary=import_summary
-                        )
-                    except policy_service.PolicyServiceError as import_exc:
-                        logger.warning(
-                            "Axis policy bootstrap skipped for %s after import attempt: %s (%s)",
-                            world_id,
-                            import_exc.detail,
-                            import_exc.code,
-                        )
-                        continue
+                    logger.warning(
+                        "Axis policy bootstrap skipped for %s: no effective canonical "
+                        "axis/manifest activation was found. Run "
+                        "'mud-server import-world-policies --world-id %s --activate "
+                        "--status active' before runtime startup.",
+                        world_id,
+                        world_id,
+                    )
+                    continue
                 else:
                     logger.warning(
                         "Axis policy bootstrap skipped for %s: %s (%s)",
@@ -232,71 +204,6 @@ class GameEngine:
                 thresholds_payload=payload.get("thresholds") or {},
             )
             logger.info("Axis registry seeded for %s: %s", world_id, stats)
-
-    @staticmethod
-    def _resolve_bootstrap_axis_payload_from_import(
-        *,
-        import_summary: Any,
-    ) -> tuple[dict[str, Any], dict[str, Any], str, str]:
-        """Resolve axis payloads from import rows without Layer 3 activation reads."""
-        from mud_server.services import policy_service
-
-        axis_entries = [
-            entry
-            for entry in import_summary.entries
-            if entry.policy_id
-            and entry.variant
-            and str(entry.policy_id).startswith("axis_bundle:")
-            and entry.action in {"imported", "updated", "skipped"}
-        ]
-        if not axis_entries:
-            raise policy_service.PolicyServiceError(
-                status_code=404,
-                code="POLICY_EFFECTIVE_AXIS_BUNDLE_NOT_FOUND",
-                detail="Axis import completed but produced no canonical axis bundle entry.",
-            )
-
-        axis_entry = axis_entries[0]
-        axis_row = policy_service.get_policy(
-            policy_id=str(axis_entry.policy_id),
-            variant=str(axis_entry.variant),
-        )
-        axis_content = axis_row.get("content")
-        if not isinstance(axis_content, dict):
-            raise policy_service.PolicyServiceError(
-                status_code=422,
-                code="POLICY_AXIS_BUNDLE_CONTENT_INVALID",
-                detail=(
-                    "Canonical axis bundle content must be an object after bootstrap import; "
-                    f"got {type(axis_content).__name__}."
-                ),
-            )
-
-        axes_payload = axis_content.get("axes")
-        thresholds_payload = axis_content.get("thresholds")
-        if not isinstance(axes_payload, dict):
-            raise policy_service.PolicyServiceError(
-                status_code=422,
-                code="POLICY_AXIS_BUNDLE_AXES_INVALID",
-                detail="Canonical axis bundle field content.axes must be an object.",
-            )
-        if not isinstance(thresholds_payload, dict):
-            raise policy_service.PolicyServiceError(
-                status_code=422,
-                code="POLICY_AXIS_BUNDLE_THRESHOLDS_INVALID",
-                detail="Canonical axis bundle field content.thresholds must be an object.",
-            )
-
-        policy_hash = str(axis_row.get("content_hash") or "")
-        raw_policy_version = axis_row.get("policy_version")
-        if raw_policy_version is None:
-            raise policy_service.PolicyServiceError(
-                status_code=422,
-                code="POLICY_AXIS_BUNDLE_VERSION_INVALID",
-                detail="Canonical axis bundle policy_version must be present after bootstrap import.",
-            )
-        bundle_version = str(raw_policy_version)
-        return axes_payload, thresholds_payload, policy_hash, bundle_version
 
     @staticmethod
     def _build_axis_policy_report_from_canonical_bundle(

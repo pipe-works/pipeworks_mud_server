@@ -19,7 +19,7 @@ guarantee: the layer never breaks the game.
 
 Profile summary injection
 --------------------------
-Each world's ``ic_prompt.txt`` template uses a single ``{{profile_summary}}``
+Each world's active canonical prompt template uses a single ``{{profile_summary}}``
 placeholder to embed the character's current axis state as a formatted block.
 Before ``_render_system_prompt`` substitutes placeholders, ``translate()``
 calls :func:`_build_profile_summary` to produce this block and injects it
@@ -410,8 +410,8 @@ class OOCToICTranslationService:
         Args:
             world_id:   World this service is scoped to.  Required.
             config:     Frozen config from ``world.json``.
-            world_root: Path to the world package directory, used to load
-                        the system prompt template.
+            world_root: Path to the world package directory. Retained for
+                        compatibility with world construction flow.
 
         Raises:
             ValueError: If ``world_id`` is empty (same guard as
@@ -463,7 +463,7 @@ class OOCToICTranslationService:
         1. Build character axis profile (DB lookup).
         2. Inject ``channel`` and ``profile_summary`` into the profile dict
            so that ``{{channel}}`` and ``{{profile_summary}}`` placeholders
-           in the world's ``ic_prompt.txt`` resolve correctly.
+           in the active canonical prompt template resolve correctly.
         3. Arm deterministic mode if ``ipc_hash`` is provided and
            ``config.deterministic`` is ``True``.
         4. Render the system prompt from the profile + template.
@@ -514,13 +514,13 @@ class OOCToICTranslationService:
 
         # ── Step 2: Inject channel and profile_summary into the profile ────────
         #
-        # channel: injected so the {{channel}} placeholder in ic_prompt.txt
+        # channel: injected so the {{channel}} placeholder in the prompt template
         # resolves to the delivery mode ("say", "yell", "whisper"), allowing
         # the template to vary tone instructions per channel.
         profile["channel"] = channel
 
         # profile_summary: injected so the {{profile_summary}} placeholder in
-        # ic_prompt.txt resolves to a formatted multi-line block describing the
+        # the prompt template resolves to a formatted multi-line block describing the
         # character's current axis state.  Without this injection, the literal
         # string "{{profile_summary}}" would be forwarded to the LLM unchanged,
         # making the model blind to all character axis data.
@@ -739,38 +739,52 @@ class OOCToICTranslationService:
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _load_prompt_template(self, world_root: Path) -> str:
-        """Load the system prompt template from the world package.
+        """Load the system prompt template from canonical DB policy activation.
 
-        Reads ``config.prompt_template_path`` relative to ``world_root``.
-        Falls back to a minimal built-in template if the file is missing,
-        so that the service degrades gracefully rather than raising at init.
-
-        The built-in fallback uses the individual ``{{demeanor_label}}``
-        placeholder (not ``{{profile_summary}}``) so that it remains
-        functional without any world-specific prompt file.
+        The runtime source of truth is canonical policy activation state.
+        This loader intentionally does not read prompt text files from
+        ``world_root``. If no effective canonical prompt can be resolved, the
+        service degrades gracefully to a minimal built-in fallback template.
 
         Args:
-            world_root: Path to the world package directory.
+            world_root: Kept for constructor compatibility; not used for
+                canonical prompt resolution.
 
         Returns:
             Template text as a string.
         """
-        template_path = world_root / self._config.prompt_template_path
-        if template_path.exists():
-            return template_path.read_text(encoding="utf-8")
+        from mud_server.services import policy_service
 
-        logger.warning(
-            "OOCToICTranslationService: prompt template not found at %s; "
-            "using built-in fallback.  Create %s in the world package to "
-            "customise the tone for this world.",
-            template_path,
-            self._config.prompt_template_path,
-        )
+        _ = world_root
+        try:
+            resolved_prompt = policy_service.resolve_effective_prompt_template(
+                scope=policy_service.ActivationScope(
+                    world_id=self._world_id,
+                    client_profile="",
+                ),
+                preferred_policy_id=self._config.prompt_policy_id,
+                preferred_template_path=self._config.prompt_template_path,
+            )
+            logger.info(
+                "OOCToICTranslationService: loaded canonical prompt %s:%s for world %r",
+                resolved_prompt["policy_id"],
+                resolved_prompt["variant"],
+                self._world_id,
+            )
+            return resolved_prompt["content_text"]
+        except Exception as exc:
+            logger.warning(
+                "OOCToICTranslationService: canonical prompt resolution failed for world %r "
+                "(configured policy_id=%r, path=%r): %s. Using built-in fallback template.",
+                self._world_id,
+                self._config.prompt_policy_id,
+                self._config.prompt_template_path,
+                exc,
+            )
+
         # Minimal fallback template.  Uses {{demeanor_label}} (a single axis
         # key that exists in every profile) rather than {{profile_summary}}
-        # so it works without the profile_summary injection step.  This path
-        # should only be hit during development or misconfiguration — every
-        # production world must have its own ic_prompt.txt.
+        # so it works without the profile_summary injection step.
         return (
             "You are a character in a text-based RPG.\n"
             "Translate the following OOC message into a single line of IC "

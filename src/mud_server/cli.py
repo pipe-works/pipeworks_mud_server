@@ -12,6 +12,7 @@ Provides CLI commands for server management:
 
 Usage:
     mud-server init-db
+    mud-server init-db --skip-policy-import
     mud-server create-superuser
     mud-server import-species-policies [--world-id WORLD_ID]
     mud-server import-layer2-policies [--world-id WORLD_ID]
@@ -137,13 +138,80 @@ def prompt_for_credentials() -> tuple[str, str]:
     return username, password
 
 
+def _import_registered_world_policies_for_init(
+    *, actor: str, status: str, world_ids: list[str] | None = None
+) -> int:
+    """Import canonical policy objects for selected worlds.
+
+    This helper is used by ``init-db`` so fresh environments produce canonical
+    DB policy state before runtime startup. Runtime remains activation-driven
+    and does not import legacy files implicitly.
+
+    Returns:
+        Number of import failures across all worlds.
+    """
+    from mud_server.core.world_registry import WorldRegistry
+    from mud_server.services import policy_service
+
+    if world_ids is None:
+        registry = WorldRegistry()
+        worlds = registry.list_worlds(include_inactive=True)
+        if not worlds:
+            print("No registered worlds found; skipping world policy import.")
+            return 0
+        selected_world_ids = [str(world.get("id") or "").strip() for world in worlds]
+    else:
+        selected_world_ids = [str(world_id).strip() for world_id in world_ids]
+
+    failures = 0
+    for world_id in selected_world_ids:
+        if not world_id:
+            failures += 1
+            print(
+                "Skipping malformed world id during policy import bootstrap.",
+                file=sys.stderr,
+            )
+            continue
+
+        try:
+            summary = policy_service.import_world_policies_from_legacy_files(
+                world_id=world_id,
+                actor=actor,
+                activate=True,
+                status=status,
+            )
+        except policy_service.PolicyServiceError as exc:
+            failures += 1
+            print(
+                f"World policy import failed for {world_id} [{exc.code}]: {exc.detail}",
+                file=sys.stderr,
+            )
+            continue
+        except Exception as exc:
+            failures += 1
+            print(f"World policy import failed for {world_id}: {exc}", file=sys.stderr)
+            continue
+
+        print(
+            "World policy import summary: "
+            f"world={world_id} imported={summary.imported_count} "
+            f"updated={summary.updated_count} skipped={summary.skipped_count} "
+            f"errors={summary.error_count} activated={summary.activated_count} "
+            f"activation_unchanged={summary.activation_skipped_count}"
+        )
+        if summary.error_count > 0:
+            failures += summary.error_count
+
+    return failures
+
+
 def cmd_init_db(args: argparse.Namespace) -> int:
     """
     Initialize the database schema.
 
-    If MUD_ADMIN_USER and MUD_ADMIN_PASSWORD environment variables are set,
-    creates a superuser with those credentials. Otherwise, just creates the
-    schema and prints instructions for creating a superuser.
+    Initializes schema and, by default, imports/activates canonical world
+    policy objects for the configured default world. This avoids runtime
+    reliance on startup-time legacy file bootstrap.
 
     Returns:
         0 on success, 1 on error
@@ -194,6 +262,25 @@ def cmd_init_db(args: argparse.Namespace) -> int:
 
         database.init_database()
         print("Database initialized successfully.")
+
+        if getattr(args, "skip_policy_import", False):
+            print("Skipping world policy import (--skip-policy-import).")
+            return 0
+
+        failures = _import_registered_world_policies_for_init(
+            actor="system-bootstrap",
+            status="active",
+            world_ids=[config.worlds.default_world_id],
+        )
+        if failures > 0:
+            print(
+                "Database initialized, but world policy import reported failures. "
+                "Review output and rerun 'mud-server import-world-policies' as needed.",
+                file=sys.stderr,
+            )
+            return 1
+
+        print("World policy import completed successfully.")
         return 0
     except Exception as e:
         print(f"Error initializing database: {e}", file=sys.stderr)
@@ -656,14 +743,19 @@ def main() -> int:
         "init-db",
         help="Initialize the database schema",
         description=(
-            "Initialize the database with required tables. "
-            "If MUD_ADMIN_USER and MUD_ADMIN_PASSWORD are set, creates a superuser."
+            "Initialize the database with required tables and bootstrap canonical "
+            "world policy objects/activations for registered worlds."
         ),
     )
     init_parser.add_argument(
         "--migrate",
         action="store_true",
         help="Run the multi-world migration script instead of a fresh init.",
+    )
+    init_parser.add_argument(
+        "--skip-policy-import",
+        action="store_true",
+        help="Skip world policy bootstrap import during init-db.",
     )
     init_parser.set_defaults(func=cmd_init_db)
 

@@ -28,7 +28,7 @@ Test organisation
     Verifies the ipc_hash → renderer.set_deterministic() wiring.
 
 ``TestPromptTemplate``
-    Verifies template loading (custom file vs. built-in fallback).
+    Verifies template loading (canonical policy text vs. built-in fallback).
 
 ``TestSystemPromptRendering``
     Verifies placeholder substitution in the rendered prompt, including
@@ -78,7 +78,7 @@ def _make_config(*, enabled=True, deterministic=False, **kwargs) -> TranslationL
 
 
 def _make_service(tmp_path: Path, *, deterministic=False) -> OOCToICTranslationService:
-    """Build a service instance backed by a minimal ic_prompt.txt in tmp_path.
+    """Build a service instance with an explicit in-memory test prompt template.
 
     The template uses ``{{ooc_message}}``, ``{{demeanor_label}}``, and
     ``{{channel}}`` — individual axis placeholders rather than
@@ -89,17 +89,16 @@ def _make_service(tmp_path: Path, *, deterministic=False) -> OOCToICTranslationS
     For tests that specifically verify ``{{profile_summary}}`` resolution,
     use :func:`_make_service_with_profile_summary_template` instead.
     """
-    prompt_file = tmp_path / "policies" / "ic_prompt.txt"
-    prompt_file.parent.mkdir(parents=True, exist_ok=True)
-    prompt_file.write_text(
-        "Translate: {{ooc_message}}\nDemeanor: {{demeanor_label}}\nChannel: {{channel}}"
-    )
     cfg = _make_config(
         enabled=True,
         deterministic=deterministic,
         prompt_template_path="policies/ic_prompt.txt",
     )
-    return OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
+    service = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
+    service._prompt_template = (
+        "Translate: {{ooc_message}}\nDemeanor: {{demeanor_label}}\nChannel: {{channel}}"
+    )
+    return service
 
 
 def _make_service_with_profile_summary_template(
@@ -110,13 +109,12 @@ def _make_service_with_profile_summary_template(
     Use this helper in tests that need to confirm ``{{profile_summary}}``
     is resolved by translate() before reaching the renderer.
     """
-    prompt_file = tmp_path / "policies" / "ic_prompt.txt"
-    prompt_file.parent.mkdir(parents=True, exist_ok=True)
-    prompt_file.write_text(
+    cfg = _make_config(enabled=True, prompt_template_path="policies/ic_prompt.txt")
+    service = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
+    service._prompt_template = (
         "PROFILE:\n{{profile_summary}}\nMODE: {{channel}}\nMESSAGE: {{ooc_message}}"
     )
-    cfg = _make_config(enabled=True, prompt_template_path="policies/ic_prompt.txt")
-    return OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
+    return service
 
 
 # ── TestBuildProfileSummary ───────────────────────────────────────────────────
@@ -665,23 +663,59 @@ class TestDeterministicMode:
 
 class TestPromptTemplate:
     def test_missing_template_uses_fallback(self, tmp_path):
-        """If ic_prompt.txt does not exist, the built-in fallback is used."""
+        """If canonical prompt resolution fails, built-in fallback is used."""
         cfg = _make_config(
             enabled=True,
             prompt_template_path="policies/nonexistent.txt",
         )
-        # Should not raise — the service degrades gracefully with a fallback.
-        svc = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
+        with patch(
+            "mud_server.services.policy_service.resolve_effective_prompt_template",
+            side_effect=RuntimeError("not available"),
+        ):
+            svc = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
         assert svc._prompt_template  # fallback template is non-empty
 
     def test_custom_template_loaded(self, tmp_path):
-        """A world-specific ic_prompt.txt is loaded and stored verbatim."""
-        prompt_file = tmp_path / "policies" / "ic_prompt.txt"
-        prompt_file.parent.mkdir(parents=True, exist_ok=True)
-        prompt_file.write_text("Custom template: {{ooc_message}}")
+        """A canonical prompt policy text is loaded and stored verbatim."""
         cfg = _make_config(enabled=True, prompt_template_path="policies/ic_prompt.txt")
-        svc = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
+        with patch(
+            "mud_server.services.policy_service.resolve_effective_prompt_template",
+            return_value={
+                "policy_id": "prompt:translation.prompts.ic:default",
+                "variant": "v1",
+                "namespace": "translation.prompts.ic",
+                "policy_key": "default",
+                "content_text": "Custom template: {{ooc_message}}",
+                "content_hash": "hash",
+            },
+        ):
+            svc = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
         assert "Custom template" in svc._prompt_template
+
+    def test_policy_selector_is_forwarded_to_canonical_resolver(self, tmp_path):
+        """Configured prompt_policy_id should be forwarded to canonical resolver."""
+        cfg = _make_config(
+            enabled=True,
+            prompt_policy_id="prompt:translation.prompts.ic:custom",
+            prompt_template_path=None,
+        )
+        with patch(
+            "mud_server.services.policy_service.resolve_effective_prompt_template",
+            return_value={
+                "policy_id": "prompt:translation.prompts.ic:custom",
+                "variant": "v2",
+                "namespace": "translation.prompts.ic",
+                "policy_key": "custom",
+                "content_text": "Custom template: {{ooc_message}}",
+                "content_hash": "hash",
+            },
+        ) as mock_resolve:
+            OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
+
+        assert mock_resolve.call_count == 1
+        kwargs = mock_resolve.call_args.kwargs
+        assert kwargs["preferred_policy_id"] == "prompt:translation.prompts.ic:custom"
+        assert kwargs["preferred_template_path"] is None
 
 
 # ── TestSystemPromptRendering ─────────────────────────────────────────────────
@@ -1019,18 +1053,17 @@ class TestTranslateWithAxes:
 
     def _make_svc(self, tmp_path: Path, *, active_axes=None) -> OOCToICTranslationService:
         """Build a service with a profile_summary template and explicit active_axes."""
-        prompt_file = tmp_path / "policies" / "ic_prompt.txt"
-        prompt_file.parent.mkdir(parents=True, exist_ok=True)
-        prompt_file.write_text(
-            "PROFILE:\n{{profile_summary}}\nCHANNEL: {{channel}}\nMSG: {{ooc_message}}"
-        )
         axes = active_axes if active_axes is not None else ["demeanor", "health"]
         cfg = _make_config(
             enabled=True,
             active_axes=axes,
             prompt_template_path="policies/ic_prompt.txt",
         )
-        return OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
+        service = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
+        service._prompt_template = (
+            "PROFILE:\n{{profile_summary}}\nCHANNEL: {{channel}}\nMSG: {{ooc_message}}"
+        )
+        return service
 
     # ── Return type and basic structure ───────────────────────────────────────
 
@@ -1221,7 +1254,7 @@ class TestTranslateWithAxes:
     def test_prompt_template_returns_raw_template(self, tmp_path: Path) -> None:
         """prompt_template is the raw template text (before substitution)."""
         svc = self._make_svc(tmp_path)
-        raw = (tmp_path / "policies" / "ic_prompt.txt").read_text()
+        raw = svc._prompt_template
         with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
             MockRenderer.return_value.render.return_value = "IC."
             result = svc.translate_with_axes(self._AXES, "ooc")
@@ -1244,7 +1277,7 @@ class TestTranslateWithAxes:
     def test_prompt_template_on_api_error(self, tmp_path: Path) -> None:
         """prompt_template is populated even on fallback.api_error."""
         svc = self._make_svc(tmp_path)
-        raw = (tmp_path / "policies" / "ic_prompt.txt").read_text()
+        raw = svc._prompt_template
         with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
             MockRenderer.return_value.render.return_value = None
             result = svc.translate_with_axes(self._AXES, "ooc")
@@ -1255,7 +1288,7 @@ class TestTranslateWithAxes:
     def test_prompt_template_on_validation_failed(self, tmp_path: Path) -> None:
         """prompt_template is populated even on fallback.validation_failed."""
         svc = self._make_svc(tmp_path)
-        raw = (tmp_path / "policies" / "ic_prompt.txt").read_text()
+        raw = svc._prompt_template
         with patch("mud_server.translation.service.OllamaRenderer") as MockRenderer:
             MockRenderer.return_value.render.return_value = "raw output"
             with patch.object(svc._validator, "validate", return_value=None):

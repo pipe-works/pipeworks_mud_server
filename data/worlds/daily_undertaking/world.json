@@ -22,6 +22,7 @@
     "timeout_seconds": 10.0,
     "strict_mode": true,
     "max_output_chars": 280,
+    "prompt_policy_id": "prompt:translation.prompts.ic:default",
     "prompt_template_path": "policies/ic_prompt.txt",
     "active_axes": ["demeanor", "health", "physique", "wealth", "facial_signal"],
     "deterministic": false

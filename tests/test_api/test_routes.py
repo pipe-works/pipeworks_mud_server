@@ -220,7 +220,30 @@ GUEST_ENTITY_STATE_FIXTURE = {
 @pytest.mark.api
 def test_register_guest_success(test_client, test_db, temp_db_path):
     """Test successful guest registration with server-generated username."""
+    from mud_server.services import policy_service
+
     with use_test_database(temp_db_path):
+        # DB-first runtime contract: guest axis seeding requires canonical
+        # manifest/axis activation plus seeded axis registry rows.
+        import_summary = policy_service.import_world_policies_from_legacy_files(
+            world_id=database.DEFAULT_WORLD_ID,
+            actor="test-bootstrap",
+            activate=True,
+            status="active",
+        )
+        assert import_summary.error_count == 0
+        resolved_bundle = policy_service.resolve_effective_axis_bundle(
+            scope=policy_service.ActivationScope(
+                world_id=database.DEFAULT_WORLD_ID,
+                client_profile="",
+            )
+        )
+        database.seed_axis_registry(
+            world_id=database.DEFAULT_WORLD_ID,
+            axes_payload=resolved_bundle.axes_payload,
+            thresholds_payload=resolved_bundle.thresholds_payload,
+        )
+
         with patch(
             "mud_server.api.routes.auth._fetch_entity_state_for_character",
             return_value=(GUEST_ENTITY_STATE_FIXTURE, None),

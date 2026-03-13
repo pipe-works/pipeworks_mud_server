@@ -17,6 +17,7 @@ class TestTranslationLayerConfigFromDict:
             "keep_alive": "10m",
             "strict_mode": False,
             "max_output_chars": 140,
+            "prompt_policy_id": "prompt:translation.prompts.ic:default",
             "prompt_template_path": "policies/custom_prompt.txt",
             "active_axes": ["demeanor", "health"],
             "deterministic": True,
@@ -29,6 +30,7 @@ class TestTranslationLayerConfigFromDict:
         assert cfg.keep_alive == "10m"
         assert cfg.strict_mode is False
         assert cfg.max_output_chars == 140
+        assert cfg.prompt_policy_id == "prompt:translation.prompts.ic:default"
         assert cfg.prompt_template_path == "policies/custom_prompt.txt"
         assert cfg.active_axes == ["demeanor", "health"]
         assert cfg.deterministic is True
@@ -43,7 +45,8 @@ class TestTranslationLayerConfigFromDict:
         assert cfg.keep_alive == "5m"
         assert cfg.strict_mode is True
         assert cfg.max_output_chars == 280
-        assert cfg.prompt_template_path == "policies/ic_prompt.txt"
+        assert cfg.prompt_policy_id == "prompt:translation.prompts.ic:default"
+        assert cfg.prompt_template_path is None
         assert cfg.active_axes == []
         assert cfg.deterministic is False
 
@@ -68,6 +71,18 @@ class TestTranslationLayerConfigFromDict:
         assert cfg.enabled is True
         assert cfg.strict_mode is False
         assert cfg.deterministic is True
+
+    def test_legacy_template_path_can_be_omitted(self, tmp_path):
+        """Legacy path selector is optional when canonical policy id is set."""
+        cfg = TranslationLayerConfig.from_dict(
+            {
+                "enabled": True,
+                "prompt_policy_id": "prompt:translation.prompts.ic:custom",
+            },
+            world_root=tmp_path,
+        )
+        assert cfg.prompt_policy_id == "prompt:translation.prompts.ic:custom"
+        assert cfg.prompt_template_path is None
 
 
 class TestTranslationLayerConfigDisabled:
