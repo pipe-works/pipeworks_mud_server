@@ -1,4 +1,4 @@
-"""Legacy file-backed resolution grammar loader.
+"""Migration file-backed resolution grammar loader.
 
 This module is intentionally outside the canonical runtime contract.
 
@@ -22,7 +22,7 @@ from mud_server.axis.grammar import ResolutionGrammar, parse_resolution_grammar_
 
 
 def load_resolution_grammar(world_root: Path) -> ResolutionGrammar:
-    """Load and validate a legacy file-backed resolution grammar payload.
+    """Load and validate a migration file-backed resolution grammar payload.
 
     Args:
         world_root: World package root. The loader expects the grammar file at
