@@ -14,7 +14,7 @@ import yaml
 
 import mud_server.axis.grammar as grammar_module
 from mud_server.axis.grammar import AxisRuleConfig, ChatGrammar, ResolutionGrammar
-from mud_server.axis.legacy_file_loader import load_resolution_grammar
+from mud_server.axis.migration_file_loader import load_resolution_grammar
 
 # ---------------------------------------------------------------------------
 # Fixtures

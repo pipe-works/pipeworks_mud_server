@@ -243,7 +243,7 @@ Located in ``src/mud_server/axis/``:
   at startup.
 * ``grammar.py`` — Parses and validates canonical resolution payloads
   (DB-sourced) into immutable dataclasses used by the axis engine.
-* ``legacy_file_loader.py`` — File-backed grammar loader kept for explicit
+* ``migration_file_loader.py`` — File-backed grammar loader kept for explicit
   migration/testing workflows only.
 * ``resolvers.py`` — Pure stateless functions:
 

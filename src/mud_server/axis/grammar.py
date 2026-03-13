@@ -8,8 +8,9 @@ variants (``axis_bundle.content.resolution``) and parsed via
 Design notes:
 1. All dataclasses are frozen (immutable after parse).
 2. This module is payload-based and does not read policy files from disk.
-3. Legacy file loading remains available only in
-   ``mud_server.axis.legacy_file_loader`` for migration/testing workflows.
+3. File-backed loading remains available only in
+   ``mud_server.axis.migration_file_loader`` for explicit migration/testing
+   workflows.
 4. ``AxisRuleConfig.base_magnitude`` defaults to ``0.0`` for ``no_effect``
    resolvers; payloads may omit the field for those axes.
 """
