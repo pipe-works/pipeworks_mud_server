@@ -125,65 +125,46 @@ mud-server create-superuser
 # Enter username and password when prompted
 ```
 
-### Import Legacy Species Policies
+### Canonical Artifact Import (DB-First)
 
-Backfill legacy `species/*.yaml` files into canonical policy tables and seed
-world-level activation pointers:
-
-```bash
-mud-server import-species-policies --world-id pipeworks_web
-```
-
-Use `--no-activate` to import/update variants without changing activation
-state.
-
-### Import Legacy Layer 2 Policies
-
-Backfill legacy descriptor and registry files into canonical Layer 2 policy
-tables and optionally seed world-level activation pointers:
+Canonical policy state is now imported from deterministic publish artifacts.
+Legacy file-import commands were removed.
 
 ```bash
-mud-server import-layer2-policies --world-id pipeworks_web
+mud-server import-policy-artifact --artifact-path /abs/path/publish_<manifest_hash>.json
 ```
 
-Notes:
+Use `--no-activate` to import/update variants without applying activation
+pointers from the artifact.
 
-- Run Layer 1 import commands first (`import-species-policies` and
-  `import-tone-prompt-policies`) so registry/descriptor references can resolve
-  against existing Layer 1 rows.
-- Registry files with only unmappable legacy paths are reported as import
-  errors and do not block other valid Layer 2 files.
+### Breaking Changes: Legacy Import Command Removal
 
-### Import Legacy Tone-Profile and Prompt Policies
+The following commands were removed:
 
-Backfill legacy `tone_profiles/*.json` and `prompts/**/*.txt` files into
-canonical Layer 1 policy tables and optionally seed world-level activation
-pointers:
+1. `import-species-policies`
+2. `import-layer2-policies`
+3. `import-tone-prompt-policies`
+4. `import-world-policies`
 
-```bash
-mud-server import-tone-prompt-policies --world-id pipeworks_web
-```
+Replacement command:
 
-Use `--no-activate` to import/update variants without changing activation
-state.
+1. `import-policy-artifact --artifact-path ...`
 
-### Import All Legacy Policy Domains (Recommended)
+### Migration Note (Legacy Files)
 
-Run one idempotent migration pass that imports all current policy-like source
-domains in dependency order:
+`data/worlds/<world_id>/policies/**` files are no longer a runtime or bootstrap
+authority. Canonical runtime reads DB activation + variant state only. Legacy
+files should be treated as historical content artifacts unless explicitly
+converted into publish artifacts.
 
-1. Species blocks
-2. Tone profiles + prompts
-3. Clothing blocks
-4. Layer 2 registries + descriptor layers
-5. Axis bundle + manifest bundle
+### Command Replacement Table
 
-```bash
-mud-server import-world-policies --world-id pipeworks_web
-```
-
-Use `--no-activate` to import/update variants without changing activation
-state.
+| Removed Command | Replacement |
+|---|---|
+| `mud-server import-species-policies --world-id <world>` | `mud-server import-policy-artifact --artifact-path <publish_*.json>` |
+| `mud-server import-layer2-policies --world-id <world>` | `mud-server import-policy-artifact --artifact-path <publish_*.json>` |
+| `mud-server import-tone-prompt-policies --world-id <world>` | `mud-server import-policy-artifact --artifact-path <publish_*.json>` |
+| `mud-server import-world-policies --world-id <world>` | `mud-server import-policy-artifact --artifact-path <publish_*.json>` |
 
 ---
 

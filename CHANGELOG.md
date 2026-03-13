@@ -1,13 +1,26 @@
+<!-- markdownlint-disable MD013 MD024 -->
+
 # Changelog
 
-## [0.4.22](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.21...mud_server-v0.4.22) (2026-03-13)
+## Unreleased
 
+### Breaking Changes
+
+* **policy:** decomposed `policy_service.py` into modular `services/policy/` package and removed legacy file-import APIs.
+* **cli:** removed legacy policy import commands (`import-species-policies`, `import-layer2-policies`, `import-tone-prompt-policies`, `import-world-policies`).
+* **runtime:** removed legacy path-mapping fallback for registry entry resolution; canonical `policy_ref` is now required.
+
+### Migration Notes
+
+* Canonical policy import/bootstrap path is now artifact-only (`mud-server import-policy-artifact`).
+* Runtime policy authority remains DB activation + variant state; world policy files are not runtime authority.
+
+## [0.4.22](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.21...mud_server-v0.4.22) (2026-03-13)
 
 ### Features
 
 * **policy:** complete db-first runtime axis and import slice ([32e3edf](https://github.com/pipe-works/pipeworks_mud_server/commit/32e3edfed9432b09164e14ccd08055c57e4170d5))
 * **policy:** complete db-first runtime axis and import slice ([6037c35](https://github.com/pipe-works/pipeworks_mud_server/commit/6037c35f0a5dc59ce7f3c927ad8973f3a6489829))
-
 
 ### Bug Fixes
 
@@ -18,7 +31,6 @@
 
 ## [0.4.21](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.20...mud_server-v0.4.21) (2026-03-12)
 
-
 ### Bug Fixes
 
 * **api:** restrict policy hash snapshot to admin and superuser ([#219](https://github.com/pipe-works/pipeworks_mud_server/issues/219)) ([e0b1fe0](https://github.com/pipe-works/pipeworks_mud_server/commit/e0b1fe050bc05c24120915587f3c195b6882ff40))
@@ -26,7 +38,6 @@
 * **api:** restrict policy routes to admin and superuser ([27ddffb](https://github.com/pipe-works/pipeworks_mud_server/commit/27ddffb99d650510694291a10bfaa716ca2b0d7e))
 
 ## [0.4.20](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.19...mud_server-v0.4.20) (2026-03-12)
-
 
 ### Features
 
@@ -37,14 +48,12 @@
 * **policy:** add tone/prompt importer and align admin header ([16c7113](https://github.com/pipe-works/pipeworks_mud_server/commit/16c7113f5022f70208fc658b2f0890e8c0050c2c))
 * **policy:** add tone/prompt importer and align admin shell header ([cb65c7e](https://github.com/pipe-works/pipeworks_mud_server/commit/cb65c7efa24dfd9d98f1935a6ca1f6775e356212))
 
-
 ### Bug Fixes
 
 * **data:** update goblin species block ([15bffc0](https://github.com/pipe-works/pipeworks_mud_server/commit/15bffc0422923f40a2fc2fd35a5b26f46c9b0690))
 * **data:** update goblin species block [skip ci] ([c1c0318](https://github.com/pipe-works/pipeworks_mud_server/commit/c1c03186a3838e41e197a5a079e927e10863e8a9))
 
 ## [0.4.19](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.18...mud_server-v0.4.19) (2026-03-11)
-
 
 ### Features
 
@@ -57,14 +66,12 @@
 
 ## [0.4.18](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.17...mud_server-v0.4.18) (2026-03-10)
 
-
 ### Bug Fixes
 
 * **auth:** require randomized axis seeding for guest signup ([356310e](https://github.com/pipe-works/pipeworks_mud_server/commit/356310e59a848647a887145cfac5ef5ec51d9dd0))
 * **auth:** require randomized axis seeding for guest signup ([dd396d0](https://github.com/pipe-works/pipeworks_mud_server/commit/dd396d0ca87d56ae696fe1e184638ec3dad48c18))
 
 ## [0.4.17](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.16...mud_server-v0.4.17) (2026-03-10)
-
 
 ### Bug Fixes
 
@@ -73,7 +80,6 @@
 
 ## [0.4.16](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.15...mud_server-v0.4.16) (2026-03-10)
 
-
 ### Bug Fixes
 
 * **deps:** bump pipeworks-ipc to v0.1.2 ([5066206](https://github.com/pipe-works/pipeworks_mud_server/commit/50662066ce44d3c11a20920ec696486d4cab0146))
@@ -81,12 +87,10 @@
 
 ## [0.4.15](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.14...mud_server-v0.4.15) (2026-03-10)
 
-
 ### Features
 
 * **api:** add canonical policy hash snapshot endpoint ([ef19705](https://github.com/pipe-works/pipeworks_mud_server/commit/ef197053f706f24bd131907513b714a21f6607ed))
 * **api:** add canonical policy hash snapshot endpoint ([7f6f744](https://github.com/pipe-works/pipeworks_mud_server/commit/7f6f7447a35f0ba715b2e2d5c20d362b3f686086))
-
 
 ### Bug Fixes
 
@@ -94,24 +98,20 @@
 
 ## [0.4.14](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.13...mud_server-v0.4.14) (2026-03-09)
 
-
 ### Features
 
 * **ci:** add content-only fast validation lane ([#191](https://github.com/pipe-works/pipeworks_mud_server/issues/191)) ([d78cc53](https://github.com/pipe-works/pipeworks_mud_server/commit/d78cc5338044204806660d5fec34694393b2e02a))
 * **policies:** add goblin canon clothing block expansions ([#196](https://github.com/pipe-works/pipeworks_mud_server/issues/196)) ([1031eef](https://github.com/pipe-works/pipeworks_mud_server/commit/1031eef18b051281210e86d3a704f8a2d798a4dc))
 
-
 ### Performance Improvements
 
 * **ci:** parallelize mud test lanes with pytest-xdist ([471c568](https://github.com/pipe-works/pipeworks_mud_server/commit/471c568d7399e4b11ab31a403fe79e0bcb7dff26))
-
 
 ### Documentation
 
 * **ci:** document content-only fast lane behavior ([#193](https://github.com/pipe-works/pipeworks_mud_server/issues/193)) ([7ecec46](https://github.com/pipe-works/pipeworks_mud_server/commit/7ecec461e00ae5629ec77c846f5e8c0cf6c56d23))
 
 ## [0.4.13](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.12...mud_server-v0.4.13) (2026-03-08)
-
 
 ### Bug Fixes
 
@@ -120,14 +120,12 @@
 
 ## [0.4.12](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.11...mud_server-v0.4.12) (2026-03-08)
 
-
 ### Bug Fixes
 
 * normalize label-only upstream condition-axis payloads ([8b95313](https://github.com/pipe-works/pipeworks_mud_server/commit/8b953132384f596e06f48523acedcaca776c2b82))
 * normalize label-only upstream condition-axis payloads ([0b7fcaf](https://github.com/pipe-works/pipeworks_mud_server/commit/0b7fcaf6cc8dde1e3159367bcd3cea717b203c4f))
 
 ## [0.4.11](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.10...mud_server-v0.4.11) (2026-03-08)
-
 
 ### Features
 
@@ -140,7 +138,6 @@
 * **pipeline:** harden condition-axis upstream contract metadata ([99c43b3](https://github.com/pipe-works/pipeworks_mud_server/commit/99c43b3309228ce22ab46a1e0762c05c6bc70732))
 * **pipeline:** harden condition-axis upstream contract metadata ([6438abf](https://github.com/pipe-works/pipeworks_mud_server/commit/6438abfaaeb6314eeda9631c103291a381d90099))
 
-
 ### Documentation
 
 * **api:** document canonical condition-axis pipeline contract ([ba93c30](https://github.com/pipe-works/pipeworks_mud_server/commit/ba93c30d640c6fbcf289b014273e025d838864bc))
@@ -148,14 +145,12 @@
 
 ## [0.4.10](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.9...mud_server-v0.4.10) (2026-03-06)
 
-
 ### Features
 
 * **policy:** add manifest-first loader and image compile API ([66fcad9](https://github.com/pipe-works/pipeworks_mud_server/commit/66fcad9877d02851c96e580df926a3da55c37eaf))
 * **policy:** add manifest-first loader and image compile API ([fab856b](https://github.com/pipe-works/pipeworks_mud_server/commit/fab856b50ef63ff4f42389e6febe1a8442b79242))
 * **policy:** add pipeworks_web manifest package and bundle hash ([9f27106](https://github.com/pipe-works/pipeworks_mud_server/commit/9f271066209e39c3aecca721af31b5a255b19eb2))
 * **policy:** add pipeworks_web manifest package and bundle hash ([0b6b776](https://github.com/pipe-works/pipeworks_mud_server/commit/0b6b7762f2125de00ad7f34f13482adfc03c156f))
-
 
 ### Bug Fixes
 
@@ -166,14 +161,12 @@
 
 ## [0.4.9](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.8...mud_server-v0.4.9) (2026-03-04)
 
-
 ### Documentation
 
 * refresh artifact lab documentation ([cee0e4e](https://github.com/pipe-works/pipeworks_mud_server/commit/cee0e4e621850161d2f93d06aa16b91d7e855c7b))
 * refresh artifact lab documentation ([0726c0b](https://github.com/pipe-works/pipeworks_mud_server/commit/0726c0bdf2a3f2f0a797b131a37e8db7ea4f0226))
 
 ## [0.4.8](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.7...mud_server-v0.4.8) (2026-03-04)
-
 
 ### Features
 
@@ -190,13 +183,11 @@
 
 ## [0.4.7](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.6...mud_server-v0.4.7) (2026-03-01)
 
-
 ### Features
 
 * **api:** return raw prompt_template in lab translate response ([#157](https://github.com/pipe-works/pipeworks_mud_server/issues/157)) ([770858a](https://github.com/pipe-works/pipeworks_mud_server/commit/770858ac37be6163771b6026bf28ed899c8739ea))
 
 ## [0.4.6](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.5...mud_server-v0.4.6) (2026-03-01)
-
 
 ### Features
 
@@ -204,20 +195,17 @@
 
 ## [0.4.5](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.4...mud_server-v0.4.5) (2026-03-01)
 
-
 ### Bug Fixes
 
 * **translation:** add keep_alive to OllamaRenderer and increase pipeworks_web timeout ([#153](https://github.com/pipe-works/pipeworks_mud_server/issues/153)) ([8e14dd1](https://github.com/pipe-works/pipeworks_mud_server/commit/8e14dd14a3efeb7bf154eb36f13507828294bb10))
 
 ## [0.4.4](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.3...mud_server-v0.4.4) (2026-02-28)
 
-
 ### Bug Fixes
 
 * **api:** resolve world_id key mismatch in lab worlds endpoint ([#151](https://github.com/pipe-works/pipeworks_mud_server/issues/151)) ([4a323c9](https://github.com/pipe-works/pipeworks_mud_server/commit/4a323c958ea9fb1e8c22c60a410dc458c6833e35))
 
 ## [0.4.3](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.2...mud_server-v0.4.3) (2026-02-28)
-
 
 ### Bug Fixes
 
@@ -226,12 +214,10 @@
 
 ## [0.4.2](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.1...mud_server-v0.4.2) (2026-02-28)
 
-
 ### Features
 
 * **lab:** add lab API endpoints for Axis Descriptor Lab integration ([bbee9e7](https://github.com/pipe-works/pipeworks_mud_server/commit/bbee9e737f15e6a8b1ee7f275711d4251110a90f))
 * **lab:** add lab API endpoints for Axis Descriptor Lab integration ([060c91f](https://github.com/pipe-works/pipeworks_mud_server/commit/060c91f43bfe5e89ce2208ec8dfeaa7c2b9e78d0))
-
 
 ### Bug Fixes
 
@@ -239,13 +225,11 @@
 
 ## [0.4.1](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.0...mud_server-v0.4.1) (2026-02-27)
 
-
 ### Bug Fixes
 
 * **translation:** resolve {{profile_summary}} placeholder in OOC→IC pipeline ([#145](https://github.com/pipe-works/pipeworks_mud_server/issues/145)) ([ef0a37d](https://github.com/pipe-works/pipeworks_mud_server/commit/ef0a37d78026c5bd7e1d441b5f07c5f09324b0c9))
 
 ## [0.4.0](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.11...mud_server-v0.4.0) (2026-02-27)
-
 
 ### Features
 
@@ -257,19 +241,16 @@
 * **translation:** wire FUTURE(ledger) stubs to emit chat.translation events ([163101f](https://github.com/pipe-works/pipeworks_mud_server/commit/163101fb7ce6f56ca0b2a5fa1df0567405e78789))
 * **translation:** wire FUTURE(ledger) stubs to emit chat.translation events ([70e208a](https://github.com/pipe-works/pipeworks_mud_server/commit/70e208a9ed19c9edeaff9624dbf75ff562c6f1de))
 
-
 ### Bug Fixes
 
 * **ledger:** resolve ruff lint errors in test_writer.py ([23156d5](https://github.com/pipe-works/pipeworks_mud_server/commit/23156d5dccaa5106c7f097b5be508348e040b430))
 * **world:** correct health and physique axis label orderings ([#138](https://github.com/pipe-works/pipeworks_mud_server/issues/138)) ([8fdc6c7](https://github.com/pipe-works/pipeworks_mud_server/commit/8fdc6c7e931e90a00e68a44bfbff77fa894cafd8))
-
 
 ### Miscellaneous Chores
 
 * override release version to 0.4.0 ([#144](https://github.com/pipe-works/pipeworks_mud_server/issues/144)) ([b1bc648](https://github.com/pipe-works/pipeworks_mud_server/commit/b1bc648004cbc0c6c5ef164b1283208789782591))
 
 ## [0.3.11](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.10...mud_server-v0.3.11) (2026-02-26)
-
 
 ### Features
 
@@ -279,13 +260,11 @@
 * **web:** migrate admin CSS to pipe-works-base design system ([d54a9b4](https://github.com/pipe-works/pipeworks_mud_server/commit/d54a9b4f9c9599fc9e6521b7ec6451ca370769e2))
 * **world:** enable OOC→IC translation layer for pipeworks_web ([#137](https://github.com/pipe-works/pipeworks_mud_server/issues/137)) ([40e5d99](https://github.com/pipe-works/pipeworks_mud_server/commit/40e5d992bf4ae1330c2c6e1586007602b056b694))
 
-
 ### Bug Fixes
 
 * **chat:** address six chat system gaps ([#134](https://github.com/pipe-works/pipeworks_mud_server/issues/134)) ([723a3e6](https://github.com/pipe-works/pipeworks_mud_server/commit/723a3e657ee0ededee86be9e9a3939c8ff0c67cd))
 
 ## [0.3.10](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.9...mud_server-v0.3.10) (2026-02-18)
-
 
 ### Features
 
@@ -316,7 +295,6 @@
 * **db:** stabilize facade import path and shared db types ([09fddb9](https://github.com/pipe-works/pipeworks_mud_server/commit/09fddb91642ee834190d45c4a140fc7af353eda2))
 * **db:** stabilize facade imports and shared db types ([dd9661d](https://github.com/pipe-works/pipeworks_mud_server/commit/dd9661dd8062a7cb5fdfc67790f6bf8cc1179459))
 
-
 ### Bug Fixes
 
 * **db:** forward facade monkeypatch writes to database module ([ba3d1ba](https://github.com/pipe-works/pipeworks_mud_server/commit/ba3d1ba2a932cd6aabbecfee792409744fb17a9f))
@@ -324,13 +302,11 @@
 * **db:** re-export axis registry seed stats from compatibility module ([bc794ff](https://github.com/pipe-works/pipeworks_mud_server/commit/bc794ffe9f0154863bf490fa5e7e814f43441579))
 * **db:** restore database import path for app entry points ([adf2193](https://github.com/pipe-works/pipeworks_mud_server/commit/adf219353c3e114c36179953a5787c3f76e21b3a))
 
-
 ### Documentation
 
 * **db:** align refactor architecture and schema docs ([#131](https://github.com/pipe-works/pipeworks_mud_server/issues/131)) ([c13e5ba](https://github.com/pipe-works/pipeworks_mud_server/commit/c13e5baea53f52f4a72a9e639063bbd4e9ba3ccf))
 
 ## [0.3.9](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.8...mud_server-v0.3.9) (2026-02-16)
-
 
 ### Features
 
@@ -338,7 +314,6 @@
 * **policy:** implement section 3 world access foundations ([7b801f1](https://github.com/pipe-works/pipeworks_mud_server/commit/7b801f1998eb7a48b692443af217fa9e697e47b7))
 
 ## [0.3.8](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.7...mud_server-v0.3.8) (2026-02-16)
-
 
 ### Features
 
@@ -348,7 +323,6 @@
 * **auth:** enforce account-only registration flow ([6825b6d](https://github.com/pipe-works/pipeworks_mud_server/commit/6825b6de48075e48c789b584b2cb64a3a43e2aaf))
 
 ## [0.3.7](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.6...mud_server-v0.3.7) (2026-02-16)
-
 
 ### Features
 
@@ -366,7 +340,6 @@
 * **db:** enforce sqlite session invariants ([afee4ef](https://github.com/pipe-works/pipeworks_mud_server/commit/afee4ef1e25286d6f6c1bc0f008bfbdb91ec1267))
 
 ## [0.3.6](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.5...mud_server-v0.3.6) (2026-02-15)
-
 
 ### Features
 
@@ -387,7 +360,6 @@
 
 ## [0.3.5](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.4...mud_server-v0.3.5) (2026-02-14)
 
-
 ### Features
 
 * **web:** add play shell scaffolding ([ee65ef7](https://github.com/pipe-works/pipeworks_mud_server/commit/ee65ef7abccd3f804e328618fd4e992e3d86c0c1))
@@ -397,12 +369,10 @@
 * **web:** simplify play login flow ([21dd729](https://github.com/pipe-works/pipeworks_mud_server/commit/21dd7295a1bdc7a4692c564d6691dd34f71c5baf))
 * **web:** simplify play login flow ([883ff32](https://github.com/pipe-works/pipeworks_mud_server/commit/883ff32b1cc581d8b91fe892f896c14135ce28cc))
 
-
 ### Bug Fixes
 
 * **web:** add play shell base styles ([a74dcb6](https://github.com/pipe-works/pipeworks_mud_server/commit/a74dcb69a14eeda4be15155326bc86fe065ff92f))
 * **web:** style play shell states ([0e5eebb](https://github.com/pipe-works/pipeworks_mud_server/commit/0e5eebb3cce880b2566464602744ac39b1354606))
-
 
 ### Documentation
 
@@ -410,7 +380,6 @@
 * **web:** add play web UI guide ([5c5b0cc](https://github.com/pipe-works/pipeworks_mud_server/commit/5c5b0ccb2fa8913009c4021b5342db7cc89b841e))
 
 ## [0.3.4](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.3...mud_server-v0.3.4) (2026-02-14)
-
 
 ### Features
 
@@ -425,7 +394,6 @@
 * **web:** add schema view and retire gradio ([#76](https://github.com/pipe-works/pipeworks_mud_server/issues/76)) ([7189cd3](https://github.com/pipe-works/pipeworks_mud_server/commit/7189cd31621f2e10aa553967e11bceb262366f4a))
 * **web:** refresh admin dashboard layout ([#75](https://github.com/pipe-works/pipeworks_mud_server/issues/75)) ([5e96fbc](https://github.com/pipe-works/pipeworks_mud_server/commit/5e96fbcf8cd87c7adc6693ca8cca957c6ff18c03))
 
-
 ### Documentation
 
 * **security:** add admin mTLS guide ([48f9a6f](https://github.com/pipe-works/pipeworks_mud_server/commit/48f9a6f67df56656ad953cc19c8c3afef3c914ed))
@@ -435,14 +403,12 @@
 
 ## [0.3.3](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.2...mud_server-v0.3.3) (2026-02-13)
 
-
 ### Documentation
 
 * **api:** note register_routes import path change ([c46c5b8](https://github.com/pipe-works/pipeworks_mud_server/commit/c46c5b8853f4227fb8ae97188213ba7fd97952ca))
 * **api:** note register_routes import path change ([2efe672](https://github.com/pipe-works/pipeworks_mud_server/commit/2efe67242a600fe3edd3dab889e7f4d6b2c59b39))
 
 ## [0.3.2](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.1...mud_server-v0.3.2) (2026-02-13)
-
 
 ### Features
 
@@ -459,7 +425,6 @@
 * **multiworld:** add world scoping and auth flow ([1450880](https://github.com/pipe-works/pipeworks_mud_server/commit/1450880007ca88a598dac2e7a507010cd990b997))
 * **multiworld:** add world scoping and auth flow ([e087254](https://github.com/pipe-works/pipeworks_mud_server/commit/e0872544d4a63a4a47ab5601d41d4d84bc5f0eaf))
 
-
 ### Bug Fixes
 
 * **admin_tui:** align users table ([1cae99a](https://github.com/pipe-works/pipeworks_mud_server/commit/1cae99a5f63c2824ada0876364f9e6f3e0d4d8ab))
@@ -471,7 +436,6 @@
 * **db:** map usernames to default characters ([d14bccb](https://github.com/pipe-works/pipeworks_mud_server/commit/d14bccbe86cbe1c5101f624565b81d9fd45f535f))
 * **test:** avoid fixture call and guard migrate arg ([4fdf1cf](https://github.com/pipe-works/pipeworks_mud_server/commit/4fdf1cfc5fda5a524318bafdd1de788c501c7052))
 
-
 ### Documentation
 
 * **api:** add register guest examples ([008cb3e](https://github.com/pipe-works/pipeworks_mud_server/commit/008cb3e3b3350accf9f1d46de3e6f2b00c1ad810))
@@ -482,19 +446,16 @@
 
 ## [0.3.1](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.3.0...mud_server-v0.3.1) (2026-02-11)
 
-
 ### Features
 
 * **db:** introduce users and characters schema ([afecf6c](https://github.com/pipe-works/pipeworks_mud_server/commit/afecf6cc3b4d05706d4d09a58620fa6e2b3cc855))
 * **db:** introduce users and characters schema ([8b728cc](https://github.com/pipe-works/pipeworks_mud_server/commit/8b728cc19d2b393a8abf02c648ebcd9ff01f6079))
-
 
 ### Bug Fixes
 
 * **db:** align tests with user/character schema ([a93669b](https://github.com/pipe-works/pipeworks_mud_server/commit/a93669bf3715246a8008b4817e39bc055fe19af0))
 
 ## [0.3.0](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.10...mud_server-v0.3.0) (2026-02-10)
-
 
 ### ⚠ BREAKING CHANGES
 
@@ -515,7 +476,6 @@
 * **tui:** add database table browser ([9aa9f07](https://github.com/pipe-works/pipeworks_mud_server/commit/9aa9f075f287f98ba60c9716a422566852e388b8))
 * **tui:** add database table browser ([87a3b47](https://github.com/pipe-works/pipeworks_mud_server/commit/87a3b47bcb9bb7cc0a6f9b8f39f921f50b32103e))
 
-
 ### Bug Fixes
 
 * **db:** update last_login on session creation ([36e915d](https://github.com/pipe-works/pipeworks_mud_server/commit/36e915df51362231efb13cd45653af4630d25327))
@@ -526,13 +486,11 @@
 
 ## [0.2.10](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.9...mud_server-v0.2.10) (2026-02-01)
 
-
 ### Bug Fixes
 
 * **data:** rename upper_landing to dark_passage ([#41](https://github.com/pipe-works/pipeworks_mud_server/issues/41)) ([d567f50](https://github.com/pipe-works/pipeworks_mud_server/commit/d567f5074a8d6c54c9610c923cc2d8512b083b4f))
 
 ## [0.2.9](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.8...mud_server-v0.2.9) (2026-02-01)
-
 
 ### Features
 
@@ -540,12 +498,10 @@
 
 ## [0.2.8](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.7...mud_server-v0.2.8) (2026-01-31)
 
-
 ### Features
 
 * **core:** add up/down movement commands and pub crawl world data ([3c64630](https://github.com/pipe-works/pipeworks_mud_server/commit/3c64630daca66367f33469150910a956c8c736a2))
 * **core:** add up/down movement commands and pub crawl world data ([28e3ac4](https://github.com/pipe-works/pipeworks_mud_server/commit/28e3ac4fb0599c43b51487766ab99774446daba6))
-
 
 ### Bug Fixes
 
@@ -554,7 +510,6 @@
 
 ## [0.2.7](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.6...mud_server-v0.2.7) (2026-01-31)
 
-
 ### Features
 
 * **core:** add event bus infrastructure for plugin system ([#31](https://github.com/pipe-works/pipeworks_mud_server/issues/31)) ([64b5282](https://github.com/pipe-works/pipeworks_mud_server/commit/64b52820678f9563cef8374eab4e68669f09df52))
@@ -562,13 +517,11 @@
 
 ## [0.2.6](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.5...mud_server-v0.2.6) (2026-01-31)
 
-
 ### Bug Fixes
 
 * **security:** add timing attack prevention and XSS sanitization ([#29](https://github.com/pipe-works/pipeworks_mud_server/issues/29)) ([b52b91a](https://github.com/pipe-works/pipeworks_mud_server/commit/b52b91aba519e42918bc93c3dc9670509c57095e))
 
 ## [0.2.5](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.4...mud_server-v0.2.5) (2026-01-31)
-
 
 ### Features
 
@@ -576,24 +529,20 @@
 
 ## [0.2.4](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.3...mud_server-v0.2.4) (2026-01-30)
 
-
 ### Features
 
 * **admin_tui:** add database viewer screen for superusers ([#25](https://github.com/pipe-works/pipeworks_mud_server/issues/25)) ([872b4d5](https://github.com/pipe-works/pipeworks_mud_server/commit/872b4d5e12233a44e3b4f24ce1784d270068615e))
 
 ## [0.2.3](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.2...mud_server-v0.2.3) (2026-01-30)
 
-
 ### Features
 
 * **admin:** add Textual TUI and reorganize admin interfaces ([#20](https://github.com/pipe-works/pipeworks_mud_server/issues/20)) ([75e6dae](https://github.com/pipe-works/pipeworks_mud_server/commit/75e6dae91bec4fecafe6fd0e8d4a609e444dd037))
-
 
 ### Bug Fixes
 
 * **admin_tui:** improve error handling for server responses and dashboard ([#23](https://github.com/pipe-works/pipeworks_mud_server/issues/23)) ([67bcc8b](https://github.com/pipe-works/pipeworks_mud_server/commit/67bcc8b3bef5d6ac6ad4ba6e5bdfd17b6f025c06))
 * **admin_tui:** resolve TUI freeze and session management issues ([#24](https://github.com/pipe-works/pipeworks_mud_server/issues/24)) ([5ea542f](https://github.com/pipe-works/pipeworks_mud_server/commit/5ea542f5e68404f4a7d1d2c785189a5b879cc48d))
-
 
 ### Documentation
 
@@ -601,12 +550,10 @@
 
 ## [0.2.2](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.1...mud_server-v0.2.2) (2026-01-30)
 
-
 ### Features
 
 * **cli:** add port auto-discovery for API server and UI client ([#18](https://github.com/pipe-works/pipeworks_mud_server/issues/18)) ([b31d8d1](https://github.com/pipe-works/pipeworks_mud_server/commit/b31d8d1cd322d4f26c0c201a585b823c34e9c7ea))
 * **security:** implement comprehensive NIST-aligned password policy ([#19](https://github.com/pipe-works/pipeworks_mud_server/issues/19)) ([2909143](https://github.com/pipe-works/pipeworks_mud_server/commit/2909143131a6ce46d84d6a5fe1879ac068b34bab))
-
 
 ### Bug Fixes
 
@@ -614,13 +561,11 @@
 
 ## [0.2.1](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.2.0...mud_server-v0.2.1) (2026-01-30)
 
-
 ### Documentation
 
 * align ReadTheDocs with pipe-works organization standards ([#14](https://github.com/pipe-works/pipeworks_mud_server/issues/14)) ([8306b70](https://github.com/pipe-works/pipeworks_mud_server/commit/8306b703e4686cf2108f18e0fbdea1fa271e32b1))
 
 ## [0.2.0](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.1.2...mud_server-v0.2.0) (2026-01-30)
-
 
 ### ⚠ BREAKING CHANGES
 
@@ -630,11 +575,9 @@
 
 * add CLI with secure superuser management ([#11](https://github.com/pipe-works/pipeworks_mud_server/issues/11)) ([a5f7321](https://github.com/pipe-works/pipeworks_mud_server/commit/a5f732197500c727b362bf28a5831bfe303e8d32))
 
-
 ### Bug Fixes
 
 * **security:** upgrade python-multipart to 0.0.22 ([#12](https://github.com/pipe-works/pipeworks_mud_server/issues/12)) ([08d1eeb](https://github.com/pipe-works/pipeworks_mud_server/commit/08d1eeb3b4b26664aa09867bb2c39156b1dd7e9d))
-
 
 ### Documentation
 
@@ -643,13 +586,11 @@
 
 ## [0.1.2](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.1.1...mud_server-v0.1.2) (2026-01-27)
 
-
 ### Bug Fixes
 
-* **packaging:** exclude __pycache__ from distribution ([#7](https://github.com/pipe-works/pipeworks_mud_server/issues/7)) ([1048c66](https://github.com/pipe-works/pipeworks_mud_server/commit/1048c6653aad4e3ba935e46f74267b6f2c0bbfa7))
+* **packaging:** exclude **pycache** from distribution ([#7](https://github.com/pipe-works/pipeworks_mud_server/issues/7)) ([1048c66](https://github.com/pipe-works/pipeworks_mud_server/commit/1048c6653aad4e3ba935e46f74267b6f2c0bbfa7))
 
 ## [0.1.1](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.1.0...mud_server-v0.1.1) (2026-01-26)
-
 
 ### Features
 
@@ -658,7 +599,6 @@
 * **ci:** add workflow_dispatch trigger to release-please ([bbb646a](https://github.com/pipe-works/pipeworks_mud_server/commit/bbb646ad8c27c8dc5e1d32b66fa79cf8fc6961a1))
 * Enable MkDocs documentation builds in CI ([a7e75ca](https://github.com/pipe-works/pipeworks_mud_server/commit/a7e75ca16a3bc016e471c80c8c2828d2b974d509))
 * Upgrade to enhanced organization pre-commit standards ([fde93e8](https://github.com/pipe-works/pipeworks_mud_server/commit/fde93e8e25f3a853c37a916f00159aef86141252))
-
 
 ### Bug Fixes
 

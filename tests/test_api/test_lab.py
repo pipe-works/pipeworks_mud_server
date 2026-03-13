@@ -14,6 +14,7 @@ Covers:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -422,16 +423,268 @@ def _import_world_policy_files_into_canonical_db(
     world_root: Path,
     world_id: str,
 ) -> None:
-    """Import one test world's policy files into canonical DB activation state."""
+    """Seed canonical DB policy objects from local test policy files.
+
+    The production legacy file-import API was removed. This test helper keeps
+    existing fixture-based coverage by converting fixture files into canonical
+    policy objects directly through the public upsert + activation APIs.
+    """
     monkeypatch.setattr(policy_service.config.worlds, "worlds_root", str(world_root.parent))
     monkeypatch.setattr(policy_service.config.worlds, "default_world_id", world_id)
-    summary = policy_service.import_world_policies_from_legacy_files(
-        world_id=world_id,
-        actor="test-importer",
-        activate=True,
-        status="active",
-    )
-    assert summary.error_count == 0, summary
+
+    scope = policy_service.ActivationScope(world_id=world_id, client_profile="")
+
+    def _version_from_stem(path: Path) -> tuple[str, int]:
+        match = re.fullmatch(r"(?P<key>[A-Za-z0-9_.-]+)_v(?P<ver>[1-9][0-9]*)", path.stem)
+        assert match is not None, f"Invalid versioned filename: {path.name}"
+        return match.group("key"), int(match.group("ver"))
+
+    def _legacy_path_to_policy_ref(path_value: str) -> dict[str, str] | None:
+        normalized = path_value.strip().replace("\\", "/")
+        species_match = re.fullmatch(
+            r"(?:policies/)?image/blocks/species/(?P<key>.+)_(?P<variant>v[0-9][A-Za-z0-9_-]*)\.ya?ml",
+            normalized,
+        )
+        if species_match:
+            return {
+                "policy_id": f"species_block:image.blocks.species:{species_match.group('key')}",
+                "variant": species_match.group("variant"),
+            }
+
+        clothing_match = re.fullmatch(
+            r"(?:policies/)?image/blocks/clothing/(?P<namespace>(?:[A-Za-z0-9_.-]+/)*)"
+            r"(?P<key>.+)_(?P<variant>v[0-9][A-Za-z0-9_-]*)\.txt",
+            normalized,
+        )
+        if clothing_match:
+            namespace_suffix = clothing_match.group("namespace").strip("/")
+            namespace = "image.blocks.clothing"
+            if namespace_suffix:
+                namespace = f"{namespace}.{namespace_suffix.replace('/', '.')}"
+            return {
+                "policy_id": f"clothing_block:{namespace}:{clothing_match.group('key')}",
+                "variant": clothing_match.group("variant"),
+            }
+
+        tone_match = re.fullmatch(
+            r"(?:policies/)?image/tone_profiles/(?P<key>.+)_(?P<variant>v[0-9][A-Za-z0-9_-]*)\.json",
+            normalized,
+        )
+        if tone_match:
+            return {
+                "policy_id": f"tone_profile:image.tone_profiles:{tone_match.group('key')}",
+                "variant": tone_match.group("variant"),
+            }
+        return None
+
+    policy_targets: list[tuple[str, str]] = []
+    actor = "test-importer"
+
+    species_dir = world_root / "policies" / "image" / "blocks" / "species"
+    for species_path in sorted(species_dir.glob("*.y*ml")):
+        policy_key, version = _version_from_stem(species_path)
+        payload = yaml.safe_load(species_path.read_text(encoding="utf-8")) or {}
+        text = str(payload.get("text") or "").rstrip()
+        assert text, f"Species file missing text: {species_path}"
+        policy_id = f"species_block:image.blocks.species:{policy_key}"
+        variant = f"v{version}"
+        policy_service.upsert_policy_variant(
+            policy_id=policy_id,
+            variant=variant,
+            schema_version="1.0",
+            policy_version=version,
+            status="active",
+            content={"text": text},
+            updated_by=actor,
+        )
+        policy_targets.append((policy_id, variant))
+
+    clothing_root = world_root / "policies" / "image" / "blocks" / "clothing"
+    for clothing_path in sorted(clothing_root.rglob("*.txt")):
+        policy_key, version = _version_from_stem(clothing_path)
+        relative = clothing_path.relative_to(clothing_root)
+        namespace = "image.blocks.clothing"
+        if len(relative.parts) > 1:
+            namespace = f"{namespace}.{'.'.join(relative.parts[:-1])}"
+        text = clothing_path.read_text(encoding="utf-8").rstrip()
+        assert text, f"Clothing block file missing text: {clothing_path}"
+        policy_id = f"clothing_block:{namespace}:{policy_key}"
+        variant = f"v{version}"
+        policy_service.upsert_policy_variant(
+            policy_id=policy_id,
+            variant=variant,
+            schema_version="1.0",
+            policy_version=version,
+            status="active",
+            content={"text": text},
+            updated_by=actor,
+        )
+        policy_targets.append((policy_id, variant))
+
+    tone_root = world_root / "policies" / "image" / "tone_profiles"
+    for tone_path in sorted(tone_root.glob("*.json")):
+        policy_key, version = _version_from_stem(tone_path)
+        payload = json.loads(tone_path.read_text(encoding="utf-8"))
+        assert isinstance(payload, dict), f"Tone profile must be object: {tone_path}"
+        policy_id = f"tone_profile:image.tone_profiles:{policy_key}"
+        variant = f"v{version}"
+        policy_service.upsert_policy_variant(
+            policy_id=policy_id,
+            variant=variant,
+            schema_version="1.0",
+            policy_version=version,
+            status="active",
+            content=payload,
+            updated_by=actor,
+        )
+        policy_targets.append((policy_id, variant))
+
+    descriptor_root = world_root / "policies" / "image" / "descriptor_layers"
+    species_reference_ids = [
+        {"policy_id": policy_id, "variant": variant}
+        for policy_id, variant in policy_targets
+        if policy_id.startswith("species_block:")
+    ]
+    for descriptor_path in sorted(descriptor_root.glob("*")):
+        if descriptor_path.suffix.lower() not in {".txt", ".json", ".yaml", ".yml"}:
+            continue
+        policy_key, version = _version_from_stem(Path(descriptor_path.stem))
+        text = descriptor_path.read_text(encoding="utf-8").rstrip()
+        assert text, f"Descriptor layer file missing text: {descriptor_path}"
+        policy_id = f"descriptor_layer:image.descriptors:{policy_key}"
+        variant = f"v{version}"
+        policy_service.upsert_policy_variant(
+            policy_id=policy_id,
+            variant=variant,
+            schema_version="1.0",
+            policy_version=version,
+            status="active",
+            content={"text": text, "references": species_reference_ids},
+            updated_by=actor,
+        )
+        policy_targets.append((policy_id, variant))
+
+    registry_root = world_root / "policies" / "image" / "registries"
+    for registry_path in sorted(registry_root.glob("*.y*ml")):
+        payload = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
+        assert isinstance(payload, dict), f"Registry payload must be object: {registry_path}"
+        key_match = re.fullmatch(
+            r"(?P<key>[A-Za-z0-9_.-]+)_v(?P<ver>[1-9][0-9]*)", registry_path.stem
+        )
+        if key_match is not None:
+            policy_key = key_match.group("key")
+            version = int(key_match.group("ver"))
+        else:
+            registry_meta = payload.get("registry") or {}
+            assert isinstance(registry_meta, dict), f"registry meta must be object: {registry_path}"
+            policy_key = str(registry_meta.get("id") or registry_path.stem)
+            version = int(registry_meta.get("version") or 1)
+
+        # Normalize entry-level refs so runtime no longer depends on legacy path fields.
+        references: list[dict[str, str]] = []
+        seen_refs: set[tuple[str, str]] = set()
+        rows_to_normalize: list[Any] = []
+        rows_to_normalize.append(payload.get("entries"))
+        slots = payload.get("slots")
+        if isinstance(slots, dict):
+            rows_to_normalize.extend(slot_rows for slot_rows in slots.values())
+
+        for rows in rows_to_normalize:
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                if isinstance(row.get("policy_ref"), dict):
+                    policy_ref = row["policy_ref"]
+                else:
+                    policy_ref = None
+                    for key in ("block_path", "fragment_path", "tone_profile_path"):
+                        value = row.get(key)
+                        if isinstance(value, str) and value.strip():
+                            policy_ref = _legacy_path_to_policy_ref(value)
+                            if policy_ref is not None:
+                                row["policy_ref"] = policy_ref
+                                break
+                if not isinstance(policy_ref, dict):
+                    continue
+                identity = (
+                    str(policy_ref.get("policy_id", "")),
+                    str(policy_ref.get("variant", "")),
+                )
+                if identity[0] and identity[1] and identity not in seen_refs:
+                    seen_refs.add(identity)
+                    references.append({"policy_id": identity[0], "variant": identity[1]})
+
+        if references:
+            payload["references"] = references
+
+        policy_id = f"registry:image.registries:{policy_key}"
+        variant = f"v{version}"
+        policy_service.upsert_policy_variant(
+            policy_id=policy_id,
+            variant=variant,
+            schema_version="1.0",
+            policy_version=version,
+            status="active",
+            content=payload,
+            updated_by=actor,
+        )
+        policy_targets.append((policy_id, variant))
+
+    manifest_path = world_root / "policies" / "manifest.yaml"
+    if manifest_path.exists():
+        manifest_payload = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+        assert isinstance(
+            manifest_payload, dict
+        ), f"Manifest payload must be object: {manifest_path}"
+        manifest_policy_id = f"manifest_bundle:world.manifests:{world_id}"
+        policy_service.upsert_policy_variant(
+            policy_id=manifest_policy_id,
+            variant="v1",
+            schema_version="1.0",
+            policy_version=1,
+            status="active",
+            content={"manifest": manifest_payload},
+            updated_by=actor,
+        )
+        policy_targets.append((manifest_policy_id, "v1"))
+
+    axis_root = world_root / "policies" / "axis"
+    if axis_root.exists():
+        axes_payload = yaml.safe_load((axis_root / "axes.yaml").read_text(encoding="utf-8")) or {}
+        thresholds_payload = (
+            yaml.safe_load((axis_root / "thresholds.yaml").read_text(encoding="utf-8")) or {}
+        )
+        resolution_payload = (
+            yaml.safe_load((axis_root / "resolution.yaml").read_text(encoding="utf-8")) or {}
+        )
+        assert isinstance(axes_payload, dict)
+        assert isinstance(thresholds_payload, dict)
+        assert isinstance(resolution_payload, dict)
+        axis_policy_id = "axis_bundle:axis.bundles:default"
+        policy_service.upsert_policy_variant(
+            policy_id=axis_policy_id,
+            variant="v1",
+            schema_version="1.0",
+            policy_version=1,
+            status="active",
+            content={
+                "axes": axes_payload,
+                "thresholds": thresholds_payload,
+                "resolution": resolution_payload,
+            },
+            updated_by=actor,
+        )
+        policy_targets.append((axis_policy_id, "v1"))
+
+    for policy_id, variant in sorted(set(policy_targets)):
+        policy_service.set_policy_activation(
+            scope=scope,
+            policy_id=policy_id,
+            variant=variant,
+            activated_by=actor,
+        )
 
 
 @pytest.fixture()
