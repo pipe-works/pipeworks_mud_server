@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -19,6 +19,7 @@ from mud_server.config import use_test_database
 from mud_server.core.engine import GameEngine
 from mud_server.db import database
 from mud_server.policies import AxisPolicyValidationReport
+from mud_server.services import policy_service
 
 
 @pytest.mark.unit
@@ -27,13 +28,22 @@ def test_engine_bootstrap_axis_policy_seeds_registry(temp_db_path, monkeypatch, 
     with use_test_database(temp_db_path):
         database.init_database(skip_superuser=True)
 
-        fake_payload: dict[str, Any] = {
-            "axes": {
-                "wealth": {
-                    "ordering": {"type": "ordinal", "values": ["poor", "wealthy"]},
+        fake_bundle = policy_service.EffectiveAxisBundle(
+            manifest_policy_id="manifest_bundle:world.manifests:pipeworks_web",
+            manifest_variant="v1",
+            axis_policy_id="axis_bundle:axis.bundles:axis_core_v1",
+            axis_variant="v1",
+            bundle_id="axis_core_v1",
+            bundle_version="1",
+            manifest_payload={},
+            axes_payload={
+                "axes": {
+                    "wealth": {
+                        "ordering": {"type": "ordinal", "values": ["poor", "wealthy"]},
+                    }
                 }
             },
-            "thresholds": {
+            thresholds_payload={
                 "axes": {
                     "wealth": {
                         "values": {
@@ -43,26 +53,10 @@ def test_engine_bootstrap_axis_policy_seeds_registry(temp_db_path, monkeypatch, 
                     }
                 }
             },
-        }
-
-        report = AxisPolicyValidationReport(
-            world_id=database.DEFAULT_WORLD_ID,
-            axes=["wealth"],
-            ordering_present=["wealth"],
-            ordering_definitions={"wealth": {"type": "ordinal", "values": ["poor", "wealthy"]}},
-            thresholds_present=["wealth"],
-            thresholds_definitions=fake_payload["thresholds"]["axes"],
-            missing_components=[],
+            resolution_payload={"version": "1.0"},
+            required_runtime_inputs=set(),
             policy_hash="testhash",
-            version="0.1.0",
         )
-
-        class _FakeLoader:
-            def __init__(self, *, worlds_root):
-                self.worlds_root = worlds_root
-
-            def load(self, world_id):
-                return fake_payload, report
 
         def _fake_seed_axis_registry(**kwargs):
             return database.AxisRegistrySeedStats(
@@ -72,7 +66,10 @@ def test_engine_bootstrap_axis_policy_seeds_registry(temp_db_path, monkeypatch, 
                 axis_values_skipped=0,
             )
 
-        monkeypatch.setattr("mud_server.policies.AxisPolicyLoader", _FakeLoader)
+        monkeypatch.setattr(
+            "mud_server.services.policy_service.resolve_effective_axis_bundle",
+            lambda **kwargs: fake_bundle,
+        )
         monkeypatch.setattr(database, "seed_axis_registry", _fake_seed_axis_registry)
 
         with caplog.at_level(logging.INFO):
@@ -86,7 +83,7 @@ def test_engine_bootstrap_axis_policy_no_worlds(caplog) -> None:
     """Bootstrap should warn and exit when no worlds are registered."""
     with patch.object(GameEngine, "__init__", lambda self: None):
         engine = GameEngine()
-    engine.world_registry = SimpleNamespace(list_worlds=lambda include_inactive: [])
+    cast(Any, engine).world_registry = SimpleNamespace(list_worlds=lambda include_inactive: [])
 
     with caplog.at_level(logging.WARNING):
         engine._bootstrap_axis_policies()
@@ -99,16 +96,16 @@ def test_engine_bootstrap_axis_policy_missing_world_id(caplog, monkeypatch) -> N
     """Malformed world rows should be skipped with a warning."""
     with patch.object(GameEngine, "__init__", lambda self: None):
         engine = GameEngine()
-    engine.world_registry = SimpleNamespace(list_worlds=lambda include_inactive: [{"name": "Bad"}])
+    cast(Any, engine).world_registry = SimpleNamespace(
+        list_worlds=lambda include_inactive: [{"name": "Bad"}]
+    )
 
-    class _FailingLoader:
-        def __init__(self, *, worlds_root):
-            self.worlds_root = worlds_root
-
-        def load(self, _world_id):
-            raise AssertionError("Loader should not be called for malformed world rows.")
-
-    monkeypatch.setattr("mud_server.policies.AxisPolicyLoader", _FailingLoader)
+    monkeypatch.setattr(
+        "mud_server.services.policy_service.resolve_effective_axis_bundle",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("Resolver should not be called for malformed world rows.")
+        ),
+    )
 
     with caplog.at_level(logging.WARNING):
         engine._bootstrap_axis_policies()
@@ -121,33 +118,32 @@ def test_engine_bootstrap_axis_policy_skips_empty_axes(caplog, monkeypatch) -> N
     """Worlds without axes should skip registry seeding."""
     with patch.object(GameEngine, "__init__", lambda self: None):
         engine = GameEngine()
-    engine.world_registry = SimpleNamespace(
+    cast(Any, engine).world_registry = SimpleNamespace(
         list_worlds=lambda include_inactive: [{"id": "empty_axes_world"}]
     )
 
-    report = AxisPolicyValidationReport(
-        world_id="empty_axes_world",
-        axes=[],
-        ordering_present=[],
-        ordering_definitions={},
-        thresholds_present=[],
-        thresholds_definitions={},
-        missing_components=["axes list missing or empty"],
+    fake_bundle = policy_service.EffectiveAxisBundle(
+        manifest_policy_id="manifest_bundle:world.manifests:empty_axes_world",
+        manifest_variant="v1",
+        axis_policy_id="axis_bundle:axis.bundles:axis_core_v1",
+        axis_variant="v1",
+        bundle_id="axis_core_v1",
+        bundle_version="1",
+        manifest_payload={},
+        axes_payload={},
+        thresholds_payload={},
+        resolution_payload={"version": "1.0"},
+        required_runtime_inputs=set(),
         policy_hash="hash",
-        version="0.1.0",
     )
-
-    class _FakeLoader:
-        def __init__(self, *, worlds_root):
-            self.worlds_root = worlds_root
-
-        def load(self, _world_id):
-            return {"axes": {}, "thresholds": {}}, report
 
     def _fail_seed(**_kwargs):
         raise AssertionError("seed_axis_registry should not run when axes are missing.")
 
-    monkeypatch.setattr("mud_server.policies.AxisPolicyLoader", _FakeLoader)
+    monkeypatch.setattr(
+        "mud_server.services.policy_service.resolve_effective_axis_bundle",
+        lambda **kwargs: fake_bundle,
+    )
     monkeypatch.setattr(database, "seed_axis_registry", _fail_seed)
 
     with caplog.at_level(logging.WARNING):

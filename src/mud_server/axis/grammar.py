@@ -1,8 +1,8 @@
-"""Resolution grammar — YAML loader and typed rule dataclasses.
+"""Resolution grammar parser and typed rule dataclasses.
 
 The resolution grammar is a per-world, declarative description of how stimuli
 produce axis mutations.  It lives in
-``data/worlds/<world_id>/policies/resolution.yaml`` and is loaded once at
+canonical policy content and is loaded once at
 server startup by the :class:`~mud_server.axis.engine.AxisEngine`.
 
 Design notes:
@@ -133,24 +133,38 @@ def load_resolution_grammar(world_root: Path) -> ResolutionGrammar:
     with grammar_path.open() as fh:
         raw = yaml.safe_load(fh)
 
+    return parse_resolution_grammar_payload(raw=raw, source="resolution.yaml")
+
+
+def parse_resolution_grammar_payload(*, raw: object, source: str) -> ResolutionGrammar:
+    """Parse and validate one resolution grammar mapping payload.
+
+    Args:
+        raw: Untrusted payload object expected to be a top-level mapping.
+        source: Human-readable source label used in validation errors.
+
+    Returns:
+        A fully-constructed immutable :class:`ResolutionGrammar`.
+
+    Raises:
+        ValueError: On schema validation failure.
+    """
     if not isinstance(raw, dict):
-        raise ValueError("resolution.yaml must be a YAML mapping at the top level.")
+        raise ValueError(f"{source} must be a YAML mapping at the top level.")
 
     version = raw.get("version")
     if not version:
-        raise ValueError("resolution.yaml: missing required field 'version'.")
+        raise ValueError(f"{source}: missing required field 'version'.")
     version = str(version)
 
     interactions = raw.get("interactions")
     if not isinstance(interactions, dict):
-        raise ValueError(
-            "resolution.yaml: missing required field 'interactions' (must be a mapping)."
-        )
+        raise ValueError(f"{source}: missing required field 'interactions' (must be a mapping).")
 
     chat_raw = interactions.get("chat")
     if not isinstance(chat_raw, dict):
         raise ValueError(
-            "resolution.yaml: missing required field 'interactions.chat' (must be a mapping)."
+            f"{source}: missing required field 'interactions.chat' (must be a mapping)."
         )
 
     chat = _parse_chat_grammar(chat_raw)

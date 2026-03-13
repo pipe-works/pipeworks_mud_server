@@ -163,6 +163,24 @@ mud-server import-tone-prompt-policies --world-id pipeworks_web
 Use `--no-activate` to import/update variants without changing activation
 state.
 
+### Import All Legacy Policy Domains (Recommended)
+
+Run one idempotent migration pass that imports all current policy-like source
+domains in dependency order:
+
+1. Species blocks
+2. Tone profiles + prompts
+3. Clothing blocks
+4. Layer 2 registries + descriptor layers
+5. Axis bundle + manifest bundle
+
+```bash
+mud-server import-world-policies --world-id pipeworks_web
+```
+
+Use `--no-activate` to import/update variants without changing activation
+state.
+
 ---
 
 ## Features

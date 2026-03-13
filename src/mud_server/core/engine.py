@@ -29,7 +29,7 @@ Architecture:
 
 import html
 import logging
-from typing import cast
+from typing import Any, cast
 
 from mud_server.core.bus import MudBus
 from mud_server.core.events import Events
@@ -135,10 +135,8 @@ class GameEngine:
         registry in sync, and surfaces configuration gaps early via logs.
         """
         import logging
-        from pathlib import Path
 
-        from mud_server.config import config
-        from mud_server.policies import AxisPolicyLoader
+        from mud_server.services import policy_service
 
         logger = logging.getLogger(__name__)
 
@@ -148,8 +146,6 @@ class GameEngine:
             logger.warning("Axis policy bootstrap skipped: no worlds registered.")
             return
 
-        loader = AxisPolicyLoader(worlds_root=Path(config.worlds.worlds_root))
-
         for world in worlds:
             world_id = world.get("id")
             if not world_id:
@@ -157,7 +153,26 @@ class GameEngine:
                 logger.warning("Axis policy bootstrap skipped malformed world row: %s", world)
                 continue
 
-            payload, report = loader.load(world_id)
+            try:
+                resolved_bundle = policy_service.resolve_effective_axis_bundle(
+                    scope=policy_service.ActivationScope(world_id=world_id, client_profile="")
+                )
+            except policy_service.PolicyServiceError as exc:
+                logger.warning(
+                    "Axis policy bootstrap skipped for %s: %s (%s)",
+                    world_id,
+                    exc.detail,
+                    exc.code,
+                )
+                continue
+
+            payload, report = self._build_axis_policy_report_from_canonical_bundle(
+                world_id=world_id,
+                axes_payload=resolved_bundle.axes_payload,
+                thresholds_payload=resolved_bundle.thresholds_payload,
+                policy_hash=resolved_bundle.policy_hash,
+                version=resolved_bundle.bundle_version,
+            )
             self._log_axis_policy_report(logger, report)
 
             if not report.axes:
@@ -170,6 +185,61 @@ class GameEngine:
                 thresholds_payload=payload.get("thresholds") or {},
             )
             logger.info("Axis registry seeded for %s: %s", world_id, stats)
+
+    @staticmethod
+    def _build_axis_policy_report_from_canonical_bundle(
+        *,
+        world_id: str,
+        axes_payload: dict[str, Any],
+        thresholds_payload: dict[str, Any],
+        policy_hash: str,
+        version: str | None,
+    ) -> tuple[dict[str, Any], Any]:
+        """Build axis bootstrap payload/report from canonical DB policy content."""
+        from mud_server.policies import AxisPolicyValidationReport
+
+        axes_definitions = (
+            (axes_payload.get("axes") or {}) if isinstance(axes_payload, dict) else {}
+        )
+        threshold_definitions = (
+            (thresholds_payload.get("axes") or {}) if isinstance(thresholds_payload, dict) else {}
+        )
+        axes = [str(axis_name) for axis_name in axes_definitions.keys()]
+        ordering_definitions = {
+            str(axis_name): ordering
+            for axis_name, axis_data in axes_definitions.items()
+            if isinstance(axis_data, dict)
+            and isinstance((axis_data.get("ordering")), dict)
+            and (ordering := axis_data.get("ordering"))
+        }
+        ordering_present = list(ordering_definitions.keys())
+        thresholds_present = [str(axis_name) for axis_name in threshold_definitions.keys()]
+
+        missing_components: list[str] = []
+        if not axes:
+            missing_components.append("axes list missing or empty")
+        for axis_name in axes:
+            if axis_name not in ordering_present:
+                missing_components.append(f"ordering missing for axis: {axis_name}")
+            if axis_name not in thresholds_present:
+                missing_components.append(f"thresholds missing for axis: {axis_name}")
+
+        report = AxisPolicyValidationReport(
+            world_id=world_id,
+            axes=axes,
+            ordering_present=ordering_present,
+            ordering_definitions=ordering_definitions,
+            thresholds_present=thresholds_present,
+            thresholds_definitions=threshold_definitions,
+            missing_components=missing_components,
+            policy_hash=policy_hash,
+            version=version,
+        )
+        payload = {
+            "axes": axes_payload,
+            "thresholds": thresholds_payload,
+        }
+        return payload, report
 
     @staticmethod
     def _log_axis_policy_report(logger, report) -> None:

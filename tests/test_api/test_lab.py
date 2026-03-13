@@ -2512,6 +2512,9 @@ def test_world_policy_bundle_draft_promote_rewrites_canonical_files(
     world._world_root = tmp_path
     world._world_json_path = tmp_path / "world.json"
     world._axis_engine = None
+    cast(Any, world).reload_axis_engine = lambda _world_data: setattr(
+        world, "_axis_engine", MagicMock()
+    )
     engine = _build_lab_engine(world)
     app = FastAPI()
     register_routes(app, engine)

@@ -7,6 +7,7 @@ Provides CLI commands for server management:
 - import-species-policies: Backfill legacy species YAML into canonical policy DB rows
 - import-layer2-policies: Backfill descriptor/registry legacy policies into Layer 2 DB rows
 - import-tone-prompt-policies: Backfill tone-profile/prompt legacy policies into Layer 1 DB rows
+- import-world-policies: Backfill all legacy policy-like files into canonical policy DB rows
 - run: Start the MUD server (API and web UI)
 
 Usage:
@@ -15,6 +16,7 @@ Usage:
     mud-server import-species-policies [--world-id WORLD_ID]
     mud-server import-layer2-policies [--world-id WORLD_ID]
     mud-server import-tone-prompt-policies [--world-id WORLD_ID]
+    mud-server import-world-policies [--world-id WORLD_ID]
     mud-server run [--port PORT] [--host HOST]
 
 Environment Variables:
@@ -419,6 +421,50 @@ def cmd_import_tone_prompt_policies(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_import_world_policies(args: argparse.Namespace) -> int:
+    """Import all known legacy policy-like domains into canonical policy state."""
+    from mud_server.config import config
+    from mud_server.db import facade as database
+    from mud_server.services import policy_service
+
+    world_id = (args.world_id or "").strip() or config.worlds.default_world_id
+    actor = (args.actor or "").strip() or "policy-importer"
+    status = str(args.status)
+    activate = bool(args.activate)
+
+    try:
+        database.init_database(skip_superuser=True)
+        summary = policy_service.import_world_policies_from_legacy_files(
+            world_id=world_id,
+            actor=actor,
+            activate=activate,
+            status=status,
+        )
+    except policy_service.PolicyServiceError as exc:
+        print(f"World policy import failed [{exc.code}]: {exc.detail}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"World policy import failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(
+        "World policy import summary: "
+        f"world={summary.world_id} imported={summary.imported_count} "
+        f"updated={summary.updated_count} skipped={summary.skipped_count} "
+        f"errors={summary.error_count}"
+    )
+    if summary.activate:
+        print(
+            "Activation summary: "
+            f"activated={summary.activated_count} "
+            f"unchanged={summary.activation_skipped_count}"
+        )
+    for entry in summary.entries:
+        print(f"- {entry}")
+
+    return 1 if summary.error_count > 0 else 0
+
+
 # ============================================================================
 # SERVER PROCESS FUNCTIONS
 # ============================================================================
@@ -742,6 +788,42 @@ def main() -> int:
     )
     import_tone_prompt_parser.set_defaults(activate=True)
     import_tone_prompt_parser.set_defaults(func=cmd_import_tone_prompt_policies)
+
+    import_world_parser = subparsers.add_parser(
+        "import-world-policies",
+        help="Import all legacy policy-like files into canonical policy state",
+        description=(
+            "Run the full world-scoped policy migration in dependency order: "
+            "species, tone/prompt, clothing blocks, Layer 2, and axis/manifest bundles."
+        ),
+    )
+    import_world_parser.add_argument(
+        "--world-id",
+        type=str,
+        default=None,
+        help=("Target world id. Defaults to configured worlds.default_world_id when omitted."),
+    )
+    import_world_parser.add_argument(
+        "--actor",
+        type=str,
+        default="policy-importer",
+        help="Actor value used for updated_by / activated_by audit fields.",
+    )
+    import_world_parser.add_argument(
+        "--status",
+        type=str,
+        choices=["draft", "candidate", "active", "archived"],
+        default="active",
+        help="Status assigned to imported/updated policy variants (default: active).",
+    )
+    import_world_parser.add_argument(
+        "--no-activate",
+        action="store_false",
+        dest="activate",
+        help="Import variants only; do not seed world-scope activation pointers.",
+    )
+    import_world_parser.set_defaults(activate=True)
+    import_world_parser.set_defaults(func=cmd_import_world_policies)
 
     # run command
     run_parser = subparsers.add_parser(
