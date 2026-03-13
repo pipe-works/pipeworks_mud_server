@@ -71,6 +71,9 @@ Mandatory requirements:
 
 - Conventional Commits are expected (Release Please uses them):
   - Examples: `feat(core): add zone loader`, `fix(data): correct room id`, `chore(main): release`.
+- For squash merges, ensure the final PR title is also Conventional Commit format.
+  Release Please parses the squash commit title on `main`; non-conventional
+  titles can prevent release PR/tag creation.
 - PRs should include a summary, test results, and note any data/schema changes.
 
 ## Security & Configuration Tips
