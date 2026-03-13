@@ -157,6 +157,10 @@ class GameEngine:
                 resolved_bundle = policy_service.resolve_effective_axis_bundle(
                     scope=policy_service.ActivationScope(world_id=world_id, client_profile="")
                 )
+                axes_payload = resolved_bundle.axes_payload
+                thresholds_payload = resolved_bundle.thresholds_payload
+                policy_hash = resolved_bundle.policy_hash
+                bundle_version = resolved_bundle.bundle_version
             except policy_service.PolicyServiceError as exc:
                 if exc.code in {
                     "POLICY_EFFECTIVE_MANIFEST_NOT_FOUND",
@@ -164,12 +168,14 @@ class GameEngine:
                 }:
                     try:
                         # Bootstrap canonical axis/manifest rows from legacy world package
-                        # only when activation pointers are missing.
+                        # only when activation pointers are missing. Import runs
+                        # without activation so startup seeding does not mutate
+                        # Layer 3 activation history.
                         import_summary = (
                             policy_service.import_axis_manifest_policies_from_legacy_files(
                                 world_id=world_id,
                                 actor="system-bootstrap",
-                                activate=True,
+                                activate=False,
                                 status="active",
                             )
                         )
@@ -182,11 +188,13 @@ class GameEngine:
                             import_summary.skipped_count,
                             import_summary.error_count,
                         )
-                        resolved_bundle = policy_service.resolve_effective_axis_bundle(
-                            scope=policy_service.ActivationScope(
-                                world_id=world_id,
-                                client_profile="",
-                            )
+                        (
+                            axes_payload,
+                            thresholds_payload,
+                            policy_hash,
+                            bundle_version,
+                        ) = self._resolve_bootstrap_axis_payload_from_import(
+                            import_summary=import_summary
                         )
                     except policy_service.PolicyServiceError as import_exc:
                         logger.warning(
@@ -207,10 +215,10 @@ class GameEngine:
 
             payload, report = self._build_axis_policy_report_from_canonical_bundle(
                 world_id=world_id,
-                axes_payload=resolved_bundle.axes_payload,
-                thresholds_payload=resolved_bundle.thresholds_payload,
-                policy_hash=resolved_bundle.policy_hash,
-                version=resolved_bundle.bundle_version,
+                axes_payload=axes_payload,
+                thresholds_payload=thresholds_payload,
+                policy_hash=policy_hash,
+                version=bundle_version,
             )
             self._log_axis_policy_report(logger, report)
 
@@ -224,6 +232,71 @@ class GameEngine:
                 thresholds_payload=payload.get("thresholds") or {},
             )
             logger.info("Axis registry seeded for %s: %s", world_id, stats)
+
+    @staticmethod
+    def _resolve_bootstrap_axis_payload_from_import(
+        *,
+        import_summary: Any,
+    ) -> tuple[dict[str, Any], dict[str, Any], str, str]:
+        """Resolve axis payloads from import rows without Layer 3 activation reads."""
+        from mud_server.services import policy_service
+
+        axis_entries = [
+            entry
+            for entry in import_summary.entries
+            if entry.policy_id
+            and entry.variant
+            and str(entry.policy_id).startswith("axis_bundle:")
+            and entry.action in {"imported", "updated", "skipped"}
+        ]
+        if not axis_entries:
+            raise policy_service.PolicyServiceError(
+                status_code=404,
+                code="POLICY_EFFECTIVE_AXIS_BUNDLE_NOT_FOUND",
+                detail="Axis import completed but produced no canonical axis bundle entry.",
+            )
+
+        axis_entry = axis_entries[0]
+        axis_row = policy_service.get_policy(
+            policy_id=str(axis_entry.policy_id),
+            variant=str(axis_entry.variant),
+        )
+        axis_content = axis_row.get("content")
+        if not isinstance(axis_content, dict):
+            raise policy_service.PolicyServiceError(
+                status_code=422,
+                code="POLICY_AXIS_BUNDLE_CONTENT_INVALID",
+                detail=(
+                    "Canonical axis bundle content must be an object after bootstrap import; "
+                    f"got {type(axis_content).__name__}."
+                ),
+            )
+
+        axes_payload = axis_content.get("axes")
+        thresholds_payload = axis_content.get("thresholds")
+        if not isinstance(axes_payload, dict):
+            raise policy_service.PolicyServiceError(
+                status_code=422,
+                code="POLICY_AXIS_BUNDLE_AXES_INVALID",
+                detail="Canonical axis bundle field content.axes must be an object.",
+            )
+        if not isinstance(thresholds_payload, dict):
+            raise policy_service.PolicyServiceError(
+                status_code=422,
+                code="POLICY_AXIS_BUNDLE_THRESHOLDS_INVALID",
+                detail="Canonical axis bundle field content.thresholds must be an object.",
+            )
+
+        policy_hash = str(axis_row.get("content_hash") or "")
+        raw_policy_version = axis_row.get("policy_version")
+        if raw_policy_version is None:
+            raise policy_service.PolicyServiceError(
+                status_code=422,
+                code="POLICY_AXIS_BUNDLE_VERSION_INVALID",
+                detail="Canonical axis bundle policy_version must be present after bootstrap import.",
+            )
+        bundle_version = str(raw_policy_version)
+        return axes_payload, thresholds_payload, policy_hash, bundle_version
 
     @staticmethod
     def _build_axis_policy_report_from_canonical_bundle(
