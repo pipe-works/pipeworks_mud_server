@@ -28,7 +28,7 @@ What You Are Looking At
 
 The inspector merges three layers of data:
 
-1. **World policy** (source of truth, from world package files)
+1. **Canonical policy objects** (source of truth, from policy DB + activations)
 2. **Normalized state** (axis registry + axis scores + event ledger)
 3. **Snapshot JSON** (cached view for UI/debugging)
 
