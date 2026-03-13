@@ -158,13 +158,52 @@ class GameEngine:
                     scope=policy_service.ActivationScope(world_id=world_id, client_profile="")
                 )
             except policy_service.PolicyServiceError as exc:
-                logger.warning(
-                    "Axis policy bootstrap skipped for %s: %s (%s)",
-                    world_id,
-                    exc.detail,
-                    exc.code,
-                )
-                continue
+                if exc.code in {
+                    "POLICY_EFFECTIVE_MANIFEST_NOT_FOUND",
+                    "POLICY_EFFECTIVE_AXIS_BUNDLE_NOT_FOUND",
+                }:
+                    try:
+                        # Bootstrap canonical axis/manifest rows from legacy world package
+                        # only when activation pointers are missing.
+                        import_summary = (
+                            policy_service.import_axis_manifest_policies_from_legacy_files(
+                                world_id=world_id,
+                                actor="system-bootstrap",
+                                activate=True,
+                                status="active",
+                            )
+                        )
+                        logger.info(
+                            "Axis policy bootstrap imported canonical axis bundle for %s: "
+                            "imported=%s updated=%s skipped=%s errors=%s",
+                            world_id,
+                            import_summary.imported_count,
+                            import_summary.updated_count,
+                            import_summary.skipped_count,
+                            import_summary.error_count,
+                        )
+                        resolved_bundle = policy_service.resolve_effective_axis_bundle(
+                            scope=policy_service.ActivationScope(
+                                world_id=world_id,
+                                client_profile="",
+                            )
+                        )
+                    except policy_service.PolicyServiceError as import_exc:
+                        logger.warning(
+                            "Axis policy bootstrap skipped for %s after import attempt: %s (%s)",
+                            world_id,
+                            import_exc.detail,
+                            import_exc.code,
+                        )
+                        continue
+                else:
+                    logger.warning(
+                        "Axis policy bootstrap skipped for %s: %s (%s)",
+                        world_id,
+                        exc.detail,
+                        exc.code,
+                    )
+                    continue
 
             payload, report = self._build_axis_policy_report_from_canonical_bundle(
                 world_id=world_id,
