@@ -196,14 +196,12 @@ def test_policy_manifest_loader_load_from_world_root(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_policy_manifest_loader_pipeworks_web_data_package_is_complete() -> None:
-    """The committed ``pipeworks_web`` manifest package should resolve without gaps."""
+def test_policy_manifest_loader_pipeworks_web_data_package_is_absent() -> None:
+    """``pipeworks_web`` is DB-only and should not require on-disk manifest assets."""
     loader = PolicyManifestLoader(worlds_root=Path("data/worlds"))
     payload, report = loader.load("pipeworks_web")
 
-    assert report.policy_schema == "pipeworks_policy_v1"
-    assert report.bundle_id == "pipeworks_web_default"
-    assert report.missing_components == []
-    assert isinstance(payload["axis"]["axes"], dict)
-    assert isinstance(payload["translation"]["active_prompt"], str)
-    assert isinstance(payload["image"]["species_registry"], dict)
+    assert payload["manifest"] == {}
+    assert report.policy_schema is None
+    assert report.bundle_id is None
+    assert report.missing_components == ["manifest missing: policies/manifest.yaml"]
