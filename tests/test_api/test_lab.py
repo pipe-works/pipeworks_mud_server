@@ -32,6 +32,15 @@ from mud_server.translation.config import TranslationLayerConfig
 from mud_server.translation.service import LabTranslateResult, OOCToICTranslationService
 from tests.constants import TEST_PASSWORD
 
+_LEGACY_LAB_FILE_AUTHORING_ENV = "MUD_LAB_ENABLE_LEGACY_FILE_AUTHORING"
+
+
+@pytest.fixture(autouse=True)
+def enable_legacy_lab_file_authoring(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep legacy file-backed lab routes enabled for existing lab test coverage."""
+    monkeypatch.setenv(_LEGACY_LAB_FILE_AUTHORING_ENV, "1")
+
+
 # ── Shared test helpers ────────────────────────────────────────────────────────
 
 
@@ -742,6 +751,32 @@ def test_translate_seed_minus_one_passes_none_to_service(test_db, temp_db_path, 
 
 
 # ── GET /api/lab/world-prompts/{world_id} ─────────────────────────────────────
+
+
+@pytest.mark.api
+def test_world_prompts_returns_410_when_legacy_file_mode_disabled(
+    test_db, temp_db_path, db_with_users, tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    """File-backed prompt routes should be disabled by default for DB-first deployments."""
+    monkeypatch.delenv(_LEGACY_LAB_FILE_AUTHORING_ENV, raising=False)
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    (policies / "ic_prompt.txt").write_text("Active prompt {{profile_summary}}")
+
+    world = _build_prompt_world(tmp_path)
+    engine = _build_lab_engine(world)
+    app = FastAPI()
+    register_routes(app, engine)
+    client = TestClient(app)
+
+    with use_test_database(temp_db_path):
+        sid = _login(client, "testadmin")
+        resp = client.get(f"/api/lab/world-prompts/test_world?session_id={sid}")
+
+    assert resp.status_code == 410
+    detail = resp.json()["detail"]
+    assert "Legacy file-backed lab policy routes are disabled" in detail
+    assert "/api/policies" in detail
 
 
 @pytest.mark.api

@@ -76,11 +76,19 @@ POST /api/lab/translate
     pipeline.  Accepts raw axis values — no character DB lookup is
     performed.  Returns the IC text, outcome status, the server-formatted
     profile_summary, and the fully-rendered system prompt sent to Ollama.
+
+Legacy file-backed prompt/policy routes
+---------------------------------------
+Prompt and policy-bundle file authoring/listing routes are disabled by
+default and return ``410`` unless explicitly enabled via
+``MUD_LAB_ENABLE_LEGACY_FILE_AUTHORING=1``. This keeps canonical DB policy
+authoring on ``/api/policies`` as the default operator workflow.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -155,6 +163,28 @@ from mud_server.core.engine import GameEngine
 from mud_server.policies import PolicyManifestLoader
 
 logger = logging.getLogger(__name__)
+
+_LEGACY_LAB_FILE_AUTHORING_ENV = "MUD_LAB_ENABLE_LEGACY_FILE_AUTHORING"
+
+
+def _legacy_lab_file_authoring_enabled() -> bool:
+    """Return whether legacy file-backed lab authoring routes are enabled."""
+    raw_value = os.getenv(_LEGACY_LAB_FILE_AUTHORING_ENV, "").strip().lower()
+    return raw_value in {"1", "true", "yes", "on"}
+
+
+def _require_legacy_lab_file_authoring_enabled() -> None:
+    """Reject legacy file-backed lab endpoints unless explicitly enabled."""
+    if _legacy_lab_file_authoring_enabled():
+        return
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Legacy file-backed lab policy routes are disabled. "
+            "Use canonical policy APIs under /api/policies and /api/policy-activations. "
+            f"Set {_LEGACY_LAB_FILE_AUTHORING_ENV}=1 only for transitional migration/debug flows."
+        ),
+    )
 
 
 def _read_yaml(path: Path) -> dict:
@@ -991,6 +1021,7 @@ def router(engine: GameEngine) -> APIRouter:
         Requires admin or superuser role.
         """
         require_lab_session(session_id)
+        _require_legacy_lab_file_authoring_enabled()
 
         world = get_lab_world(engine, world_id)
         return list_world_prompts_document(world, world_id)
@@ -1014,6 +1045,7 @@ def router(engine: GameEngine) -> APIRouter:
         """
 
         require_lab_session(req.session_id)
+        _require_legacy_lab_file_authoring_enabled()
 
         world = get_lab_world(engine, world_id)
         return create_world_prompt_draft_document(world, world_id, req)
@@ -1036,6 +1068,7 @@ def router(engine: GameEngine) -> APIRouter:
         """
 
         require_lab_session(session_id)
+        _require_legacy_lab_file_authoring_enabled()
 
         world = get_lab_world(engine, world_id)
         return list_world_prompt_drafts_document(world, world_id)
@@ -1055,6 +1088,7 @@ def router(engine: GameEngine) -> APIRouter:
         """
 
         require_lab_session(session_id)
+        _require_legacy_lab_file_authoring_enabled()
 
         world = get_lab_world(engine, world_id)
         return get_world_prompt_draft_document(world, world_id, draft_name)
@@ -1079,6 +1113,7 @@ def router(engine: GameEngine) -> APIRouter:
         """
 
         require_lab_session(req.session_id)
+        _require_legacy_lab_file_authoring_enabled()
 
         world = get_lab_world(engine, world_id)
         return promote_world_prompt_draft_document(world, world_id, draft_name, req)
@@ -1094,6 +1129,7 @@ def router(engine: GameEngine) -> APIRouter:
         """
 
         require_lab_session(session_id)
+        _require_legacy_lab_file_authoring_enabled()
 
         world = get_lab_world(engine, world_id)
         world_root = require_world_root(
@@ -1156,6 +1192,7 @@ def router(engine: GameEngine) -> APIRouter:
         """
 
         require_lab_session(req.session_id)
+        _require_legacy_lab_file_authoring_enabled()
 
         world = get_lab_world(engine, world_id)
         return create_world_policy_bundle_draft_document(
@@ -1184,6 +1221,7 @@ def router(engine: GameEngine) -> APIRouter:
         """
 
         require_lab_session(session_id)
+        _require_legacy_lab_file_authoring_enabled()
 
         world = get_lab_world(engine, world_id)
         return list_world_policy_bundle_drafts_document(
@@ -1207,6 +1245,7 @@ def router(engine: GameEngine) -> APIRouter:
         """
 
         require_lab_session(session_id)
+        _require_legacy_lab_file_authoring_enabled()
 
         world = get_lab_world(engine, world_id)
         return get_world_policy_bundle_draft_document(
@@ -1237,6 +1276,7 @@ def router(engine: GameEngine) -> APIRouter:
         """
 
         require_lab_session(req.session_id)
+        _require_legacy_lab_file_authoring_enabled()
 
         world = get_lab_world(engine, world_id)
         return promote_world_policy_bundle_draft_document(

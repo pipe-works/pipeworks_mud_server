@@ -289,9 +289,26 @@ translation layer read their canonical configuration from that package.
 
 ## Axis Descriptor Lab Integration
 
-The mud server is now the canonical source of truth for prompt templates and policy bundles used by the Axis Descriptor Lab.
+The mud server is now the canonical source of truth for policy objects used by
+the Policy Workbench and other clients.
 
-What the lab can do against the mud server:
+Canonical authoring path (DB-first):
+
+- `GET /api/policies`
+- `GET /api/policies/{policy_id}`
+- `POST /api/policies/{policy_id}/validate`
+- `PUT /api/policies/{policy_id}/variants/{variant}`
+- `POST /api/policy-activations`
+- `GET /api/policy-activations`
+- `POST /api/policy-publish`
+
+Legacy Axis Descriptor Lab file-backed endpoints (`/api/lab/world-prompts/*`,
+`/api/lab/world-policy-bundle/*`) are disabled by default and return `410`.
+
+Set `MUD_LAB_ENABLE_LEGACY_FILE_AUTHORING=1` only for transitional migration
+or debugging workflows.
+
+When explicitly enabled, the lab can:
 
 - inspect canonical prompt templates in `policies/*.txt`
 - create prompt drafts under `policies/drafts/*.txt`
