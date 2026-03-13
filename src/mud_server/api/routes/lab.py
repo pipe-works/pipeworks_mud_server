@@ -23,77 +23,26 @@ GET  /api/lab/world-config/{world_id}
     active_axes, strict_mode, etc.).  Used by the lab UI to reflect what the
     server will actually apply to a translation request.
 
-GET  /api/lab/world-prompts/{world_id}
-    Return the canonical prompt template files from the world's ``policies/``
-    directory.
-
-GET  /api/lab/world-prompts/{world_id}/drafts
-    List saved prompt draft files under the world's ``policies/drafts``
-    directory.
-
-GET  /api/lab/world-prompts/{world_id}/drafts/{name}
-    Load one saved prompt draft for Artifact Editor inspection.
-
-POST /api/lab/world-prompts/{world_id}/drafts
-    Create a new prompt draft under the world's ``policies/drafts``
-    directory without overwriting any canonical files.
-
-POST /api/lab/world-prompts/{world_id}/drafts/{name}/promote
-    Promote one draft into a new canonical ``policies/<name>.txt`` file and
-    make it the active prompt_template_path without overwriting any existing
-    canonical files.
-
-GET  /api/lab/world-policy-bundle/{world_id}
-    Return the canonical world policy package normalised into one JSON bundle
-    for Artifact Editor inspection.
-
 GET  /api/lab/world-image-policy-bundle/{world_id}
-    Return the manifest-resolved image policy bundle (composition order,
-    runtime input requirements, and image policy asset references).
+    Return the DB-resolved image policy bundle (composition order, runtime
+    input requirements, and manifest-derived reference metadata).
 
 POST /api/lab/compile-image-prompt
-    Compile a deterministic image prompt from manifest-resolved policy assets
+    Compile a deterministic image prompt from DB-resolved policy assets
     and runtime inputs (species, gender, axes, optional context signals).
-
-GET  /api/lab/world-policy-bundle/{world_id}/drafts
-    List saved JSON draft bundles under the world's ``policies/drafts``
-    directory.
-
-GET  /api/lab/world-policy-bundle/{world_id}/drafts/{name}
-    Load one saved JSON draft bundle for Artifact Editor inspection.
-
-POST /api/lab/world-policy-bundle/{world_id}/drafts
-    Create a new draft JSON bundle under the world's ``policies/drafts``
-    directory without overwriting any canonical files.
-
-POST /api/lab/world-policy-bundle/{world_id}/drafts/{name}/promote
-    Promote one draft into the canonical ``policies/axis/axes.yaml``,
-    ``policies/axis/thresholds.yaml``, and ``policies/axis/resolution.yaml``
-    files and reload the world's axis engine explicitly.
 
 POST /api/lab/translate
     Translate an OOC message to IC dialogue using the world's canonical
     pipeline.  Accepts raw axis values — no character DB lookup is
     performed.  Returns the IC text, outcome status, the server-formatted
     profile_summary, and the fully-rendered system prompt sent to Ollama.
-
-Legacy file-backed prompt/policy routes
----------------------------------------
-Prompt and policy-bundle file authoring/listing routes are disabled by
-default and return ``410`` unless explicitly enabled via
-``MUD_LAB_ENABLE_LEGACY_FILE_AUTHORING=1``. This keeps canonical DB policy
-authoring on ``/api/policies`` as the default operator workflow.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-from hashlib import sha256
-from pathlib import Path
 from typing import Any
 
-import yaml
 from fastapi import APIRouter, HTTPException
 from pipeworks_ipc import compute_payload_hash
 
@@ -101,313 +50,50 @@ from mud_server.api.models import (
     LabImageCompileRequest,
     LabImageCompileResponse,
     LabImagePolicyBundleResponse,
-    LabPolicyAxisDefinition,
-    LabPolicyBundleDraftCreateRequest,
-    LabPolicyBundleDraftCreateResponse,
-    LabPolicyBundleDraftDocument,
-    LabPolicyBundleDraftListResponse,
-    LabPolicyBundleDraftPayload,
-    LabPolicyBundleDraftPromoteRequest,
-    LabPolicyBundleDraftPromoteResponse,
-    LabPolicyBundleResponse,
-    LabPolicyChatAxisRule,
-    LabPolicyThresholdBand,
-    LabPromptDraftCreateRequest,
-    LabPromptDraftCreateResponse,
-    LabPromptDraftDocument,
-    LabPromptDraftListResponse,
-    LabPromptDraftPromoteRequest,
-    LabPromptDraftPromoteResponse,
     LabTranslateRequest,
     LabTranslateResponse,
     LabWorldConfig,
-    LabWorldPromptsResponse,
     LabWorldsResponse,
     LabWorldSummary,
-)
-from mud_server.api.routes.lab_policy_support import (
-    create_world_policy_bundle_draft as create_world_policy_bundle_draft_document,
-)
-from mud_server.api.routes.lab_policy_support import (
-    get_world_policy_bundle_draft as get_world_policy_bundle_draft_document,
-)
-from mud_server.api.routes.lab_policy_support import (
-    list_world_policy_bundle_drafts as list_world_policy_bundle_drafts_document,
-)
-from mud_server.api.routes.lab_policy_support import (
-    promote_world_policy_bundle_draft as promote_world_policy_bundle_draft_document,
-)
-from mud_server.api.routes.lab_prompt_support import (
-    create_world_prompt_draft as create_world_prompt_draft_document,
-)
-from mud_server.api.routes.lab_prompt_support import (
-    get_world_prompt_draft as get_world_prompt_draft_document,
-)
-from mud_server.api.routes.lab_prompt_support import (
-    list_world_prompt_drafts as list_world_prompt_drafts_document,
-)
-from mud_server.api.routes.lab_prompt_support import (
-    list_world_prompts as list_world_prompts_document,
-)
-from mud_server.api.routes.lab_prompt_support import (
-    promote_world_prompt_draft as promote_world_prompt_draft_document,
 )
 from mud_server.api.routes.lab_support import (
     build_lab_world_config,
     get_lab_world,
     require_lab_session,
     require_translation_world,
-    require_world_root,
 )
 from mud_server.core.engine import GameEngine
-from mud_server.policies import PolicyManifestLoader
 from mud_server.services import policy_service
 
 logger = logging.getLogger(__name__)
 
-_LEGACY_LAB_FILE_AUTHORING_ENV = "MUD_LAB_ENABLE_LEGACY_FILE_AUTHORING"
 
+def _build_image_policy_bundle(world_id: str) -> LabImagePolicyBundleResponse:
+    """Build one DB-first image policy bundle response for diagnostic clients."""
+    scope = policy_service.ActivationScope(world_id=world_id, client_profile="")
+    try:
+        resolved = policy_service.resolve_effective_image_policy_bundle(scope=scope)
+    except policy_service.PolicyServiceError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
 
-def _legacy_lab_file_authoring_enabled() -> bool:
-    """Return whether legacy file-backed lab authoring routes are enabled."""
-    raw_value = os.getenv(_LEGACY_LAB_FILE_AUTHORING_ENV, "").strip().lower()
-    return raw_value in {"1", "true", "yes", "on"}
-
-
-def _require_legacy_lab_file_authoring_enabled() -> None:
-    """Reject legacy file-backed lab endpoints unless explicitly enabled."""
-    if _legacy_lab_file_authoring_enabled():
-        return
-    raise HTTPException(
-        status_code=410,
-        detail=(
-            "Legacy file-backed lab policy routes are disabled. "
-            "Use canonical policy APIs under /api/policies and /api/policy-activations. "
-            f"Set {_LEGACY_LAB_FILE_AUTHORING_ENV}=1 only for transitional migration/debug flows."
-        ),
-    )
-
-
-def _read_yaml(path: Path) -> dict:
-    """Read one YAML file from a world policy package.
-
-    Missing files return an empty dict so the route can surface consistent
-    contract errors rather than failing with an unhandled file exception.
-    """
-
-    if not path.exists():
-        return {}
-    with path.open("r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle) or {}
-
-
-def _hash_policy_payload(axes_payload: dict, thresholds_payload: dict) -> str:
-    """Compute the canonical policy hash for the normalized bundle."""
-
-    serialized = yaml.safe_dump(
-        {"axes": axes_payload, "thresholds": thresholds_payload},
-        sort_keys=True,
-    )
-    return sha256(serialized.encode("utf-8")).hexdigest()
-
-
-def _write_yaml(path: Path, payload: dict) -> None:
-    """Persist one YAML payload using a deterministic block-map style."""
-
-    serialized = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
-    path.write_text(serialized, encoding="utf-8")
-
-
-def _build_policy_bundle(world_id: str, world_root: Path) -> LabPolicyBundleResponse:
-    """Normalize a world's policy package into the lab-facing JSON bundle shape."""
-    axes_payload, thresholds_payload, resolution_payload, source_files = (
-        _load_world_axis_policy_files(world_id, world_root)
-    )
-
-    axes_raw = axes_payload.get("axes") or {}
-    thresholds_raw = (
-        (thresholds_payload.get("axes") or {}) if isinstance(thresholds_payload, dict) else {}
-    )
-    chat_raw = (
-        ((resolution_payload.get("interactions") or {}).get("chat") or {})
-        if isinstance(resolution_payload, dict)
-        else {}
-    )
-    chat_axes_raw = chat_raw.get("axes") or {}
-
-    axes_order = list(axes_raw.keys())
-    if not axes_order:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Axis policy files unavailable for world {world_id!r}.",
-        )
-
-    normalized_axes: dict[str, dict] = {}
-    for axis_name, axis_meta in axes_raw.items():
-        ordering_values = (((axis_meta or {}).get("ordering") or {}).get("values")) or []
-        threshold_values = ((thresholds_raw.get(axis_name) or {}).get("values")) or {}
-        normalized_axes[axis_name] = {
-            "group": (axis_meta or {}).get("group", "character"),
-            "ordering": list(ordering_values),
-            "thresholds": [
-                {
-                    "label": label,
-                    "min": ranges.get("min"),
-                    "max": ranges.get("max"),
-                }
-                for label, ranges in threshold_values.items()
-            ],
-        }
-
-    normalized_chat_rules = {
-        "channel_multipliers": dict(chat_raw.get("channel_multipliers") or {}),
-        "min_gap_threshold": chat_raw.get("min_gap_threshold"),
-        "axes": {
-            axis_name: {
-                key: value
-                for key, value in (chat_axes_raw.get(axis_name) or {}).items()
-                if key in {"resolver", "base_magnitude"}
-            }
-            for axis_name in axes_order
-        },
-    }
-
-    return LabPolicyBundleResponse(
-        world_id=world_id,
-        version=str(
-            axes_payload.get("version")
-            or thresholds_payload.get("version")
-            or resolution_payload.get("version")
-            or ""
-        ),
-        source="mud_server policy package normalized to JSON",
-        policy_hash=_hash_policy_payload(axes_payload, thresholds_payload),
-        source_files=source_files,
-        axes_order=axes_order,
-        axes=normalized_axes,
-        chat_rules=normalized_chat_rules,
-    )
-
-
-def _load_world_axis_policy_files(
-    world_id: str, world_root: Path
-) -> tuple[dict, dict, dict, list[str]]:
-    """Load axis policy files with manifest-first resolution.
-
-    Resolution order:
-    1. If ``policies/manifest.yaml`` exists and includes valid axis bundle paths,
-       load axis/thresholds/resolution from referenced files.
-    2. Otherwise read canonical axis files under ``policies/axis/``.
-    """
-
-    policy_root = world_root / "policies"
-    manifest_path = policy_root / "manifest.yaml"
-
-    if manifest_path.exists():
-        manifest_loader = PolicyManifestLoader(worlds_root=world_root.parent)
-        payload, report = manifest_loader.load_from_world_root(
-            world_id=world_id, world_root=world_root
-        )
-
-        axes_payload = ((payload.get("axis") or {}).get("axes")) or {}
-        thresholds_payload = ((payload.get("axis") or {}).get("thresholds")) or {}
-        resolution_payload = ((payload.get("axis") or {}).get("resolution")) or {}
-
-        if (
-            isinstance(axes_payload, dict)
-            and isinstance(thresholds_payload, dict)
-            and isinstance(resolution_payload, dict)
-            and axes_payload
-        ):
-            source_files = [
-                report.referenced_paths.get("axis.axes", "policies/axis/axes.yaml"),
-                report.referenced_paths.get("axis.thresholds", "policies/axis/thresholds.yaml"),
-                report.referenced_paths.get("axis.resolution", "policies/axis/resolution.yaml"),
-            ]
-            return axes_payload, thresholds_payload, resolution_payload, source_files
-
-        logger.warning(
-            "World %r manifest axis assets incomplete, using canonical axis policy files: %s",
-            world_id,
-            ", ".join(report.missing_components),
-        )
-
-    return (
-        _read_yaml(policy_root / "axis" / "axes.yaml"),
-        _read_yaml(policy_root / "axis" / "thresholds.yaml"),
-        _read_yaml(policy_root / "axis" / "resolution.yaml"),
-        [
-            "policies/axis/axes.yaml",
-            "policies/axis/thresholds.yaml",
-            "policies/axis/resolution.yaml",
-        ],
-    )
-
-
-def _canonical_policy_source_files() -> list[str]:
-    """Return the stable canonical file set for world policy bundles."""
-
-    return [
-        "policies/axis/axes.yaml",
-        "policies/axis/thresholds.yaml",
-        "policies/axis/resolution.yaml",
-    ]
-
-
-def _build_image_policy_bundle(world_id: str, world_root: Path) -> LabImagePolicyBundleResponse:
-    """Build one manifest-resolved image policy bundle response.
-
-    This helper returns a diagnostic contract snapshot for integration clients.
-    It does not perform prompt compilation; it only reports resolved references
-    and manifest validation state.
-    """
-
-    manifest_path = world_root / "policies" / "manifest.yaml"
-    if not manifest_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"Image policy files unavailable for world {world_id!r}.",
-        )
-
-    loader = PolicyManifestLoader(worlds_root=world_root.parent)
-    payload, report = loader.load_from_world_root(world_id=world_id, world_root=world_root)
-
-    # Hash compiler inputs resolved from manifest references only. Runtime
-    # entity inputs (for example gender/species/axes values) are intentionally
-    # excluded so this hash remains stable for a fixed policy package.
-    bundle_policy_hash = compute_payload_hash(
-        {
-            "manifest": payload.get("manifest") or {},
-            "axis_bundle": payload.get("axis") or {},
-            "descriptor_layer_text": (payload.get("image") or {}).get("descriptor_layer"),
-            "tone_profile_payload": (payload.get("image") or {}).get("tone_profile"),
-            "species_registry_payload": (payload.get("image") or {}).get("species_registry"),
-            "clothing_registry_payload": (payload.get("image") or {}).get("clothing_registry"),
-            "composition_order": (payload.get("image") or {}).get("composition_order") or [],
-            "required_runtime_inputs": (payload.get("image") or {}).get("required_runtime_inputs")
-            or [],
-        }
-    )
-
-    image_payload = payload.get("image") or {}
     return LabImagePolicyBundleResponse(
-        world_id=world_id,
-        policy_schema=report.policy_schema,
-        policy_bundle_id=report.bundle_id,
-        policy_bundle_version=report.bundle_version,
-        policy_hash=bundle_policy_hash,
-        composition_order=list(image_payload.get("composition_order") or []),
-        required_runtime_inputs=list(image_payload.get("required_runtime_inputs") or []),
-        descriptor_layer_path=report.referenced_paths.get("image.descriptor_layer"),
-        tone_profile_path=report.referenced_paths.get("image.tone_profile"),
-        species_registry_path=report.referenced_paths.get("image.species_registry"),
-        clothing_registry_path=report.referenced_paths.get("image.clothing_registry"),
-        missing_components=list(report.missing_components),
+        world_id=resolved.world_id,
+        policy_schema=resolved.policy_schema,
+        policy_bundle_id=resolved.policy_bundle_id,
+        policy_bundle_version=resolved.policy_bundle_version,
+        policy_hash=resolved.policy_hash,
+        composition_order=resolved.composition_order,
+        required_runtime_inputs=resolved.required_runtime_inputs,
+        descriptor_layer_path=resolved.descriptor_layer_path,
+        tone_profile_path=resolved.tone_profile_path,
+        species_registry_path=resolved.species_registry_path,
+        clothing_registry_path=resolved.clothing_registry_path,
+        missing_components=resolved.missing_components,
     )
 
 
 def _compile_image_prompt(
-    req: LabImageCompileRequest, *, world_root: Path
+    req: LabImageCompileRequest,
 ) -> LabImageCompileResponse:
     """Compile one deterministic image prompt from canonical DB policy objects.
 
@@ -423,7 +109,6 @@ def _compile_image_prompt(
         HTTPException: When required canonical policy rows are missing or
             selection cannot produce required blocks.
     """
-    _ = world_root  # DB-first compile path does not read policy content from filesystem.
     scope = policy_service.ActivationScope(world_id=req.world_id, client_profile="")
     manifest_payload = _resolve_effective_manifest_payload(scope=scope)
     composition_order, required_runtime_inputs = _extract_manifest_image_contract(manifest_payload)
@@ -1056,97 +741,6 @@ def _nested_get(payload: dict[str, Any], path_keys: list[str]) -> Any:
     return current
 
 
-def _build_axes_yaml_payload(payload: LabPolicyBundleDraftPayload) -> dict:
-    """Convert one normalized bundle draft into canonical ``axes.yaml`` data."""
-
-    axes: dict[str, dict] = {}
-    for axis_name in payload.axes_order:
-        axis: LabPolicyAxisDefinition = payload.axes[axis_name]
-        ordering = list(axis.ordering)
-        axes[axis_name] = {
-            "group": axis.group,
-            "values": ordering,
-            "ordering": {"type": "ordinal", "values": ordering},
-        }
-    return {
-        "version": payload.version,
-        "source": payload.source,
-        "axes": axes,
-    }
-
-
-def _build_thresholds_yaml_payload(payload: LabPolicyBundleDraftPayload) -> dict:
-    """Convert one normalized bundle draft into canonical ``thresholds.yaml`` data."""
-
-    axes: dict[str, dict] = {}
-    for axis_name in payload.axes_order:
-        axis: LabPolicyAxisDefinition = payload.axes[axis_name]
-        values: dict[str, dict[str, float | None]] = {}
-        for band in axis.thresholds:
-            threshold: LabPolicyThresholdBand = band
-            values[threshold.label] = {"min": threshold.min, "max": threshold.max}
-        axes[axis_name] = {"scale": "ordinal", "values": values}
-    return {
-        "version": payload.version,
-        "axes": axes,
-    }
-
-
-def _build_resolution_yaml_payload(payload: LabPolicyBundleDraftPayload) -> dict:
-    """Convert one normalized bundle draft into canonical ``resolution.yaml`` data."""
-
-    axes: dict[str, dict] = {}
-    for axis_name in payload.axes_order:
-        rule: LabPolicyChatAxisRule = payload.chat_rules.axes[axis_name]
-        axis_rule: dict[str, object] = {"resolver": rule.resolver}
-        if rule.base_magnitude is not None:
-            axis_rule["base_magnitude"] = rule.base_magnitude
-        axes[axis_name] = axis_rule
-    return {
-        "version": payload.version,
-        "interactions": {
-            "chat": {
-                "channel_multipliers": dict(payload.chat_rules.channel_multipliers),
-                "min_gap_threshold": payload.chat_rules.min_gap_threshold,
-                "axes": axes,
-            }
-        },
-    }
-
-
-def _validate_policy_bundle_active_axes(
-    world, world_data: dict, payload: LabPolicyBundleDraftPayload
-) -> None:
-    """Reject promotion when translation ``active_axes`` would drift from policy axes."""
-
-    translation_data = world_data.get("translation_layer") or {}
-    active_axes = list(translation_data.get("active_axes") or [])
-    missing_axes = [axis_name for axis_name in active_axes if axis_name not in payload.axes]
-    if missing_axes:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Cannot promote policy bundle because translation_layer.active_axes "
-                f"references axes missing from the promoted bundle: {', '.join(missing_axes)}."
-            ),
-        )
-
-
-def _reload_world_axis_engine(world, world_data: dict) -> None:
-    """Reload the world's axis engine after canonical policy files change."""
-
-    axis_engine_enabled = bool((world_data.get("axis_engine") or {}).get("enabled", False))
-    world.reload_axis_engine(world_data)
-    if axis_engine_enabled and world.get_axis_engine() is None:
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                f"Promoted policy bundle for world {world.world_id!r} was written, "
-                "but the axis engine failed to reload."
-            ),
-        )
-
-
 def router(engine: GameEngine) -> APIRouter:
     """Build and return the lab API router.
 
@@ -1212,134 +806,6 @@ def router(engine: GameEngine) -> APIRouter:
 
         return build_lab_world_config(world_id, service)
 
-    @api.get("/world-prompts/{world_id}", response_model=LabWorldPromptsResponse)
-    async def get_world_prompts(world_id: str, session_id: str) -> LabWorldPromptsResponse:
-        """List prompt template files from the world's ``policies/`` directory.
-
-        Returns each ``.txt`` file's name and content, and flags which one is
-        the world's active ``prompt_template_path``.
-
-        Requires admin or superuser role.
-        """
-        require_lab_session(session_id)
-        _require_legacy_lab_file_authoring_enabled()
-
-        world = get_lab_world(engine, world_id)
-        return list_world_prompts_document(world, world_id)
-
-    @api.post(
-        "/world-prompts/{world_id}/drafts",
-        response_model=LabPromptDraftCreateResponse,
-    )
-    async def create_world_prompt_draft(
-        world_id: str,
-        req: LabPromptDraftCreateRequest,
-    ) -> LabPromptDraftCreateResponse:
-        """Create a new prompt-template draft file for one world.
-
-        The lab may build on canonical server prompts, but it must never
-        overwrite active policy files. This endpoint therefore writes only to
-        ``policies/drafts`` and rejects any filename collision with either
-        canonical prompt files or existing drafts.
-
-        Requires admin or superuser role.
-        """
-
-        require_lab_session(req.session_id)
-        _require_legacy_lab_file_authoring_enabled()
-
-        world = get_lab_world(engine, world_id)
-        return create_world_prompt_draft_document(world, world_id, req)
-
-    @api.get(
-        "/world-prompts/{world_id}/drafts",
-        response_model=LabPromptDraftListResponse,
-    )
-    async def list_world_prompt_drafts(
-        world_id: str,
-        session_id: str,
-    ) -> LabPromptDraftListResponse:
-        """List saved prompt-template drafts for one world.
-
-        Draft files live under ``policies/drafts`` and are returned only if
-        they can still be read as UTF-8 text files. Invalid files are skipped
-        so the Artifact Editor sees a stable listing instead of a hard failure.
-
-        Requires admin or superuser role.
-        """
-
-        require_lab_session(session_id)
-        _require_legacy_lab_file_authoring_enabled()
-
-        world = get_lab_world(engine, world_id)
-        return list_world_prompt_drafts_document(world, world_id)
-
-    @api.get(
-        "/world-prompts/{world_id}/drafts/{draft_name}",
-        response_model=LabPromptDraftDocument,
-    )
-    async def get_world_prompt_draft(
-        world_id: str,
-        draft_name: str,
-        session_id: str,
-    ) -> LabPromptDraftDocument:
-        """Load one saved prompt-template draft for one world.
-
-        Requires admin or superuser role.
-        """
-
-        require_lab_session(session_id)
-        _require_legacy_lab_file_authoring_enabled()
-
-        world = get_lab_world(engine, world_id)
-        return get_world_prompt_draft_document(world, world_id, draft_name)
-
-    @api.post(
-        "/world-prompts/{world_id}/drafts/{draft_name}/promote",
-        response_model=LabPromptDraftPromoteResponse,
-    )
-    async def promote_world_prompt_draft(
-        world_id: str,
-        draft_name: str,
-        req: LabPromptDraftPromoteRequest,
-    ) -> LabPromptDraftPromoteResponse:
-        """Promote one prompt draft into a new canonical active prompt file.
-
-        Promotion is explicit and create-only: the draft remains in place, a
-        new canonical ``policies/<target>.txt`` file is created, and the
-        world's active ``prompt_template_path`` is updated to point to it.
-        Existing canonical prompt files are never overwritten.
-
-        Requires admin or superuser role.
-        """
-
-        require_lab_session(req.session_id)
-        _require_legacy_lab_file_authoring_enabled()
-
-        world = get_lab_world(engine, world_id)
-        return promote_world_prompt_draft_document(world, world_id, draft_name, req)
-
-    @api.get("/world-policy-bundle/{world_id}", response_model=LabPolicyBundleResponse)
-    async def get_world_policy_bundle(world_id: str, session_id: str) -> LabPolicyBundleResponse:
-        """Return one world's normalized canonical policy bundle for the lab.
-
-        This endpoint is read-only.  It exposes the current server policy
-        package as a single JSON document so the Axis Descriptor Lab can use
-        the mud server as the canonical source of truth while still offering
-        a text-box driven editing experience for drafts.
-        """
-
-        require_lab_session(session_id)
-        _require_legacy_lab_file_authoring_enabled()
-
-        world = get_lab_world(engine, world_id)
-        world_root = require_world_root(
-            world,
-            unavailable_detail=f"Axis policy files unavailable for world {world_id!r}.",
-        )
-
-        return _build_policy_bundle(world_id, world_root)
-
     @api.get(
         "/world-image-policy-bundle/{world_id}",
         response_model=LabImagePolicyBundleResponse,
@@ -1356,11 +822,8 @@ def router(engine: GameEngine) -> APIRouter:
         require_lab_session(session_id)
 
         world = get_lab_world(engine, world_id)
-        world_root = require_world_root(
-            world,
-            unavailable_detail=f"Image policy files unavailable for world {world_id!r}.",
-        )
-        return _build_image_policy_bundle(world_id, world_root)
+        _ = world  # Route still validates world availability via registry lookup.
+        return _build_image_policy_bundle(world_id)
 
     @api.post("/compile-image-prompt", response_model=LabImageCompileResponse)
     async def compile_image_prompt(req: LabImageCompileRequest) -> LabImageCompileResponse:
@@ -1369,132 +832,8 @@ def router(engine: GameEngine) -> APIRouter:
         require_lab_session(req.session_id)
 
         world = get_lab_world(engine, req.world_id)
-        world_root = require_world_root(
-            world,
-            unavailable_detail=f"Image policy files unavailable for world {req.world_id!r}.",
-        )
-        return _compile_image_prompt(req, world_root=world_root)
-
-    @api.post(
-        "/world-policy-bundle/{world_id}/drafts",
-        response_model=LabPolicyBundleDraftCreateResponse,
-    )
-    async def create_world_policy_bundle_draft(
-        world_id: str,
-        req: LabPolicyBundleDraftCreateRequest,
-    ) -> LabPolicyBundleDraftCreateResponse:
-        """Create a new normalized policy bundle draft for one world.
-
-        The lab may build on canonical server artifacts, but it must never
-        overwrite active policy files. This endpoint therefore writes only to
-        ``policies/drafts`` and rejects any filename collision.
-
-        Requires admin or superuser role.
-        """
-
-        require_lab_session(req.session_id)
-        _require_legacy_lab_file_authoring_enabled()
-
-        world = get_lab_world(engine, world_id)
-        return create_world_policy_bundle_draft_document(
-            world,
-            world_id,
-            req,
-            build_policy_bundle=_build_policy_bundle,
-        )
-
-    @api.get(
-        "/world-policy-bundle/{world_id}/drafts",
-        response_model=LabPolicyBundleDraftListResponse,
-    )
-    async def list_world_policy_bundle_drafts(
-        world_id: str,
-        session_id: str,
-    ) -> LabPolicyBundleDraftListResponse:
-        """List saved normalized policy bundle drafts for one world.
-
-        Draft files live under ``policies/drafts`` and are returned only if
-        they still parse as valid normalized bundle JSON for the selected
-        world. Invalid files are skipped so the Artifact Editor sees a stable
-        listing instead of a hard failure.
-
-        Requires admin or superuser role.
-        """
-
-        require_lab_session(session_id)
-        _require_legacy_lab_file_authoring_enabled()
-
-        world = get_lab_world(engine, world_id)
-        return list_world_policy_bundle_drafts_document(
-            world,
-            world_id,
-            build_policy_bundle=_build_policy_bundle,
-        )
-
-    @api.get(
-        "/world-policy-bundle/{world_id}/drafts/{draft_name}",
-        response_model=LabPolicyBundleDraftDocument,
-    )
-    async def get_world_policy_bundle_draft(
-        world_id: str,
-        draft_name: str,
-        session_id: str,
-    ) -> LabPolicyBundleDraftDocument:
-        """Load one saved normalized policy bundle draft for one world.
-
-        Requires admin or superuser role.
-        """
-
-        require_lab_session(session_id)
-        _require_legacy_lab_file_authoring_enabled()
-
-        world = get_lab_world(engine, world_id)
-        return get_world_policy_bundle_draft_document(
-            world,
-            world_id,
-            draft_name,
-            build_policy_bundle=_build_policy_bundle,
-        )
-
-    @api.post(
-        "/world-policy-bundle/{world_id}/drafts/{draft_name}/promote",
-        response_model=LabPolicyBundleDraftPromoteResponse,
-    )
-    async def promote_world_policy_bundle_draft(
-        world_id: str,
-        draft_name: str,
-        req: LabPolicyBundleDraftPromoteRequest,
-    ) -> LabPolicyBundleDraftPromoteResponse:
-        """Promote one saved policy bundle draft into canonical policy files.
-
-        Promotion is explicit and destructive only to the canonical policy
-        package: the draft remains in place, while
-        ``policies/axis/axes.yaml``, ``policies/axis/thresholds.yaml``, and
-        ``policies/axis/resolution.yaml`` are rewritten from the normalized
-        draft payload and the world's axis engine is reloaded.
-
-        Requires admin or superuser role.
-        """
-
-        require_lab_session(req.session_id)
-        _require_legacy_lab_file_authoring_enabled()
-
-        world = get_lab_world(engine, world_id)
-        return promote_world_policy_bundle_draft_document(
-            world,
-            world_id,
-            draft_name,
-            req,
-            build_policy_bundle=_build_policy_bundle,
-            build_axes_yaml_payload=_build_axes_yaml_payload,
-            build_thresholds_yaml_payload=_build_thresholds_yaml_payload,
-            build_resolution_yaml_payload=_build_resolution_yaml_payload,
-            write_yaml=_write_yaml,
-            reload_world_axis_engine=_reload_world_axis_engine,
-            validate_policy_bundle_active_axes=_validate_policy_bundle_active_axes,
-            canonical_policy_source_files=_canonical_policy_source_files,
-            hash_policy_payload=_hash_policy_payload,
-        )
+        _ = world  # Route still validates world availability via registry lookup.
+        return _compile_image_prompt(req)
 
     @api.post("/translate", response_model=LabTranslateResponse)
     async def lab_translate(req: LabTranslateRequest) -> LabTranslateResponse:

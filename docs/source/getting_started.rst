@@ -111,11 +111,7 @@ A minimal package contains:
     ├── world.json
     ├── zones/
     │   └── <zone>.json
-    └── policies/
-        ├── axes.yaml
-        ├── thresholds.yaml
-        ├── resolution.yaml
-        └── ic_prompt.txt
+    └── policies/                # Optional migration/import source artifacts
 
 ``world.json`` defines the world metadata and which subsystems are enabled:
 
@@ -128,14 +124,18 @@ A minimal package contains:
       "default_spawn": {"zone": "my_world", "room": "spawn"},
       "zones": ["my_world"],
       "global_items": {},
-      "translation_layer": {
-        "enabled": true,
-        "model": "gemma2:2b",
-        "prompt_template_path": "policies/ic_prompt.txt",
-        "active_axes": ["demeanor", "health"]
-      },
-      "axis_engine": {"enabled": true}
-    }
+	      "translation_layer": {
+	        "enabled": true,
+	        "model": "gemma2:2b",
+	        "prompt_policy_id": "prompt:translation.prompts.ic:default",
+	        "prompt_template_path": "policies/ic_prompt.txt",
+	        "active_axes": ["demeanor", "health"]
+	      },
+	      "axis_engine": {"enabled": true}
+	    }
+
+``prompt_policy_id`` is the runtime selector. ``prompt_template_path`` is kept
+for migration/debug metadata and is not canonical runtime authority.
 
 The room and item data lives in ``zones/<zone>.json``:
 
@@ -160,8 +160,9 @@ To create your own world:
 
 1. Create ``data/worlds/<world_id>/world.json``.
 2. Add one or more zone files under ``data/worlds/<world_id>/zones/``.
-3. Add canonical policy files under ``data/worlds/<world_id>/policies/``.
-4. Restart the server so the world package is loaded.
+3. Initialize DB and import canonical policy artifacts into SQLite policy tables.
+4. Activate policy variants for the target world scope.
+5. Restart the server so the world package is loaded.
 
 No code changes are required.
 

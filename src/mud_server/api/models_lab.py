@@ -1,4 +1,8 @@
-"""Lab-facing Pydantic models for the Axis Descriptor Lab integration."""
+"""Lab-facing Pydantic models for the Axis Descriptor Lab integration.
+
+Legacy draft-route models are retained for import compatibility, but runtime
+lab routes use the DB-first endpoint surface documented in ``routes/lab.py``.
+"""
 
 from typing import Any
 
@@ -490,9 +494,9 @@ class LabTranslateRequest(BaseModel):
                         non-deterministic.
         temperature:    Sampling temperature.  Ignored when seed is set.
         prompt_template_override: Optional full prompt template text.  When
-                        provided, used instead of the world's configured
-                        ``prompt_template_path`` for this single call only.
-                        The server's canonical file is never modified.
+                        provided, used instead of the active canonical prompt
+                        policy content for this single call only.
+                        Canonical policy rows are never modified by this field.
     """
 
     session_id: str

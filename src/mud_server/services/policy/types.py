@@ -64,6 +64,30 @@ class EffectiveAxisBundle:
 
 
 @dataclass(frozen=True, slots=True)
+class EffectiveImagePolicyBundle:
+    """Resolved canonical image-policy bundle context for one scope.
+
+    This contract powers the lab-facing image-bundle diagnostic endpoint while
+    remaining DB-first. The ``*_path`` fields preserve route response shape
+    compatibility for existing clients and are derived from manifest payload
+    metadata rather than filesystem probes.
+    """
+
+    world_id: str
+    policy_schema: str | None
+    policy_bundle_id: str | None
+    policy_bundle_version: int | str | None
+    policy_hash: str
+    composition_order: list[str]
+    required_runtime_inputs: list[str]
+    descriptor_layer_path: str | None
+    tone_profile_path: str | None
+    species_registry_path: str | None
+    clothing_registry_path: str | None
+    missing_components: list[str]
+
+
+@dataclass(frozen=True, slots=True)
 class PolicyValidationResult:
     """Validation-run result for one candidate policy variant payload."""
 

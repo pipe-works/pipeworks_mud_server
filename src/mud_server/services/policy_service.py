@@ -36,12 +36,16 @@ from mud_server.services.policy.runtime_resolution import (
     resolve_effective_axis_bundle as _resolve_effective_axis_bundle,
 )
 from mud_server.services.policy.runtime_resolution import (
+    resolve_effective_image_policy_bundle as _resolve_effective_image_policy_bundle,
+)
+from mud_server.services.policy.runtime_resolution import (
     resolve_effective_prompt_template as _resolve_effective_prompt_template,
 )
 from mud_server.services.policy.types import (
     ActivationScope,
     ArtifactImportSummary,
     EffectiveAxisBundle,
+    EffectiveImagePolicyBundle,
     PolicyValidationResult,
 )
 from mud_server.services.policy.utils import parse_scope as _parse_scope
@@ -174,6 +178,11 @@ def resolve_effective_prompt_template(
 def resolve_effective_axis_bundle(*, scope: ActivationScope) -> EffectiveAxisBundle:
     """Resolve effective canonical manifest+axis-bundle payloads."""
     return _resolve_effective_axis_bundle(scope=scope)
+
+
+def resolve_effective_image_policy_bundle(*, scope: ActivationScope) -> EffectiveImagePolicyBundle:
+    """Resolve effective canonical image-policy diagnostic bundle for one scope."""
+    return _resolve_effective_image_policy_bundle(scope=scope)
 
 
 def publish_scope(*, scope: ActivationScope, actor: str) -> dict[str, Any]:

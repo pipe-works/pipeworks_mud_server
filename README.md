@@ -237,6 +237,10 @@ A minimal world package looks like this:
 }
 ```
 
+`prompt_policy_id` is the authoritative runtime selector. `prompt_template_path`
+is retained as legacy metadata for migration/debug context and is not runtime
+authority in DB-first policy resolution.
+
 And the zone data lives separately in `zones/<zone>.json`:
 
 ```json
@@ -290,32 +294,38 @@ Canonical authoring path (DB-first):
 - `GET /api/policy-activations`
 - `POST /api/policy-publish`
 
-Legacy Axis Descriptor Lab file-backed endpoints (`/api/lab/world-prompts/*`,
-`/api/lab/world-policy-bundle/*`) are disabled by default and return `410`.
+Lab integration endpoints (DB-first, runtime-safe):
 
-Set `MUD_LAB_ENABLE_LEGACY_FILE_AUTHORING=1` only for transitional migration
-or debugging workflows.
+- `GET /api/lab/worlds`
+- `GET /api/lab/world-config/{world_id}`
+- `GET /api/lab/world-image-policy-bundle/{world_id}`
+- `POST /api/lab/compile-image-prompt`
+- `POST /api/lab/translate`
 
-When explicitly enabled, the lab can:
+Legacy lab file-authoring routes (`/api/lab/world-prompts/*`,
+`/api/lab/world-policy-bundle/*`) have been removed as a deliberate breaking
+change. Canonical runtime state now comes only from SQLite policy tables plus
+Layer 3 activation pointers.
 
-- inspect canonical prompt templates in `policies/*.txt`
-- create prompt drafts under `policies/drafts/*.txt`
-- promote a prompt draft into a new canonical prompt and map world config to that policy selector
-- inspect the canonical policy package as one normalized JSON bundle
-- create policy bundle drafts under `policies/drafts/*.json`
-- promote a policy bundle draft back into canonical `axes.yaml`, `thresholds.yaml`, and `resolution.yaml`
+DB-only runtime semantics:
 
-Important semantics:
+- `policy_variant.status` tracks workflow state (`draft/candidate/active/archived`)
+- `policy_activation` selects effective runtime variants by scope
+- runtime reads use effective activations, not world `policies/*` files
+- world policy files are migration/import inputs or exchange artifacts only
 
-- `canonical` means the server-owned files in the world package
-- `draft` means a lab-created artifact under `policies/drafts/`
-- `active` means the effective DB activation pointer for the current scope
+### DB-Only Operator Runbook
 
-Promotion updates the running world immediately:
-
-- prompt promotion writes the new canonical prompt, updates `world.json`, and reloads the translation service
-- policy bundle promotion rewrites the canonical YAML package and reloads the world axis engine
-- no full server restart is required, although clients may need to refresh their UI to see updated dropdown state
+1. Initialize DB schema and baseline world catalog:
+   - `mud-server init-db`
+2. Import canonical policy artifact into DB:
+   - `mud-server import-policy-artifact --artifact-path <artifact.json> --activate`
+3. Verify effective activation state:
+   - `curl -s "http://127.0.0.1:8000/api/policy-activations?scope=<world_id>&effective=true&session_id=<sid>"`
+4. Publish/export deterministic artifact:
+   - `curl -s -X POST "http://127.0.0.1:8000/api/policy-publish?session_id=<sid>"`
+     `-H "Content-Type: application/json" -d '{"scope":"<world_id>"}'`
+5. Share artifact via `pipe-works-world-policies` mirror repo; do not treat mirror files as runtime authority.
 
 ---
 
