@@ -29,7 +29,7 @@ Architecture:
 
 import html
 import logging
-from typing import cast
+from typing import Any, cast
 
 from mud_server.core.bus import MudBus
 from mud_server.core.events import Events
@@ -135,10 +135,8 @@ class GameEngine:
         registry in sync, and surfaces configuration gaps early via logs.
         """
         import logging
-        from pathlib import Path
 
-        from mud_server.config import config
-        from mud_server.policies import AxisPolicyLoader
+        from mud_server.services import policy_service
 
         logger = logging.getLogger(__name__)
 
@@ -148,8 +146,6 @@ class GameEngine:
             logger.warning("Axis policy bootstrap skipped: no worlds registered.")
             return
 
-        loader = AxisPolicyLoader(worlds_root=Path(config.worlds.worlds_root))
-
         for world in worlds:
             world_id = world.get("id")
             if not world_id:
@@ -157,7 +153,73 @@ class GameEngine:
                 logger.warning("Axis policy bootstrap skipped malformed world row: %s", world)
                 continue
 
-            payload, report = loader.load(world_id)
+            try:
+                resolved_bundle = policy_service.resolve_effective_axis_bundle(
+                    scope=policy_service.ActivationScope(world_id=world_id, client_profile="")
+                )
+                axes_payload = resolved_bundle.axes_payload
+                thresholds_payload = resolved_bundle.thresholds_payload
+                policy_hash = resolved_bundle.policy_hash
+                bundle_version = resolved_bundle.bundle_version
+            except policy_service.PolicyServiceError as exc:
+                if exc.code in {
+                    "POLICY_EFFECTIVE_MANIFEST_NOT_FOUND",
+                    "POLICY_EFFECTIVE_AXIS_BUNDLE_NOT_FOUND",
+                }:
+                    try:
+                        # Bootstrap canonical axis/manifest rows from legacy world package
+                        # only when activation pointers are missing. Import runs
+                        # without activation so startup seeding does not mutate
+                        # Layer 3 activation history.
+                        import_summary = (
+                            policy_service.import_axis_manifest_policies_from_legacy_files(
+                                world_id=world_id,
+                                actor="system-bootstrap",
+                                activate=False,
+                                status="active",
+                            )
+                        )
+                        logger.info(
+                            "Axis policy bootstrap imported canonical axis bundle for %s: "
+                            "imported=%s updated=%s skipped=%s errors=%s",
+                            world_id,
+                            import_summary.imported_count,
+                            import_summary.updated_count,
+                            import_summary.skipped_count,
+                            import_summary.error_count,
+                        )
+                        (
+                            axes_payload,
+                            thresholds_payload,
+                            policy_hash,
+                            bundle_version,
+                        ) = self._resolve_bootstrap_axis_payload_from_import(
+                            import_summary=import_summary
+                        )
+                    except policy_service.PolicyServiceError as import_exc:
+                        logger.warning(
+                            "Axis policy bootstrap skipped for %s after import attempt: %s (%s)",
+                            world_id,
+                            import_exc.detail,
+                            import_exc.code,
+                        )
+                        continue
+                else:
+                    logger.warning(
+                        "Axis policy bootstrap skipped for %s: %s (%s)",
+                        world_id,
+                        exc.detail,
+                        exc.code,
+                    )
+                    continue
+
+            payload, report = self._build_axis_policy_report_from_canonical_bundle(
+                world_id=world_id,
+                axes_payload=axes_payload,
+                thresholds_payload=thresholds_payload,
+                policy_hash=policy_hash,
+                version=bundle_version,
+            )
             self._log_axis_policy_report(logger, report)
 
             if not report.axes:
@@ -170,6 +232,126 @@ class GameEngine:
                 thresholds_payload=payload.get("thresholds") or {},
             )
             logger.info("Axis registry seeded for %s: %s", world_id, stats)
+
+    @staticmethod
+    def _resolve_bootstrap_axis_payload_from_import(
+        *,
+        import_summary: Any,
+    ) -> tuple[dict[str, Any], dict[str, Any], str, str]:
+        """Resolve axis payloads from import rows without Layer 3 activation reads."""
+        from mud_server.services import policy_service
+
+        axis_entries = [
+            entry
+            for entry in import_summary.entries
+            if entry.policy_id
+            and entry.variant
+            and str(entry.policy_id).startswith("axis_bundle:")
+            and entry.action in {"imported", "updated", "skipped"}
+        ]
+        if not axis_entries:
+            raise policy_service.PolicyServiceError(
+                status_code=404,
+                code="POLICY_EFFECTIVE_AXIS_BUNDLE_NOT_FOUND",
+                detail="Axis import completed but produced no canonical axis bundle entry.",
+            )
+
+        axis_entry = axis_entries[0]
+        axis_row = policy_service.get_policy(
+            policy_id=str(axis_entry.policy_id),
+            variant=str(axis_entry.variant),
+        )
+        axis_content = axis_row.get("content")
+        if not isinstance(axis_content, dict):
+            raise policy_service.PolicyServiceError(
+                status_code=422,
+                code="POLICY_AXIS_BUNDLE_CONTENT_INVALID",
+                detail=(
+                    "Canonical axis bundle content must be an object after bootstrap import; "
+                    f"got {type(axis_content).__name__}."
+                ),
+            )
+
+        axes_payload = axis_content.get("axes")
+        thresholds_payload = axis_content.get("thresholds")
+        if not isinstance(axes_payload, dict):
+            raise policy_service.PolicyServiceError(
+                status_code=422,
+                code="POLICY_AXIS_BUNDLE_AXES_INVALID",
+                detail="Canonical axis bundle field content.axes must be an object.",
+            )
+        if not isinstance(thresholds_payload, dict):
+            raise policy_service.PolicyServiceError(
+                status_code=422,
+                code="POLICY_AXIS_BUNDLE_THRESHOLDS_INVALID",
+                detail="Canonical axis bundle field content.thresholds must be an object.",
+            )
+
+        policy_hash = str(axis_row.get("content_hash") or "")
+        raw_policy_version = axis_row.get("policy_version")
+        if raw_policy_version is None:
+            raise policy_service.PolicyServiceError(
+                status_code=422,
+                code="POLICY_AXIS_BUNDLE_VERSION_INVALID",
+                detail="Canonical axis bundle policy_version must be present after bootstrap import.",
+            )
+        bundle_version = str(raw_policy_version)
+        return axes_payload, thresholds_payload, policy_hash, bundle_version
+
+    @staticmethod
+    def _build_axis_policy_report_from_canonical_bundle(
+        *,
+        world_id: str,
+        axes_payload: dict[str, Any],
+        thresholds_payload: dict[str, Any],
+        policy_hash: str,
+        version: str | None,
+    ) -> tuple[dict[str, Any], Any]:
+        """Build axis bootstrap payload/report from canonical DB policy content."""
+        from mud_server.policies import AxisPolicyValidationReport
+
+        axes_definitions = (
+            (axes_payload.get("axes") or {}) if isinstance(axes_payload, dict) else {}
+        )
+        threshold_definitions = (
+            (thresholds_payload.get("axes") or {}) if isinstance(thresholds_payload, dict) else {}
+        )
+        axes = [str(axis_name) for axis_name in axes_definitions.keys()]
+        ordering_definitions = {
+            str(axis_name): ordering
+            for axis_name, axis_data in axes_definitions.items()
+            if isinstance(axis_data, dict)
+            and isinstance((axis_data.get("ordering")), dict)
+            and (ordering := axis_data.get("ordering"))
+        }
+        ordering_present = list(ordering_definitions.keys())
+        thresholds_present = [str(axis_name) for axis_name in threshold_definitions.keys()]
+
+        missing_components: list[str] = []
+        if not axes:
+            missing_components.append("axes list missing or empty")
+        for axis_name in axes:
+            if axis_name not in ordering_present:
+                missing_components.append(f"ordering missing for axis: {axis_name}")
+            if axis_name not in thresholds_present:
+                missing_components.append(f"thresholds missing for axis: {axis_name}")
+
+        report = AxisPolicyValidationReport(
+            world_id=world_id,
+            axes=axes,
+            ordering_present=ordering_present,
+            ordering_definitions=ordering_definitions,
+            thresholds_present=thresholds_present,
+            thresholds_definitions=threshold_definitions,
+            missing_components=missing_components,
+            policy_hash=policy_hash,
+            version=version,
+        )
+        payload = {
+            "axes": axes_payload,
+            "thresholds": thresholds_payload,
+        }
+        return payload, report
 
     @staticmethod
     def _log_axis_policy_report(logger, report) -> None:

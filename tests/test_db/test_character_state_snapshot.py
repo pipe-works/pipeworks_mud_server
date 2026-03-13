@@ -14,7 +14,7 @@ import sqlite3
 import pytest
 
 from mud_server.config import use_test_database
-from mud_server.db import axis_repo, database
+from mud_server.db import axis_repo, database, policy_repo
 from tests.constants import TEST_PASSWORD
 
 
@@ -117,10 +117,84 @@ def test_character_state_snapshot_seeded_on_creation(temp_db_path, monkeypatch) 
 
 
 @pytest.mark.unit
-def test_get_axis_policy_hash_returns_value() -> None:
-    """Policy hash helper should return a deterministic hash."""
-    policy_hash = database._get_axis_policy_hash(database.DEFAULT_WORLD_ID)
-    assert policy_hash is not None
+@pytest.mark.db
+def test_get_axis_policy_hash_returns_value(temp_db_path) -> None:
+    """Policy hash helper should resolve canonical manifest+axis activations."""
+    with use_test_database(temp_db_path):
+        database.init_database(skip_superuser=True)
+
+        world_id = database.DEFAULT_WORLD_ID
+        manifest_policy_id = f"manifest_bundle:world.manifests:{world_id}"
+        axis_policy_id = "axis_bundle:axis.bundles:axis_core_v1"
+
+        policy_repo.upsert_policy_item(
+            policy_id=manifest_policy_id,
+            policy_type="manifest_bundle",
+            namespace="world.manifests",
+            policy_key=world_id,
+        )
+        policy_repo.upsert_policy_variant(
+            policy_id=manifest_policy_id,
+            variant="v1",
+            schema_version="1.0",
+            policy_version=1,
+            status="active",
+            content={
+                "manifest": {
+                    "axis": {
+                        "active_bundle": {
+                            "id": "axis_core_v1",
+                            "version": 1,
+                        }
+                    }
+                }
+            },
+            content_hash="manifest-hash",
+            updated_at="2026-03-13T00:00:00Z",
+            updated_by="test",
+        )
+        policy_repo.upsert_policy_item(
+            policy_id=axis_policy_id,
+            policy_type="axis_bundle",
+            namespace="axis.bundles",
+            policy_key="axis_core_v1",
+        )
+        policy_repo.upsert_policy_variant(
+            policy_id=axis_policy_id,
+            variant="v1",
+            schema_version="1.0",
+            policy_version=1,
+            status="active",
+            content={
+                "axes": {"axes": {"wealth": {}}},
+                "thresholds": {"axes": {}},
+                "resolution": {"version": "1.0"},
+            },
+            content_hash="axis-hash",
+            updated_at="2026-03-13T00:00:00Z",
+            updated_by="test",
+        )
+        policy_repo.set_policy_activation(
+            world_id=world_id,
+            client_profile="",
+            policy_id=manifest_policy_id,
+            variant="v1",
+            activated_at="2026-03-13T00:00:00Z",
+            activated_by="test",
+            rollback_of_activation_id=None,
+        )
+        policy_repo.set_policy_activation(
+            world_id=world_id,
+            client_profile="",
+            policy_id=axis_policy_id,
+            variant="v1",
+            activated_at="2026-03-13T00:00:00Z",
+            activated_by="test",
+            rollback_of_activation_id=None,
+        )
+
+        policy_hash = database._get_axis_policy_hash(world_id)
+        assert isinstance(policy_hash, str) and policy_hash
 
 
 @pytest.mark.unit

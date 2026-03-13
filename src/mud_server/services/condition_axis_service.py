@@ -24,11 +24,9 @@ from time import monotonic, sleep
 from typing import Any
 
 import requests
-import yaml
-from pipeworks_ipc import compute_payload_hash
 
 from mud_server.config import config
-from mud_server.policies import PolicyManifestLoader
+from mud_server.services import policy_service
 
 SEED_MIN = 1
 SEED_MAX = 2_147_483_647
@@ -273,11 +271,12 @@ def _resolve_policy_context(
     world_root: Path,
     bundle_id: str | None,
 ) -> ConditionAxisPolicyContext:
-    """Resolve canonical bundle metadata and policy hash for one world.
+    """Resolve canonical bundle metadata and policy hash from DB activations.
 
-    Resolution order:
-    1. Manifest-first policy bundle resolution when ``manifest.yaml`` exists.
-    2. Legacy flat policy files fallback for transition compatibility.
+    Runtime policy resolution is activation-driven and canonical:
+    1. Resolve effective ``manifest_bundle`` for world scope.
+    2. Resolve effective ``axis_bundle`` referenced by manifest active bundle.
+    3. Build condition-axis context from canonical DB policy payloads.
 
     Args:
         world_id: Canonical world identifier.
@@ -291,144 +290,55 @@ def _resolve_policy_context(
         ConditionAxisServiceError: If bundle selection is invalid or world
             policy configuration cannot support generation.
     """
-    policy_root = world_root / "policies"
-    manifest_path = policy_root / "manifest.yaml"
-    default_bundle_id = f"{world_id}_default"
-
-    if manifest_path.exists():
-        loader = PolicyManifestLoader(worlds_root=world_root.parent)
-        payload, report = loader.load_from_world_root(world_id=world_id, world_root=world_root)
-
-        axes_payload = ((payload.get("axis") or {}).get("axes")) or {}
-        thresholds_payload = ((payload.get("axis") or {}).get("thresholds")) or {}
-        resolution_payload = ((payload.get("axis") or {}).get("resolution")) or {}
-        manifest_payload = payload.get("manifest") or {}
-
-        if isinstance(axes_payload, dict) and axes_payload:
-            resolved_bundle_id = str(report.bundle_id or default_bundle_id)
-            if bundle_id and bundle_id != resolved_bundle_id:
-                raise ConditionAxisServiceError(
-                    status_code=404,
-                    code="CONDITION_AXIS_BUNDLE_NOT_FOUND",
-                    detail=(
-                        f"Requested bundle {bundle_id!r} is not available for world "
-                        f"{world_id!r}."
-                    ),
-                )
-
-            bundle_version = str(
-                report.bundle_version
-                or axes_payload.get("version")
-                or thresholds_payload.get("version")
-                or resolution_payload.get("version")
-                or "1"
-            )
-            manifest_inputs = {
-                str(item)
-                for item in (report.required_runtime_inputs or [])
-                if isinstance(item, str) and item.strip()
-            }
-            # The manifest input list is shared with other pipelines (for example
-            # image compile) and may include keys not applicable to axis
-            # generation. Keep condition-axis input requirements explicit.
-            required_runtime_inputs = {
-                key
-                for key in manifest_inputs
-                if key in {"entity.identity.gender", "entity.species"}
-            }
-            required_runtime_inputs.update({"entity.identity.gender", "entity.species"})
-
-            policy_hash = compute_payload_hash(
-                {
-                    "manifest": manifest_payload,
-                    "axis_bundle": {
-                        "axes": axes_payload,
-                        "thresholds": thresholds_payload,
-                        "resolution": resolution_payload,
-                    },
-                }
-            )
-
-            return ConditionAxisPolicyContext(
-                bundle_id=resolved_bundle_id,
-                bundle_version=bundle_version,
-                policy_hash=policy_hash,
-                required_runtime_inputs=required_runtime_inputs,
-                required_axes=_extract_required_axes(axes_payload=axes_payload),
-                axis_label_scores=_build_axis_label_scores(
-                    axes_payload=axes_payload,
-                    thresholds_payload=thresholds_payload,
+    _ = world_root
+    scope = policy_service.ActivationScope(world_id=world_id, client_profile="")
+    try:
+        resolved_bundle = policy_service.resolve_effective_axis_bundle(scope=scope)
+    except policy_service.PolicyServiceError as exc:
+        if exc.code in {
+            "POLICY_EFFECTIVE_MANIFEST_NOT_FOUND",
+            "POLICY_EFFECTIVE_AXIS_BUNDLE_NOT_FOUND",
+        }:
+            raise ConditionAxisServiceError(
+                status_code=501,
+                code="CONDITION_AXIS_UPSTREAM_UNSUPPORTED",
+                detail=(
+                    "Condition-axis generation is not available in the current canonical "
+                    "policy activation state."
                 ),
-            )
-
-    axes_payload = _read_yaml(policy_root / "axes.yaml")
-    thresholds_payload = _read_yaml(policy_root / "thresholds.yaml")
-    resolution_payload = _read_yaml(policy_root / "resolution.yaml")
-
-    if not axes_payload:
+            ) from exc
         raise ConditionAxisServiceError(
-            status_code=501,
-            code="CONDITION_AXIS_UPSTREAM_UNSUPPORTED",
-            detail=(
-                "Condition-axis generation is not available in the current upstream "
-                "configuration."
-            ),
-        )
+            status_code=502,
+            code="CONDITION_AXIS_UPSTREAM_GENERATION_FAILED",
+            detail="Failed to resolve canonical axis policy context.",
+        ) from exc
 
-    resolved_bundle_id = bundle_id or default_bundle_id
-    if bundle_id and bundle_id != default_bundle_id:
+    resolved_bundle_id = resolved_bundle.bundle_id
+    if bundle_id and bundle_id != resolved_bundle_id:
         raise ConditionAxisServiceError(
             status_code=404,
             code="CONDITION_AXIS_BUNDLE_NOT_FOUND",
             detail=f"Requested bundle {bundle_id!r} is not available for world {world_id!r}.",
         )
 
-    bundle_version = str(
-        axes_payload.get("version")
-        or thresholds_payload.get("version")
-        or resolution_payload.get("version")
-        or "1"
-    )
-    policy_hash = compute_payload_hash(
-        {
-            "axes": axes_payload,
-            "thresholds": thresholds_payload,
-            "resolution": resolution_payload,
-        }
-    )
+    required_runtime_inputs = {
+        key
+        for key in resolved_bundle.required_runtime_inputs
+        if key in {"entity.identity.gender", "entity.species"}
+    }
+    required_runtime_inputs.update({"entity.identity.gender", "entity.species"})
+
     return ConditionAxisPolicyContext(
         bundle_id=resolved_bundle_id,
-        bundle_version=bundle_version,
-        policy_hash=policy_hash,
-        required_runtime_inputs={"entity.identity.gender", "entity.species"},
-        required_axes=_extract_required_axes(axes_payload=axes_payload),
+        bundle_version=resolved_bundle.bundle_version,
+        policy_hash=resolved_bundle.policy_hash,
+        required_runtime_inputs=required_runtime_inputs,
+        required_axes=_extract_required_axes(axes_payload=resolved_bundle.axes_payload),
         axis_label_scores=_build_axis_label_scores(
-            axes_payload=axes_payload,
-            thresholds_payload=thresholds_payload,
+            axes_payload=resolved_bundle.axes_payload,
+            thresholds_payload=resolved_bundle.thresholds_payload,
         ),
     )
-
-
-def _read_yaml(path: Path) -> dict[str, Any]:
-    """Read one YAML file as a dict, returning an empty payload on failure.
-
-    Args:
-        path: YAML file path to parse.
-
-    Returns:
-        Parsed mapping payload when successful; ``{}`` on missing/unreadable
-        or non-mapping inputs.
-    """
-    if not path.exists():
-        return {}
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            loaded = yaml.safe_load(handle) or {}
-    except (OSError, yaml.YAMLError):
-        return {}
-    if isinstance(loaded, dict):
-        return loaded
-    return {}
 
 
 def _build_axis_label_scores(

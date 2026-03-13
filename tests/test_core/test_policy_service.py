@@ -56,6 +56,97 @@ def _seed_descriptor_layer_variant(
     return policy_id
 
 
+def _seed_effective_axis_bundle(
+    *,
+    world_id: str = constants.DEFAULT_WORLD_ID,
+    bundle_id: str = "axis_core_v1",
+    bundle_version: int = 1,
+) -> tuple[str, str]:
+    """Seed manifest+axis canonical objects and activate them for world scope."""
+    manifest_policy_id = f"manifest_bundle:world.manifests:{world_id}"
+    axis_policy_id = f"axis_bundle:axis.bundles:{bundle_id}"
+    variant = f"v{bundle_version}"
+
+    policy_service.upsert_policy_variant(
+        policy_id=manifest_policy_id,
+        variant=variant,
+        schema_version="1.0",
+        policy_version=bundle_version,
+        status="active",
+        content={
+            "manifest": {
+                "axis": {
+                    "active_bundle": {
+                        "id": bundle_id,
+                        "version": bundle_version,
+                    }
+                },
+                "image": {
+                    "composition": {
+                        "required_runtime_inputs": [
+                            "entity.identity.gender",
+                            "entity.species",
+                            "entity.axes",
+                        ]
+                    }
+                },
+            }
+        },
+        updated_by="tester",
+    )
+    policy_service.upsert_policy_variant(
+        policy_id=axis_policy_id,
+        variant=variant,
+        schema_version="1.0",
+        policy_version=bundle_version,
+        status="active",
+        content={
+            "axes": {
+                "version": "1",
+                "axes": {"demeanor": {"ordering": {"values": ["timid", "bold"]}}},
+            },
+            "thresholds": {
+                "version": "1",
+                "axes": {
+                    "demeanor": {
+                        "values": {
+                            "timid": {"min": 0.0, "max": 0.49},
+                            "bold": {"min": 0.5, "max": 1.0},
+                        }
+                    }
+                },
+            },
+            "resolution": {
+                "version": "1.0",
+                "interactions": {
+                    "chat": {
+                        "channel_multipliers": {"say": 1.0, "yell": 1.5, "whisper": 0.5},
+                        "min_gap_threshold": 0.05,
+                        "axes": {
+                            "demeanor": {"resolver": "dominance_shift", "base_magnitude": 0.03}
+                        },
+                    }
+                },
+            },
+        },
+        updated_by="tester",
+    )
+    scope = ActivationScope(world_id=world_id, client_profile="")
+    policy_service.set_policy_activation(
+        scope=scope,
+        policy_id=manifest_policy_id,
+        variant=variant,
+        activated_by="tester",
+    )
+    policy_service.set_policy_activation(
+        scope=scope,
+        policy_id=axis_policy_id,
+        variant=variant,
+        activated_by="tester",
+    )
+    return manifest_policy_id, axis_policy_id
+
+
 def _set_temp_worlds_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Redirect policy export writes to a temporary world root."""
     monkeypatch.setattr(policy_service.config.worlds, "worlds_root", str(tmp_path))
@@ -145,6 +236,108 @@ def _write_prompt_file(
     prompt_root.mkdir(parents=True, exist_ok=True)
     prompt_path = prompt_root / filename
     prompt_path.write_text(text, encoding="utf-8")
+
+
+def _write_clothing_block_file(
+    *,
+    worlds_root: Path,
+    world_id: str,
+    category: str,
+    filename: str,
+    text: str,
+) -> None:
+    """Write one legacy clothing block text fixture under the canonical path."""
+    clothing_root = worlds_root / world_id / "policies" / "image" / "blocks" / "clothing" / category
+    clothing_root.mkdir(parents=True, exist_ok=True)
+    clothing_path = clothing_root / filename
+    clothing_path.write_text(text, encoding="utf-8")
+
+
+def _write_manifest_and_axis_bundle(
+    *,
+    worlds_root: Path,
+    world_id: str,
+    bundle_id: str = "axis_core_v1",
+    bundle_version: int = 1,
+) -> None:
+    """Write one manifest + axis bundle fixture set under canonical world policy paths."""
+    policies_root = worlds_root / world_id / "policies"
+    axis_root = policies_root / "axis"
+    axis_root.mkdir(parents=True, exist_ok=True)
+
+    (axis_root / "axes.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "axes": {
+                    "demeanor": {
+                        "ordering": {
+                            "values": ["timid", "neutral", "bold"],
+                        }
+                    }
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    (axis_root / "thresholds.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "axes": {
+                    "demeanor": {
+                        "values": {
+                            "timid": {"min": 0.0, "max": 0.33},
+                            "neutral": {"min": 0.34, "max": 0.66},
+                            "bold": {"min": 0.67, "max": 1.0},
+                        }
+                    }
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    (axis_root / "resolution.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "version": "1.0",
+                "interactions": {
+                    "chat": {
+                        "channel_multipliers": {"say": 1.0, "yell": 1.5, "whisper": 0.5},
+                        "min_gap_threshold": 0.1,
+                        "axes": {
+                            "demeanor": {"resolver": "dominance_shift", "base_magnitude": 0.03}
+                        },
+                    }
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    (policies_root / "manifest.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "policy_schema": "pipeworks_policy_v1",
+                "policy_bundle": {"id": "pipeworks_web_default", "version": 1},
+                "axis": {
+                    "active_bundle": {
+                        "id": bundle_id,
+                        "version": bundle_version,
+                        "files": {
+                            "axes": "policies/axis/axes.yaml",
+                            "thresholds": "policies/axis/thresholds.yaml",
+                            "resolution": "policies/axis/resolution.yaml",
+                        },
+                    }
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
 
 
 @pytest.mark.unit
@@ -371,6 +564,26 @@ def test_resolve_effective_policy_activations_overlays_client_scope(test_db) -> 
     assert by_policy_id[goblin]["client_profile"] == ""
     assert by_policy_id[kobold]["variant"] == "v2"
     assert by_policy_id[kobold]["client_profile"] == "mobile"
+
+
+@pytest.mark.unit
+def test_get_effective_policy_variant_resolves_layer3_pointer_to_variant_row(test_db) -> None:
+    """Effective policy helper should return activated variant content for the scope."""
+    policy_id = _seed_species_variant(policy_key="sprite", variant="v1", policy_version=1)
+    policy_service.set_policy_activation(
+        scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+        policy_id=policy_id,
+        variant="v1",
+        activated_by="tester",
+    )
+    row = policy_service.get_effective_policy_variant(
+        scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+        policy_id=policy_id,
+    )
+    assert row is not None
+    assert row["policy_id"] == policy_id
+    assert row["variant"] == "v1"
+    assert row["content"]["text"] == "sprite-v1"
 
 
 @pytest.mark.unit
@@ -962,7 +1175,7 @@ def test_import_layer2_policies_from_legacy_files_reports_unmappable_registry(
     assert summary.error_count == 1
     error_rows = [entry for entry in summary.entries if entry.action == "error"]
     assert len(error_rows) == 1
-    assert "no mappable Layer 1 references" in error_rows[0].detail
+    assert "references missing Layer 1 variant" in error_rows[0].detail
 
 
 @pytest.mark.unit
@@ -1389,6 +1602,169 @@ def test_import_tone_prompt_policies_from_legacy_files_reports_activation_failur
 
 
 @pytest.mark.unit
+def test_import_clothing_block_policies_from_legacy_files_backfills_and_activates(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Clothing importer should create Layer 1 rows and seed world activations."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _write_clothing_block_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        category="environment",
+        filename="coastal_v1.txt",
+        text="Salt-worn boots and weathered waxed coat.",
+    )
+
+    summary = policy_service.import_clothing_block_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=True,
+        status="candidate",
+    )
+    assert summary.scanned_clothing_files == 1
+    assert summary.imported_count == 1
+    assert summary.updated_count == 0
+    assert summary.error_count == 0
+    assert summary.activated_count == 1
+
+    row = policy_service.get_policy(
+        policy_id="clothing_block:image.blocks.clothing.environment:coastal",
+        variant="v1",
+    )
+    assert row["content"]["text"] == "Salt-worn boots and weathered waxed coat."
+    assert row["status"] == "candidate"
+
+
+@pytest.mark.unit
+def test_import_axis_manifest_policies_from_legacy_files_backfills_and_activates(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Axis/manifest importer should create canonical bundle objects and activate them."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _write_manifest_and_axis_bundle(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        bundle_id="axis_core_v1",
+        bundle_version=1,
+    )
+
+    summary = policy_service.import_axis_manifest_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=True,
+        status="active",
+    )
+    assert summary.scanned_files == 4
+    assert summary.imported_count == 2
+    assert summary.updated_count == 0
+    assert summary.error_count == 0
+    assert summary.activated_count == 2
+
+    manifest_row = policy_service.get_policy(
+        policy_id=f"manifest_bundle:world.manifests:{constants.DEFAULT_WORLD_ID}",
+        variant="v1",
+    )
+    axis_row = policy_service.get_policy(
+        policy_id="axis_bundle:axis.bundles:axis_core_v1",
+        variant="v1",
+    )
+    assert isinstance(manifest_row["content"]["manifest"], dict)
+    assert isinstance(axis_row["content"]["axes"], dict)
+    assert isinstance(axis_row["content"]["thresholds"], dict)
+    assert isinstance(axis_row["content"]["resolution"], dict)
+
+
+@pytest.mark.unit
+def test_import_world_policies_from_legacy_files_runs_all_domains(
+    test_db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Import-all should aggregate all domain import counts in dependency order."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    _write_species_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="goblin_v1.yaml",
+        text="Wire-thin goblin silhouette.",
+        version=1,
+    )
+    _write_tone_profile_json(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="ledger_engraving_v1.json",
+        payload={"prompt_block": "Muted engraving style on archival texture."},
+    )
+    _write_prompt_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        namespace_path="translation/prompts/ic",
+        filename="default_v1.txt",
+        text="Translate into terse in-character dialogue.\n",
+    )
+    _write_clothing_block_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        category="environment",
+        filename="coastal_v1.txt",
+        text="Salt-worn boots and weathered waxed coat.",
+    )
+    _write_registry_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="species_registry.yaml",
+        payload={
+            "registry": {"id": "species_registry", "version": 1},
+            "entries": [{"block_path": "policies/image/blocks/species/goblin_v1.yaml"}],
+        },
+    )
+    _write_registry_yaml(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="clothing_registry.yaml",
+        payload={
+            "registry": {"id": "clothing_registry", "version": 1},
+            "entries": [
+                {"fragment_path": ("policies/image/blocks/clothing/environment/coastal_v1.txt")}
+            ],
+        },
+    )
+    _write_descriptor_file(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        filename="id_card_v1.txt",
+        text="Descriptor text payload.",
+    )
+    _write_manifest_and_axis_bundle(
+        worlds_root=tmp_path,
+        world_id=constants.DEFAULT_WORLD_ID,
+        bundle_id="axis_core_v1",
+        bundle_version=1,
+    )
+
+    summary = policy_service.import_world_policies_from_legacy_files(
+        world_id=constants.DEFAULT_WORLD_ID,
+        actor="importer",
+        activate=True,
+        status="active",
+    )
+    assert summary.imported_count == 9
+    assert summary.updated_count == 0
+    assert summary.error_count == 0
+    assert summary.activated_count == 9
+    assert len(summary.entries) == 5
+    assert any("species: imported=1" in entry for entry in summary.entries)
+    assert any("tone_prompt: imported=2" in entry for entry in summary.entries)
+    assert any("clothing: imported=1" in entry for entry in summary.entries)
+    assert any("layer2: imported=3" in entry for entry in summary.entries)
+    assert any("axis_manifest: imported=2" in entry for entry in summary.entries)
+
+
+@pytest.mark.unit
 def test_parse_descriptor_filename_rejects_invalid_names(tmp_path: Path) -> None:
     """Descriptor filename parser should enforce versioned naming contract."""
     with pytest.raises(ValueError) as error:
@@ -1472,6 +1848,44 @@ def test_parse_prompt_file_identity_validates_filename_and_namespace(tmp_path: P
 
 
 @pytest.mark.unit
+def test_parse_clothing_block_file_identity_validates_filename_and_root(tmp_path: Path) -> None:
+    """Clothing identity parser should enforce versioned filename and source root."""
+    world_root = tmp_path / "world"
+    block_file = (
+        world_root / "policies" / "image" / "blocks" / "clothing" / "environment" / "coastal_v2.txt"
+    )
+    block_file.parent.mkdir(parents=True, exist_ok=True)
+    block_file.write_text("coastal block", encoding="utf-8")
+    namespace, policy_key, variant, policy_version = (
+        policy_service._parse_clothing_block_file_identity(
+            clothing_path=block_file,
+            world_root=world_root,
+        )
+    )
+    assert namespace == "image.blocks.clothing.environment"
+    assert policy_key == "coastal"
+    assert variant == "v2"
+    assert policy_version == 2
+
+    with pytest.raises(ValueError) as filename_error:
+        policy_service._parse_clothing_block_file_identity(
+            clothing_path=block_file.with_name("coastal.txt"),
+            world_root=world_root,
+        )
+    assert "Clothing block filename must match" in str(filename_error.value)
+
+    outside_file = tmp_path / "outside" / "coastal_v1.txt"
+    outside_file.parent.mkdir(parents=True, exist_ok=True)
+    outside_file.write_text("coastal block", encoding="utf-8")
+    with pytest.raises(ValueError) as outside_error:
+        policy_service._parse_clothing_block_file_identity(
+            clothing_path=outside_file,
+            world_root=world_root,
+        )
+    assert "must be located under" in str(outside_error.value)
+
+
+@pytest.mark.unit
 def test_read_prompt_text_content_requires_non_empty_and_wraps_io(tmp_path: Path) -> None:
     """Prompt reader should reject empty content and normalize trailing newlines."""
     missing_file = tmp_path / "missing.txt"
@@ -1488,6 +1902,48 @@ def test_read_prompt_text_content_requires_non_empty_and_wraps_io(tmp_path: Path
     content_file = tmp_path / "default_v1.txt"
     content_file.write_text("Prompt body.\n\n", encoding="utf-8")
     assert policy_service._read_prompt_text_content(content_file) == "Prompt body."
+
+
+@pytest.mark.unit
+def test_manifest_helper_read_and_resolve_functions_validate_shape_and_paths(
+    tmp_path: Path,
+) -> None:
+    """Manifest helper functions should read YAML and reject invalid path traversal."""
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("policy_bundle:\n  version: 1\n", encoding="utf-8")
+    manifest = policy_service._read_manifest_yaml_payload(manifest_file)
+    assert manifest["policy_bundle"]["version"] == 1
+
+    with pytest.raises(ValueError) as missing_file_error:
+        policy_service._require_manifest_relative_file_path(
+            axis_files={},
+            key="axes",
+            context="manifest test",
+        )
+    assert "axis.active_bundle.files.axes must be a non-empty string" in str(
+        missing_file_error.value
+    )
+
+    world_root = tmp_path / "world"
+    world_root.mkdir(parents=True, exist_ok=True)
+    resolved = policy_service._resolve_world_relative_path(
+        world_root=world_root,
+        relative_path="policies/axis/axes.yaml",
+    )
+    assert resolved == world_root / "policies" / "axis" / "axes.yaml"
+
+    with pytest.raises(ValueError) as traversal_error:
+        policy_service._resolve_world_relative_path(
+            world_root=world_root,
+            relative_path="../outside.yaml",
+        )
+    assert "escapes world root" in str(traversal_error.value)
+
+    axes_file = world_root / "policies" / "axis" / "axes.yaml"
+    axes_file.parent.mkdir(parents=True, exist_ok=True)
+    axes_file.write_text("axes:\n  demeanor: {}\n", encoding="utf-8")
+    payload = policy_service._read_yaml_payload_file(axes_file, context="Axis bundle file")
+    assert payload == {"axes": {"demeanor": {}}}
 
 
 @pytest.mark.unit
@@ -1660,8 +2116,8 @@ def test_collect_legacy_path_fields_skips_non_objects() -> None:
 
 
 @pytest.mark.unit
-def test_policy_reference_from_legacy_path_maps_prompt_and_tone_paths() -> None:
-    """Legacy path mapper should resolve prompt/tone profile references."""
+def test_policy_reference_from_legacy_path_maps_prompt_tone_and_clothing_paths() -> None:
+    """Legacy path mapper should resolve prompt/tone/clothing policy references."""
     prompt_reference = policy_service._policy_reference_from_legacy_path(
         "policies/translation/prompts/ic/default_v1.txt"
     )
@@ -1675,6 +2131,14 @@ def test_policy_reference_from_legacy_path_maps_prompt_and_tone_paths() -> None:
     )
     assert tone_reference == {
         "policy_id": "tone_profile:image.tone_profiles:ledger_engraving",
+        "variant": "v1",
+    }
+
+    clothing_reference = policy_service._policy_reference_from_legacy_path(
+        "policies/image/blocks/clothing/environment/coastal_v1.txt"
+    )
+    assert clothing_reference == {
+        "policy_id": "clothing_block:image.blocks.clothing.environment:coastal",
         "variant": "v1",
     }
 
@@ -1709,6 +2173,56 @@ def test_validate_policy_variant_rejects_tone_profile_missing_prompt_block(test_
     )
     assert result.is_valid is False
     assert result.errors == ["tone_profile content.prompt_block must be a non-empty string"]
+
+
+@pytest.mark.unit
+def test_validate_policy_variant_accepts_clothing_block_layer1_content(test_db) -> None:
+    """Clothing block Layer 1 objects should accept non-empty ``content.text`` payloads."""
+    result = policy_service.validate_policy_variant(
+        policy_id="clothing_block:image.blocks.clothing.environment:coastal",
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="candidate",
+        content={"text": "Salt-worn boots and weathered waxed coat."},
+        validated_by="tester",
+    )
+    assert result.is_valid is True
+    assert result.errors == []
+
+
+@pytest.mark.unit
+def test_validate_policy_variant_rejects_axis_bundle_missing_required_objects(test_db) -> None:
+    """Axis bundle validation should require non-empty axes/thresholds/resolution objects."""
+    result = policy_service.validate_policy_variant(
+        policy_id="axis_bundle:axis.bundles:axis_core_v1",
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="candidate",
+        content={},
+        validated_by="tester",
+    )
+    assert result.is_valid is False
+    assert "axis_bundle content.axes must be a non-empty object" in result.errors
+    assert "axis_bundle content.thresholds must be a non-empty object" in result.errors
+    assert "axis_bundle content.resolution must be a non-empty object" in result.errors
+
+
+@pytest.mark.unit
+def test_validate_policy_variant_rejects_manifest_bundle_missing_manifest_object(test_db) -> None:
+    """Manifest bundle validation should require non-empty manifest object payload."""
+    result = policy_service.validate_policy_variant(
+        policy_id=f"manifest_bundle:world.manifests:{constants.DEFAULT_WORLD_ID}",
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="candidate",
+        content={"manifest": ""},
+        validated_by="tester",
+    )
+    assert result.is_valid is False
+    assert result.errors == ["manifest_bundle content.manifest must be a non-empty object"]
 
 
 @pytest.mark.unit
@@ -1990,6 +2504,58 @@ def test_publish_scope_surfaces_artifact_write_failures(test_db, monkeypatch, tm
 
 
 @pytest.mark.unit
+def test_resolve_effective_axis_bundle_happy_path(test_db) -> None:
+    """Axis-bundle helper should resolve manifest and axis payloads via activation."""
+    manifest_policy_id, axis_policy_id = _seed_effective_axis_bundle()
+
+    resolved = policy_service.resolve_effective_axis_bundle(
+        scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile="")
+    )
+
+    assert resolved.manifest_policy_id == manifest_policy_id
+    assert resolved.axis_policy_id == axis_policy_id
+    assert resolved.bundle_id == "axis_core_v1"
+    assert resolved.bundle_version == "1"
+    assert resolved.axis_variant == "v1"
+    assert "entity.identity.gender" in resolved.required_runtime_inputs
+    assert "entity.species" in resolved.required_runtime_inputs
+    assert "entity.axes" in resolved.required_runtime_inputs
+    assert resolved.axes_payload["axes"]["demeanor"]["ordering"]["values"] == ["timid", "bold"]
+    assert isinstance(resolved.policy_hash, str) and resolved.policy_hash
+
+
+@pytest.mark.unit
+def test_resolve_effective_axis_bundle_requires_manifest_activation(test_db) -> None:
+    """Missing manifest activation should raise a stable not-found contract error."""
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.resolve_effective_axis_bundle(
+            scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile="")
+        )
+    assert error.value.code == "POLICY_EFFECTIVE_MANIFEST_NOT_FOUND"
+
+
+@pytest.mark.unit
+def test_resolve_effective_axis_bundle_detects_manifest_axis_version_mismatch(test_db) -> None:
+    """Manifest-selected axis version must match activated axis variant."""
+    _seed_effective_axis_bundle(bundle_version=1)
+    _seed_effective_axis_bundle(bundle_version=2)
+    # Force axis activation to a conflicting variant to assert mismatch behavior.
+    axis_policy_id = "axis_bundle:axis.bundles:axis_core_v1"
+    policy_service.set_policy_activation(
+        scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
+        policy_id=axis_policy_id,
+        variant="v1",
+        activated_by="tester",
+    )
+
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.resolve_effective_axis_bundle(
+            scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile="")
+        )
+    assert error.value.code == "POLICY_EFFECTIVE_AXIS_BUNDLE_VERSION_MISMATCH"
+
+
+@pytest.mark.unit
 def test_scope_segment_and_relative_world_root_helpers(monkeypatch) -> None:
     """Private helper branches should normalize scope and relative world roots."""
     relative_root = "tmp/worlds_relative_for_policy_tests"
@@ -2036,6 +2602,7 @@ def test_validate_common_fields_and_policy_type_content_private_helpers() -> Non
     assert type_errors == [
         (
             "Validation/writes currently support policy_type values: "
-            "'species_block', 'prompt', 'tone_profile', 'descriptor_layer', 'registry'."
+            "'species_block', 'clothing_block', 'prompt', 'tone_profile', "
+            "'axis_bundle', 'manifest_bundle', 'descriptor_layer', 'registry'."
         )
     ]

@@ -334,8 +334,9 @@ class World:
         # Parse the optional ``axis_engine`` block from world.json.
         # If the block is absent or ``enabled`` is false, the engine is left
         # as ``None`` and axis resolution is inactive for this world.
-        # The grammar is loaded from policies/resolution.yaml; a missing file
-        # or validation error disables the engine (logged, not fatal).
+        # The grammar is loaded from canonical DB policy activations; missing
+        # activation pointers or invalid payloads disable the engine
+        # (logged, not fatal).
         self._init_axis_engine(world_data)
 
     def _init_translation_service(self, world_data: dict) -> None:
@@ -440,8 +441,8 @@ class World:
         """Parse the axis_engine block and instantiate the AxisEngine.
 
         Called at the end of ``_load_from_zones`` once ``world.json`` is
-        fully loaded.  Any errors during engine construction (missing grammar
-        file, validation failure) are caught and logged rather than
+        fully loaded.  Any errors during engine construction (missing
+        canonical activation, validation failure) are caught and logged rather than
         propagated, so a misconfigured axis_engine block never prevents the
         world from loading.
 
@@ -449,8 +450,9 @@ class World:
             world_data: The parsed ``world.json`` dict.
         """
         from mud_server.axis.engine import AxisEngine
-        from mud_server.axis.grammar import load_resolution_grammar
+        from mud_server.axis.grammar import parse_resolution_grammar_payload
         from mud_server.ledger import verify_world_ledger
+        from mud_server.services import policy_service
 
         axis_engine_data = world_data.get("axis_engine", {})
         if not axis_engine_data.get("enabled", False):
@@ -466,7 +468,7 @@ class World:
         if self._world_root is None:
             logger.warning(
                 "Axis engine is enabled for world %r but world_root is None.  "
-                "Cannot load resolution grammar.  Skipping.",
+                "Cannot resolve canonical world context.  Skipping.",
                 self.world_id,
             )
             return
@@ -488,11 +490,26 @@ class World:
             )
 
         try:
-            grammar = load_resolution_grammar(self._world_root)
+            # Resolve grammar from canonical DB policy activations.
+            resolved_bundle = policy_service.resolve_effective_axis_bundle(
+                scope=policy_service.ActivationScope(
+                    world_id=self.world_id,
+                    client_profile="",
+                )
+            )
+            grammar = parse_resolution_grammar_payload(
+                raw=resolved_bundle.resolution_payload,
+                source=(
+                    "canonical axis_bundle policy "
+                    f"{resolved_bundle.axis_policy_id}:{resolved_bundle.axis_variant}"
+                ),
+            )
             self._axis_engine = AxisEngine(world_id=self.world_id, grammar=grammar)
             logger.info(
-                "Axis engine initialised for world %r (grammar v%s).",
+                "Axis engine initialised for world %r (bundle=%s v%s grammar v%s).",
                 self.world_id,
+                resolved_bundle.bundle_id,
+                resolved_bundle.bundle_version,
                 grammar.version,
             )
         except Exception as exc:  # noqa: BLE001

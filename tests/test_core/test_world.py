@@ -931,10 +931,34 @@ def test_init_axis_engine_happy_path():
     from unittest.mock import MagicMock
 
     from mud_server.ledger.writer import LedgerVerifyResult
+    from mud_server.services import policy_service
 
     fake_grammar = MagicMock()
     fake_grammar.version = "1.0"
     fake_engine = MagicMock()
+    fake_bundle = policy_service.EffectiveAxisBundle(
+        manifest_policy_id="manifest_bundle:world.manifests:test_world",
+        manifest_variant="v1",
+        axis_policy_id="axis_bundle:axis.bundles:axis_core_v1",
+        axis_variant="v1",
+        bundle_id="axis_core_v1",
+        bundle_version="1",
+        manifest_payload={},
+        axes_payload={"axes": {"demeanor": {}}},
+        thresholds_payload={},
+        resolution_payload={
+            "version": "1.0",
+            "interactions": {
+                "chat": {
+                    "channel_multipliers": {"say": 1.0, "yell": 1.5, "whisper": 0.5},
+                    "min_gap_threshold": 0.05,
+                    "axes": {},
+                }
+            },
+        },
+        required_runtime_inputs=set(),
+        policy_hash="hash",
+    )
 
     w = _make_bare_world(world_id="test_world", world_root=Path("/fake/world"))
     with (
@@ -943,7 +967,11 @@ def test_init_axis_engine_happy_path():
             return_value=LedgerVerifyResult(status="empty", last_event_id=None, error_detail=None),
         ),
         patch(
-            "mud_server.axis.grammar.load_resolution_grammar",
+            "mud_server.services.policy_service.resolve_effective_axis_bundle",
+            return_value=fake_bundle,
+        ),
+        patch(
+            "mud_server.axis.grammar.parse_resolution_grammar_payload",
             return_value=fake_grammar,
         ),
         patch(
@@ -964,9 +992,33 @@ def test_init_axis_engine_ledger_ok_logged(caplog):
     from unittest.mock import MagicMock
 
     from mud_server.ledger.writer import LedgerVerifyResult
+    from mud_server.services import policy_service
 
     fake_grammar = MagicMock()
     fake_grammar.version = "1.0"
+    fake_bundle = policy_service.EffectiveAxisBundle(
+        manifest_policy_id="manifest_bundle:world.manifests:test_world",
+        manifest_variant="v1",
+        axis_policy_id="axis_bundle:axis.bundles:axis_core_v1",
+        axis_variant="v1",
+        bundle_id="axis_core_v1",
+        bundle_version="1",
+        manifest_payload={},
+        axes_payload={"axes": {"demeanor": {}}},
+        thresholds_payload={},
+        resolution_payload={
+            "version": "1.0",
+            "interactions": {
+                "chat": {
+                    "channel_multipliers": {"say": 1.0, "yell": 1.5, "whisper": 0.5},
+                    "min_gap_threshold": 0.05,
+                    "axes": {},
+                }
+            },
+        },
+        required_runtime_inputs=set(),
+        policy_hash="hash",
+    )
 
     w = _make_bare_world(world_id="test_world", world_root=Path("/fake/world"))
     with (
@@ -974,7 +1026,13 @@ def test_init_axis_engine_ledger_ok_logged(caplog):
             "mud_server.ledger.verify_world_ledger",
             return_value=LedgerVerifyResult(status="ok", last_event_id="abc123", error_detail=None),
         ),
-        patch("mud_server.axis.grammar.load_resolution_grammar", return_value=fake_grammar),
+        patch(
+            "mud_server.services.policy_service.resolve_effective_axis_bundle",
+            return_value=fake_bundle,
+        ),
+        patch(
+            "mud_server.axis.grammar.parse_resolution_grammar_payload", return_value=fake_grammar
+        ),
         patch("mud_server.axis.engine.AxisEngine", return_value=MagicMock()),
         caplog.at_level(logging.INFO),
     ):
@@ -991,10 +1049,34 @@ def test_init_axis_engine_ledger_corrupt_logged(caplog):
     from unittest.mock import MagicMock
 
     from mud_server.ledger.writer import LedgerVerifyResult
+    from mud_server.services import policy_service
 
     fake_grammar = MagicMock()
     fake_grammar.version = "1.0"
     fake_engine = MagicMock()
+    fake_bundle = policy_service.EffectiveAxisBundle(
+        manifest_policy_id="manifest_bundle:world.manifests:test_world",
+        manifest_variant="v1",
+        axis_policy_id="axis_bundle:axis.bundles:axis_core_v1",
+        axis_variant="v1",
+        bundle_id="axis_core_v1",
+        bundle_version="1",
+        manifest_payload={},
+        axes_payload={"axes": {"demeanor": {}}},
+        thresholds_payload={},
+        resolution_payload={
+            "version": "1.0",
+            "interactions": {
+                "chat": {
+                    "channel_multipliers": {"say": 1.0, "yell": 1.5, "whisper": 0.5},
+                    "min_gap_threshold": 0.05,
+                    "axes": {},
+                }
+            },
+        },
+        required_runtime_inputs=set(),
+        policy_hash="hash",
+    )
 
     w = _make_bare_world(world_id="test_world", world_root=Path("/fake/world"))
     with (
@@ -1004,7 +1086,13 @@ def test_init_axis_engine_ledger_corrupt_logged(caplog):
                 status="corrupt", last_event_id=None, error_detail="bad checksum"
             ),
         ),
-        patch("mud_server.axis.grammar.load_resolution_grammar", return_value=fake_grammar),
+        patch(
+            "mud_server.services.policy_service.resolve_effective_axis_bundle",
+            return_value=fake_bundle,
+        ),
+        patch(
+            "mud_server.axis.grammar.parse_resolution_grammar_payload", return_value=fake_grammar
+        ),
         patch("mud_server.axis.engine.AxisEngine", return_value=fake_engine),
         caplog.at_level(logging.CRITICAL),
     ):
@@ -1019,6 +1107,7 @@ def test_init_axis_engine_grammar_error_disables_engine(caplog):
     """Grammar load raises → engine stays None, error logged."""
     import logging
     from pathlib import Path
+    from unittest.mock import MagicMock
 
     from mud_server.ledger.writer import LedgerVerifyResult
 
@@ -1029,7 +1118,22 @@ def test_init_axis_engine_grammar_error_disables_engine(caplog):
             return_value=LedgerVerifyResult(status="empty", last_event_id=None, error_detail=None),
         ),
         patch(
-            "mud_server.axis.grammar.load_resolution_grammar",
+            "mud_server.services.policy_service.resolve_effective_axis_bundle",
+            return_value=MagicMock(
+                resolution_payload={
+                    "version": "1.0",
+                    "interactions": {
+                        "chat": {
+                            "channel_multipliers": {"say": 1.0, "yell": 1.5, "whisper": 0.5},
+                            "min_gap_threshold": 0.05,
+                            "axes": {},
+                        }
+                    },
+                }
+            ),
+        ),
+        patch(
+            "mud_server.axis.grammar.parse_resolution_grammar_payload",
             side_effect=FileNotFoundError("no grammar"),
         ),
         caplog.at_level(logging.ERROR),

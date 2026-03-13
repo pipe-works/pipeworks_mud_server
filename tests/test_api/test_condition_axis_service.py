@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -534,102 +533,92 @@ def test_resolve_seed_rejects_out_of_range_integer() -> None:
 
 
 @pytest.mark.unit
-def test_resolve_policy_context_prefers_manifest_when_available(monkeypatch, tmp_path: Path):
-    """Manifest-first resolution should return manifest bundle metadata."""
-    world_root = tmp_path / "pipeworks_web"
-    policies = world_root / "policies"
-    policies.mkdir(parents=True)
-    (policies / "manifest.yaml").write_text("manifest: true\n", encoding="utf-8")
+def test_resolve_policy_context_uses_canonical_db_bundle(monkeypatch, tmp_path: Path):
+    """Canonical DB bundle resolution should build condition-axis policy context."""
 
-    class _FakeLoader:
-        def __init__(self, *, worlds_root: Path) -> None:
-            self.worlds_root = worlds_root
-
-        def load_from_world_root(self, *, world_id: str, world_root: Path):
-            _ = world_id, world_root
-            return (
-                {
-                    "manifest": {"policy_bundle": {"id": "bundle-1"}},
-                    "axis": {
-                        "axes": {
-                            "version": "3",
-                            "axes": {"demeanor": {"ordering": {"values": ["timid", "proud"]}}},
-                        },
-                        "thresholds": {
-                            "version": "3",
-                            "axes": {
-                                "demeanor": {
-                                    "values": {
-                                        "timid": {"min": 0.0, "max": 0.19},
-                                        "proud": {"min": 0.80, "max": 1.0},
-                                    }
-                                }
-                            },
-                        },
-                        "resolution": {"version": "3"},
-                    },
+    def _fake_resolve_effective_axis_bundle(*, scope):
+        assert scope.world_id == "pipeworks_web"
+        return condition_axis_service.policy_service.EffectiveAxisBundle(
+            manifest_policy_id="manifest_bundle:world.manifests:pipeworks_web",
+            manifest_variant="v3",
+            axis_policy_id="axis_bundle:axis.bundles:bundle-1",
+            axis_variant="v3",
+            bundle_id="bundle-1",
+            bundle_version="3",
+            manifest_payload={"policy_bundle": {"id": "bundle-1", "version": 3}},
+            axes_payload={
+                "version": "3",
+                "axes": {"demeanor": {"ordering": {"values": ["timid", "proud"]}}},
+            },
+            thresholds_payload={
+                "version": "3",
+                "axes": {
+                    "demeanor": {
+                        "values": {
+                            "timid": {"min": 0.0, "max": 0.19},
+                            "proud": {"min": 0.80, "max": 1.0},
+                        }
+                    }
                 },
-                SimpleNamespace(
-                    bundle_id="bundle-1",
-                    bundle_version="3",
-                    required_runtime_inputs=["entity.species", "entity.axes"],
-                ),
-            )
+            },
+            resolution_payload={"version": "3"},
+            required_runtime_inputs={"entity.species", "entity.axes"},
+            policy_hash="hash-123",
+        )
 
-    monkeypatch.setattr(condition_axis_service, "PolicyManifestLoader", _FakeLoader)
+    monkeypatch.setattr(
+        condition_axis_service.policy_service,
+        "resolve_effective_axis_bundle",
+        _fake_resolve_effective_axis_bundle,
+    )
 
     ctx = condition_axis_service._resolve_policy_context(
         world_id="pipeworks_web",
-        world_root=world_root,
+        world_root=tmp_path,
         bundle_id=None,
     )
 
     assert ctx.bundle_id == "bundle-1"
     assert ctx.bundle_version == "3"
-    assert ctx.policy_hash is not None
-    # Service always enforces species+gender even if manifest does not include gender.
+    assert ctx.policy_hash == "hash-123"
     assert "entity.species" in ctx.required_runtime_inputs
     assert "entity.identity.gender" in ctx.required_runtime_inputs
-    # Non-axis required inputs are filtered out for this endpoint.
     assert "entity.axes" not in ctx.required_runtime_inputs
     assert ctx.axis_label_scores["demeanor"]["timid"] == pytest.approx(0.095)
     assert ctx.axis_label_scores["demeanor"]["proud"] == pytest.approx(0.9)
 
 
 @pytest.mark.unit
-def test_resolve_policy_context_rejects_unknown_manifest_bundle(monkeypatch, tmp_path: Path):
-    """Manifest path should return 404 when requested bundle id is unavailable."""
-    world_root = tmp_path / "pipeworks_web"
-    policies = world_root / "policies"
-    policies.mkdir(parents=True)
-    (policies / "manifest.yaml").write_text("manifest: true\n", encoding="utf-8")
+def test_resolve_policy_context_rejects_unknown_requested_bundle(monkeypatch, tmp_path: Path):
+    """Requested bundle override should 404 when it does not match active bundle."""
 
-    class _FakeLoader:
-        def __init__(self, *, worlds_root: Path) -> None:
-            self.worlds_root = worlds_root
+    def _fake_resolve_effective_axis_bundle(*, scope):
+        _ = scope
+        return condition_axis_service.policy_service.EffectiveAxisBundle(
+            manifest_policy_id="manifest_bundle:world.manifests:pipeworks_web",
+            manifest_variant="v1",
+            axis_policy_id="axis_bundle:axis.bundles:bundle-a",
+            axis_variant="v1",
+            bundle_id="bundle-a",
+            bundle_version="1",
+            manifest_payload={},
+            axes_payload={"axes": {"demeanor": {}}},
+            thresholds_payload={},
+            resolution_payload={},
+            required_runtime_inputs=set(),
+            policy_hash="hash-a",
+        )
 
-        def load_from_world_root(self, *, world_id: str, world_root: Path):
-            _ = world_id, world_root
-            return (
-                {
-                    "manifest": {},
-                    "axis": {
-                        "axes": {"axes": {"demeanor": {}}},
-                        "thresholds": {},
-                        "resolution": {},
-                    },
-                },
-                SimpleNamespace(
-                    bundle_id="bundle-a", bundle_version="1", required_runtime_inputs=[]
-                ),
-            )
-
-    monkeypatch.setattr(condition_axis_service, "PolicyManifestLoader", _FakeLoader)
+    monkeypatch.setattr(
+        condition_axis_service.policy_service,
+        "resolve_effective_axis_bundle",
+        _fake_resolve_effective_axis_bundle,
+    )
 
     with pytest.raises(condition_axis_service.ConditionAxisServiceError) as exc_info:
         condition_axis_service._resolve_policy_context(
             world_id="pipeworks_web",
-            world_root=world_root,
+            world_root=tmp_path,
             bundle_id="bundle-b",
         )
 
@@ -638,71 +627,34 @@ def test_resolve_policy_context_rejects_unknown_manifest_bundle(monkeypatch, tmp
 
 
 @pytest.mark.unit
-def test_resolve_policy_context_fallback_requires_axes_file(tmp_path: Path):
-    """Fallback mode should return unsupported when canonical axes are unavailable."""
-    world_root = tmp_path / "pipeworks_web"
-    (world_root / "policies").mkdir(parents=True)
+def test_resolve_policy_context_returns_unsupported_when_canonical_activation_missing(
+    monkeypatch, tmp_path: Path
+):
+    """Missing canonical activation should map to CONDITION_AXIS_UPSTREAM_UNSUPPORTED."""
+
+    def _fake_missing(*, scope):
+        _ = scope
+        raise condition_axis_service.policy_service.PolicyServiceError(
+            status_code=404,
+            code="POLICY_EFFECTIVE_MANIFEST_NOT_FOUND",
+            detail="manifest missing",
+        )
+
+    monkeypatch.setattr(
+        condition_axis_service.policy_service,
+        "resolve_effective_axis_bundle",
+        _fake_missing,
+    )
 
     with pytest.raises(condition_axis_service.ConditionAxisServiceError) as exc_info:
         condition_axis_service._resolve_policy_context(
             world_id="pipeworks_web",
-            world_root=world_root,
+            world_root=tmp_path,
             bundle_id=None,
         )
 
     assert exc_info.value.status_code == 501
     assert exc_info.value.code == "CONDITION_AXIS_UPSTREAM_UNSUPPORTED"
-
-
-@pytest.mark.unit
-def test_resolve_policy_context_fallback_rejects_unknown_bundle(tmp_path: Path):
-    """Fallback mode should reject non-default bundle overrides."""
-    world_root = tmp_path / "pipeworks_web"
-    policies = world_root / "policies"
-    policies.mkdir(parents=True)
-    (policies / "axes.yaml").write_text("version: 1\naxes:\n  demeanor: {}\n", encoding="utf-8")
-
-    with pytest.raises(condition_axis_service.ConditionAxisServiceError) as exc_info:
-        condition_axis_service._resolve_policy_context(
-            world_id="pipeworks_web",
-            world_root=world_root,
-            bundle_id="another_bundle",
-        )
-
-    assert exc_info.value.status_code == 404
-    assert exc_info.value.code == "CONDITION_AXIS_BUNDLE_NOT_FOUND"
-
-
-@pytest.mark.unit
-def test_resolve_policy_context_fallback_builds_default_context(tmp_path: Path):
-    """Fallback mode should synthesize default bundle metadata when manifest is absent."""
-    world_root = tmp_path / "pipeworks_web"
-    policies = world_root / "policies"
-    policies.mkdir(parents=True)
-    (policies / "axes.yaml").write_text("axes:\n  demeanor: {}\n", encoding="utf-8")
-
-    ctx = condition_axis_service._resolve_policy_context(
-        world_id="pipeworks_web",
-        world_root=world_root,
-        bundle_id=None,
-    )
-
-    assert ctx.bundle_id == "pipeworks_web_default"
-    # With no explicit version in fallback files, service should default to version "1".
-    assert ctx.bundle_version == "1"
-    assert isinstance(ctx.policy_hash, str) and ctx.policy_hash
-    assert ctx.required_runtime_inputs == {"entity.identity.gender", "entity.species"}
-
-
-@pytest.mark.unit
-def test_read_yaml_returns_empty_for_invalid_yaml_mapping(tmp_path: Path):
-    """YAML helper should return empty dict for non-mapping or parse failures."""
-    file_path = tmp_path / "payload.yaml"
-    file_path.write_text("- list\n- item\n", encoding="utf-8")
-    assert condition_axis_service._read_yaml(file_path) == {}
-
-    file_path.write_text("invalid: [\n", encoding="utf-8")
-    assert condition_axis_service._read_yaml(file_path) == {}
 
 
 @pytest.mark.unit

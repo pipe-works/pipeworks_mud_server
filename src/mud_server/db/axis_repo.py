@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from secrets import randbelow
 from typing import Any, NoReturn, cast
 
+from pipeworks_ipc import compute_payload_hash
+
 from mud_server.db.connection import connection_scope
 from mud_server.db.constants import DEFAULT_AXIS_SCORE
 from mud_server.db.errors import (
@@ -159,15 +161,69 @@ def seed_axis_registry(
 
 
 def _get_axis_policy_hash(world_id: str) -> str | None:
-    """Return the axis policy hash for a world."""
-    from pathlib import Path
+    """Return canonical manifest+axis policy hash for one world.
 
-    from mud_server.config import config
-    from mud_server.policies import AxisPolicyLoader
+    This helper is runtime-facing and intentionally DB-first. It resolves
+    world-scope activation pointers for:
+    1. ``manifest_bundle:world.manifests:<world_id>``
+    2. ``axis_bundle:axis.bundles:<bundle_id>`` selected by manifest
+    and hashes those canonical payloads.
+    """
+    from mud_server.db import policy_repo
 
-    loader = AxisPolicyLoader(worlds_root=Path(config.worlds.worlds_root))
-    _payload, report = loader.load(world_id)
-    return report.policy_hash
+    manifest_policy_id = f"manifest_bundle:world.manifests:{world_id}"
+    world_activations = {
+        str(row["policy_id"]): row
+        for row in policy_repo.list_policy_activations(world_id=world_id, client_profile="")
+    }
+    manifest_activation = world_activations.get(manifest_policy_id)
+    if manifest_activation is None:
+        return None
+
+    manifest_row = policy_repo.get_policy(
+        policy_id=manifest_policy_id,
+        variant=str(manifest_activation["variant"]),
+    )
+    if manifest_row is None:
+        return None
+
+    manifest_content = manifest_row.get("content")
+    if not isinstance(manifest_content, dict):
+        return None
+    manifest_payload = manifest_content.get("manifest")
+    if not isinstance(manifest_payload, dict):
+        return None
+
+    axis_active_bundle = (manifest_payload.get("axis") or {}).get("active_bundle")
+    if not isinstance(axis_active_bundle, dict):
+        return None
+    axis_bundle_id = str(axis_active_bundle.get("id", "")).strip()
+    if not axis_bundle_id:
+        return None
+    axis_policy_id = f"axis_bundle:axis.bundles:{axis_bundle_id}"
+
+    axis_activation = world_activations.get(axis_policy_id)
+    if axis_activation is None:
+        return None
+
+    axis_row = policy_repo.get_policy(
+        policy_id=axis_policy_id,
+        variant=str(axis_activation["variant"]),
+    )
+    if axis_row is None:
+        return None
+    axis_content = axis_row.get("content")
+    if not isinstance(axis_content, dict):
+        return None
+
+    return str(
+        compute_payload_hash(
+            {
+                "manifest": manifest_payload,
+                "axis_bundle": axis_content,
+            }
+        )
+    )
 
 
 def _resolve_axis_label_for_score(cursor: sqlite3.Cursor, axis_id: int, score: float) -> str | None:

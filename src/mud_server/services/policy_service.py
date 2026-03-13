@@ -16,7 +16,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -27,16 +27,18 @@ from mud_server.db import facade as db_facade
 from mud_server.db import policy_repo
 
 _SUPPORTED_POLICY_TYPES = {
-    "image_block",
     "species_block",
+    "clothing_block",
     "registry",
     "prompt",
     "descriptor_layer",
     "tone_profile",
+    "axis_bundle",
+    "manifest_bundle",
 }
 _LAYER1_POLICY_TYPES = {
-    "image_block",
     "species_block",
+    "clothing_block",
     "prompt",
     "tone_profile",
 }
@@ -63,8 +65,11 @@ _TONE_PROFILE_FILENAME_PATTERN = re.compile(
 _PROMPT_FILENAME_PATTERN = re.compile(
     r"^(?P<policy_key>[A-Za-z0-9_.-]+)_v(?P<version>[1-9][0-9]*)\.txt$"
 )
+_CLOTHING_BLOCK_FILENAME_PATTERN = _PROMPT_FILENAME_PATTERN
 _DESCRIPTOR_SOURCE_RELATIVE_DIR = Path("policies") / "image" / "descriptor_layers"
 _REGISTRY_SOURCE_RELATIVE_DIR = Path("policies") / "image" / "registries"
+_CLOTHING_BLOCK_SOURCE_RELATIVE_DIR = Path("policies") / "image" / "blocks" / "clothing"
+_MANIFEST_SOURCE_RELATIVE_PATH = Path("policies") / "manifest.yaml"
 _DESCRIPTOR_FILENAME_PATTERN = re.compile(
     r"^(?P<policy_key>[A-Za-z0-9_.-]+)_v(?P<version>[1-9][0-9]*)\.(?P<ext>txt|json|ya?ml)$"
 )
@@ -74,6 +79,11 @@ _REGISTRY_VERSIONED_FILENAME_PATTERN = re.compile(
 _LEGACY_SPECIES_BLOCK_PATH_PATTERN = re.compile(
     r"^(?:policies/)?image/blocks/species/(?P<policy_key>.+)_"
     r"(?P<variant>v[0-9][A-Za-z0-9_-]*)\.ya?ml$"
+)
+_LEGACY_CLOTHING_BLOCK_PATH_PATTERN = re.compile(
+    r"^(?:policies/)?image/blocks/clothing/"
+    r"(?P<namespace_path>(?:[A-Za-z0-9._-]+/)*)"
+    r"(?P<policy_key>.+)_(?P<variant>v[0-9][A-Za-z0-9_-]*)\.txt$"
 )
 _LEGACY_PROMPT_PATH_PATTERN = re.compile(
     r"^(?:policies/)?(?P<namespace_path>(?:image|translation)/prompts(?:/[A-Za-z0-9._-]+)*)/"
@@ -121,6 +131,39 @@ class ActivationScope:
 
     world_id: str
     client_profile: str
+
+
+@dataclass(frozen=True, slots=True)
+class EffectiveAxisBundle:
+    """Resolved canonical axis bundle context for one activation scope.
+
+    Attributes:
+        manifest_policy_id: Canonical Layer 1 manifest policy id.
+        manifest_variant: Activated manifest variant token.
+        axis_policy_id: Canonical Layer 1 axis-bundle policy id.
+        axis_variant: Activated axis-bundle variant token.
+        bundle_id: Logical axis bundle id referenced by the manifest payload.
+        bundle_version: Logical axis bundle version referenced by manifest.
+        manifest_payload: Parsed manifest payload from canonical policy content.
+        axes_payload: Parsed ``axes`` payload from canonical axis bundle.
+        thresholds_payload: Parsed ``thresholds`` payload from canonical axis bundle.
+        resolution_payload: Parsed ``resolution`` payload from canonical axis bundle.
+        required_runtime_inputs: Runtime input keys from manifest composition.
+        policy_hash: Deterministic hash of the resolved manifest+axis payloads.
+    """
+
+    manifest_policy_id: str
+    manifest_variant: str
+    axis_policy_id: str
+    axis_variant: str
+    bundle_id: str
+    bundle_version: str
+    manifest_payload: dict[str, Any]
+    axes_payload: dict[str, Any]
+    thresholds_payload: dict[str, Any]
+    resolution_payload: dict[str, Any]
+    required_runtime_inputs: set[str]
+    policy_hash: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,6 +261,75 @@ class TonePromptImportSummary:
     activated_count: int
     activation_skipped_count: int
     entries: list[TonePromptImportEntry]
+
+
+@dataclass(frozen=True, slots=True)
+class ClothingImportEntry:
+    """One legacy clothing-block import outcome row."""
+
+    source_path: str
+    policy_id: str | None
+    variant: str | None
+    action: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class ClothingImportSummary:
+    """Aggregate result for one clothing-block backfill/import run."""
+
+    world_id: str
+    activate: bool
+    scanned_clothing_files: int
+    imported_count: int
+    updated_count: int
+    skipped_count: int
+    error_count: int
+    activated_count: int
+    activation_skipped_count: int
+    entries: list[ClothingImportEntry]
+
+
+@dataclass(frozen=True, slots=True)
+class AxisManifestImportEntry:
+    """One axis/manifest bundle import outcome row."""
+
+    source_path: str
+    policy_id: str | None
+    variant: str | None
+    action: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class AxisManifestImportSummary:
+    """Aggregate result for axis-bundle + manifest-bundle backfill/import run."""
+
+    world_id: str
+    activate: bool
+    scanned_files: int
+    imported_count: int
+    updated_count: int
+    skipped_count: int
+    error_count: int
+    activated_count: int
+    activation_skipped_count: int
+    entries: list[AxisManifestImportEntry]
+
+
+@dataclass(frozen=True, slots=True)
+class WorldPolicyImportSummary:
+    """Aggregate result for one world-scoped import-all migration run."""
+
+    world_id: str
+    activate: bool
+    imported_count: int
+    updated_count: int
+    skipped_count: int
+    error_count: int
+    activated_count: int
+    activation_skipped_count: int
+    entries: list[str]
 
 
 def list_policies(
@@ -478,8 +590,6 @@ def import_layer2_policies_from_legacy_files(
                 payload=payload,
             )
             references = _extract_registry_references(payload=payload, registry_path=registry_path)
-            for reference in references:
-                descriptor_reference_pool.add((reference["policy_id"], reference["variant"]))
             content = {"references": references}
             policy_id = f"registry:image.registries:{policy_key}"
             existing_row = policy_repo.get_policy(policy_id=policy_id, variant=variant)
@@ -499,6 +609,8 @@ def import_layer2_policies_from_legacy_files(
                         detail="unchanged",
                     )
                 )
+                for reference in references:
+                    descriptor_reference_pool.add((reference["policy_id"], reference["variant"]))
                 activation_targets[policy_id] = variant
                 continue
 
@@ -525,6 +637,8 @@ def import_layer2_policies_from_legacy_files(
                     detail=f"{action} {policy_id}:{variant}",
                 )
             )
+            for reference in references:
+                descriptor_reference_pool.add((reference["policy_id"], reference["variant"]))
             activation_targets[policy_id] = variant
         except (PolicyServiceError, ValueError, OSError) as exc:
             error_count += 1
@@ -904,6 +1018,540 @@ def import_tone_prompt_policies_from_legacy_files(
     )
 
 
+def import_clothing_block_policies_from_legacy_files(
+    *,
+    world_id: str,
+    actor: str,
+    activate: bool,
+    status: str = "active",
+) -> ClothingImportSummary:
+    """Backfill legacy clothing block text files into canonical Layer 1 rows.
+
+    Source path:
+    ``data/worlds/<world_id>/policies/image/blocks/clothing/**/*.txt``.
+    """
+    _ensure_world_exists(world_id)
+    normalized_status = status.strip()
+    if normalized_status not in _SUPPORTED_STATUSES:
+        raise PolicyServiceError(
+            status_code=422,
+            code="POLICY_IMPORT_STATUS_INVALID",
+            detail=(
+                "Import status must be one of: draft, candidate, active, archived; "
+                f"got {status!r}."
+            ),
+        )
+
+    normalized_actor = actor.strip() or "policy-importer"
+    world_root = _resolve_world_root_path(world_id)
+    clothing_root = world_root / _CLOTHING_BLOCK_SOURCE_RELATIVE_DIR
+    if not clothing_root.exists() or not clothing_root.is_dir():
+        raise PolicyServiceError(
+            status_code=404,
+            code="POLICY_CLOTHING_SOURCE_NOT_FOUND",
+            detail=f"Clothing source directory not found: {clothing_root}",
+        )
+
+    clothing_files = sorted(
+        [path for path in clothing_root.rglob("*.txt") if path.is_file()],
+        key=lambda path: str(path.relative_to(world_root)).replace("\\", "/"),
+    )
+    if not clothing_files:
+        raise PolicyServiceError(
+            status_code=404,
+            code="POLICY_CLOTHING_SOURCE_NOT_FOUND",
+            detail=f"No clothing block source files found under: {clothing_root}",
+        )
+
+    entries: list[ClothingImportEntry] = []
+    imported_count = 0
+    updated_count = 0
+    skipped_count = 0
+    error_count = 0
+    activation_targets: dict[str, str] = {}
+
+    for clothing_path in clothing_files:
+        source_path = str(clothing_path)
+        try:
+            namespace, policy_key, variant, policy_version = _parse_clothing_block_file_identity(
+                clothing_path=clothing_path,
+                world_root=world_root,
+            )
+            content = {"text": _read_prompt_text_content(clothing_path)}
+            policy_id = f"clothing_block:{namespace}:{policy_key}"
+            existing_row = policy_repo.get_policy(policy_id=policy_id, variant=variant)
+            if _is_policy_variant_unchanged(
+                existing_row=existing_row,
+                policy_version=policy_version,
+                status=normalized_status,
+                content=content,
+            ):
+                skipped_count += 1
+                entries.append(
+                    ClothingImportEntry(
+                        source_path=source_path,
+                        policy_id=policy_id,
+                        variant=variant,
+                        action="skipped",
+                        detail="unchanged",
+                    )
+                )
+                activation_targets[policy_id] = variant
+                continue
+
+            upsert_policy_variant(
+                policy_id=policy_id,
+                variant=variant,
+                schema_version=_POLICY_SCHEMA_VERSION_V1,
+                policy_version=policy_version,
+                status=normalized_status,
+                content=content,
+                updated_by=normalized_actor,
+            )
+            action = "imported" if existing_row is None else "updated"
+            if action == "imported":
+                imported_count += 1
+            else:
+                updated_count += 1
+            entries.append(
+                ClothingImportEntry(
+                    source_path=source_path,
+                    policy_id=policy_id,
+                    variant=variant,
+                    action=action,
+                    detail=f"{action} {policy_id}:{variant}",
+                )
+            )
+            activation_targets[policy_id] = variant
+        except (PolicyServiceError, ValueError, OSError) as exc:
+            error_count += 1
+            entries.append(
+                ClothingImportEntry(
+                    source_path=source_path,
+                    policy_id=None,
+                    variant=None,
+                    action="error",
+                    detail=str(exc),
+                )
+            )
+
+    activated_count = 0
+    activation_skipped_count = 0
+    if activate and activation_targets:
+        current_activations = {
+            str(row["policy_id"]): str(row["variant"])
+            for row in policy_repo.list_policy_activations(world_id=world_id, client_profile="")
+        }
+        world_scope = ActivationScope(world_id=world_id, client_profile="")
+        for policy_id in sorted(activation_targets):
+            target_variant = activation_targets[policy_id]
+            if current_activations.get(policy_id) == target_variant:
+                activation_skipped_count += 1
+                continue
+            try:
+                set_policy_activation(
+                    scope=world_scope,
+                    policy_id=policy_id,
+                    variant=target_variant,
+                    activated_by=normalized_actor,
+                )
+                current_activations[policy_id] = target_variant
+                activated_count += 1
+            except PolicyServiceError as exc:
+                error_count += 1
+                entries.append(
+                    ClothingImportEntry(
+                        source_path="<activation>",
+                        policy_id=policy_id,
+                        variant=target_variant,
+                        action="error",
+                        detail=f"activation failed: {exc.detail}",
+                    )
+                )
+
+    return ClothingImportSummary(
+        world_id=world_id,
+        activate=activate,
+        scanned_clothing_files=len(clothing_files),
+        imported_count=imported_count,
+        updated_count=updated_count,
+        skipped_count=skipped_count,
+        error_count=error_count,
+        activated_count=activated_count,
+        activation_skipped_count=activation_skipped_count,
+        entries=entries,
+    )
+
+
+def import_axis_manifest_policies_from_legacy_files(
+    *,
+    world_id: str,
+    actor: str,
+    activate: bool,
+    status: str = "active",
+) -> AxisManifestImportSummary:
+    """Backfill manifest + axis bundle files into canonical policy rows.
+
+    Imported policy types:
+    1. ``manifest_bundle`` with content ``{"manifest": <manifest_yaml>}``
+    2. ``axis_bundle`` with content ``{"axes": ..., "thresholds": ..., "resolution": ...}``
+    """
+    _ensure_world_exists(world_id)
+    normalized_status = status.strip()
+    if normalized_status not in _SUPPORTED_STATUSES:
+        raise PolicyServiceError(
+            status_code=422,
+            code="POLICY_IMPORT_STATUS_INVALID",
+            detail=(
+                "Import status must be one of: draft, candidate, active, archived; "
+                f"got {status!r}."
+            ),
+        )
+
+    normalized_actor = actor.strip() or "policy-importer"
+    world_root = _resolve_world_root_path(world_id)
+    manifest_path = world_root / _MANIFEST_SOURCE_RELATIVE_PATH
+    if not manifest_path.exists() or not manifest_path.is_file():
+        raise PolicyServiceError(
+            status_code=404,
+            code="POLICY_MANIFEST_SOURCE_NOT_FOUND",
+            detail=f"Manifest source file not found: {manifest_path}",
+        )
+
+    entries: list[AxisManifestImportEntry] = []
+    imported_count = 0
+    updated_count = 0
+    skipped_count = 0
+    error_count = 0
+    activation_targets: dict[str, str] = {}
+    scanned_files = 1
+
+    manifest_payload = _read_manifest_yaml_payload(manifest_path)
+
+    # Import manifest bundle object.
+    try:
+        manifest_version = _resolve_positive_int_version(
+            value=((manifest_payload.get("policy_bundle") or {}).get("version")),
+            default=1,
+            context=f"Manifest file {manifest_path} policy_bundle.version",
+        )
+        manifest_variant = f"v{manifest_version}"
+        manifest_policy_id = f"manifest_bundle:world.manifests:{world_id}"
+        manifest_content = {"manifest": manifest_payload}
+        existing_manifest = policy_repo.get_policy(
+            policy_id=manifest_policy_id, variant=manifest_variant
+        )
+        if _is_policy_variant_unchanged(
+            existing_row=existing_manifest,
+            policy_version=manifest_version,
+            status=normalized_status,
+            content=manifest_content,
+        ):
+            skipped_count += 1
+            entries.append(
+                AxisManifestImportEntry(
+                    source_path=str(manifest_path),
+                    policy_id=manifest_policy_id,
+                    variant=manifest_variant,
+                    action="skipped",
+                    detail="unchanged",
+                )
+            )
+            activation_targets[manifest_policy_id] = manifest_variant
+        else:
+            upsert_policy_variant(
+                policy_id=manifest_policy_id,
+                variant=manifest_variant,
+                schema_version=_POLICY_SCHEMA_VERSION_V1,
+                policy_version=manifest_version,
+                status=normalized_status,
+                content=manifest_content,
+                updated_by=normalized_actor,
+            )
+            manifest_action = "imported" if existing_manifest is None else "updated"
+            if manifest_action == "imported":
+                imported_count += 1
+            else:
+                updated_count += 1
+            entries.append(
+                AxisManifestImportEntry(
+                    source_path=str(manifest_path),
+                    policy_id=manifest_policy_id,
+                    variant=manifest_variant,
+                    action=manifest_action,
+                    detail=f"{manifest_action} {manifest_policy_id}:{manifest_variant}",
+                )
+            )
+            activation_targets[manifest_policy_id] = manifest_variant
+    except (PolicyServiceError, ValueError, OSError) as exc:
+        error_count += 1
+        entries.append(
+            AxisManifestImportEntry(
+                source_path=str(manifest_path),
+                policy_id=None,
+                variant=None,
+                action="error",
+                detail=str(exc),
+            )
+        )
+
+    # Import axis bundle object referenced by the manifest.
+    try:
+        axis_active_bundle = (manifest_payload.get("axis") or {}).get("active_bundle") or {}
+        if not isinstance(axis_active_bundle, dict):
+            raise ValueError("Manifest axis.active_bundle must be an object.")
+        axis_bundle_id = str(axis_active_bundle.get("id", "")).strip()
+        if not axis_bundle_id:
+            raise ValueError("Manifest axis.active_bundle.id must be a non-empty string.")
+        axis_bundle_version = _resolve_positive_int_version(
+            value=axis_active_bundle.get("version"),
+            default=1,
+            context=f"Manifest file {manifest_path} axis.active_bundle.version",
+        )
+        axis_bundle_variant = f"v{axis_bundle_version}"
+
+        axis_files = axis_active_bundle.get("files") or {}
+        if not isinstance(axis_files, dict):
+            raise ValueError("Manifest axis.active_bundle.files must be an object.")
+        axes_rel_path = _require_manifest_relative_file_path(
+            axis_files=axis_files,
+            key="axes",
+            context=f"Manifest file {manifest_path}",
+        )
+        thresholds_rel_path = _require_manifest_relative_file_path(
+            axis_files=axis_files,
+            key="thresholds",
+            context=f"Manifest file {manifest_path}",
+        )
+        resolution_rel_path = _require_manifest_relative_file_path(
+            axis_files=axis_files,
+            key="resolution",
+            context=f"Manifest file {manifest_path}",
+        )
+
+        axes_path = _resolve_world_relative_path(world_root=world_root, relative_path=axes_rel_path)
+        thresholds_path = _resolve_world_relative_path(
+            world_root=world_root, relative_path=thresholds_rel_path
+        )
+        resolution_path = _resolve_world_relative_path(
+            world_root=world_root, relative_path=resolution_rel_path
+        )
+        scanned_files += 3
+
+        axes_payload = _read_yaml_payload_file(axes_path, context=f"Axis bundle file {axes_path}")
+        thresholds_payload = _read_yaml_payload_file(
+            thresholds_path, context=f"Axis bundle file {thresholds_path}"
+        )
+        resolution_payload = _read_yaml_payload_file(
+            resolution_path, context=f"Axis bundle file {resolution_path}"
+        )
+        axis_policy_id = f"axis_bundle:axis.bundles:{axis_bundle_id}"
+        axis_content = {
+            "axes": axes_payload,
+            "thresholds": thresholds_payload,
+            "resolution": resolution_payload,
+        }
+        existing_axis_bundle = policy_repo.get_policy(
+            policy_id=axis_policy_id, variant=axis_bundle_variant
+        )
+        if _is_policy_variant_unchanged(
+            existing_row=existing_axis_bundle,
+            policy_version=axis_bundle_version,
+            status=normalized_status,
+            content=axis_content,
+        ):
+            skipped_count += 1
+            entries.append(
+                AxisManifestImportEntry(
+                    source_path=str(manifest_path),
+                    policy_id=axis_policy_id,
+                    variant=axis_bundle_variant,
+                    action="skipped",
+                    detail="unchanged",
+                )
+            )
+            activation_targets[axis_policy_id] = axis_bundle_variant
+        else:
+            upsert_policy_variant(
+                policy_id=axis_policy_id,
+                variant=axis_bundle_variant,
+                schema_version=_POLICY_SCHEMA_VERSION_V1,
+                policy_version=axis_bundle_version,
+                status=normalized_status,
+                content=axis_content,
+                updated_by=normalized_actor,
+            )
+            axis_action = "imported" if existing_axis_bundle is None else "updated"
+            if axis_action == "imported":
+                imported_count += 1
+            else:
+                updated_count += 1
+            entries.append(
+                AxisManifestImportEntry(
+                    source_path=str(manifest_path),
+                    policy_id=axis_policy_id,
+                    variant=axis_bundle_variant,
+                    action=axis_action,
+                    detail=f"{axis_action} {axis_policy_id}:{axis_bundle_variant}",
+                )
+            )
+            activation_targets[axis_policy_id] = axis_bundle_variant
+    except (PolicyServiceError, ValueError, OSError) as exc:
+        error_count += 1
+        entries.append(
+            AxisManifestImportEntry(
+                source_path=str(manifest_path),
+                policy_id=None,
+                variant=None,
+                action="error",
+                detail=str(exc),
+            )
+        )
+
+    activated_count = 0
+    activation_skipped_count = 0
+    if activate and activation_targets:
+        current_activations = {
+            str(row["policy_id"]): str(row["variant"])
+            for row in policy_repo.list_policy_activations(world_id=world_id, client_profile="")
+        }
+        world_scope = ActivationScope(world_id=world_id, client_profile="")
+        for policy_id in sorted(activation_targets):
+            target_variant = activation_targets[policy_id]
+            if current_activations.get(policy_id) == target_variant:
+                activation_skipped_count += 1
+                continue
+            try:
+                set_policy_activation(
+                    scope=world_scope,
+                    policy_id=policy_id,
+                    variant=target_variant,
+                    activated_by=normalized_actor,
+                )
+                current_activations[policy_id] = target_variant
+                activated_count += 1
+            except PolicyServiceError as exc:
+                error_count += 1
+                entries.append(
+                    AxisManifestImportEntry(
+                        source_path="<activation>",
+                        policy_id=policy_id,
+                        variant=target_variant,
+                        action="error",
+                        detail=f"activation failed: {exc.detail}",
+                    )
+                )
+
+    return AxisManifestImportSummary(
+        world_id=world_id,
+        activate=activate,
+        scanned_files=scanned_files,
+        imported_count=imported_count,
+        updated_count=updated_count,
+        skipped_count=skipped_count,
+        error_count=error_count,
+        activated_count=activated_count,
+        activation_skipped_count=activation_skipped_count,
+        entries=entries,
+    )
+
+
+def import_world_policies_from_legacy_files(
+    *,
+    world_id: str,
+    actor: str,
+    activate: bool,
+    status: str = "active",
+) -> WorldPolicyImportSummary:
+    """Import all known legacy policy-like file domains for one world.
+
+    The migration sequence is ordered to satisfy Layer 2 validation
+    dependencies:
+    1. species blocks
+    2. tone profiles + prompts
+    3. clothing blocks
+    4. descriptor/registry Layer 2 objects
+    5. axis bundle + manifest bundle
+    """
+    _ensure_world_exists(world_id)
+    domain_entries: list[str] = []
+    imported_count = 0
+    updated_count = 0
+    skipped_count = 0
+    error_count = 0
+    activated_count = 0
+    activation_skipped_count = 0
+
+    def _accumulate(
+        *,
+        domain: str,
+        summary: (
+            SpeciesImportSummary
+            | TonePromptImportSummary
+            | ClothingImportSummary
+            | Layer2ImportSummary
+            | AxisManifestImportSummary
+            | None
+        ),
+        error: PolicyServiceError | None = None,
+    ) -> None:
+        nonlocal imported_count
+        nonlocal updated_count
+        nonlocal skipped_count
+        nonlocal error_count
+        nonlocal activated_count
+        nonlocal activation_skipped_count
+
+        if error is not None:
+            error_count += 1
+            domain_entries.append(f"{domain}: error [{error.code}] {error.detail}")
+            return
+        if summary is None:
+            error_count += 1
+            domain_entries.append(f"{domain}: error [POLICY_IMPORT_UNKNOWN] missing summary")
+            return
+        imported_count += int(summary.imported_count)
+        updated_count += int(summary.updated_count)
+        skipped_count += int(summary.skipped_count)
+        error_count += int(summary.error_count)
+        activated_count += int(summary.activated_count)
+        activation_skipped_count += int(summary.activation_skipped_count)
+        domain_entries.append(
+            f"{domain}: imported={summary.imported_count} updated={summary.updated_count} "
+            f"skipped={summary.skipped_count} errors={summary.error_count}"
+        )
+
+    for domain, importer in (
+        ("species", import_species_blocks_from_legacy_yaml),
+        ("tone_prompt", import_tone_prompt_policies_from_legacy_files),
+        ("clothing", import_clothing_block_policies_from_legacy_files),
+        ("layer2", import_layer2_policies_from_legacy_files),
+        ("axis_manifest", import_axis_manifest_policies_from_legacy_files),
+    ):
+        try:
+            summary = importer(
+                world_id=world_id,
+                actor=actor,
+                activate=activate,
+                status=status,
+            )
+            _accumulate(domain=domain, summary=summary)
+        except PolicyServiceError as exc:
+            _accumulate(domain=domain, summary=None, error=exc)
+
+    return WorldPolicyImportSummary(
+        world_id=world_id,
+        activate=activate,
+        imported_count=imported_count,
+        updated_count=updated_count,
+        skipped_count=skipped_count,
+        error_count=error_count,
+        activated_count=activated_count,
+        activation_skipped_count=activation_skipped_count,
+        entries=domain_entries,
+    )
+
+
 def get_policy(*, policy_id: str, variant: str | None) -> dict[str, Any]:
     """Get one policy variant by id and optional variant selector.
 
@@ -1129,6 +1777,187 @@ def resolve_effective_policy_activations(*, scope: ActivationScope) -> list[dict
     for row in client_rows:
         merged_by_policy_id[str(row["policy_id"])] = row
     return [merged_by_policy_id[policy_id] for policy_id in sorted(merged_by_policy_id)]
+
+
+def get_effective_policy_variant(
+    *,
+    scope: ActivationScope,
+    policy_id: str,
+) -> dict[str, Any] | None:
+    """Return the effective active policy variant row for one scope + policy id.
+
+    This helper keeps runtime callers from inferring activation state from
+    ``status``. Runtime selection is driven exclusively by Layer 3 pointers.
+    """
+    _parse_policy_id(policy_id)
+    effective_rows = resolve_effective_policy_activations(scope=scope)
+    by_policy_id = {str(row["policy_id"]): row for row in effective_rows}
+    activation = by_policy_id.get(policy_id)
+    if activation is None:
+        return None
+
+    variant = str(activation["variant"])
+    row = policy_repo.get_policy(policy_id=policy_id, variant=variant)
+    if row is None:
+        raise PolicyServiceError(
+            status_code=409,
+            code="POLICY_EFFECTIVE_REFERENCE_MISSING",
+            detail=f"Effective activation points to missing policy variant: {policy_id}:{variant}",
+        )
+    return row
+
+
+def resolve_effective_axis_bundle(*, scope: ActivationScope) -> EffectiveAxisBundle:
+    """Resolve canonical manifest + axis-bundle payloads for one runtime scope.
+
+    Runtime callers should use this helper instead of reading any
+    ``data/worlds/<world>/policies/*.yaml`` files directly. Resolution is fully
+    activation-driven:
+    1. Resolve active ``manifest_bundle`` variant for the scope.
+    2. Read ``axis.active_bundle`` pointer from manifest content.
+    3. Resolve active ``axis_bundle`` variant for that bundle id.
+    4. Validate payload shape and return canonical bundle context.
+    """
+    _ensure_world_exists(scope.world_id)
+    manifest_policy_id = f"manifest_bundle:world.manifests:{scope.world_id}"
+    manifest_row = get_effective_policy_variant(scope=scope, policy_id=manifest_policy_id)
+    if manifest_row is None:
+        raise PolicyServiceError(
+            status_code=404,
+            code="POLICY_EFFECTIVE_MANIFEST_NOT_FOUND",
+            detail=(
+                "No effective manifest bundle activation found for scope "
+                f"(world_id={scope.world_id!r}, client_profile={scope.client_profile!r})."
+            ),
+        )
+
+    manifest_content = manifest_row.get("content")
+    if not isinstance(manifest_content, dict):
+        raise PolicyServiceError(
+            status_code=409,
+            code="POLICY_EFFECTIVE_MANIFEST_INVALID",
+            detail="Effective manifest content must be an object.",
+        )
+    manifest_payload = manifest_content.get("manifest")
+    if not isinstance(manifest_payload, dict):
+        raise PolicyServiceError(
+            status_code=409,
+            code="POLICY_EFFECTIVE_MANIFEST_INVALID",
+            detail="Effective manifest content missing object field: content.manifest.",
+        )
+
+    axis_active_bundle = (manifest_payload.get("axis") or {}).get("active_bundle")
+    if not isinstance(axis_active_bundle, dict):
+        raise PolicyServiceError(
+            status_code=409,
+            code="POLICY_EFFECTIVE_MANIFEST_INVALID",
+            detail="Manifest field axis.active_bundle must be an object.",
+        )
+    bundle_id = str(axis_active_bundle.get("id", "")).strip()
+    if not bundle_id:
+        raise PolicyServiceError(
+            status_code=409,
+            code="POLICY_EFFECTIVE_MANIFEST_INVALID",
+            detail="Manifest field axis.active_bundle.id must be a non-empty string.",
+        )
+    bundle_version_int = _resolve_positive_int_version(
+        value=axis_active_bundle.get("version"),
+        default=1,
+        context="manifest axis.active_bundle.version",
+    )
+    bundle_version = str(bundle_version_int)
+    expected_axis_variant = f"v{bundle_version_int}"
+    axis_policy_id = f"axis_bundle:axis.bundles:{bundle_id}"
+    axis_row = get_effective_policy_variant(scope=scope, policy_id=axis_policy_id)
+    if axis_row is None:
+        raise PolicyServiceError(
+            status_code=404,
+            code="POLICY_EFFECTIVE_AXIS_BUNDLE_NOT_FOUND",
+            detail=(
+                "No effective axis bundle activation found for manifest-selected bundle "
+                f"{bundle_id!r} in scope (world_id={scope.world_id!r}, "
+                f"client_profile={scope.client_profile!r})."
+            ),
+        )
+    axis_variant = str(axis_row.get("variant", ""))
+    if axis_variant != expected_axis_variant:
+        raise PolicyServiceError(
+            status_code=409,
+            code="POLICY_EFFECTIVE_AXIS_BUNDLE_VERSION_MISMATCH",
+            detail=(
+                "Manifest selected axis bundle variant "
+                f"{expected_axis_variant!r}, but activation points to {axis_variant!r} "
+                f"for policy_id={axis_policy_id!r}."
+            ),
+        )
+
+    axis_content = axis_row.get("content")
+    if not isinstance(axis_content, dict):
+        raise PolicyServiceError(
+            status_code=409,
+            code="POLICY_EFFECTIVE_AXIS_BUNDLE_INVALID",
+            detail="Effective axis bundle content must be an object.",
+        )
+    axes_payload = axis_content.get("axes")
+    thresholds_payload = axis_content.get("thresholds")
+    resolution_payload = axis_content.get("resolution")
+    if not isinstance(axes_payload, dict):
+        raise PolicyServiceError(
+            status_code=409,
+            code="POLICY_EFFECTIVE_AXIS_BUNDLE_INVALID",
+            detail="Effective axis bundle field content.axes must be an object.",
+        )
+    if not isinstance(thresholds_payload, dict):
+        raise PolicyServiceError(
+            status_code=409,
+            code="POLICY_EFFECTIVE_AXIS_BUNDLE_INVALID",
+            detail="Effective axis bundle field content.thresholds must be an object.",
+        )
+    if not isinstance(resolution_payload, dict):
+        raise PolicyServiceError(
+            status_code=409,
+            code="POLICY_EFFECTIVE_AXIS_BUNDLE_INVALID",
+            detail="Effective axis bundle field content.resolution must be an object.",
+        )
+
+    required_runtime_inputs_raw = (
+        (manifest_payload.get("image") or {}).get("composition") or {}
+    ).get("required_runtime_inputs") or []
+    required_runtime_inputs = (
+        {
+            str(item).strip()
+            for item in required_runtime_inputs_raw
+            if isinstance(item, str) and str(item).strip()
+        }
+        if isinstance(required_runtime_inputs_raw, list)
+        else set()
+    )
+    policy_hash = str(
+        compute_payload_hash(
+            {
+                "manifest": manifest_payload,
+                "axis_bundle": {
+                    "axes": axes_payload,
+                    "thresholds": thresholds_payload,
+                    "resolution": resolution_payload,
+                },
+            }
+        )
+    )
+    return EffectiveAxisBundle(
+        manifest_policy_id=manifest_policy_id,
+        manifest_variant=str(manifest_row["variant"]),
+        axis_policy_id=axis_policy_id,
+        axis_variant=axis_variant,
+        bundle_id=bundle_id,
+        bundle_version=bundle_version,
+        manifest_payload=manifest_payload,
+        axes_payload=axes_payload,
+        thresholds_payload=thresholds_payload,
+        resolution_payload=resolution_payload,
+        required_runtime_inputs=required_runtime_inputs,
+        policy_hash=policy_hash,
+    )
 
 
 def publish_scope(*, scope: ActivationScope, actor: str) -> dict[str, Any]:
@@ -1442,6 +2271,38 @@ def _parse_prompt_file_identity(
     return namespace, policy_key, f"v{policy_version}", policy_version
 
 
+def _parse_clothing_block_file_identity(
+    *, clothing_path: Path, world_root: Path
+) -> tuple[str, str, str, int]:
+    """Resolve clothing namespace, policy_key, variant, and version from file path.
+
+    Expected source location:
+    ``policies/image/blocks/clothing/<category...>/<policy_key>_v<version>.txt``.
+    """
+    match = _CLOTHING_BLOCK_FILENAME_PATTERN.fullmatch(clothing_path.name)
+    if match is None:
+        raise ValueError(
+            "Clothing block filename must match '<policy_key>_v<version>.txt'; "
+            f"got {clothing_path.name!r}."
+        )
+
+    clothing_root = world_root / _CLOTHING_BLOCK_SOURCE_RELATIVE_DIR
+    try:
+        relative_path = clothing_path.relative_to(clothing_root)
+    except ValueError as exc:
+        raise ValueError(
+            f"Clothing source file {clothing_path} must be located under {clothing_root}."
+        ) from exc
+
+    namespace_suffix = ".".join(relative_path.parts[:-1])
+    namespace = "image.blocks.clothing"
+    if namespace_suffix:
+        namespace = f"{namespace}.{namespace_suffix}"
+    policy_key = match.group("policy_key")
+    policy_version = int(match.group("version"))
+    return namespace, policy_key, f"v{policy_version}", policy_version
+
+
 def _read_prompt_text_content(prompt_path: Path) -> str:
     """Read one legacy prompt text file and return trimmed non-empty text."""
     try:
@@ -1451,6 +2312,66 @@ def _read_prompt_text_content(prompt_path: Path) -> str:
     if not prompt_text.strip():
         raise ValueError(f"Prompt source file {prompt_path} must define non-empty text content.")
     return prompt_text
+
+
+def _read_manifest_yaml_payload(manifest_path: Path) -> dict[str, Any]:
+    """Read one world manifest YAML file into dictionary content."""
+    try:
+        loaded = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+    except OSError as exc:
+        raise OSError(f"Unable to read manifest source file {manifest_path}: {exc}") from exc
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML in manifest source file {manifest_path}: {exc}") from exc
+
+    if not isinstance(loaded, dict):
+        raise ValueError(f"Manifest source file {manifest_path} must contain a YAML object.")
+    return loaded
+
+
+def _require_manifest_relative_file_path(
+    *, axis_files: dict[str, Any], key: str, context: str
+) -> str:
+    """Resolve one required axis-bundle file path from manifest payload."""
+    raw_value = axis_files.get(key)
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        raise ValueError(f"{context} axis.active_bundle.files.{key} must be a non-empty string.")
+    return raw_value.strip()
+
+
+def _resolve_world_relative_path(*, world_root: Path, relative_path: str) -> Path:
+    """Resolve one manifest-relative path against a world root with traversal guards."""
+    normalized = relative_path.replace("\\", "/").strip()
+    if not normalized:
+        raise ValueError("Manifest file path must not be empty.")
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+
+    normalized_path = PurePosixPath(normalized)
+    if normalized_path.is_absolute():
+        raise ValueError(f"Manifest file path must be relative: {relative_path!r}")
+    if any(part == ".." for part in normalized_path.parts):
+        raise ValueError(f"Manifest file path escapes world root: {relative_path!r}")
+
+    candidate = (world_root / normalized_path.as_posix()).resolve()
+    world_root_resolved = world_root.resolve()
+    if not candidate.is_relative_to(world_root_resolved):
+        raise ValueError(f"Manifest file path escapes world root: {relative_path!r}")
+    return candidate
+
+
+def _read_yaml_payload_file(path: Path, *, context: str) -> dict[str, Any]:
+    """Read one referenced YAML file as dictionary payload."""
+    if not path.exists() or not path.is_file():
+        raise ValueError(f"{context} is missing.")
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except OSError as exc:
+        raise OSError(f"Unable to read {context}: {exc}") from exc
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML in {context}: {exc}") from exc
+    if not isinstance(loaded, dict):
+        raise ValueError(f"{context} must contain a YAML object.")
+    return loaded
 
 
 def _read_registry_yaml_payload(registry_path: Path) -> dict[str, Any]:
@@ -1621,6 +2542,17 @@ def _policy_reference_from_legacy_path(path_value: str) -> dict[str, str] | None
             "variant": species_match.group("variant"),
         }
 
+    clothing_match = _LEGACY_CLOTHING_BLOCK_PATH_PATTERN.fullmatch(normalized)
+    if clothing_match is not None:
+        namespace = "image.blocks.clothing"
+        namespace_path = clothing_match.group("namespace_path").strip("/")
+        if namespace_path:
+            namespace = f"{namespace}.{namespace_path.replace('/', '.')}"
+        return {
+            "policy_id": f"clothing_block:{namespace}:{clothing_match.group('policy_key')}",
+            "variant": clothing_match.group("variant"),
+        }
+
     prompt_match = _LEGACY_PROMPT_PATH_PATTERN.fullmatch(normalized)
     if prompt_match is not None:
         namespace = prompt_match.group("namespace_path").replace("/", ".")
@@ -1748,13 +2680,32 @@ def _validate_policy_type_content(
             errors.append("tone_profile content.prompt_block must be a non-empty string")
         return errors
 
+    if identity.policy_type == "clothing_block":
+        clothing_text = content.get("text")
+        if not isinstance(clothing_text, str) or not clothing_text.strip():
+            errors.append("clothing_block content.text must be a non-empty string")
+        return errors
+
+    if identity.policy_type == "axis_bundle":
+        for key in ("axes", "thresholds", "resolution"):
+            if not isinstance(content.get(key), dict) or not content.get(key):
+                errors.append(f"axis_bundle content.{key} must be a non-empty object")
+        return errors
+
+    if identity.policy_type == "manifest_bundle":
+        manifest_payload = content.get("manifest")
+        if not isinstance(manifest_payload, dict) or not manifest_payload:
+            errors.append("manifest_bundle content.manifest must be a non-empty object")
+        return errors
+
     if identity.policy_type in _LAYER2_POLICY_TYPES:
         errors.extend(_validate_layer2_references(content=content))
         return errors
 
     errors.append(
         "Validation/writes currently support policy_type values: "
-        "'species_block', 'prompt', 'tone_profile', 'descriptor_layer', 'registry'."
+        "'species_block', 'clothing_block', 'prompt', 'tone_profile', "
+        "'axis_bundle', 'manifest_bundle', 'descriptor_layer', 'registry'."
     )
     return errors
 

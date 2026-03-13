@@ -782,6 +782,115 @@ def test_main_import_tone_prompt_policies_routes_command(monkeypatch) -> None:
 
 
 # ============================================================================
+# IMPORT-WORLD-POLICIES COMMAND TESTS
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_cmd_import_world_policies_success(monkeypatch) -> None:
+    """World policy import command should return 0 when no domain errors are reported."""
+    captured_kwargs: dict[str, object] = {}
+
+    def _fake_import(**kwargs):
+        captured_kwargs.update(kwargs)
+        return SimpleNamespace(
+            world_id="pipeworks_web",
+            activate=True,
+            imported_count=9,
+            updated_count=0,
+            skipped_count=0,
+            error_count=0,
+            activated_count=9,
+            activation_skipped_count=0,
+            entries=["species: imported=1 updated=0 skipped=0 errors=0"],
+        )
+
+    monkeypatch.setattr("mud_server.db.database.init_database", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "mud_server.services.policy_service.import_world_policies_from_legacy_files",
+        _fake_import,
+    )
+
+    args = argparse.Namespace(
+        world_id="pipeworks_web",
+        actor="importer",
+        status="active",
+        activate=True,
+    )
+    assert cli.cmd_import_world_policies(args) == 0
+    assert captured_kwargs == {
+        "world_id": "pipeworks_web",
+        "actor": "importer",
+        "activate": True,
+        "status": "active",
+    }
+
+
+@pytest.mark.unit
+def test_cmd_import_world_policies_returns_nonzero_when_errors(monkeypatch) -> None:
+    """World policy import command should return 1 when summary includes errors."""
+    monkeypatch.setattr("mud_server.db.database.init_database", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "mud_server.services.policy_service.import_world_policies_from_legacy_files",
+        lambda **kwargs: SimpleNamespace(
+            world_id="pipeworks_web",
+            activate=False,
+            imported_count=3,
+            updated_count=0,
+            skipped_count=0,
+            error_count=1,
+            activated_count=0,
+            activation_skipped_count=0,
+            entries=["layer2: error [POLICY_VALIDATION_ERROR] references missing Layer 1 variant"],
+        ),
+    )
+
+    args = argparse.Namespace(
+        world_id="pipeworks_web",
+        actor="importer",
+        status="candidate",
+        activate=False,
+    )
+    assert cli.cmd_import_world_policies(args) == 1
+
+
+@pytest.mark.unit
+def test_cmd_import_world_policies_handles_policy_service_error(monkeypatch) -> None:
+    """World policy import command should return 1 for typed service failures."""
+    from mud_server.services.policy_service import PolicyServiceError
+
+    monkeypatch.setattr("mud_server.db.database.init_database", lambda **kwargs: None)
+
+    def _raise_policy_error(**_kwargs):
+        raise PolicyServiceError(
+            status_code=422,
+            code="POLICY_IMPORT_STATUS_INVALID",
+            detail="bad status",
+        )
+
+    monkeypatch.setattr(
+        "mud_server.services.policy_service.import_world_policies_from_legacy_files",
+        _raise_policy_error,
+    )
+
+    args = argparse.Namespace(
+        world_id="pipeworks_web",
+        actor="importer",
+        status="invalid-status",
+        activate=True,
+    )
+    assert cli.cmd_import_world_policies(args) == 1
+
+
+@pytest.mark.unit
+def test_main_import_world_policies_routes_command(monkeypatch) -> None:
+    """Main parser should route import-world-policies to the command handler."""
+    monkeypatch.setattr("mud_server.cli.cmd_import_world_policies", lambda args: 0)
+    with patch("sys.argv", ["mud-server", "import-world-policies"]):
+        assert cli.main() == 0
+
+
+# ============================================================================
 # MAIN ENTRY POINT TESTS
 # ============================================================================
 
