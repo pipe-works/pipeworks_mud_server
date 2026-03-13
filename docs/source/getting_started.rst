@@ -111,7 +111,6 @@ A minimal package contains:
     ├── world.json
     ├── zones/
     │   └── <zone>.json
-    └── policies/                # Optional migration/import source artifacts
 
 ``world.json`` defines the world metadata and which subsystems are enabled:
 
@@ -124,18 +123,17 @@ A minimal package contains:
       "default_spawn": {"zone": "my_world", "room": "spawn"},
       "zones": ["my_world"],
       "global_items": {},
-	      "translation_layer": {
-	        "enabled": true,
-	        "model": "gemma2:2b",
-	        "prompt_policy_id": "prompt:translation.prompts.ic:default",
-	        "prompt_template_path": "policies/ic_prompt.txt",
-	        "active_axes": ["demeanor", "health"]
-	      },
-	      "axis_engine": {"enabled": true}
-	    }
+      "translation_layer": {
+        "enabled": true,
+        "model": "gemma2:2b",
+        "prompt_policy_id": "prompt:translation.prompts.ic:default",
+        "active_axes": ["demeanor", "health"]
+      },
+      "axis_engine": {"enabled": true}
+    }
 
-``prompt_policy_id`` is the runtime selector. ``prompt_template_path`` is kept
-for migration/debug metadata and is not canonical runtime authority.
+``prompt_policy_id`` is the authoritative runtime selector for translation
+prompt templates from canonical policy activation state.
 
 The room and item data lives in ``zones/<zone>.json``:
 

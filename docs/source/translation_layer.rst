@@ -40,7 +40,6 @@ Translation is configured per-world in ``world.json``:
        "strict_mode":           true,
        "max_output_chars":      280,
        "prompt_policy_id":      "prompt:translation.prompts.ic:default",
-       "prompt_template_path":  "policies/ic_prompt.txt",
        "active_axes":           ["demeanor", "health", "physique",
                                  "wealth", "facial_signal"],
        "deterministic":         false
@@ -72,15 +71,15 @@ Field reference:
    * - ``prompt_policy_id``
      - Authoritative runtime selector for prompt content from canonical
        policy DB activation state.
-   * - ``prompt_template_path``
-     - Legacy metadata path retained for migration/debug context. Runtime
-       prompt selection is DB activation-driven via ``prompt_policy_id``.
    * - ``active_axes``
      - List of axis names included in the character profile dict.
        Other axes are excluded from the system prompt context.
    * - ``deterministic``
      - If ``true`` and an ``ipc_hash`` is available, the renderer is
        seeded with ``int(ipc_hash[:16], 16)`` for reproducible output.
+
+Legacy ``prompt_template_path`` values in older ``world.json`` files are
+ignored by the runtime and should be removed during world package cleanup.
 
 There is also a server-level master switch in ``config/server.ini``:
 

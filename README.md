@@ -209,11 +209,6 @@ data/worlds/<world_id>/
 ├── world.json
 ├── zones/
 │   └── <zone>.json
-└── policies/
-    ├── axes.yaml
-    ├── thresholds.yaml
-    ├── resolution.yaml
-    └── ic_prompt.txt
 ```
 
 A minimal world package looks like this:
@@ -230,16 +225,14 @@ A minimal world package looks like this:
     "enabled": true,
     "model": "gemma2:2b",
     "prompt_policy_id": "prompt:translation.prompts.ic:default",
-    "prompt_template_path": "policies/ic_prompt.txt",
     "active_axes": ["demeanor", "health"]
   },
   "axis_engine": {"enabled": true}
 }
 ```
 
-`prompt_policy_id` is the authoritative runtime selector. `prompt_template_path`
-is retained as legacy metadata for migration/debug context and is not runtime
-authority in DB-first policy resolution.
+`prompt_policy_id` is the authoritative runtime selector for translation
+templates from canonical policy activation state.
 
 And the zone data lives separately in `zones/<zone>.json`:
 

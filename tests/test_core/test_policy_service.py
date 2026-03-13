@@ -258,6 +258,66 @@ def test_publish_and_artifact_import_roundtrip(test_db, monkeypatch, tmp_path) -
 
 
 @pytest.mark.unit
+@pytest.mark.db
+def test_artifact_import_orders_layer1_before_layer2_reference_validation(test_db) -> None:
+    """Artifact import should succeed even when Layer 2 rows appear first.
+
+    This protects bootstrap/import workflows from false negatives caused by
+    artifact row ordering when Layer 2 content references Layer 1 rows.
+    """
+    world_id = constants.DEFAULT_WORLD_ID
+    species_policy_id = "species_block:image.blocks.species:goblin"
+    descriptor_policy_id = "descriptor_layer:image.descriptors:id_card"
+
+    artifact_payload = {
+        "world_id": world_id,
+        "client_profile": None,
+        # Intentionally place Layer 2 before Layer 1 to assert importer ordering.
+        "variants": [
+            {
+                "policy_id": descriptor_policy_id,
+                "policy_type": "descriptor_layer",
+                "namespace": "image.descriptors",
+                "policy_key": "id_card",
+                "variant": "v1",
+                "schema_version": "1.0",
+                "policy_version": 1,
+                "status": "active",
+                "content": {
+                    "text": "Descriptor text.",
+                    "references": [
+                        {"policy_id": species_policy_id, "variant": "v1"},
+                    ],
+                },
+            },
+            {
+                "policy_id": species_policy_id,
+                "policy_type": "species_block",
+                "namespace": "image.blocks.species",
+                "policy_key": "goblin",
+                "variant": "v1",
+                "schema_version": "1.0",
+                "policy_version": 1,
+                "status": "active",
+                "content": {"text": "Goblin block text."},
+            },
+        ],
+    }
+
+    imported = policy_service.import_published_artifact(
+        artifact=artifact_payload,
+        actor="importer",
+        activate=True,
+    )
+
+    assert imported.error_count == 0
+    assert imported.imported_count == 2
+
+    descriptor_row = policy_service.get_policy(policy_id=descriptor_policy_id, variant="v1")
+    assert descriptor_row["content"]["references"][0]["policy_id"] == species_policy_id
+
+
+@pytest.mark.unit
 def test_parse_scope_supports_world_and_client_profile() -> None:
     """Scope parser should handle world-only and world+client forms."""
     world_only = policy_service.parse_scope(constants.DEFAULT_WORLD_ID)
