@@ -15,6 +15,31 @@
 * Canonical policy import/bootstrap path is now artifact-only (`mud-server import-policy-artifact`).
 * Runtime policy authority remains DB activation + variant state; world policy files are not runtime authority.
 
+## [0.5.0](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.22...mud_server-v0.5.0) (2026-03-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **policy:** decompose policy service and remove legacy file imports
+
+### Features
+
+* **policy:** complete db-first runtime policy migration foundation ([5befe8b](https://github.com/pipe-works/pipeworks_mud_server/commit/5befe8bc78a353f2c98594895be17703e2934950))
+* **policy:** complete db-first runtime policy migration foundation ([a215bcd](https://github.com/pipe-works/pipeworks_mud_server/commit/a215bcd86242744d34a5806edf2345224c6d7274))
+
+
+### Bug Fixes
+
+* **lab:** gate legacy file-backed policy routes behind opt-in ([0cafeda](https://github.com/pipe-works/pipeworks_mud_server/commit/0cafeda3067a5338b45e086cfa9f2da6a009eb36))
+* **lab:** gate legacy file-backed policy routes behind opt-in ([627a146](https://github.com/pipe-works/pipeworks_mud_server/commit/627a146daa532104b5356cf35699fc2db8f0e9cb))
+* **policy:** enforce db-first bootstrap and prompt resolution ([97c8bfe](https://github.com/pipe-works/pipeworks_mud_server/commit/97c8bfe781d9ed4248a39d3ee70a360245c5fae9))
+* **policy:** enforce db-first bootstrap and prompt resolution ([d52de91](https://github.com/pipe-works/pipeworks_mud_server/commit/d52de9139605a47db4f8dfe3e40031eb637c830a))
+
+
+### Code Refactoring
+
+* **policy:** decompose policy service and remove legacy file imports ([ea641ec](https://github.com/pipe-works/pipeworks_mud_server/commit/ea641ec9a79e6c3323c9f755d0048e0fc9157262))
+
 ## [0.4.22](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.4.21...mud_server-v0.4.22) (2026-03-13)
 
 ### Features
