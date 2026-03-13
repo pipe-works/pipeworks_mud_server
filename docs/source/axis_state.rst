@@ -78,7 +78,7 @@ Resolution Grammar
 
 The resolution grammar is the machine-readable ruleset that controls
 what happens to each axis when two characters interact via chat.  It
-lives at ``data/worlds/<world_id>/policies/resolution.yaml`` and is
+lives at ``data/worlds/<world_id>/policies/axis/resolution.yaml`` and is
 loaded once at world startup by
 :func:`~mud_server.axis.grammar.load_resolution_grammar`.
 
@@ -300,7 +300,7 @@ startup.  It:
 
 1. Checks ``world_data["axis_engine"]["enabled"]`` (default: ``False``)
 2. Calls ``verify_world_ledger(world_id)`` for a startup integrity check
-3. Loads ``policies/resolution.yaml`` via ``load_resolution_grammar``
+3. Loads ``policies/axis/resolution.yaml`` via ``load_resolution_grammar``
 4. Instantiates ``AxisEngine(world_id=..., grammar=...)``
 
 If any step fails, ``_axis_engine`` is set to ``None`` and an ERROR is

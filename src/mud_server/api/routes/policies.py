@@ -18,6 +18,9 @@ from mud_server.api.models_policy import (
     PolicyActivationEntryResponse,
     PolicyActivationListResponse,
     PolicyActivationRequest,
+    PolicyImportEntryResponse,
+    PolicyImportRequest,
+    PolicyImportResponse,
     PolicyListResponse,
     PolicyObjectResponse,
     PolicyPublishRequest,
@@ -37,6 +40,9 @@ from mud_server.services.policy_service import (
 )
 from mud_server.services.policy_service import (
     get_publish_run as service_get_publish_run,
+)
+from mud_server.services.policy_service import (
+    import_published_artifact as service_import_published_artifact,
 )
 from mud_server.services.policy_service import (
     list_policies as service_list_policies,
@@ -269,6 +275,45 @@ def router(_engine: GameEngine) -> APIRouter:
         try:
             result = service_get_publish_run(publish_run_id=publish_run_id)
             return PolicyPublishRunResponse.model_validate(result)
+        except PolicyServiceError as error:
+            return _error_response(error)
+
+    @api.post("/api/policy-import", response_model=PolicyImportResponse)
+    async def import_policy_artifact(payload: PolicyImportRequest, session_id: str):
+        """Import one deterministic publish artifact into canonical DB state."""
+        _user_id, username, _role = _validate_policy_session_admin_or_superuser(session_id)
+        actor = payload.actor or username
+        try:
+            summary = service_import_published_artifact(
+                artifact=payload.artifact,
+                actor=actor,
+                activate=payload.activate,
+            )
+            return PolicyImportResponse(
+                world_id=summary.world_id,
+                client_profile=summary.client_profile or None,
+                activate=summary.activate,
+                item_count=summary.item_count,
+                imported_count=summary.imported_count,
+                updated_count=summary.updated_count,
+                skipped_count=summary.skipped_count,
+                error_count=summary.error_count,
+                activated_count=summary.activated_count,
+                activation_skipped_count=summary.activation_skipped_count,
+                manifest_hash=summary.manifest_hash,
+                items_hash=summary.items_hash,
+                artifact_hash=summary.artifact_hash,
+                variants_hash=summary.variants_hash,
+                entries=[
+                    PolicyImportEntryResponse(
+                        policy_id=entry.policy_id,
+                        variant=entry.variant,
+                        action=entry.action,
+                        detail=entry.detail,
+                    )
+                    for entry in summary.entries
+                ],
+            )
         except PolicyServiceError as error:
             return _error_response(error)
 

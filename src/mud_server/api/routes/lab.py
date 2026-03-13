@@ -67,9 +67,9 @@ POST /api/lab/world-policy-bundle/{world_id}/drafts
     directory without overwriting any canonical files.
 
 POST /api/lab/world-policy-bundle/{world_id}/drafts/{name}/promote
-    Promote one draft into the canonical ``policies/axes.yaml``,
-    ``policies/thresholds.yaml``, and ``policies/resolution.yaml`` files and
-    reload the world's axis engine explicitly.
+    Promote one draft into the canonical ``policies/axis/axes.yaml``,
+    ``policies/axis/thresholds.yaml``, and ``policies/axis/resolution.yaml``
+    files and reload the world's axis engine explicitly.
 
 POST /api/lab/translate
     Translate an OOC message to IC dialogue using the world's canonical
@@ -161,6 +161,7 @@ from mud_server.api.routes.lab_support import (
 )
 from mud_server.core.engine import GameEngine
 from mud_server.policies import PolicyManifestLoader
+from mud_server.services import policy_service
 
 logger = logging.getLogger(__name__)
 
@@ -291,14 +292,12 @@ def _build_policy_bundle(world_id: str, world_root: Path) -> LabPolicyBundleResp
 def _load_world_axis_policy_files(
     world_id: str, world_root: Path
 ) -> tuple[dict, dict, dict, list[str]]:
-    """Load axis policy files with manifest-first resolution and flat fallback.
+    """Load axis policy files with manifest-first resolution.
 
     Resolution order:
     1. If ``policies/manifest.yaml`` exists and includes valid axis bundle paths,
        load axis/thresholds/resolution from referenced files.
-    2. Otherwise fall back to legacy flat files under ``policies/``.
-
-    This helper keeps existing lab behavior working during migration.
+    2. Otherwise read canonical axis files under ``policies/axis/``.
     """
 
     policy_root = world_root / "policies"
@@ -327,20 +326,21 @@ def _load_world_axis_policy_files(
             ]
             return axes_payload, thresholds_payload, resolution_payload, source_files
 
-        # TODO(refactor-cleanup): remove after manifest migration complete.
-        # Fall back to legacy flat files when manifest exists but axis assets
-        # are incomplete or invalid during the transition period.
         logger.warning(
-            "World %r manifest axis assets incomplete, falling back to legacy policy files: %s",
+            "World %r manifest axis assets incomplete, using canonical axis policy files: %s",
             world_id,
             ", ".join(report.missing_components),
         )
 
     return (
-        _read_yaml(policy_root / "axes.yaml"),
-        _read_yaml(policy_root / "thresholds.yaml"),
-        _read_yaml(policy_root / "resolution.yaml"),
-        ["policies/axes.yaml", "policies/thresholds.yaml", "policies/resolution.yaml"],
+        _read_yaml(policy_root / "axis" / "axes.yaml"),
+        _read_yaml(policy_root / "axis" / "thresholds.yaml"),
+        _read_yaml(policy_root / "axis" / "resolution.yaml"),
+        [
+            "policies/axis/axes.yaml",
+            "policies/axis/thresholds.yaml",
+            "policies/axis/resolution.yaml",
+        ],
     )
 
 
@@ -348,9 +348,9 @@ def _canonical_policy_source_files() -> list[str]:
     """Return the stable canonical file set for world policy bundles."""
 
     return [
-        "policies/axes.yaml",
-        "policies/thresholds.yaml",
-        "policies/resolution.yaml",
+        "policies/axis/axes.yaml",
+        "policies/axis/thresholds.yaml",
+        "policies/axis/resolution.yaml",
     ]
 
 
@@ -409,44 +409,71 @@ def _build_image_policy_bundle(world_id: str, world_root: Path) -> LabImagePolic
 def _compile_image_prompt(
     req: LabImageCompileRequest, *, world_root: Path
 ) -> LabImageCompileResponse:
-    """Compile one deterministic image prompt from manifest-resolved policy assets.
+    """Compile one deterministic image prompt from canonical DB policy objects.
 
     The compiler is intentionally policy-driven and deterministic:
 
-    1. Load manifest + referenced assets via ``PolicyManifestLoader``.
-    2. Select species/clothing blocks using registry rules + runtime inputs.
-    3. Assemble the prompt in manifest-defined composition order.
-    4. Return selection metadata and deterministic provenance hashes.
+    1. Resolve effective manifest + Layer 2 policy rows from activation state.
+    2. Select species/clothing block references using registry rules.
+    3. Resolve Layer 1 block text from canonical DB variants.
+    4. Assemble the prompt in manifest-defined composition order.
+    5. Return selection metadata and deterministic provenance hashes.
 
     Raises:
-        HTTPException: When required manifest assets are missing or selection
-            cannot produce required blocks.
+        HTTPException: When required canonical policy rows are missing or
+            selection cannot produce required blocks.
     """
+    _ = world_root  # DB-first compile path does not read policy content from filesystem.
+    scope = policy_service.ActivationScope(world_id=req.world_id, client_profile="")
+    manifest_payload = _resolve_effective_manifest_payload(scope=scope)
+    composition_order, required_runtime_inputs = _extract_manifest_image_contract(manifest_payload)
 
-    loader = PolicyManifestLoader(worlds_root=world_root.parent)
-    payload, report = loader.load_from_world_root(world_id=req.world_id, world_root=world_root)
+    descriptor_preferred_policy_id = _manifest_policy_id_hint(
+        manifest_payload=manifest_payload,
+        image_node_key="descriptor_layer",
+        policy_type="descriptor_layer",
+        namespace="image.descriptors",
+    )
+    tone_preferred_policy_id = _manifest_policy_id_hint(
+        manifest_payload=manifest_payload,
+        image_node_key="tone_profile",
+        policy_type="tone_profile",
+        namespace="image.tone_profiles",
+    )
 
-    if report.missing_components:
+    descriptor_row, descriptor_activation = _resolve_effective_policy_row(
+        scope=scope,
+        policy_type="descriptor_layer",
+        preferred_policy_id=descriptor_preferred_policy_id,
+    )
+    tone_row, tone_activation = _resolve_effective_policy_row(
+        scope=scope,
+        policy_type="tone_profile",
+        preferred_policy_id=tone_preferred_policy_id,
+    )
+    species_registry_row, _ = _resolve_effective_policy_row(
+        scope=scope,
+        policy_type="registry",
+        preferred_policy_id="registry:image.registries:species_registry",
+    )
+    clothing_registry_row, _ = _resolve_effective_policy_row(
+        scope=scope,
+        policy_type="registry",
+        preferred_policy_id="registry:image.registries:clothing_registry",
+    )
+
+    descriptor_layer_text = (descriptor_row.get("content") or {}).get("text")
+    tone_profile_payload = tone_row.get("content")
+    species_registry = species_registry_row.get("content")
+    clothing_registry = clothing_registry_row.get("content")
+
+    if not isinstance(descriptor_layer_text, str) or not descriptor_layer_text.strip():
         raise HTTPException(
             status_code=409,
             detail=(
-                "Image policy manifest is incomplete for compile: "
-                + "; ".join(report.missing_components)
+                "Descriptor layer content missing canonical text payload: "
+                f"{descriptor_activation['policy_id']}:{descriptor_activation['variant']}"
             ),
-        )
-
-    manifest_payload = payload.get("manifest") or {}
-    image_payload = payload.get("image") or {}
-    composition_order = list(image_payload.get("composition_order") or [])
-    required_runtime_inputs = list(image_payload.get("required_runtime_inputs") or [])
-    descriptor_layer_text = image_payload.get("descriptor_layer")
-    tone_profile_payload = image_payload.get("tone_profile")
-    species_registry = image_payload.get("species_registry")
-    clothing_registry = image_payload.get("clothing_registry")
-
-    if not isinstance(descriptor_layer_text, str):
-        raise HTTPException(
-            status_code=409, detail="Descriptor layer text missing in policy bundle."
         )
     if not isinstance(tone_profile_payload, dict):
         raise HTTPException(
@@ -482,15 +509,16 @@ def _compile_image_prompt(
             ),
         )
 
-    species_block_text = _read_registry_block_text(
-        world_root=world_root,
-        rel_path=str(selected_species_entry.get("block_path") or ""),
+    species_block_text = _resolve_registry_entry_policy_text(
+        scope=scope,
+        entry=selected_species_entry,
+        allowed_policy_types={"species_block"},
     )
 
     selected_clothing_profile_id = _extract_clothing_profile_id(clothing_registry)
     selected_clothing_slots, clothing_blocks = _select_clothing_blocks(
         clothing_registry=clothing_registry,
-        world_root=world_root,
+        scope=scope,
         gender=req.gender,
         axis_labels=axis_labels,
         world_context=req.world_context,
@@ -510,9 +538,12 @@ def _compile_image_prompt(
     policy_hash = compute_payload_hash(
         {
             "manifest": manifest_payload,
-            "axis_bundle": payload.get("axis") or {},
             "descriptor_layer_text": descriptor_layer_text,
             "tone_profile_payload": tone_profile_payload,
+            "descriptor_policy_id": descriptor_activation["policy_id"],
+            "descriptor_variant": descriptor_activation["variant"],
+            "tone_policy_id": tone_activation["policy_id"],
+            "tone_variant": tone_activation["variant"],
             "composition_order": composition_order,
             "selected_blocks": {
                 "species": {
@@ -532,14 +563,21 @@ def _compile_image_prompt(
         }
     )
 
-    descriptor_id = _nested_get(manifest_payload, ["image", "descriptor_layer", "id"])
-    tone_id = _nested_get(manifest_payload, ["image", "tone_profile", "id"])
+    descriptor_id = _nested_get(manifest_payload, ["image", "descriptor_layer", "id"]) or str(
+        descriptor_activation["policy_id"]
+    )
+    tone_id = _nested_get(manifest_payload, ["image", "tone_profile", "id"]) or str(
+        tone_activation["policy_id"]
+    )
+    policy_schema = _nested_get(manifest_payload, ["policy_schema"])
+    bundle_id = _nested_get(manifest_payload, ["policy_bundle", "id"])
+    bundle_version = _nested_get(manifest_payload, ["policy_bundle", "version"])
 
     return LabImageCompileResponse(
         world_id=req.world_id,
-        policy_schema=report.policy_schema,
-        policy_bundle_id=report.bundle_id,
-        policy_bundle_version=report.bundle_version,
+        policy_schema=str(policy_schema) if policy_schema is not None else None,
+        policy_bundle_id=str(bundle_id) if bundle_id is not None else None,
+        policy_bundle_version=(str(bundle_version) if bundle_version is not None else None),
         policy_hash=policy_hash,
         axis_hash=axis_hash,
         required_runtime_inputs=required_runtime_inputs,
@@ -556,6 +594,138 @@ def _compile_image_prompt(
         },
         missing_components=[],
     )
+
+
+def _resolve_effective_manifest_payload(*, scope: policy_service.ActivationScope) -> dict[str, Any]:
+    """Resolve manifest payload from canonical effective activation state."""
+    manifest_policy_id = f"manifest_bundle:world.manifests:{scope.world_id}"
+    try:
+        manifest_row = policy_service.get_effective_policy_variant(
+            scope=scope,
+            policy_id=manifest_policy_id,
+        )
+    except policy_service.PolicyServiceError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+
+    if manifest_row is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No effective manifest bundle activation found for compile scope "
+                f"(world_id={scope.world_id!r}, client_profile={scope.client_profile!r})."
+            ),
+        )
+
+    manifest_payload = (manifest_row.get("content") or {}).get("manifest")
+    if not isinstance(manifest_payload, dict):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Effective manifest bundle row is missing content.manifest object: "
+                f"{manifest_policy_id}:{manifest_row.get('variant')}"
+            ),
+        )
+    return manifest_payload
+
+
+def _extract_manifest_image_contract(
+    manifest_payload: dict[str, Any],
+) -> tuple[list[str], list[str]]:
+    """Extract image composition contract fields from manifest payload."""
+    composition = _nested_get(manifest_payload, ["image", "composition"])
+    if not isinstance(composition, dict):
+        raise HTTPException(
+            status_code=409,
+            detail="Manifest content missing image.composition object for compile.",
+        )
+    composition_order = composition.get("order")
+    if not isinstance(composition_order, list) or not composition_order:
+        raise HTTPException(
+            status_code=409,
+            detail="Manifest image.composition.order must be a non-empty list.",
+        )
+    required_runtime_inputs = composition.get("required_runtime_inputs")
+    if not isinstance(required_runtime_inputs, list):
+        raise HTTPException(
+            status_code=409,
+            detail="Manifest image.composition.required_runtime_inputs must be a list.",
+        )
+    return [str(value) for value in composition_order], [
+        str(value) for value in required_runtime_inputs
+    ]
+
+
+def _manifest_policy_id_hint(
+    *,
+    manifest_payload: dict[str, Any],
+    image_node_key: str,
+    policy_type: str,
+    namespace: str,
+) -> str | None:
+    """Build preferred canonical policy_id from one manifest image node."""
+    node = _nested_get(manifest_payload, ["image", image_node_key])
+    if not isinstance(node, dict):
+        return None
+    raw_id = node.get("id")
+    if not isinstance(raw_id, str) or not raw_id.strip():
+        return None
+    policy_key = raw_id.strip()
+    version_value = node.get("version")
+    if isinstance(version_value, int) and version_value >= 1:
+        suffix = f"_v{version_value}"
+        if policy_key.endswith(suffix):
+            policy_key = policy_key[: -len(suffix)]
+    return f"{policy_type}:{namespace}:{policy_key}"
+
+
+def _resolve_effective_policy_row(
+    *,
+    scope: policy_service.ActivationScope,
+    policy_type: str,
+    preferred_policy_id: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve one effective activated policy row for a requested policy type."""
+    try:
+        effective_rows = policy_service.resolve_effective_policy_activations(scope=scope)
+    except policy_service.PolicyServiceError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+
+    candidates = [
+        row for row in effective_rows if str(row.get("policy_id", "")).startswith(f"{policy_type}:")
+    ]
+    if preferred_policy_id:
+        for row in candidates:
+            if str(row.get("policy_id")) == preferred_policy_id:
+                selected_row = row
+                break
+        else:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Preferred active {policy_type} policy is not activated for scope "
+                    f"(world_id={scope.world_id!r}, client_profile={scope.client_profile!r}): "
+                    f"{preferred_policy_id}."
+                ),
+            )
+    else:
+        if len(candidates) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Expected exactly one active {policy_type} policy for scope "
+                    f"(world_id={scope.world_id!r}, client_profile={scope.client_profile!r}); "
+                    f"found {len(candidates)}."
+                ),
+            )
+        selected_row = candidates[0]
+
+    policy_id = str(selected_row.get("policy_id") or "")
+    variant = str(selected_row.get("variant") or "")
+    try:
+        policy_row = policy_service.get_policy(policy_id=policy_id, variant=variant)
+    except policy_service.PolicyServiceError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+    return policy_row, selected_row
 
 
 def _validate_compile_runtime_inputs(
@@ -621,7 +791,7 @@ def _select_species_entry(
 def _select_clothing_blocks(
     *,
     clothing_registry: dict[str, Any],
-    world_root: Path,
+    scope: policy_service.ActivationScope,
     gender: str,
     axis_labels: dict[str, str],
     world_context: list[str],
@@ -650,11 +820,13 @@ def _select_clothing_blocks(
             continue
 
         selected_slot_ids[str(slot_name)] = str(selected.get("id") or "")
-        rel_path = str(selected.get("fragment_path") or "")
-        if rel_path:
-            selected_block_texts.append(
-                _read_registry_block_text(world_root=world_root, rel_path=rel_path)
+        selected_block_texts.append(
+            _resolve_registry_entry_policy_text(
+                scope=scope,
+                entry=selected,
+                allowed_policy_types={"clothing_block"},
             )
+        )
 
     return selected_slot_ids, selected_block_texts
 
@@ -792,28 +964,65 @@ def _render_tone_profile_block(tone_profile_payload: dict[str, Any]) -> str:
     return ". ".join(phrases).rstrip(".") + "."
 
 
-def _read_registry_block_text(*, world_root: Path, rel_path: str) -> str:
-    """Read a species/clothing block file and return normalized text content."""
-    if not rel_path:
-        raise HTTPException(status_code=409, detail="Registry entry missing block path.")
+def _resolve_registry_entry_policy_text(
+    *,
+    scope: policy_service.ActivationScope,
+    entry: dict[str, Any],
+    allowed_policy_types: set[str],
+) -> str:
+    """Resolve one registry-selected Layer 1 text block from canonical DB rows."""
+    policy_reference = entry.get("policy_ref")
+    if not isinstance(policy_reference, dict):
+        for key in ("block_path", "fragment_path", "prompt_path", "tone_profile_path"):
+            value = entry.get(key)
+            if isinstance(value, str) and value.strip():
+                mapped = policy_service.policy_reference_from_legacy_path(value.strip())
+                if mapped is not None:
+                    policy_reference = mapped
+                    break
+        if not isinstance(policy_reference, dict):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Registry entry missing canonical policy_ref mapping for scope "
+                    f"(world_id={scope.world_id!r}): {entry.get('id')!r}"
+                ),
+            )
 
-    path = world_root / rel_path
-    if not path.exists():
-        raise HTTPException(status_code=409, detail=f"Referenced block file missing: {rel_path}")
+    policy_id = str(policy_reference.get("policy_id") or "").strip()
+    variant = str(policy_reference.get("variant") or "").strip()
+    if not policy_id or not variant:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Registry entry has invalid policy_ref: {policy_reference!r}",
+        )
+    policy_type = policy_id.split(":", 1)[0]
+    if policy_type not in allowed_policy_types:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Registry entry policy_ref type must be one of {sorted(allowed_policy_types)}; "
+                f"got {policy_type!r} ({policy_id}:{variant})."
+            ),
+        )
 
-    if path.suffix.lower() == ".txt":
-        return path.read_text(encoding="utf-8").strip()
-
-    if path.suffix.lower() in {".yaml", ".yml"}:
-        loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        if isinstance(loaded, dict):
-            for key in ("text", "anatomy_block", "prompt_block"):
-                value = loaded.get(key)
-                if isinstance(value, str) and value.strip():
-                    return value.strip()
-        return yaml.safe_dump(loaded, sort_keys=False).strip()
-
-    return path.read_text(encoding="utf-8").strip()
+    try:
+        row = policy_service.get_policy(policy_id=policy_id, variant=variant)
+    except policy_service.PolicyServiceError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+    content = row.get("content")
+    if not isinstance(content, dict):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Policy variant content must be an object: {policy_id}:{variant}",
+        )
+    text_value = content.get("text")
+    if not isinstance(text_value, str) or not text_value.strip():
+        raise HTTPException(
+            status_code=409,
+            detail=f"Policy variant content.text must be non-empty: {policy_id}:{variant}",
+        )
+    return text_value.strip()
 
 
 def _matches_species(entry: dict[str, Any], species: str) -> bool:
@@ -1267,10 +1476,10 @@ def router(engine: GameEngine) -> APIRouter:
         """Promote one saved policy bundle draft into canonical policy files.
 
         Promotion is explicit and destructive only to the canonical policy
-        package: the draft remains in place, while ``policies/axes.yaml``,
-        ``policies/thresholds.yaml``, and ``policies/resolution.yaml`` are
-        rewritten from the normalized draft payload and the world's axis
-        engine is reloaded.
+        package: the draft remains in place, while
+        ``policies/axis/axes.yaml``, ``policies/axis/thresholds.yaml``, and
+        ``policies/axis/resolution.yaml`` are rewritten from the normalized
+        draft payload and the world's axis engine is reloaded.
 
         Requires admin or superuser role.
         """

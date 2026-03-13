@@ -63,6 +63,7 @@ def _seed_descriptor_layer_variant(
     variant: str,
     policy_version: int,
     references: list[dict[str, str]],
+    text: str = "Descriptor layer content.",
 ) -> str:
     """Create one descriptor-layer variant with Layer 1 references."""
     policy_id = f"descriptor_layer:image.descriptors:{policy_key}"
@@ -72,7 +73,7 @@ def _seed_descriptor_layer_variant(
         schema_version="1.0",
         policy_version=policy_version,
         status="candidate",
-        content={"references": references},
+        content={"text": text, "references": references},
         updated_by="tester",
     )
     return policy_id
@@ -170,8 +171,9 @@ def _seed_effective_axis_bundle(
 
 
 def _set_temp_worlds_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Redirect policy export writes to a temporary world root."""
+    """Redirect world-package and publish-export paths into temp directories."""
     monkeypatch.setattr(policy_service.config.worlds, "worlds_root", str(tmp_path))
+    monkeypatch.setenv("MUD_POLICY_EXPORTS_ROOT", str(tmp_path / "world_policy_exports"))
 
 
 def _write_species_yaml(
@@ -621,12 +623,13 @@ def test_validate_policy_variant_accepts_descriptor_layer_references(test_db) ->
         policy_version=1,
         status="candidate",
         content={
+            "text": "Descriptor layer candidate.",
             "references": [
                 {
                     "policy_id": referenced_policy_id,
                     "variant": "v1",
                 }
-            ]
+            ],
         },
         validated_by="tester",
     )
@@ -648,6 +651,26 @@ def test_validate_policy_variant_accepts_prompt_layer1_content(test_db) -> None:
     )
     assert result.is_valid is True
     assert result.errors == []
+
+
+@pytest.mark.unit
+def test_validate_policy_variant_rejects_descriptor_layer_empty_text(test_db) -> None:
+    """Descriptor Layer 2 objects should reject empty ``content.text`` payloads."""
+    referenced_policy_id = _seed_species_variant(policy_key="ogre", variant="v1", policy_version=1)
+    result = policy_service.validate_policy_variant(
+        policy_id="descriptor_layer:image.descriptors:ic_descriptor",
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="candidate",
+        content={
+            "text": "   ",
+            "references": [{"policy_id": referenced_policy_id, "variant": "v1"}],
+        },
+        validated_by="tester",
+    )
+    assert result.is_valid is False
+    assert "descriptor_layer content.text must be a non-empty string" in result.errors
 
 
 @pytest.mark.unit
@@ -1084,8 +1107,12 @@ def test_import_layer2_policies_from_legacy_files_backfills_and_activates(
         policy_id="descriptor_layer:image.descriptors:id_card",
         variant="v1",
     )
-    assert registry_row["content"] == {"references": species_refs}
-    assert descriptor_row["content"] == {"references": species_refs}
+    assert registry_row["content"]["references"] == species_refs
+    assert registry_row["content"]["registry"]["id"] == "species_registry"
+    assert registry_row["content"]["entries"][0]["policy_ref"] == species_refs[0]
+    assert "block_path" not in registry_row["content"]["entries"][0]
+    assert descriptor_row["content"]["references"] == species_refs
+    assert descriptor_row["content"]["text"] == "Descriptor text payload."
 
     effective_rows = policy_service.resolve_effective_policy_activations(
         scope=ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile=""),
@@ -2270,6 +2297,7 @@ def test_validate_policy_variant_rejects_invalid_descriptor_layer_references(tes
         policy_version=1,
         status="candidate",
         content={
+            "text": "Descriptor invalid refs.",
             "references": [
                 {
                     "policy_id": "descriptor_layer:image.descriptors:existing_layer2",
@@ -2279,7 +2307,7 @@ def test_validate_policy_variant_rejects_invalid_descriptor_layer_references(tes
                     "policy_id": "species_block:image.blocks.species:missing",
                     "variant": "v404",
                 },
-            ]
+            ],
         },
         validated_by="tester",
     )
@@ -2297,7 +2325,7 @@ def test_validate_policy_variant_rejects_empty_descriptor_layer_references(test_
         schema_version="1.0",
         policy_version=1,
         status="candidate",
-        content={},
+        content={"text": "Descriptor missing refs."},
         validated_by="tester",
     )
     assert result.is_valid is False
@@ -2316,12 +2344,13 @@ def test_validate_policy_variant_rejects_malformed_descriptor_layer_reference_en
         policy_version=1,
         status="candidate",
         content={
+            "text": "Descriptor malformed refs.",
             "references": [
                 42,
                 {"policy_id": "", "variant": "v1"},
                 {"policy_id": "species_block:image.blocks.species:goblin", "variant": ""},
                 {"policy_id": "not:a:valid:policy_id", "variant": "v1"},
-            ]
+            ],
         },
         validated_by="tester",
     )
@@ -2398,7 +2427,13 @@ def test_publish_scope_is_deterministic_and_writes_artifact(test_db, monkeypatch
     assert first["manifest"]["manifest_hash"] == second["manifest"]["manifest_hash"]
     assert first["artifact"]["artifact_hash"] == second["artifact"]["artifact_hash"]
     assert first["artifact"]["artifact_path"] == second["artifact"]["artifact_path"]
+    assert first["artifact"]["latest_path"] == second["artifact"]["latest_path"]
     assert Path(first["artifact"]["artifact_path"]).exists()
+    assert Path(first["artifact"]["latest_path"]).exists()
+    artifact_parts = Path(first["artifact"]["artifact_path"]).parts
+    assert "worlds" in artifact_parts
+    assert constants.DEFAULT_WORLD_ID in artifact_parts
+    assert "world" in artifact_parts
 
 
 @pytest.mark.unit
@@ -2438,10 +2473,21 @@ def test_get_publish_run_materializes_artifact_for_legacy_manifest(
     assert result["manifest"]["items_hash"]
     assert result["manifest"]["manifest_hash"]
     artifact_path = Path(result["artifact"]["artifact_path"])
+    latest_path = Path(result["artifact"]["latest_path"])
     assert artifact_path.exists()
+    assert latest_path.exists()
     payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    latest_payload = json.loads(latest_path.read_text(encoding="utf-8"))
     assert payload["mirror_mode"] == "non_authoritative"
+    assert isinstance(payload["variants"], list)
+    assert payload["variants_hash"]
+    assert payload["variants"][0]["materialized"] is False
+    assert payload["variants"][0]["content"] == {}
     assert payload["manifest_hash"] == result["manifest"]["manifest_hash"]
+    assert latest_payload["artifact_file"] == artifact_path.name
+    assert latest_payload["artifact_hash"] == result["artifact"]["artifact_hash"]
+    assert latest_payload["manifest_hash"] == result["manifest"]["manifest_hash"]
+    assert latest_payload["variants_hash"] == payload["variants_hash"]
 
 
 @pytest.mark.unit
@@ -2499,6 +2545,7 @@ def test_publish_scope_is_not_affected_by_mirror_artifact_drift(
     restored_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
     assert restored_payload["mirror_mode"] == "non_authoritative"
     assert restored_payload["manifest_hash"] == second["manifest"]["manifest_hash"]
+    assert restored_payload["variants_hash"]
 
 
 @pytest.mark.unit
@@ -2523,6 +2570,85 @@ def test_publish_scope_surfaces_artifact_write_failures(test_db, monkeypatch, tm
             actor="tester",
         )
     assert error.value.code == "POLICY_PUBLISH_ARTIFACT_WRITE_ERROR"
+
+
+@pytest.mark.unit
+def test_import_published_artifact_roundtrip_updates_variant_and_activation(
+    test_db, monkeypatch, tmp_path
+) -> None:
+    """Artifact import should restore canonical variant payload and activation pointer."""
+    _set_temp_worlds_root(monkeypatch, tmp_path)
+    policy_id = _seed_species_variant(policy_key="sprite", variant="v1", policy_version=1)
+    scope = ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile="")
+    policy_service.set_policy_activation(
+        scope=scope,
+        policy_id=policy_id,
+        variant="v1",
+        activated_by="tester",
+    )
+    publish_result = policy_service.publish_scope(scope=scope, actor="tester")
+    artifact_payload = json.loads(
+        Path(publish_result["artifact"]["artifact_path"]).read_text(encoding="utf-8")
+    )
+
+    # Simulate canonical drift after publish: change variant payload and activation.
+    policy_service.upsert_policy_variant(
+        policy_id=policy_id,
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="draft",
+        content={"text": "sprite-v1-drifted"},
+        updated_by="tester",
+    )
+    policy_service.upsert_policy_variant(
+        policy_id=policy_id,
+        variant="v2",
+        schema_version="1.0",
+        policy_version=2,
+        status="active",
+        content={"text": "sprite-v2"},
+        updated_by="tester",
+    )
+    policy_service.set_policy_activation(
+        scope=scope,
+        policy_id=policy_id,
+        variant="v2",
+        activated_by="tester",
+    )
+
+    import_summary = policy_service.import_published_artifact(
+        artifact=artifact_payload,
+        actor="artifact-importer",
+        activate=True,
+    )
+    assert import_summary.world_id == constants.DEFAULT_WORLD_ID
+    assert import_summary.updated_count >= 1
+    assert import_summary.activated_count >= 1
+    assert import_summary.error_count == 0
+
+    restored = policy_service.get_policy(policy_id=policy_id, variant="v1")
+    assert restored["content"]["text"] == "sprite-v1"
+    effective_rows = policy_service.resolve_effective_policy_activations(scope=scope)
+    by_policy = {str(row["policy_id"]): str(row["variant"]) for row in effective_rows}
+    assert by_policy[policy_id] == "v1"
+
+
+@pytest.mark.unit
+def test_import_published_artifact_rejects_hash_mismatch(test_db) -> None:
+    """Artifact import must fail when provided artifact_hash does not match payload."""
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.import_published_artifact(
+            artifact={
+                "world_id": constants.DEFAULT_WORLD_ID,
+                "client_profile": None,
+                "variants": [],
+                "artifact_hash": "incorrect",
+            },
+            actor="tester",
+            activate=False,
+        )
+    assert error.value.code == "POLICY_IMPORT_ARTIFACT_HASH_MISMATCH"
 
 
 @pytest.mark.unit

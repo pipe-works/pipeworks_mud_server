@@ -28,6 +28,8 @@ from mud_server.api.routes.register import register_routes
 from mud_server.config import use_test_database
 from mud_server.core.engine import GameEngine
 from mud_server.core.world import World
+from mud_server.db import database
+from mud_server.services import policy_service
 from mud_server.translation.config import TranslationLayerConfig
 from mud_server.translation.service import LabTranslateResult, OOCToICTranslationService
 from tests.constants import TEST_PASSWORD
@@ -124,11 +126,18 @@ def _build_prompt_world(
     return world
 
 
+def _ensure_axis_policy_dir(policy_root: Path) -> Path:
+    """Ensure ``policies/axis`` exists and return the directory path."""
+    axis_dir = policy_root / "axis"
+    axis_dir.mkdir(parents=True, exist_ok=True)
+    return axis_dir
+
+
 def _write_minimal_policy_package(policy_root: Path) -> None:
     """Write a one-axis canonical policy package used by lab route tests."""
 
     policy_root.mkdir(parents=True, exist_ok=True)
-    (policy_root / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policy_root) / "axes.yaml").write_text(
         "version: 0.1.0\n"
         "source: test\n"
         "axes:\n"
@@ -139,7 +148,7 @@ def _write_minimal_policy_package(policy_root: Path) -> None:
         "      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policy_root / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policy_root) / "thresholds.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -149,7 +158,7 @@ def _write_minimal_policy_package(policy_root: Path) -> None:
         "      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policy_root / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policy_root) / "resolution.yaml").write_text(
         'version: "1.0"\n'
         "interactions:\n"
         "  chat:\n"
@@ -258,15 +267,15 @@ image:
         encoding="utf-8",
     )
     (policy_root / "axis").mkdir(parents=True, exist_ok=True)
-    (policy_root / "axis" / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policy_root) / "axes.yaml").write_text(
         "version: 0.1.0\naxes:\n  demeanor:\n    ordering:\n      type: ordinal\n      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policy_root / "axis" / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policy_root) / "thresholds.yaml").write_text(
         "version: 0.1.0\naxes:\n  demeanor:\n    values:\n      timid: {min: 0.0, max: 0.49}\n      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policy_root / "axis" / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policy_root) / "resolution.yaml").write_text(
         'version: "1.0"\ninteractions:\n  chat:\n    axes: {}\n', encoding="utf-8"
     )
     (policy_root / "translation" / "prompts" / "ic").mkdir(parents=True, exist_ok=True)
@@ -405,6 +414,24 @@ profiles:
 """,
         encoding="utf-8",
     )
+
+
+def _import_world_policy_files_into_canonical_db(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    world_root: Path,
+    world_id: str,
+) -> None:
+    """Import one test world's policy files into canonical DB activation state."""
+    monkeypatch.setattr(policy_service.config.worlds, "worlds_root", str(world_root.parent))
+    monkeypatch.setattr(policy_service.config.worlds, "default_world_id", world_id)
+    summary = policy_service.import_world_policies_from_legacy_files(
+        world_id=world_id,
+        actor="test-importer",
+        activate=True,
+        status="active",
+    )
+    assert summary.error_count == 0, summary
 
 
 @pytest.fixture()
@@ -1040,25 +1067,33 @@ def test_world_image_policy_bundle_policy_hash_changes_on_content_change(
 
 @pytest.mark.api
 def test_compile_image_prompt_returns_compiled_prompt(
-    test_db, temp_db_path, db_with_users, tmp_path
+    test_db, temp_db_path, db_with_users, tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     """Compile endpoint should return deterministic selection metadata + prompt."""
-    policies = tmp_path / "policies"
+    world_id = database.DEFAULT_WORLD_ID
+    world_root = tmp_path / world_id
+    policies = world_root / "policies"
     _write_manifest_compile_policy_package(policies)
 
-    world = _build_prompt_world(tmp_path)
-    engine = _build_lab_engine(world)
+    world = _build_prompt_world(world_root)
+    world.world_id = world_id
+    engine = _build_lab_engine(world, world_id=world_id)
     app = FastAPI()
     register_routes(app, engine)
     client = TestClient(app)
 
     with use_test_database(temp_db_path):
+        _import_world_policy_files_into_canonical_db(
+            monkeypatch=monkeypatch,
+            world_root=world_root,
+            world_id=world_id,
+        )
         sid = _login(client, "testadmin")
         resp = client.post(
             "/api/lab/compile-image-prompt",
             json={
                 "session_id": sid,
-                "world_id": "test_world",
+                "world_id": world_id,
                 "species": "goblin",
                 "gender": "male",
                 "axes": {
@@ -1075,7 +1110,7 @@ def test_compile_image_prompt_returns_compiled_prompt(
 
     assert resp.status_code == 200
     data = resp.json()
-    assert data["world_id"] == "test_world"
+    assert data["world_id"] == world_id
     assert data["selected_species_block_id"] == "goblin_pipeworks_v1"
     assert data["selected_clothing_profile_id"] == "clothing_default_v1"
     assert data["selected_clothing_slot_ids"]["environment"] == "clothing_environment_coastal_v1"
@@ -1091,25 +1126,33 @@ def test_compile_image_prompt_returns_compiled_prompt(
 
 @pytest.mark.api
 def test_compile_image_prompt_returns_409_when_species_block_unmatched(
-    test_db, temp_db_path, db_with_users, tmp_path
+    test_db, temp_db_path, db_with_users, tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     """Compile endpoint should reject requests with no matching species block."""
-    policies = tmp_path / "policies"
+    world_id = database.DEFAULT_WORLD_ID
+    world_root = tmp_path / world_id
+    policies = world_root / "policies"
     _write_manifest_compile_policy_package(policies)
 
-    world = _build_prompt_world(tmp_path)
-    engine = _build_lab_engine(world)
+    world = _build_prompt_world(world_root)
+    world.world_id = world_id
+    engine = _build_lab_engine(world, world_id=world_id)
     app = FastAPI()
     register_routes(app, engine)
     client = TestClient(app)
 
     with use_test_database(temp_db_path):
+        _import_world_policy_files_into_canonical_db(
+            monkeypatch=monkeypatch,
+            world_root=world_root,
+            world_id=world_id,
+        )
         sid = _login(client, "testadmin")
         resp = client.post(
             "/api/lab/compile-image-prompt",
             json={
                 "session_id": sid,
-                "world_id": "test_world",
+                "world_id": world_id,
                 "species": "human",
                 "gender": "male",
                 "axes": {"wealth": {"label": "modest", "score": 0.33}},
@@ -1121,24 +1164,38 @@ def test_compile_image_prompt_returns_409_when_species_block_unmatched(
 
 
 @pytest.mark.api
-def test_compile_image_prompt_gender_validation(test_db, temp_db_path, db_with_users, tmp_path):
+def test_compile_image_prompt_gender_validation(
+    test_db,
+    temp_db_path,
+    db_with_users,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Compile endpoint should reject invalid gender values at request validation."""
-    policies = tmp_path / "policies"
+    world_id = database.DEFAULT_WORLD_ID
+    world_root = tmp_path / world_id
+    policies = world_root / "policies"
     _write_manifest_compile_policy_package(policies)
 
-    world = _build_prompt_world(tmp_path)
-    engine = _build_lab_engine(world)
+    world = _build_prompt_world(world_root)
+    world.world_id = world_id
+    engine = _build_lab_engine(world, world_id=world_id)
     app = FastAPI()
     register_routes(app, engine)
     client = TestClient(app)
 
     with use_test_database(temp_db_path):
+        _import_world_policy_files_into_canonical_db(
+            monkeypatch=monkeypatch,
+            world_root=world_root,
+            world_id=world_id,
+        )
         sid = _login(client, "testadmin")
         resp = client.post(
             "/api/lab/compile-image-prompt",
             json={
                 "session_id": sid,
-                "world_id": "test_world",
+                "world_id": world_id,
                 "species": "goblin",
                 "gender": "invalid",
                 "axes": {"wealth": {"label": "modest", "score": 0.33}},
@@ -1150,25 +1207,37 @@ def test_compile_image_prompt_gender_validation(test_db, temp_db_path, db_with_u
 
 @pytest.mark.api
 def test_compile_image_prompt_missing_axes_when_required_returns_409(
-    test_db, temp_db_path, db_with_users, tmp_path
+    test_db,
+    temp_db_path,
+    db_with_users,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """Compile endpoint should reject empty axes payload when manifest requires axes."""
-    policies = tmp_path / "policies"
+    world_id = database.DEFAULT_WORLD_ID
+    world_root = tmp_path / world_id
+    policies = world_root / "policies"
     _write_manifest_compile_policy_package(policies)
 
-    world = _build_prompt_world(tmp_path)
-    engine = _build_lab_engine(world)
+    world = _build_prompt_world(world_root)
+    world.world_id = world_id
+    engine = _build_lab_engine(world, world_id=world_id)
     app = FastAPI()
     register_routes(app, engine)
     client = TestClient(app)
 
     with use_test_database(temp_db_path):
+        _import_world_policy_files_into_canonical_db(
+            monkeypatch=monkeypatch,
+            world_root=world_root,
+            world_id=world_id,
+        )
         sid = _login(client, "testadmin")
         resp = client.post(
             "/api/lab/compile-image-prompt",
             json={
                 "session_id": sid,
-                "world_id": "test_world",
+                "world_id": world_id,
                 "species": "goblin",
                 "gender": "male",
                 "axes": {},
@@ -1181,20 +1250,27 @@ def test_compile_image_prompt_missing_axes_when_required_returns_409(
 
 @pytest.mark.api
 def test_compile_image_prompt_policy_hash_changes_on_block_content_change(
-    test_db, temp_db_path, db_with_users, tmp_path
+    test_db,
+    temp_db_path,
+    db_with_users,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """Policy hash should change when referenced block content changes at same path."""
-    policies = tmp_path / "policies"
+    world_id = database.DEFAULT_WORLD_ID
+    world_root = tmp_path / world_id
+    policies = world_root / "policies"
     _write_manifest_compile_policy_package(policies)
 
-    world = _build_prompt_world(tmp_path)
-    engine = _build_lab_engine(world)
+    world = _build_prompt_world(world_root)
+    world.world_id = world_id
+    engine = _build_lab_engine(world, world_id=world_id)
     app = FastAPI()
     register_routes(app, engine)
     client = TestClient(app)
 
     payload = {
-        "world_id": "test_world",
+        "world_id": world_id,
         "species": "goblin",
         "gender": "male",
         "axes": {
@@ -1206,6 +1282,11 @@ def test_compile_image_prompt_policy_hash_changes_on_block_content_change(
     }
 
     with use_test_database(temp_db_path):
+        _import_world_policy_files_into_canonical_db(
+            monkeypatch=monkeypatch,
+            world_root=world_root,
+            world_id=world_id,
+        )
         sid = _login(client, "testadmin")
         resp_one = client.post(
             "/api/lab/compile-image-prompt",
@@ -1214,14 +1295,17 @@ def test_compile_image_prompt_policy_hash_changes_on_block_content_change(
         assert resp_one.status_code == 200
         policy_hash_one = resp_one.json()["policy_hash"]
 
-        # Keep path stable; mutate referenced file content only.
-        block_path = (
-            policies / "image" / "blocks" / "clothing" / "activity" / "general_labour_v1.txt"
+        # Mutate active canonical DB clothing block content and verify hash changes.
+        updated_variant = policy_service.upsert_policy_variant(
+            policy_id="clothing_block:image.blocks.clothing.activity:general_labour",
+            variant="v1",
+            schema_version="1.0",
+            policy_version=1,
+            status="active",
+            content={"text": "Garments suggest sustained manual work with reinforced seams."},
+            updated_by="test-editor",
         )
-        block_path.write_text(
-            "Garments suggest sustained manual work with reinforced seams.",
-            encoding="utf-8",
-        )
+        assert updated_variant["policy_id"].startswith("clothing_block:")
 
         resp_two = client.post(
             "/api/lab/compile-image-prompt",
@@ -2102,7 +2186,7 @@ def test_world_policy_bundle_returns_normalized_bundle(
     """Policy-bundle endpoint returns the canonical policy package as normalized JSON."""
     policies = tmp_path / "policies"
     policies.mkdir()
-    (policies / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "axes.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2112,7 +2196,7 @@ def test_world_policy_bundle_returns_normalized_bundle(
         "      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policies / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "thresholds.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2122,7 +2206,7 @@ def test_world_policy_bundle_returns_normalized_bundle(
         "      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policies / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "resolution.yaml").write_text(
         'version: "1.0"\n'
         "interactions:\n"
         "  chat:\n"
@@ -2154,9 +2238,9 @@ def test_world_policy_bundle_returns_normalized_bundle(
     assert data["world_id"] == "test_world"
     assert data["version"] == "0.1.0"
     assert data["source_files"] == [
-        "policies/axes.yaml",
-        "policies/thresholds.yaml",
-        "policies/resolution.yaml",
+        "policies/axis/axes.yaml",
+        "policies/axis/thresholds.yaml",
+        "policies/axis/resolution.yaml",
     ]
     assert data["axes_order"] == ["demeanor"]
     assert data["axes"]["demeanor"]["ordering"] == ["timid", "proud"]
@@ -2198,7 +2282,7 @@ def test_world_policy_bundle_draft_create_writes_json_file(
     """Policy-bundle draft endpoint writes a create-only JSON draft under policies/drafts."""
     policies = tmp_path / "policies"
     policies.mkdir()
-    (policies / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "axes.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2208,7 +2292,7 @@ def test_world_policy_bundle_draft_create_writes_json_file(
         "      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policies / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "thresholds.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2218,7 +2302,7 @@ def test_world_policy_bundle_draft_create_writes_json_file(
         "      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policies / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "resolution.yaml").write_text(
         'version: "1.0"\n'
         "interactions:\n"
         "  chat:\n"
@@ -2298,7 +2382,7 @@ def test_world_policy_bundle_draft_create_rejects_name_collision(
     """Policy-bundle draft endpoint refuses to overwrite an existing draft file."""
     policies = tmp_path / "policies"
     policies.mkdir()
-    (policies / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "axes.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2308,7 +2392,7 @@ def test_world_policy_bundle_draft_create_rejects_name_collision(
         "      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policies / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "thresholds.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2318,7 +2402,7 @@ def test_world_policy_bundle_draft_create_rejects_name_collision(
         "      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policies / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "resolution.yaml").write_text(
         'version: "1.0"\n'
         "interactions:\n"
         "  chat:\n"
@@ -2396,7 +2480,7 @@ def test_world_policy_bundle_drafts_lists_saved_drafts(
     """Policy-bundle draft listing returns saved JSON drafts for one world."""
     policies = tmp_path / "policies"
     policies.mkdir()
-    (policies / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "axes.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2406,7 +2490,7 @@ def test_world_policy_bundle_drafts_lists_saved_drafts(
         "      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policies / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "thresholds.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2416,7 +2500,7 @@ def test_world_policy_bundle_drafts_lists_saved_drafts(
         "      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policies / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "resolution.yaml").write_text(
         'version: "1.0"\n'
         "interactions:\n"
         "  chat:\n"
@@ -2462,7 +2546,7 @@ def test_world_policy_bundle_draft_loads_saved_draft(
     """Policy-bundle draft load returns one saved JSON draft document."""
     policies = tmp_path / "policies"
     policies.mkdir()
-    (policies / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "axes.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2472,7 +2556,7 @@ def test_world_policy_bundle_draft_loads_saved_draft(
         "      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policies / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "thresholds.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2482,7 +2566,7 @@ def test_world_policy_bundle_draft_loads_saved_draft(
         "      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policies / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "resolution.yaml").write_text(
         'version: "1.0"\n'
         "interactions:\n"
         "  chat:\n"
@@ -2567,16 +2651,20 @@ def test_world_policy_bundle_draft_promote_rewrites_canonical_files(
     assert data["name"] == "test_world_bundle_alt"
     assert data["canonical_name"] == "test_world_policy_bundle"
     assert data["source_files"] == [
-        "policies/axes.yaml",
-        "policies/thresholds.yaml",
-        "policies/resolution.yaml",
+        "policies/axis/axes.yaml",
+        "policies/axis/thresholds.yaml",
+        "policies/axis/resolution.yaml",
     ]
     assert data["version"] == "0.2.0"
     assert data["policy_hash"]
 
-    axes_payload = yaml.safe_load((policies / "axes.yaml").read_text(encoding="utf-8"))
-    thresholds_payload = yaml.safe_load((policies / "thresholds.yaml").read_text(encoding="utf-8"))
-    resolution_payload = yaml.safe_load((policies / "resolution.yaml").read_text(encoding="utf-8"))
+    axes_payload = yaml.safe_load((policies / "axis" / "axes.yaml").read_text(encoding="utf-8"))
+    thresholds_payload = yaml.safe_load(
+        (policies / "axis" / "thresholds.yaml").read_text(encoding="utf-8")
+    )
+    resolution_payload = yaml.safe_load(
+        (policies / "axis" / "resolution.yaml").read_text(encoding="utf-8")
+    )
     assert axes_payload["version"] == "0.2.0"
     assert axes_payload["source"] == "lab draft"
     assert axes_payload["axes"]["demeanor"]["ordering"]["values"] == ["timid", "proud"]
@@ -2787,7 +2875,7 @@ def test_world_policy_bundle_draft_create_rejects_invalid_name(
     """Policy-bundle draft endpoint rejects names outside the safe draft pattern."""
     policies = tmp_path / "policies"
     policies.mkdir()
-    (policies / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "axes.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2797,7 +2885,7 @@ def test_world_policy_bundle_draft_create_rejects_invalid_name(
         "      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policies / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "thresholds.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2807,7 +2895,7 @@ def test_world_policy_bundle_draft_create_rejects_invalid_name(
         "      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policies / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "resolution.yaml").write_text(
         'version: "1.0"\n'
         "interactions:\n"
         "  chat:\n"
@@ -2875,7 +2963,7 @@ def test_world_policy_bundle_draft_create_rejects_world_mismatch(
     """Policy-bundle draft endpoint rejects payloads whose world_id does not match."""
     policies = tmp_path / "policies"
     policies.mkdir()
-    (policies / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "axes.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2885,7 +2973,7 @@ def test_world_policy_bundle_draft_create_rejects_world_mismatch(
         "      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policies / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "thresholds.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2895,7 +2983,7 @@ def test_world_policy_bundle_draft_create_rejects_world_mismatch(
         "      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policies / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "resolution.yaml").write_text(
         'version: "1.0"\n'
         "interactions:\n"
         "  chat:\n"
@@ -2963,7 +3051,7 @@ def test_world_policy_bundle_drafts_returns_empty_when_drafts_dir_missing(
     """Policy-bundle draft listing returns an empty list when no drafts directory exists."""
     policies = tmp_path / "policies"
     policies.mkdir()
-    (policies / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "axes.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2973,7 +3061,7 @@ def test_world_policy_bundle_drafts_returns_empty_when_drafts_dir_missing(
         "      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policies / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "thresholds.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -2983,7 +3071,7 @@ def test_world_policy_bundle_drafts_returns_empty_when_drafts_dir_missing(
         "      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policies / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "resolution.yaml").write_text(
         'version: "1.0"\n'
         "interactions:\n"
         "  chat:\n"
@@ -3021,7 +3109,7 @@ def test_world_policy_bundle_drafts_skips_invalid_and_mismatched_files(
     """Policy-bundle draft listing skips invalid JSON files and mismatched-world drafts."""
     policies = tmp_path / "policies"
     policies.mkdir()
-    (policies / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "axes.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -3031,7 +3119,7 @@ def test_world_policy_bundle_drafts_skips_invalid_and_mismatched_files(
         "      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policies / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "thresholds.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -3041,7 +3129,7 @@ def test_world_policy_bundle_drafts_skips_invalid_and_mismatched_files(
         "      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policies / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "resolution.yaml").write_text(
         'version: "1.0"\n'
         "interactions:\n"
         "  chat:\n"
@@ -3091,7 +3179,7 @@ def test_world_policy_bundle_draft_load_rejects_invalid_name(
     """Policy-bundle draft load rejects names outside the safe draft pattern."""
     policies = tmp_path / "policies"
     policies.mkdir()
-    (policies / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "axes.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -3101,7 +3189,7 @@ def test_world_policy_bundle_draft_load_rejects_invalid_name(
         "      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policies / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "thresholds.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -3111,7 +3199,7 @@ def test_world_policy_bundle_draft_load_rejects_invalid_name(
         "      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policies / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "resolution.yaml").write_text(
         'version: "1.0"\n'
         "interactions:\n"
         "  chat:\n"
@@ -3150,7 +3238,7 @@ def test_world_policy_bundle_draft_load_returns_404_when_missing(
     """Policy-bundle draft load returns 404 when the requested draft file is absent."""
     policies = tmp_path / "policies"
     policies.mkdir()
-    (policies / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "axes.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -3160,7 +3248,7 @@ def test_world_policy_bundle_draft_load_returns_404_when_missing(
         "      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policies / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "thresholds.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -3170,7 +3258,7 @@ def test_world_policy_bundle_draft_load_returns_404_when_missing(
         "      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policies / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "resolution.yaml").write_text(
         'version: "1.0"\n'
         "interactions:\n"
         "  chat:\n"
@@ -3209,7 +3297,7 @@ def test_world_policy_bundle_draft_load_rejects_invalid_file_on_disk(
     """Policy-bundle draft load returns 500 when the saved draft file is invalid JSON."""
     policies = tmp_path / "policies"
     policies.mkdir()
-    (policies / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "axes.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -3219,7 +3307,7 @@ def test_world_policy_bundle_draft_load_rejects_invalid_file_on_disk(
         "      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policies / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "thresholds.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -3229,7 +3317,7 @@ def test_world_policy_bundle_draft_load_rejects_invalid_file_on_disk(
         "      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policies / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "resolution.yaml").write_text(
         'version: "1.0"\n'
         "interactions:\n"
         "  chat:\n"
@@ -3272,7 +3360,7 @@ def test_world_policy_bundle_draft_load_rejects_mismatched_world_file(
     """Policy-bundle draft load returns 409 when the saved draft belongs to another world."""
     policies = tmp_path / "policies"
     policies.mkdir()
-    (policies / "axes.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "axes.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -3282,7 +3370,7 @@ def test_world_policy_bundle_draft_load_rejects_mismatched_world_file(
         "      values: [timid, proud]\n",
         encoding="utf-8",
     )
-    (policies / "thresholds.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "thresholds.yaml").write_text(
         "version: 0.1.0\n"
         "axes:\n"
         "  demeanor:\n"
@@ -3292,7 +3380,7 @@ def test_world_policy_bundle_draft_load_rejects_mismatched_world_file(
         "      proud: {min: 0.5, max: 1.0}\n",
         encoding="utf-8",
     )
-    (policies / "resolution.yaml").write_text(
+    (_ensure_axis_policy_dir(policies) / "resolution.yaml").write_text(
         'version: "1.0"\n'
         "interactions:\n"
         "  chat:\n"

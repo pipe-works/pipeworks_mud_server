@@ -11,10 +11,10 @@ from mud_server.policies import AxisPolicyLoader
 
 def _write_policy(world_root: Path, axes_yaml: str, thresholds_yaml: str) -> None:
     """Write policy fixtures into a world package."""
-    policies_dir = world_root / "policies"
-    policies_dir.mkdir(parents=True, exist_ok=True)
-    (policies_dir / "axes.yaml").write_text(axes_yaml, encoding="utf-8")
-    (policies_dir / "thresholds.yaml").write_text(thresholds_yaml, encoding="utf-8")
+    axis_dir = world_root / "policies" / "axis"
+    axis_dir.mkdir(parents=True, exist_ok=True)
+    (axis_dir / "axes.yaml").write_text(axes_yaml, encoding="utf-8")
+    (axis_dir / "thresholds.yaml").write_text(thresholds_yaml, encoding="utf-8")
 
 
 def _write_manifest_axis_paths(world_root: Path) -> None:
@@ -244,3 +244,54 @@ axes:
     assert report.axes == ["manifest_only"]
     assert "ordering missing for axis: manifest_only" not in report.missing_components
     assert "thresholds missing for axis: manifest_only" not in report.missing_components
+
+
+@pytest.mark.unit
+def test_axis_policy_loader_manifest_mode_does_not_fallback_to_default_axis_paths(
+    tmp_path: Path,
+) -> None:
+    """When manifest exists, missing manifest assets must not use non-manifest axis files."""
+    world_id = "manifest_missing_axis_files"
+    world_root = tmp_path / world_id
+    _write_policy(
+        world_root,
+        """
+version: 0.1.0
+axes:
+  legacy_only:
+    values: [a, b]
+    ordering:
+      type: ordinal
+      values: [a, b]
+""",
+        """
+version: 0.1.0
+axes:
+  legacy_only:
+    values:
+      a: { min: 0.0, max: 0.5 }
+      b: { min: 0.5, max: 1.0 }
+""",
+    )
+    _write_manifest_axis_paths(world_root)
+    manifest_path = world_root / "policies" / "manifest.yaml"
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    manifest_path.write_text(
+        manifest_text.replace("policies/axis/axes.yaml", "policies/axis/missing_axes.yaml").replace(
+            "policies/axis/thresholds.yaml", "policies/axis/missing_thresholds.yaml"
+        ),
+        encoding="utf-8",
+    )
+
+    loader = AxisPolicyLoader(worlds_root=tmp_path)
+    _payload, report = loader.load(world_id)
+
+    assert report.axes == []
+    assert "axes list missing or empty" in report.missing_components
+    assert (
+        "manifest axis payload missing or invalid: axis.active_bundle" in report.missing_components
+    )
+    assert (
+        "manifest threshold payload missing or invalid: axis.active_bundle"
+        in report.missing_components
+    )

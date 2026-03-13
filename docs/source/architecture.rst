@@ -242,7 +242,7 @@ Located in ``src/mud_server/axis/``:
 * ``engine.py`` — ``AxisEngine``: coordinates resolution for all axes
   defined in the world grammar.  One instance per world, instantiated
   at startup.
-* ``grammar.py`` — Loads and validates ``policies/resolution.yaml``.
+* ``grammar.py`` — Loads and validates ``policies/axis/resolution.yaml``.
   The grammar is immutable after load; field values drive resolver
   dispatch and parameter passing.
 * ``resolvers.py`` — Pure stateless functions:

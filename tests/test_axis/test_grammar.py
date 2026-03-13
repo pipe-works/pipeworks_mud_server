@@ -25,9 +25,9 @@ from mud_server.axis.grammar import (
 
 def _write_grammar(tmp_path: Path, content: dict | str) -> Path:
     """Write a resolution.yaml to a tmp world_root and return the world_root."""
-    policies = tmp_path / "policies"
-    policies.mkdir()
-    grammar_path = policies / "resolution.yaml"
+    axis_dir = tmp_path / "policies" / "axis"
+    axis_dir.mkdir(parents=True, exist_ok=True)
+    grammar_path = axis_dir / "resolution.yaml"
     if isinstance(content, dict):
         grammar_path.write_text(yaml.dump(content))
     else:
