@@ -1807,6 +1807,130 @@ def get_effective_policy_variant(
     return row
 
 
+def resolve_effective_prompt_template(
+    *,
+    scope: ActivationScope,
+    preferred_policy_id: str | None = None,
+    preferred_template_path: str | None,
+) -> dict[str, str]:
+    """Resolve the canonical effective prompt template for one scope.
+
+    Selection rules:
+    1. Resolve effective Layer 3 activation rows for the scope.
+    2. Keep only ``prompt:*`` policy rows.
+    3. If ``preferred_policy_id`` is provided, select that policy id from
+       effective activations.
+    4. Else if ``preferred_template_path`` maps to a canonical prompt policy id,
+       select that policy id from effective activations.
+    5. Otherwise, require exactly one effective prompt activation.
+    6. Return canonical prompt metadata and ``content.text`` template value.
+    """
+    _ensure_world_exists(scope.world_id)
+
+    selected_policy_id_hint: str | None = None
+    if preferred_policy_id:
+        identity = _parse_policy_id(preferred_policy_id)
+        if identity.policy_type != "prompt":
+            raise PolicyServiceError(
+                status_code=422,
+                code="POLICY_PROMPT_SELECTOR_INVALID",
+                detail=(
+                    "Configured prompt policy selector must reference a prompt policy_id; "
+                    f"got {preferred_policy_id!r}."
+                ),
+            )
+        selected_policy_id_hint = preferred_policy_id
+    elif preferred_template_path:
+        preferred_reference = _policy_reference_from_legacy_path(preferred_template_path)
+        if preferred_reference is not None and str(
+            preferred_reference.get("policy_id", "")
+        ).startswith("prompt:"):
+            selected_policy_id_hint = str(preferred_reference["policy_id"])
+
+    effective_rows = resolve_effective_policy_activations(scope=scope)
+    prompt_rows = [
+        row for row in effective_rows if str(row.get("policy_id", "")).startswith("prompt:")
+    ]
+    if not prompt_rows:
+        raise PolicyServiceError(
+            status_code=404,
+            code="POLICY_EFFECTIVE_PROMPT_NOT_FOUND",
+            detail=(
+                "No effective prompt activation found for scope "
+                f"(world_id={scope.world_id!r}, client_profile={scope.client_profile!r})."
+            ),
+        )
+
+    selected_activation: dict[str, Any] | None = None
+    if selected_policy_id_hint is not None:
+        for row in prompt_rows:
+            if str(row["policy_id"]) == selected_policy_id_hint:
+                selected_activation = row
+                break
+        if selected_activation is None:
+            raise PolicyServiceError(
+                status_code=404,
+                code="POLICY_EFFECTIVE_PROMPT_NOT_FOUND",
+                detail=(
+                    "Configured prompt selector does not resolve to an effective prompt "
+                    "activation "
+                    f"(policy_id={preferred_policy_id!r}, template_path={preferred_template_path!r})."
+                ),
+            )
+    elif len(prompt_rows) == 1:
+        selected_activation = prompt_rows[0]
+    else:
+        raise PolicyServiceError(
+            status_code=409,
+            code="POLICY_EFFECTIVE_PROMPT_AMBIGUOUS",
+            detail=(
+                "Multiple effective prompt activations are present. Provide a configured "
+                "prompt_policy_id (preferred) or prompt_template_path that maps to one "
+                "canonical prompt policy."
+            ),
+        )
+
+    selected_policy_id = str(selected_activation["policy_id"])
+    selected_variant = str(selected_activation["variant"])
+    selected_policy = policy_repo.get_policy(
+        policy_id=selected_policy_id,
+        variant=selected_variant,
+    )
+    if selected_policy is None:
+        raise PolicyServiceError(
+            status_code=409,
+            code="POLICY_EFFECTIVE_REFERENCE_MISSING",
+            detail=(
+                "Effective prompt activation points to missing policy variant: "
+                f"{selected_policy_id}:{selected_variant}"
+            ),
+        )
+
+    content = selected_policy.get("content")
+    if not isinstance(content, dict):
+        raise PolicyServiceError(
+            status_code=422,
+            code="POLICY_EFFECTIVE_PROMPT_INVALID",
+            detail="Effective prompt content must be an object.",
+        )
+    content_text = content.get("text")
+    if not isinstance(content_text, str) or not content_text.strip():
+        raise PolicyServiceError(
+            status_code=422,
+            code="POLICY_EFFECTIVE_PROMPT_INVALID",
+            detail="Effective prompt content.text must be a non-empty string.",
+        )
+
+    return {
+        "policy_id": selected_policy_id,
+        "variant": selected_variant,
+        "namespace": str(selected_policy.get("namespace", "")),
+        "policy_key": str(selected_policy.get("policy_key", "")),
+        "content_text": content_text,
+        "content_hash": str(selected_policy.get("content_hash", "")),
+    }
+
+
 def resolve_effective_axis_bundle(*, scope: ActivationScope) -> EffectiveAxisBundle:
     """Resolve canonical manifest + axis-bundle payloads for one runtime scope.
 

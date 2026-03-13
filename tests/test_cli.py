@@ -9,6 +9,7 @@ Tests cover:
 """
 
 import argparse
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -63,7 +64,35 @@ def test_get_superuser_credentials_from_env_neither_set():
 def test_cmd_init_db_success():
     """Test init-db command succeeds."""
     with patch("mud_server.db.database.init_database") as mock_init:
+        with patch(
+            "mud_server.cli._import_registered_world_policies_for_init",
+            return_value=0,
+        ) as mock_import:
+            with patch(
+                "mud_server.config.config",
+                SimpleNamespace(
+                    database=SimpleNamespace(absolute_path=Path("/tmp/mud_server_test.db")),
+                    worlds=SimpleNamespace(default_world_id="pipeworks_web"),
+                ),
+            ):
+                args = argparse.Namespace(skip_policy_import=False)
+                result = cli.cmd_init_db(args)
+
+            assert result == 0
+            mock_init.assert_called_once()
+            mock_import.assert_called_once_with(
+                actor="system-bootstrap",
+                status="active",
+                world_ids=["pipeworks_web"],
+            )
+
+
+@pytest.mark.unit
+def test_cmd_init_db_skip_policy_import_flag():
+    """Test init-db can skip policy bootstrap import when explicitly requested."""
+    with patch("mud_server.db.database.init_database") as mock_init:
         args = argparse.Namespace()
+        args.skip_policy_import = True
         result = cli.cmd_init_db(args)
 
         assert result == 0
@@ -133,6 +162,123 @@ def test_cmd_init_db_migrate_missing_script(tmp_path, monkeypatch):
     result = cli.cmd_init_db(args)
 
     assert result == 1
+
+
+@pytest.mark.unit
+def test_cmd_init_db_returns_error_when_policy_import_fails():
+    """init-db should return non-zero when bootstrap policy import reports failures."""
+    with patch("mud_server.db.database.init_database") as mock_init:
+        with patch("mud_server.cli._import_registered_world_policies_for_init", return_value=2):
+            with patch(
+                "mud_server.config.config",
+                SimpleNamespace(
+                    database=SimpleNamespace(absolute_path=Path("/tmp/mud_server_test.db")),
+                    worlds=SimpleNamespace(default_world_id="pipeworks_web"),
+                ),
+            ):
+                args = argparse.Namespace(skip_policy_import=False)
+                result = cli.cmd_init_db(args)
+
+    assert result == 1
+    mock_init.assert_called_once()
+
+
+@pytest.mark.unit
+def test_import_registered_world_policies_for_init_success(monkeypatch):
+    """World bootstrap helper should import/activate policies for each registered world."""
+    monkeypatch.setattr(
+        "mud_server.core.world_registry.WorldRegistry",
+        lambda: SimpleNamespace(list_worlds=lambda include_inactive: [{"id": "pipeworks_web"}]),
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_import(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            imported_count=5,
+            updated_count=0,
+            skipped_count=0,
+            error_count=0,
+            activated_count=5,
+            activation_skipped_count=0,
+        )
+
+    monkeypatch.setattr(
+        "mud_server.services.policy_service.import_world_policies_from_legacy_files",
+        _fake_import,
+    )
+
+    failures = cli._import_registered_world_policies_for_init(
+        actor="system-bootstrap", status="active"
+    )
+    assert failures == 0
+    assert captured == {
+        "world_id": "pipeworks_web",
+        "actor": "system-bootstrap",
+        "activate": True,
+        "status": "active",
+    }
+
+
+@pytest.mark.unit
+def test_import_registered_world_policies_for_init_counts_failures(monkeypatch):
+    """World bootstrap helper should accumulate malformed rows and service failures."""
+    monkeypatch.setattr(
+        "mud_server.core.world_registry.WorldRegistry",
+        lambda: SimpleNamespace(
+            list_worlds=lambda include_inactive: [{"name": "missing-id"}, {"id": "pipeworks_web"}]
+        ),
+    )
+
+    from mud_server.services.policy_service import PolicyServiceError
+
+    monkeypatch.setattr(
+        "mud_server.services.policy_service.import_world_policies_from_legacy_files",
+        lambda **kwargs: (_ for _ in ()).throw(
+            PolicyServiceError(
+                status_code=500,
+                code="POLICY_IMPORT_FAILED",
+                detail="boom",
+            )
+        ),
+    )
+
+    failures = cli._import_registered_world_policies_for_init(actor="bootstrap", status="active")
+    assert failures == 2
+
+
+@pytest.mark.unit
+def test_import_registered_world_policies_for_init_respects_explicit_world_ids(monkeypatch):
+    """Explicit world list should bypass world-registry discovery."""
+    monkeypatch.setattr(
+        "mud_server.core.world_registry.WorldRegistry",
+        lambda: (_ for _ in ()).throw(AssertionError("WorldRegistry should not be used")),
+    )
+    captured_worlds: list[str] = []
+
+    def _fake_import(**kwargs):
+        captured_worlds.append(str(kwargs["world_id"]))
+        return SimpleNamespace(
+            imported_count=0,
+            updated_count=0,
+            skipped_count=1,
+            error_count=0,
+            activated_count=0,
+            activation_skipped_count=1,
+        )
+
+    monkeypatch.setattr(
+        "mud_server.services.policy_service.import_world_policies_from_legacy_files",
+        _fake_import,
+    )
+
+    failures = cli._import_registered_world_policies_for_init(
+        actor="bootstrap",
+        status="active",
+        world_ids=["pipeworks_web"],
+    )
+    assert failures == 0
+    assert captured_worlds == ["pipeworks_web"]
 
 
 # ============================================================================
@@ -906,7 +1052,7 @@ def test_main_no_command(capsys):
 @pytest.mark.unit
 def test_main_init_db():
     """Test main routes to init-db command."""
-    with patch("sys.argv", ["mud-server", "init-db"]):
+    with patch("sys.argv", ["mud-server", "init-db", "--skip-policy-import"]):
         with patch("mud_server.db.database.init_database"):
             result = cli.main()
             assert result == 0

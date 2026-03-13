@@ -35,6 +35,28 @@ def _seed_species_variant(*, policy_key: str, variant: str, policy_version: int)
     return policy_id
 
 
+def _seed_prompt_variant(
+    *,
+    namespace: str,
+    policy_key: str,
+    variant: str,
+    policy_version: int,
+    text: str,
+) -> str:
+    """Create one prompt variant row through the service and return policy_id."""
+    policy_id = f"prompt:{namespace}:{policy_key}"
+    policy_service.upsert_policy_variant(
+        policy_id=policy_id,
+        variant=variant,
+        schema_version="1.0",
+        policy_version=policy_version,
+        status="candidate",
+        content={"text": text},
+        updated_by="tester",
+    )
+    return policy_id
+
+
 def _seed_descriptor_layer_variant(
     *,
     policy_key: str,
@@ -2501,6 +2523,142 @@ def test_publish_scope_surfaces_artifact_write_failures(test_db, monkeypatch, tm
             actor="tester",
         )
     assert error.value.code == "POLICY_PUBLISH_ARTIFACT_WRITE_ERROR"
+
+
+@pytest.mark.unit
+def test_resolve_effective_prompt_template_prefers_configured_template_path(test_db) -> None:
+    """Prompt resolution should follow configured template path when available."""
+    default_prompt_id = _seed_prompt_variant(
+        namespace="translation.prompts.ic",
+        policy_key="default",
+        variant="v1",
+        policy_version=1,
+        text="Default prompt template",
+    )
+    fallback_prompt_id = _seed_prompt_variant(
+        namespace="translation.prompts.ic",
+        policy_key="alt",
+        variant="v1",
+        policy_version=1,
+        text="Alternate prompt template",
+    )
+    scope = ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile="")
+    policy_service.set_policy_activation(
+        scope=scope,
+        policy_id=default_prompt_id,
+        variant="v1",
+        activated_by="tester",
+    )
+    policy_service.set_policy_activation(
+        scope=scope,
+        policy_id=fallback_prompt_id,
+        variant="v1",
+        activated_by="tester",
+    )
+
+    result = policy_service.resolve_effective_prompt_template(
+        scope=scope,
+        preferred_template_path="policies/translation/prompts/ic/default_v1.txt",
+    )
+    assert result["policy_id"] == default_prompt_id
+    assert result["variant"] == "v1"
+    assert result["content_text"] == "Default prompt template"
+
+
+@pytest.mark.unit
+def test_resolve_effective_prompt_template_rejects_ambiguous_prompt_set(test_db) -> None:
+    """Prompt resolution should fail when multiple effective prompts exist and no selector is set."""
+    first_prompt_id = _seed_prompt_variant(
+        namespace="translation.prompts.ic",
+        policy_key="default",
+        variant="v1",
+        policy_version=1,
+        text="Default prompt template",
+    )
+    second_prompt_id = _seed_prompt_variant(
+        namespace="translation.prompts.ic",
+        policy_key="alt",
+        variant="v1",
+        policy_version=1,
+        text="Alternate prompt template",
+    )
+    scope = ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile="")
+    policy_service.set_policy_activation(
+        scope=scope,
+        policy_id=first_prompt_id,
+        variant="v1",
+        activated_by="tester",
+    )
+    policy_service.set_policy_activation(
+        scope=scope,
+        policy_id=second_prompt_id,
+        variant="v1",
+        activated_by="tester",
+    )
+
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.resolve_effective_prompt_template(
+            scope=scope,
+            preferred_template_path=None,
+        )
+
+    assert error.value.code == "POLICY_EFFECTIVE_PROMPT_AMBIGUOUS"
+
+
+@pytest.mark.unit
+def test_resolve_effective_prompt_template_prefers_policy_id_selector(test_db) -> None:
+    """Canonical policy_id selector should take precedence over template-path mapping."""
+    default_prompt_id = _seed_prompt_variant(
+        namespace="translation.prompts.ic",
+        policy_key="default",
+        variant="v1",
+        policy_version=1,
+        text="Default prompt template",
+    )
+    alternate_prompt_id = _seed_prompt_variant(
+        namespace="translation.prompts.ic",
+        policy_key="alt",
+        variant="v1",
+        policy_version=1,
+        text="Alternate prompt template",
+    )
+    scope = ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile="")
+    policy_service.set_policy_activation(
+        scope=scope,
+        policy_id=default_prompt_id,
+        variant="v1",
+        activated_by="tester",
+    )
+    policy_service.set_policy_activation(
+        scope=scope,
+        policy_id=alternate_prompt_id,
+        variant="v1",
+        activated_by="tester",
+    )
+
+    result = policy_service.resolve_effective_prompt_template(
+        scope=scope,
+        preferred_policy_id=alternate_prompt_id,
+        preferred_template_path="policies/translation/prompts/ic/default_v1.txt",
+    )
+    assert result["policy_id"] == alternate_prompt_id
+    assert result["content_text"] == "Alternate prompt template"
+
+
+@pytest.mark.unit
+def test_resolve_effective_prompt_template_rejects_non_prompt_policy_selector(test_db) -> None:
+    """Prompt resolver should reject selectors that are not prompt policy ids."""
+    _seed_species_variant(policy_key="goblin", variant="v1", policy_version=1)
+    scope = ActivationScope(world_id=constants.DEFAULT_WORLD_ID, client_profile="")
+
+    with pytest.raises(PolicyServiceError) as error:
+        policy_service.resolve_effective_prompt_template(
+            scope=scope,
+            preferred_policy_id="species_block:image.blocks.species:goblin",
+            preferred_template_path=None,
+        )
+
+    assert error.value.code == "POLICY_PROMPT_SELECTOR_INVALID"
 
 
 @pytest.mark.unit

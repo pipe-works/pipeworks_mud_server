@@ -18,6 +18,7 @@
     "keep_alive": "5m",
     "strict_mode": true,
     "max_output_chars": 280,
+    "prompt_policy_id": "prompt:translation.prompts.ic:default",
     "prompt_template_path": "policies/translation/prompts/ic/default_v1.txt",
     "active_axes": ["demeanor", "health", "physique", "wealth", "facial_signal"],
     "deterministic": false

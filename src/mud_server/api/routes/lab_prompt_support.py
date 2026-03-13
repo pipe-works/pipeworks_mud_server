@@ -104,7 +104,7 @@ def list_world_prompts(world: World, world_id: str) -> LabWorldPromptsResponse:
 
 
 def _resolve_active_prompt_template_path(
-    world_root: Path, world_id: str, configured_active_path: str
+    world_root: Path, world_id: str, configured_active_path: str | None
 ) -> str:
     """Resolve active prompt path, preferring manifest path when available.
 
@@ -118,8 +118,9 @@ def _resolve_active_prompt_template_path(
 
     policy_root = world_root / "policies"
     manifest_path = policy_root / "manifest.yaml"
+    active_path = configured_active_path or ""
     if not manifest_path.exists():
-        return configured_active_path
+        return active_path
 
     loader = PolicyManifestLoader(worlds_root=world_root.parent)
     _payload, report = loader.load_from_world_root(world_id=world_id, world_root=world_root)
@@ -130,7 +131,7 @@ def _resolve_active_prompt_template_path(
     # TODO(refactor-cleanup): remove after manifest migration complete.
     # Fallback to world.json-configured prompt path while manifest adoption
     # is still in progress and some worlds may be partially migrated.
-    return configured_active_path
+    return active_path
 
 
 def create_world_prompt_draft(
