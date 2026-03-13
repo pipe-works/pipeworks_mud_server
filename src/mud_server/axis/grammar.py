@@ -1,26 +1,22 @@
 """Resolution grammar parser and typed rule dataclasses.
 
-The resolution grammar is a per-world, declarative description of how stimuli
-produce axis mutations.  It lives in
-canonical policy content and is loaded once at
-server startup by the :class:`~mud_server.axis.engine.AxisEngine`.
+The resolution grammar is a deterministic rules payload for axis mutations.
+In canonical runtime mode, this payload is resolved from activated DB policy
+variants (``axis_bundle.content.resolution``) and parsed via
+``parse_resolution_grammar_payload``.
 
 Design notes:
-- All dataclasses are frozen (immutable after load).
-- :func:`load_resolution_grammar` raises :exc:`FileNotFoundError` if the
-  grammar file is absent and :exc:`ValueError` on schema validation failure.
-  Neither exception is caught here — the caller (:meth:`World._init_axis_engine`)
-  handles both and disables the engine gracefully on error.
-- ``AxisRuleConfig.base_magnitude`` defaults to ``0.0`` for ``no_effect``
-  resolvers; the YAML may omit the field for those axes.
+1. All dataclasses are frozen (immutable after parse).
+2. This module is payload-based and does not read policy files from disk.
+3. Legacy file loading remains available only in
+   ``mud_server.axis.legacy_file_loader`` for migration/testing workflows.
+4. ``AxisRuleConfig.base_magnitude`` defaults to ``0.0`` for ``no_effect``
+   resolvers; payloads may omit the field for those axes.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
-
-import yaml
 
 # ---------------------------------------------------------------------------
 # Typed dataclasses
@@ -97,43 +93,6 @@ class ResolutionGrammar:
 
     version: str
     chat: ChatGrammar
-
-
-# ---------------------------------------------------------------------------
-# Public loader
-# ---------------------------------------------------------------------------
-
-
-def load_resolution_grammar(world_root: Path) -> ResolutionGrammar:
-    """Load and validate ``policies/axis/resolution.yaml`` from *world_root*.
-
-    The YAML file is parsed once at world startup.  The returned
-    :class:`ResolutionGrammar` is immutable and safe to store on the
-    :class:`~mud_server.axis.engine.AxisEngine` instance for the lifetime of
-    the server.
-
-    Args:
-        world_root: Root directory of the world package.  The grammar file is
-                    expected at ``<world_root>/policies/axis/resolution.yaml``.
-
-    Returns:
-        A fully-constructed, immutable :class:`ResolutionGrammar`.
-
-    Raises:
-        FileNotFoundError: If ``policies/axis/resolution.yaml`` does not exist
-                           under *world_root*.
-        ValueError:        On schema validation failure — missing required keys,
-                           unrecognised resolver names, missing channel
-                           multipliers, or non-numeric magnitude values.
-    """
-    grammar_path = world_root / "policies" / "axis" / "resolution.yaml"
-    if not grammar_path.exists():
-        raise FileNotFoundError(f"Resolution grammar not found: {grammar_path}")
-
-    with grammar_path.open() as fh:
-        raw = yaml.safe_load(fh)
-
-    return parse_resolution_grammar_payload(raw=raw, source="axis/resolution.yaml")
 
 
 def parse_resolution_grammar_payload(*, raw: object, source: str) -> ResolutionGrammar:

@@ -87,7 +87,8 @@ before storing the message:
           ▼
     3. OOCToICTranslationService.translate()
        ├── Build character axis profile
-       ├── Render system prompt from ic_prompt.txt template
+       ├── Resolve active prompt policy via Layer 3 activation
+       ├── Render system prompt from canonical prompt content
        ├── Call Ollama /api/chat
        ├── Validate output (reject PASSTHROUGH, enforce max_chars)
        └── Write chat.translation → JSONL ledger (carries same ipc_hash)
@@ -180,13 +181,11 @@ Each world is a self-contained directory under ``data/worlds/``::
 
     data/worlds/<world_id>/
     ├── world.json              # World metadata and enabled subsystems
-    ├── zones/                  # Zone definitions (rooms, items)
-    └── policies/
-        ├── axes.yaml           # Canonical axis registry
-        ├── thresholds.yaml     # Canonical float-score → label mappings
-        ├── resolution.yaml     # Canonical chat resolver grammar
-        ├── ic_prompt.txt       # Canonical active prompt template
-        └── drafts/             # Lab-created draft prompts + policy bundles
+    └── zones/                  # Zone definitions (rooms, items)
+
+Canonical policy runtime state is stored in SQLite policy tables and selected
+by Layer 3 activation pointers. World policy files are no longer runtime
+authority.
 
 ``world.json`` controls which subsystems are active for a world:
 
@@ -242,9 +241,10 @@ Located in ``src/mud_server/axis/``:
 * ``engine.py`` — ``AxisEngine``: coordinates resolution for all axes
   defined in the world grammar.  One instance per world, instantiated
   at startup.
-* ``grammar.py`` — Loads and validates ``policies/axis/resolution.yaml``.
-  The grammar is immutable after load; field values drive resolver
-  dispatch and parameter passing.
+* ``grammar.py`` — Parses and validates canonical resolution payloads
+  (DB-sourced) into immutable dataclasses used by the axis engine.
+* ``legacy_file_loader.py`` — File-backed grammar loader kept for explicit
+  migration/testing workflows only.
 * ``resolvers.py`` — Pure stateless functions:
 
   * ``dominance_shift`` — winner gains, loser loses; zero below gap threshold
