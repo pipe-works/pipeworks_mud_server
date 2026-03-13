@@ -123,7 +123,7 @@ class TestLoadResolutionGrammarHappyPath:
         world_root = _write_grammar(tmp_path, _VALID_GRAMMAR_DICT)
         grammar = load_resolution_grammar(world_root)
         with pytest.raises((TypeError, AttributeError)):
-            object.__setattr__(grammar, "version", "2.0")
+            grammar.version = "2.0"
 
     def test_real_pipeworks_web_grammar_file_is_absent(self):
         """``pipeworks_web`` runtime is DB-backed and has no required grammar file on disk."""
