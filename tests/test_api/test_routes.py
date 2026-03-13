@@ -12,11 +12,9 @@ Uses TestClient for HTTP request testing.
 """
 
 import sqlite3
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-import yaml
 
 from mud_server.config import config, use_test_database
 from mud_server.db import database
@@ -228,25 +226,41 @@ def test_register_guest_success(test_client, test_db, temp_db_path):
         # DB-first runtime contract: guest axis seeding requires canonical
         # manifest/axis activation plus seeded axis registry rows.
         world_id = database.DEFAULT_WORLD_ID
-        worlds_root = Path(config.worlds.worlds_root)
-        if not worlds_root.is_absolute():
-            worlds_root = Path(__file__).resolve().parents[2] / worlds_root
-        world_root = worlds_root / world_id
-        axis_root = world_root / "policies" / "axis"
-        manifest_path = world_root / "policies" / "manifest.yaml"
+        axes_payload = {
+            "axes": {
+                "wealth": {"ordering": {"type": "ordinal", "values": ["poor", "wealthy"]}},
+                "legitimacy": {
+                    "ordering": {
+                        "type": "ordinal",
+                        "values": ["illicit", "licensed"],
+                    }
+                },
+            }
+        }
+        thresholds_payload = {
+            "axes": {
+                "wealth": {
+                    "values": {
+                        "poor": {"min": 0.0, "max": 0.49},
+                        "wealthy": {"min": 0.5, "max": 1.0},
+                    }
+                },
+                "legitimacy": {
+                    "values": {
+                        "illicit": {"min": 0.0, "max": 0.49},
+                        "licensed": {"min": 0.5, "max": 1.0},
+                    }
+                },
+            }
+        }
+        manifest_payload = {
+            "policy_schema": "pipeworks_policy_v1",
+            "policy_bundle": {"id": "pipeworks_web_default", "version": 1},
+            "axis": {"active_bundle": {"id": "axis_core_v1", "version": 1}},
+        }
 
-        axes_payload = yaml.safe_load((axis_root / "axes.yaml").read_text(encoding="utf-8")) or {}
-        thresholds_payload = (
-            yaml.safe_load((axis_root / "thresholds.yaml").read_text(encoding="utf-8")) or {}
-        )
-        resolution_payload = (
-            yaml.safe_load((axis_root / "resolution.yaml").read_text(encoding="utf-8")) or {}
-        )
-        manifest_payload = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
-
-        active_bundle = (manifest_payload.get("axis") or {}).get("active_bundle") or {}
-        axis_bundle_id = str(active_bundle.get("id") or "default").strip() or "default"
-        axis_bundle_version = int(active_bundle.get("version") or 1)
+        axis_bundle_id = "axis_core_v1"
+        axis_bundle_version = 1
         axis_policy_id = f"axis_bundle:axis.bundles:{axis_bundle_id}"
         axis_variant = f"v{axis_bundle_version}"
         manifest_policy_id = f"manifest_bundle:world.manifests:{world_id}"
@@ -261,7 +275,7 @@ def test_register_guest_success(test_client, test_db, temp_db_path):
             content={
                 "axes": axes_payload,
                 "thresholds": thresholds_payload,
-                "resolution": resolution_payload,
+                "resolution": {"interactions": {"chat": {"axes": {}}}},
             },
             updated_by="test-bootstrap",
         )

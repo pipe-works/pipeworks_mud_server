@@ -36,6 +36,7 @@ from mud_server.core.events import Events
 from mud_server.core.world import World
 from mud_server.core.world_registry import WorldRegistry
 from mud_server.db import facade as database
+from mud_server.services.policy.types import AxisPolicyValidationReport
 
 logger = logging.getLogger(__name__)
 
@@ -214,9 +215,8 @@ class GameEngine:
         thresholds_payload: dict[str, Any],
         policy_hash: str,
         version: str | None,
-    ) -> tuple[dict[str, Any], Any]:
+    ) -> tuple[dict[str, Any], AxisPolicyValidationReport]:
         """Build axis bootstrap payload/report from canonical DB policy content."""
-        from mud_server.policies import AxisPolicyValidationReport
 
         axes_definitions = (
             (axes_payload.get("axes") or {}) if isinstance(axes_payload, dict) else {}
@@ -262,7 +262,7 @@ class GameEngine:
         return payload, report
 
     @staticmethod
-    def _log_axis_policy_report(logger, report) -> None:
+    def _log_axis_policy_report(logger, report: AxisPolicyValidationReport) -> None:
         """
         Log the axis policy validation report for a world.
 

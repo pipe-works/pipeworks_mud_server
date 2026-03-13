@@ -102,7 +102,7 @@ def import_published_artifact(
     error_count = 0
     activation_targets: dict[str, str] = {}
 
-    for index, row in enumerate(variants_payload):
+    for index, row in _ordered_variants_for_import(variants_payload):
         prefix = f"variants[{index}]"
         policy_id: str | None = None
         variant: str | None = None
@@ -239,6 +239,49 @@ def import_published_artifact(
         variants_hash=variants_hash,
         entries=entries,
     )
+
+
+def _ordered_variants_for_import(
+    variants_payload: list[dict[str, Any]],
+) -> list[tuple[int, dict[str, Any]]]:
+    """Return variants ordered for deterministic, dependency-safe import.
+
+    Artifact payloads may contain variants in any order. Layer 2 policy types
+    (`descriptor_layer`, `registry`) validate references to Layer 1 rows, so we
+    import Layer 1 rows first to prevent false reference-missing errors during
+    clean bootstrap imports.
+
+    The original index is preserved for error labeling (`variants[i]`), making
+    diagnostics refer back to the source artifact order.
+    """
+    indexed_rows = list(enumerate(variants_payload))
+    indexed_rows.sort(
+        key=lambda pair: (_import_priority_for_policy_row(pair[1]), int(pair[0])),
+    )
+    return indexed_rows
+
+
+def _import_priority_for_policy_row(row: dict[str, Any]) -> int:
+    """Return dependency priority for one artifact variant row.
+
+    Lower numbers import earlier. Unknown/malformed rows are placed last so the
+    normal per-row validation path can report clear errors.
+    """
+    policy_id = row.get("policy_id")
+    if not isinstance(policy_id, str) or ":" not in policy_id:
+        return 99
+    policy_type = policy_id.split(":", 1)[0].strip()
+    priority_by_type = {
+        "species_block": 10,
+        "clothing_block": 20,
+        "prompt": 30,
+        "tone_profile": 40,
+        "axis_bundle": 50,
+        "manifest_bundle": 60,
+        "descriptor_layer": 70,
+        "registry": 80,
+    }
+    return int(priority_by_type.get(policy_type, 99))
 
 
 def _required_non_empty_string(*, prefix: str, row: dict[str, Any], field_name: str) -> str:

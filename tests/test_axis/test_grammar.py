@@ -123,24 +123,21 @@ class TestLoadResolutionGrammarHappyPath:
         world_root = _write_grammar(tmp_path, _VALID_GRAMMAR_DICT)
         grammar = load_resolution_grammar(world_root)
         with pytest.raises((TypeError, AttributeError)):
-            grammar.version = "2.0"  # type: ignore[misc]
+            grammar.version = "2.0"
 
-    def test_real_pipeworks_web_grammar_loads(self):
-        """Smoke test against the real pipeworks_web grammar file."""
+    def test_real_pipeworks_web_grammar_file_is_absent(self):
+        """``pipeworks_web`` runtime is DB-backed and has no required grammar file on disk."""
         repo_root = Path(__file__).parent.parent.parent
         world_root = repo_root / "data" / "worlds" / "pipeworks_web"
-        grammar = load_resolution_grammar(world_root)
-        assert grammar.version == "1.0"
-        assert "demeanor" in grammar.chat.axes
-        assert "health" in grammar.chat.axes
+        with pytest.raises(FileNotFoundError):
+            load_resolution_grammar(world_root)
 
-    def test_real_daily_undertaking_grammar_loads(self):
-        """Smoke test against the real daily_undertaking grammar file."""
+    def test_real_daily_undertaking_grammar_file_is_absent(self):
+        """``daily_undertaking`` policy grammar is no longer required on disk."""
         repo_root = Path(__file__).parent.parent.parent
         world_root = repo_root / "data" / "worlds" / "daily_undertaking"
-        grammar = load_resolution_grammar(world_root)
-        assert grammar.version == "1.0"
-        assert "demeanor" in grammar.chat.axes
+        with pytest.raises(FileNotFoundError):
+            load_resolution_grammar(world_root)
 
 
 # ---------------------------------------------------------------------------

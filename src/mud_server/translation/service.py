@@ -763,7 +763,6 @@ class OOCToICTranslationService:
                     client_profile="",
                 ),
                 preferred_policy_id=self._config.prompt_policy_id,
-                preferred_template_path=self._config.prompt_template_path,
             )
             logger.info(
                 "OOCToICTranslationService: loaded canonical prompt %s:%s for world %r",
@@ -775,10 +774,9 @@ class OOCToICTranslationService:
         except Exception as exc:
             logger.warning(
                 "OOCToICTranslationService: canonical prompt resolution failed for world %r "
-                "(configured policy_id=%r, path=%r): %s. Using built-in fallback template.",
+                "(configured policy_id=%r): %s. Using built-in fallback template.",
                 self._world_id,
                 self._config.prompt_policy_id,
-                self._config.prompt_template_path,
                 exc,
             )
 

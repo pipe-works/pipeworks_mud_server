@@ -39,5 +39,5 @@ jobs:
         data/worlds/**
         docs/**
         *.md
-      content-validation-command: pytest --override-ini addopts= -q tests/test_core/test_policy_manifest.py
+      content-validation-command: pytest --override-ini addopts= -q tests/test_axis/test_grammar.py
     secrets: inherit

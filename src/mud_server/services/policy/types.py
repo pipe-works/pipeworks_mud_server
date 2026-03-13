@@ -12,6 +12,26 @@ from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
+class AxisPolicyValidationReport:
+    """Canonical axis-policy validation report used during engine bootstrap.
+
+    This report shape is retained for bootstrap logging and diagnostics after
+    legacy file-loader removal. Payloads are built from canonical DB policy
+    objects (manifest/axis bundle activations), not from world policy files.
+    """
+
+    world_id: str
+    axes: list[str]
+    ordering_present: list[str]
+    ordering_definitions: dict[str, Any]
+    thresholds_present: list[str]
+    thresholds_definitions: dict[str, Any]
+    missing_components: list[str]
+    policy_hash: str
+    version: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class PolicyIdentity:
     """Parsed canonical policy identity tuple.
 
@@ -61,6 +81,30 @@ class EffectiveAxisBundle:
     resolution_payload: dict[str, Any]
     required_runtime_inputs: set[str]
     policy_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class EffectiveImagePolicyBundle:
+    """Resolved canonical image-policy bundle context for one scope.
+
+    This contract powers the lab-facing image-bundle diagnostic endpoint while
+    remaining DB-first. The ``*_path`` fields preserve route response shape
+    compatibility for existing clients and are derived from manifest payload
+    metadata rather than filesystem probes.
+    """
+
+    world_id: str
+    policy_schema: str | None
+    policy_bundle_id: str | None
+    policy_bundle_version: int | str | None
+    policy_hash: str
+    composition_order: list[str]
+    required_runtime_inputs: list[str]
+    descriptor_layer_path: str | None
+    tone_profile_path: str | None
+    species_registry_path: str | None
+    clothing_registry_path: str | None
+    missing_components: list[str]
 
 
 @dataclass(frozen=True, slots=True)

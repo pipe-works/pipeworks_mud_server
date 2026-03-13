@@ -3,8 +3,8 @@
 from mud_server.api.models import (
     CommandRequest,
     DatabaseWorldStatusResponse,
-    LabPolicyBundleDraftPayload,
-    LabPromptDraftCreateRequest,
+    LabImageCompileRequest,
+    LabImagePolicyBundleResponse,
     LabTranslateResponse,
     LabWorldConfig,
     LoginResponse,
@@ -19,10 +19,10 @@ from mud_server.api.models_auth_game import CommandRequest as CommandRequestModu
 from mud_server.api.models_auth_game import LoginResponse as LoginResponseModule
 from mud_server.api.models_auth_game import RegisterRequest as RegisterRequestModule
 from mud_server.api.models_lab import (
-    LabPolicyBundleDraftPayload as LabPolicyBundleDraftPayloadModule,
+    LabImageCompileRequest as LabImageCompileRequestModule,
 )
 from mud_server.api.models_lab import (
-    LabPromptDraftCreateRequest as LabPromptDraftCreateRequestModule,
+    LabImagePolicyBundleResponse as LabImagePolicyBundleResponseModule,
 )
 from mud_server.api.models_lab import LabTranslateResponse as LabTranslateResponseModule
 from mud_server.api.models_lab import LabWorldConfig as LabWorldConfigModule
@@ -32,8 +32,8 @@ def test_lab_models_remain_importable_from_api_models():
     """Compatibility re-exports should preserve the old import surface."""
 
     assert LabWorldConfig is LabWorldConfigModule
-    assert LabPromptDraftCreateRequest is LabPromptDraftCreateRequestModule
-    assert LabPolicyBundleDraftPayload is LabPolicyBundleDraftPayloadModule
+    assert LabImageCompileRequest is LabImageCompileRequestModule
+    assert LabImagePolicyBundleResponse is LabImagePolicyBundleResponseModule
     assert LabTranslateResponse is LabTranslateResponseModule
     assert UserManagementRequest is UserManagementRequestModule
     assert DatabaseWorldStatusResponse is DatabaseWorldStatusResponseModule

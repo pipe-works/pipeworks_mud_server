@@ -39,7 +39,7 @@ Translation is configured per-world in ``world.json``:
        "timeout_seconds":       10.0,
        "strict_mode":           true,
        "max_output_chars":      280,
-       "prompt_template_path":  "policies/ic_prompt.txt",
+       "prompt_policy_id":      "prompt:translation.prompts.ic:default",
        "active_axes":           ["demeanor", "health", "physique",
                                  "wealth", "facial_signal"],
        "deterministic":         false
@@ -68,15 +68,18 @@ Field reference:
    * - ``max_output_chars``
      - Maximum length of the validated IC output.  Longer strings are
        rejected.  Default 280.
-   * - ``prompt_template_path``
-     - Path to the system prompt template, relative to the world root.
-       Default ``"policies/ic_prompt.txt"``.
+   * - ``prompt_policy_id``
+     - Authoritative runtime selector for prompt content from canonical
+       policy DB activation state.
    * - ``active_axes``
      - List of axis names included in the character profile dict.
        Other axes are excluded from the system prompt context.
    * - ``deterministic``
      - If ``true`` and an ``ipc_hash`` is available, the renderer is
        seeded with ``int(ipc_hash[:16], 16)`` for reproducible output.
+
+Legacy ``prompt_template_path`` values in older ``world.json`` files are
+ignored by the runtime and should be removed during world package cleanup.
 
 There is also a server-level master switch in ``config/server.ini``:
 
@@ -104,7 +107,7 @@ executes the following pipeline:
 
    3. Inject channel into profile dict ("say" | "yell" | "whisper")
 
-   4. Render system prompt from ic_prompt.txt template
+   4. Resolve effective prompt policy from DB activation, then render system prompt
       └── {{key}} substitution from profile dict
       └── {{ooc_message}} substituted last
 
@@ -127,9 +130,9 @@ the stored message; if ``None``, the OOC message is stored unchanged.
 System Prompt Template
 ----------------------
 
-The template lives at ``data/worlds/<world_id>/policies/ic_prompt.txt``
-(path configurable in ``world.json``).  It uses ``{{key}}`` placeholders
-that are substituted from the character profile dict.
+The active template content comes from the effective canonical
+``prompt:*`` policy activation for the request scope. The template uses
+``{{key}}`` placeholders substituted from the character profile dict.
 
 Available placeholders include all fields produced by
 ``CharacterProfileBuilder``, plus ``{{channel}}`` injected by the
@@ -160,33 +163,19 @@ Built-in placeholders:
    * - ``{{profile_summary}}``
      - Pre-formatted axis summary block (if the template uses it)
 
-If the template file is absent at startup, the service falls back to a
+If canonical prompt resolution fails at runtime, the service falls back to a
 built-in minimal template and logs a WARNING.
 
-Canonical Prompt Management via the Axis Descriptor Lab
--------------------------------------------------------
+Canonical Prompt Management
+---------------------------
 
-The mud server now exposes prompt management endpoints for the Axis
-Descriptor Lab under ``/api/lab``. These endpoints let the lab inspect
-canonical prompt files, create server-side drafts under
-``data/worlds/<world_id>/policies/drafts/``, and explicitly promote a
-draft into a new canonical prompt file.
+Canonical prompt authoring and activation now run through policy APIs
+(``/api/policies`` + ``/api/policy-activations``). Lab route surface is
+diagnostic/compile-oriented and does not expose file draft/promote endpoints.
 
-Prompt promotion has two effects:
+See :doc:`lab_artifact_editor` for the current DB-first lab workflow.
 
-* it writes a new canonical ``policies/<name>.txt`` file without
-  overwriting any existing canonical prompt
-* it updates ``world.json -> translation_layer.prompt_template_path`` and
-  reloads the running world's translation service immediately
-
-In the lab UI, the prompt marked ``active`` is the file currently named by
-``prompt_template_path``. Once promotion succeeds, new translation calls use
-the new prompt without requiring a process restart, though clients may need
-to refresh their prompt lists.
-
-See :doc:`lab_artifact_editor` for the full artifact workflow.
-
-Example template (``pipeworks_web/policies/ic_prompt.txt``):
+Example template content:
 
 .. code-block:: text
 

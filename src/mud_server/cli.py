@@ -230,13 +230,76 @@ def _import_registered_world_artifacts_for_init(
     return failures
 
 
+def _sync_world_catalog_from_packages_for_init() -> list[str]:
+    """Upsert world catalog rows from on-disk world packages.
+
+    ``init-db`` builds schema first, then synchronizes ``worlds`` table entries
+    from ``data/worlds/<world_id>/world.json`` packages so artifact bootstrap
+    can target every discovered world, not only the default world id.
+
+    Returns:
+        Sorted list of discovered world ids successfully upserted into catalog.
+    """
+    import json
+    from pathlib import Path
+
+    from mud_server.config import PROJECT_ROOT, config
+    from mud_server.db.connection import connection_scope
+
+    worlds_root = Path(config.worlds.worlds_root)
+    if not worlds_root.is_absolute():
+        worlds_root = (PROJECT_ROOT / worlds_root).resolve()
+
+    discovered_rows: list[tuple[str, str, str]] = []
+    if worlds_root.exists():
+        for world_json_path in sorted(worlds_root.glob("*/world.json")):
+            world_id = world_json_path.parent.name.strip()
+            if not world_id:
+                continue
+            try:
+                payload = json.loads(world_json_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                print(
+                    f"Skipping world catalog sync for {world_json_path}: {exc}",
+                    file=sys.stderr,
+                )
+                continue
+
+            raw_name = payload.get("name")
+            raw_description = payload.get("description")
+            name = str(raw_name).strip() if raw_name is not None else world_id
+            description = str(raw_description).strip() if raw_description is not None else ""
+            discovered_rows.append((world_id, name or world_id, description))
+
+    if not discovered_rows:
+        return []
+
+    with connection_scope(write=True) as conn:
+        cursor = conn.cursor()
+        for world_id, name, description in discovered_rows:
+            cursor.execute(
+                """
+                INSERT INTO worlds (id, name, description, is_active, config_json)
+                VALUES (?, ?, ?, 1, '{}')
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    description = excluded.description,
+                    is_active = 1
+                """,
+                (world_id, name, description),
+            )
+        conn.commit()
+
+    return sorted({row[0] for row in discovered_rows})
+
+
 def cmd_init_db(args: argparse.Namespace) -> int:
     """
     Initialize the database schema.
 
     Initializes schema and, by default, imports/activates canonical world
-    policy objects for the configured default world. This avoids runtime
-    reliance on startup-time legacy file bootstrap.
+    policy objects for discovered world packages. This avoids runtime reliance
+    on startup-time legacy file bootstrap.
 
     Returns:
         0 on success, 1 on error
@@ -292,9 +355,12 @@ def cmd_init_db(args: argparse.Namespace) -> int:
             print("Skipping world artifact import bootstrap (--skip-policy-import).")
             return 0
 
+        discovered_world_ids = _sync_world_catalog_from_packages_for_init()
+        world_ids_for_bootstrap = discovered_world_ids or [config.worlds.default_world_id]
+
         failures = _import_registered_world_artifacts_for_init(
             actor="system-bootstrap",
-            world_ids=[config.worlds.default_world_id],
+            world_ids=world_ids_for_bootstrap,
         )
         if failures > 0:
             print(

@@ -25,14 +25,22 @@ def test_cmd_init_db_success_uses_artifact_bootstrap() -> None:
     args = argparse.Namespace(migrate=False, skip_policy_import=False)
     with patch("mud_server.db.database.init_database") as mock_init:
         with patch(
-            "mud_server.cli._import_registered_world_artifacts_for_init",
-            return_value=0,
-        ) as mock_bootstrap:
-            result = cli.cmd_init_db(args)
+            "mud_server.cli._sync_world_catalog_from_packages_for_init",
+            return_value=["pipeworks_web", "daily_undertaking"],
+        ) as mock_sync:
+            with patch(
+                "mud_server.cli._import_registered_world_artifacts_for_init",
+                return_value=0,
+            ) as mock_bootstrap:
+                result = cli.cmd_init_db(args)
 
     assert result == 0
     mock_init.assert_called_once()
-    mock_bootstrap.assert_called_once()
+    mock_sync.assert_called_once()
+    mock_bootstrap.assert_called_once_with(
+        actor="system-bootstrap",
+        world_ids=["pipeworks_web", "daily_undertaking"],
+    )
 
 
 @pytest.mark.unit
@@ -40,11 +48,15 @@ def test_cmd_init_db_skip_policy_import() -> None:
     """`init-db --skip-policy-import` should bypass artifact bootstrap."""
     args = argparse.Namespace(migrate=False, skip_policy_import=True)
     with patch("mud_server.db.database.init_database") as mock_init:
-        with patch("mud_server.cli._import_registered_world_artifacts_for_init") as mock_bootstrap:
-            result = cli.cmd_init_db(args)
+        with patch("mud_server.cli._sync_world_catalog_from_packages_for_init") as mock_sync:
+            with patch(
+                "mud_server.cli._import_registered_world_artifacts_for_init"
+            ) as mock_bootstrap:
+                result = cli.cmd_init_db(args)
 
     assert result == 0
     mock_init.assert_called_once()
+    mock_sync.assert_not_called()
     mock_bootstrap.assert_not_called()
 
 
@@ -54,10 +66,14 @@ def test_cmd_init_db_returns_error_when_artifact_bootstrap_fails() -> None:
     args = argparse.Namespace(migrate=False, skip_policy_import=False)
     with patch("mud_server.db.database.init_database") as mock_init:
         with patch(
-            "mud_server.cli._import_registered_world_artifacts_for_init",
-            return_value=2,
+            "mud_server.cli._sync_world_catalog_from_packages_for_init",
+            return_value=["pipeworks_web"],
         ):
-            result = cli.cmd_init_db(args)
+            with patch(
+                "mud_server.cli._import_registered_world_artifacts_for_init",
+                return_value=2,
+            ):
+                result = cli.cmd_init_db(args)
 
     assert result == 1
     mock_init.assert_called_once()
@@ -143,6 +159,40 @@ def test_import_registered_world_artifacts_for_init_skips_missing_latest(
 
     failures = cli._import_registered_world_artifacts_for_init(actor="bootstrap")
     assert failures == 0
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_sync_world_catalog_from_packages_for_init_upserts_discovered_worlds(
+    test_db, monkeypatch, tmp_path: Path
+) -> None:
+    """World package discovery should upsert world rows for artifact bootstrap."""
+    from mud_server.db import facade as database
+
+    worlds_root = tmp_path / "worlds"
+    pipeworks_dir = worlds_root / "pipeworks_web"
+    daily_dir = worlds_root / "daily_undertaking"
+    pipeworks_dir.mkdir(parents=True, exist_ok=True)
+    daily_dir.mkdir(parents=True, exist_ok=True)
+
+    (pipeworks_dir / "world.json").write_text(
+        json.dumps({"name": "Pipeworks", "description": "Primary world"}),
+        encoding="utf-8",
+    )
+    (daily_dir / "world.json").write_text(
+        json.dumps({"name": "Daily Undertaking", "description": "Secondary world"}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("mud_server.config.config.worlds.worlds_root", str(worlds_root))
+
+    discovered = cli._sync_world_catalog_from_packages_for_init()
+    assert discovered == ["daily_undertaking", "pipeworks_web"]
+
+    world_rows = {row["id"]: row for row in database.list_worlds(include_inactive=True)}
+    assert "pipeworks_web" in world_rows
+    assert "daily_undertaking" in world_rows
+    assert world_rows["daily_undertaking"]["name"] == "Daily Undertaking"
 
 
 @pytest.mark.unit
