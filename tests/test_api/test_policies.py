@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from urllib.parse import quote
 
 import pytest
@@ -33,6 +35,7 @@ def _species_payload(
 
 def _descriptor_layer_payload(
     *,
+    text: str = "Descriptor layer draft",
     references: list[dict[str, str]],
     policy_version: int = 1,
     status: str = "candidate",
@@ -42,7 +45,7 @@ def _descriptor_layer_payload(
         "schema_version": "1.0",
         "policy_version": policy_version,
         "status": status,
-        "content": {"references": references},
+        "content": {"text": text, "references": references},
     }
 
 
@@ -415,6 +418,7 @@ def test_policy_publish_returns_deterministic_manifest(
 ) -> None:
     """Publish should emit manifest rows based on active scope pointers."""
     monkeypatch.setattr(policy_service.config.worlds, "worlds_root", str(tmp_path))
+    monkeypatch.setenv("MUD_POLICY_EXPORTS_ROOT", str(tmp_path / "world_policy_exports"))
     session_id = _session_id_for("testadmin")
     policy_id = "species_block:image.blocks.species:goblin"
     encoded_id = quote(policy_id, safe="")
@@ -454,6 +458,11 @@ def test_policy_publish_returns_deterministic_manifest(
     artifact = payload["artifact"]
     assert artifact["artifact_hash"]
     assert artifact["artifact_path"]
+    assert artifact["latest_path"]
+    artifact_payload = json.loads(Path(artifact["artifact_path"]).read_text(encoding="utf-8"))
+    assert artifact_payload["variants_hash"]
+    assert isinstance(artifact_payload["variants"], list)
+    assert artifact_payload["variants"][0]["content"]["text"] == "Active goblin variant"
 
     second_publish_response = test_client.post(
         "/api/policy-publish",
@@ -475,6 +484,109 @@ def test_policy_publish_returns_deterministic_manifest(
     assert run_payload["publish_run_id"] == payload["publish_run_id"]
     assert run_payload["manifest"]["manifest_hash"] == manifest["manifest_hash"]
     assert run_payload["artifact"]["artifact_hash"] == artifact["artifact_hash"]
+
+
+@pytest.mark.api
+def test_policy_import_artifact_upserts_and_applies_activation(
+    test_client, db_with_users, monkeypatch, tmp_path
+) -> None:
+    """Import endpoint should restore canonical variant content and activation pointers."""
+    monkeypatch.setattr(policy_service.config.worlds, "worlds_root", str(tmp_path))
+    monkeypatch.setenv("MUD_POLICY_EXPORTS_ROOT", str(tmp_path / "world_policy_exports"))
+    session_id = _session_id_for("testadmin")
+    policy_id = "species_block:image.blocks.species:goblin"
+    encoded_id = quote(policy_id, safe="")
+
+    write_v1 = test_client.put(
+        f"/api/policies/{encoded_id}/variants/v1",
+        params={"session_id": session_id},
+        json=_species_payload(text="Canonical goblin text", status="active"),
+    )
+    assert write_v1.status_code == 200
+    activate_v1 = test_client.post(
+        "/api/policy-activations",
+        params={"session_id": session_id},
+        json={"world_id": constants.DEFAULT_WORLD_ID, "policy_id": policy_id, "variant": "v1"},
+    )
+    assert activate_v1.status_code == 200
+
+    publish_response = test_client.post(
+        "/api/policy-publish",
+        params={"session_id": session_id},
+        json={"world_id": constants.DEFAULT_WORLD_ID},
+    )
+    assert publish_response.status_code == 200
+    artifact_path = Path(publish_response.json()["artifact"]["artifact_path"])
+    artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+
+    write_v2 = test_client.put(
+        f"/api/policies/{encoded_id}/variants/v2",
+        params={"session_id": session_id},
+        json=_species_payload(text="Drifted goblin v2", policy_version=2, status="active"),
+    )
+    assert write_v2.status_code == 200
+    activate_v2 = test_client.post(
+        "/api/policy-activations",
+        params={"session_id": session_id},
+        json={"world_id": constants.DEFAULT_WORLD_ID, "policy_id": policy_id, "variant": "v2"},
+    )
+    assert activate_v2.status_code == 200
+    drift_v1 = test_client.put(
+        f"/api/policies/{encoded_id}/variants/v1",
+        params={"session_id": session_id},
+        json=_species_payload(text="Drifted goblin v1", status="draft"),
+    )
+    assert drift_v1.status_code == 200
+
+    import_response = test_client.post(
+        "/api/policy-import",
+        params={"session_id": session_id},
+        json={"artifact": artifact_payload, "activate": True},
+    )
+    assert import_response.status_code == 200
+    import_payload = import_response.json()
+    assert import_payload["world_id"] == constants.DEFAULT_WORLD_ID
+    assert import_payload["updated_count"] >= 1
+    assert import_payload["activated_count"] >= 1
+    assert import_payload["error_count"] == 0
+
+    get_v1 = test_client.get(
+        f"/api/policies/{encoded_id}",
+        params={"session_id": session_id, "variant": "v1"},
+    )
+    assert get_v1.status_code == 200
+    assert get_v1.json()["content"]["text"] == "Canonical goblin text"
+
+    activations = test_client.get(
+        "/api/policy-activations",
+        params={"session_id": session_id, "scope": constants.DEFAULT_WORLD_ID, "effective": True},
+    )
+    assert activations.status_code == 200
+    activation_item = next(
+        row for row in activations.json()["items"] if row["policy_id"] == policy_id
+    )
+    assert activation_item["variant"] == "v1"
+
+
+@pytest.mark.api
+def test_policy_import_artifact_rejects_hash_mismatch(test_client, db_with_users) -> None:
+    """Import endpoint should reject artifacts when integrity hash does not match payload."""
+    session_id = _session_id_for("testadmin")
+    response = test_client.post(
+        "/api/policy-import",
+        params={"session_id": session_id},
+        json={
+            "artifact": {
+                "world_id": constants.DEFAULT_WORLD_ID,
+                "client_profile": None,
+                "variants": [],
+                "artifact_hash": "incorrect",
+            }
+        },
+    )
+    assert response.status_code == 409
+    payload = response.json()
+    assert payload["code"] == "POLICY_IMPORT_ARTIFACT_HASH_MISMATCH"
 
 
 @pytest.mark.api
@@ -633,3 +745,12 @@ def test_policy_routes_map_service_errors_to_canonical_payloads(
     )
     assert publish_run_response.status_code == 409
     assert publish_run_response.json()["code"] == "POLICY_TEST_ERROR"
+
+    monkeypatch.setattr(policies_routes, "service_import_published_artifact", _raise_service_error)
+    import_response = test_client.post(
+        "/api/policy-import",
+        params={"session_id": session_id},
+        json={"artifact": {"world_id": constants.DEFAULT_WORLD_ID, "variants": []}},
+    )
+    assert import_response.status_code == 409
+    assert import_response.json()["code"] == "POLICY_TEST_ERROR"

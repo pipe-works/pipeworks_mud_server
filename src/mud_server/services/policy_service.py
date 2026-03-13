@@ -13,6 +13,7 @@ The repository layer remains storage-only; this layer enforces policy rules.
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -50,7 +51,10 @@ _SPECIES_PILOT_POLICY_TYPE = "species_block"
 _SPECIES_PILOT_NAMESPACE = "image.blocks.species"
 _SUPPORTED_STATUSES = {"draft", "candidate", "active", "archived"}
 _POLICY_EXPORT_SCHEMA_VERSION = "1.0"
-_POLICY_EXPORT_DIRNAME = "policy_exports"
+_POLICY_EXPORT_WORLD_DIRNAME = "worlds"
+_POLICY_EXPORT_REPO_NAME = "pipe-works-world-policies"
+_POLICY_EXPORT_ROOT_ENV = "MUD_POLICY_EXPORTS_ROOT"
+_POLICY_EXPORT_LATEST_FILENAME = "latest.json"
 _POLICY_SCHEMA_VERSION_V1 = "1.0"
 _SPECIES_SOURCE_RELATIVE_DIR = Path("policies") / "image" / "blocks" / "species"
 _SPECIES_FILENAME_PATTERN = re.compile(
@@ -332,6 +336,37 @@ class WorldPolicyImportSummary:
     entries: list[str]
 
 
+@dataclass(frozen=True, slots=True)
+class ArtifactImportEntry:
+    """One canonical artifact import outcome row."""
+
+    policy_id: str | None
+    variant: str | None
+    action: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactImportSummary:
+    """Aggregate result for one import-from-artifact run."""
+
+    world_id: str
+    client_profile: str
+    activate: bool
+    item_count: int
+    imported_count: int
+    updated_count: int
+    skipped_count: int
+    error_count: int
+    activated_count: int
+    activation_skipped_count: int
+    manifest_hash: str
+    items_hash: str
+    artifact_hash: str
+    variants_hash: str
+    entries: list[ArtifactImportEntry]
+
+
 def list_policies(
     *,
     policy_type: str | None,
@@ -589,8 +624,14 @@ def import_layer2_policies_from_legacy_files(
                 registry_path=registry_path,
                 payload=payload,
             )
-            references = _extract_registry_references(payload=payload, registry_path=registry_path)
-            content = {"references": references}
+            content = _normalize_registry_content(
+                payload=payload,
+                registry_path=registry_path,
+            )
+            references = _normalize_reference_entries(
+                references=content.get("references"),
+                policy_type="registry",
+            )
             policy_id = f"registry:image.registries:{policy_key}"
             existing_row = policy_repo.get_policy(policy_id=policy_id, variant=variant)
             if _is_policy_variant_unchanged(
@@ -660,15 +701,19 @@ def import_layer2_policies_from_legacy_files(
         source_path = str(descriptor_path)
         try:
             policy_key, variant, policy_version = _parse_descriptor_filename(descriptor_path)
-            # Ensure descriptor source files are still readable for audit and diagnostics.
-            descriptor_path.read_text(encoding="utf-8")
+            descriptor_text = _read_descriptor_layer_text(
+                descriptor_path=descriptor_path,
+            )
             if not descriptor_references:
                 raise ValueError(
                     "Descriptor import could not infer Layer 1 references from registry files. "
                     "Import valid registries first."
                 )
 
-            content = {"references": descriptor_references}
+            content = {
+                "text": descriptor_text,
+                "references": descriptor_references,
+            }
             policy_id = f"descriptor_layer:image.descriptors:{policy_key}"
             existing_row = policy_repo.get_policy(policy_id=policy_id, variant=variant)
             if _is_policy_variant_unchanged(
@@ -1807,6 +1852,15 @@ def get_effective_policy_variant(
     return row
 
 
+def policy_reference_from_legacy_path(path_value: str) -> dict[str, str] | None:
+    """Map one legacy filesystem path to canonical policy reference metadata.
+
+    This helper is intentionally narrow: it exists to support migration of
+    legacy registry payloads where rows still contain path-oriented fields.
+    """
+    return _policy_reference_from_legacy_path(path_value)
+
+
 def resolve_effective_prompt_template(
     *,
     scope: ActivationScope,
@@ -2198,6 +2252,229 @@ def get_publish_run(*, publish_run_id: int) -> dict[str, Any]:
     }
 
 
+def import_published_artifact(
+    *,
+    artifact: dict[str, Any],
+    actor: str,
+    activate: bool,
+) -> ArtifactImportSummary:
+    """Import one publish artifact into canonical policy DB rows.
+
+    This importer is intentionally DB-first and idempotent:
+
+    1. Validate artifact envelope + integrity hash.
+    2. Upsert canonical policy variants from ``artifact.variants``.
+    3. Optionally apply activation pointers for artifact scope.
+
+    Import does not read world policy files and does not mutate mirror files.
+    """
+    normalized_actor = actor.strip() or "policy-importer"
+    if not isinstance(artifact, dict):
+        raise PolicyServiceError(
+            status_code=422,
+            code="POLICY_IMPORT_ARTIFACT_INVALID",
+            detail="Artifact payload must be a JSON object.",
+        )
+
+    provided_artifact_hash = str(artifact.get("artifact_hash", "")).strip()
+    calculated_artifact_hash = _compute_artifact_hash(artifact=artifact)
+    if provided_artifact_hash and provided_artifact_hash != calculated_artifact_hash:
+        raise PolicyServiceError(
+            status_code=409,
+            code="POLICY_IMPORT_ARTIFACT_HASH_MISMATCH",
+            detail=(
+                "Artifact integrity check failed: artifact_hash mismatch "
+                f"(provided={provided_artifact_hash!r}, calculated={calculated_artifact_hash!r})."
+            ),
+        )
+
+    world_id = str(artifact.get("world_id", "")).strip()
+    if not world_id:
+        raise PolicyServiceError(
+            status_code=422,
+            code="POLICY_IMPORT_ARTIFACT_INVALID",
+            detail="Artifact field world_id must be a non-empty string.",
+        )
+    _ensure_world_exists(world_id)
+
+    client_profile_raw = artifact.get("client_profile")
+    client_profile = str(client_profile_raw or "").strip()
+    scope = ActivationScope(world_id=world_id, client_profile=client_profile)
+
+    variants_raw = artifact.get("variants")
+    if not isinstance(variants_raw, list):
+        raise PolicyServiceError(
+            status_code=422,
+            code="POLICY_IMPORT_ARTIFACT_INVALID",
+            detail="Artifact field variants must be a list.",
+        )
+    variants_payload = [row for row in variants_raw if isinstance(row, dict)]
+    if len(variants_payload) != len(variants_raw):
+        raise PolicyServiceError(
+            status_code=422,
+            code="POLICY_IMPORT_ARTIFACT_INVALID",
+            detail="Artifact field variants must contain only object entries.",
+        )
+    variants_hash = str(
+        artifact.get("variants_hash") or compute_payload_hash({"variants": variants_payload})
+    )
+    provided_variants_hash = str(artifact.get("variants_hash", "")).strip()
+    if provided_variants_hash and provided_variants_hash != variants_hash:
+        raise PolicyServiceError(
+            status_code=409,
+            code="POLICY_IMPORT_ARTIFACT_HASH_MISMATCH",
+            detail=(
+                "Artifact integrity check failed: variants_hash mismatch "
+                f"(provided={provided_variants_hash!r}, calculated={variants_hash!r})."
+            ),
+        )
+
+    entries: list[ArtifactImportEntry] = []
+    imported_count = 0
+    updated_count = 0
+    skipped_count = 0
+    error_count = 0
+    activation_targets: dict[str, str] = {}
+
+    for index, row in enumerate(variants_payload):
+        prefix = f"variants[{index}]"
+        policy_id: str | None = None
+        variant: str | None = None
+        try:
+            policy_id_raw = row.get("policy_id")
+            variant_raw = row.get("variant")
+            if not isinstance(policy_id_raw, str) or not policy_id_raw.strip():
+                raise ValueError(f"{prefix}.policy_id must be a non-empty string.")
+            if not isinstance(variant_raw, str) or not variant_raw.strip():
+                raise ValueError(f"{prefix}.variant must be a non-empty string.")
+            policy_id = policy_id_raw.strip()
+            variant = variant_raw.strip()
+            identity = _parse_policy_id(policy_id)
+
+            _validate_artifact_identity_fields(prefix=prefix, row=row, identity=identity)
+            schema_version = _required_non_empty_string(
+                prefix=prefix,
+                row=row,
+                field_name="schema_version",
+            )
+            policy_version = _required_positive_int(
+                prefix=prefix,
+                row=row,
+                field_name="policy_version",
+            )
+            status = _required_non_empty_string(prefix=prefix, row=row, field_name="status")
+            content = row.get("content")
+            if not isinstance(content, dict):
+                raise ValueError(f"{prefix}.content must be an object.")
+
+            existing_row = policy_repo.get_policy(policy_id=policy_id, variant=variant)
+            if _is_policy_variant_unchanged(
+                existing_row=existing_row,
+                schema_version=schema_version,
+                policy_version=policy_version,
+                status=status,
+                content=content,
+            ):
+                skipped_count += 1
+                entries.append(
+                    ArtifactImportEntry(
+                        policy_id=policy_id,
+                        variant=variant,
+                        action="skipped",
+                        detail=f"unchanged {policy_id}:{variant}",
+                    )
+                )
+                activation_targets[policy_id] = variant
+                continue
+
+            upsert_policy_variant(
+                policy_id=policy_id,
+                variant=variant,
+                schema_version=schema_version,
+                policy_version=policy_version,
+                status=status,
+                content=content,
+                updated_by=normalized_actor,
+            )
+            action = "imported" if existing_row is None else "updated"
+            if action == "imported":
+                imported_count += 1
+            else:
+                updated_count += 1
+            entries.append(
+                ArtifactImportEntry(
+                    policy_id=policy_id,
+                    variant=variant,
+                    action=action,
+                    detail=f"{action} {policy_id}:{variant}",
+                )
+            )
+            activation_targets[policy_id] = variant
+        except (PolicyServiceError, ValueError, TypeError) as exc:
+            error_count += 1
+            entries.append(
+                ArtifactImportEntry(
+                    policy_id=policy_id,
+                    variant=variant,
+                    action="error",
+                    detail=str(exc),
+                )
+            )
+
+    activated_count = 0
+    activation_skipped_count = 0
+    if activate and activation_targets:
+        current_activations = {
+            str(row["policy_id"]): str(row["variant"])
+            for row in policy_repo.list_policy_activations(
+                world_id=scope.world_id,
+                client_profile=scope.client_profile,
+            )
+        }
+        for policy_id in sorted(activation_targets):
+            target_variant = activation_targets[policy_id]
+            if current_activations.get(policy_id) == target_variant:
+                activation_skipped_count += 1
+                continue
+            try:
+                set_policy_activation(
+                    scope=scope,
+                    policy_id=policy_id,
+                    variant=target_variant,
+                    activated_by=normalized_actor,
+                )
+                current_activations[policy_id] = target_variant
+                activated_count += 1
+            except PolicyServiceError as exc:
+                error_count += 1
+                entries.append(
+                    ArtifactImportEntry(
+                        policy_id=policy_id,
+                        variant=target_variant,
+                        action="error",
+                        detail=f"activation failed: {exc.detail}",
+                    )
+                )
+
+    return ArtifactImportSummary(
+        world_id=world_id,
+        client_profile=client_profile,
+        activate=activate,
+        item_count=len(variants_payload),
+        imported_count=imported_count,
+        updated_count=updated_count,
+        skipped_count=skipped_count,
+        error_count=error_count,
+        activated_count=activated_count,
+        activation_skipped_count=activation_skipped_count,
+        manifest_hash=str(artifact.get("manifest_hash", "")).strip(),
+        items_hash=str(artifact.get("items_hash", "")).strip(),
+        artifact_hash=provided_artifact_hash or calculated_artifact_hash,
+        variants_hash=variants_hash,
+        entries=entries,
+    )
+
+
 def parse_scope(scope_text: str) -> ActivationScope:
     """Parse one scope string in ``world_id[:client_profile]`` format.
 
@@ -2326,6 +2603,61 @@ def _parse_descriptor_filename(descriptor_path: Path) -> tuple[str, str, int]:
     policy_key = match.group("policy_key")
     policy_version = int(match.group("version"))
     return policy_key, f"v{policy_version}", policy_version
+
+
+def _read_descriptor_layer_text(*, descriptor_path: Path) -> str:
+    """Read descriptor-layer source payload and return canonical text content.
+
+    Supported source file formats are ``.txt``, ``.json``, ``.yaml``, and
+    ``.yml``. JSON/YAML payloads may provide text under one of:
+    ``text``, ``descriptor_text``, ``prompt_block``.
+    """
+    try:
+        raw_text = descriptor_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise OSError(f"Unable to read descriptor source file {descriptor_path}: {exc}") from exc
+
+    suffix = descriptor_path.suffix.lower()
+    if suffix == ".txt":
+        descriptor_text = raw_text.rstrip()
+        if not descriptor_text.strip():
+            raise ValueError(
+                f"Descriptor source file {descriptor_path} must define non-empty text content."
+            )
+        return descriptor_text
+
+    if suffix == ".json":
+        try:
+            loaded = json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Invalid JSON in descriptor source file {descriptor_path}: {exc}"
+            ) from exc
+    elif suffix in {".yaml", ".yml"}:
+        try:
+            loaded = yaml.safe_load(raw_text)
+        except yaml.YAMLError as exc:
+            raise ValueError(
+                f"Invalid YAML in descriptor source file {descriptor_path}: {exc}"
+            ) from exc
+    else:
+        raise ValueError(
+            "Descriptor filename must match '<policy_key>_v<version>.(txt|json|yaml|yml)'; "
+            f"got {descriptor_path.name!r}."
+        )
+
+    if isinstance(loaded, dict):
+        for key in ("text", "descriptor_text", "prompt_block"):
+            value = loaded.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.rstrip()
+        raise ValueError(
+            f"Descriptor source file {descriptor_path} must define non-empty text at one of: "
+            "'text', 'descriptor_text', or 'prompt_block'."
+        )
+    if isinstance(loaded, str) and loaded.strip():
+        return loaded.rstrip()
+    raise ValueError(f"Descriptor source file {descriptor_path} must decode to text content.")
 
 
 def _parse_tone_profile_filename(tone_profile_path: Path) -> tuple[str, str, int]:
@@ -2590,27 +2922,39 @@ def _extract_registry_references(
         if normalized:
             return normalized
 
+    resolved: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     candidates: list[str] = []
     entries = payload.get("entries")
     if isinstance(entries, list):
+        resolved_policy_refs = _collect_policy_refs_from_entries(entries)
+        for reference in resolved_policy_refs:
+            identity = (reference["policy_id"], reference["variant"])
+            if identity not in seen:
+                seen.add(identity)
+                resolved.append(reference)
         candidates.extend(_collect_legacy_path_fields_from_entries(entries))
     slots = payload.get("slots")
     if isinstance(slots, dict):
         for slot_rows in slots.values():
             if isinstance(slot_rows, list):
+                resolved_policy_refs = _collect_policy_refs_from_entries(slot_rows)
+                for reference in resolved_policy_refs:
+                    identity = (reference["policy_id"], reference["variant"])
+                    if identity not in seen:
+                        seen.add(identity)
+                        resolved.append(reference)
                 candidates.extend(_collect_legacy_path_fields_from_entries(slot_rows))
 
-    resolved: list[dict[str, str]] = []
-    seen: set[tuple[str, str]] = set()
     for candidate in candidates:
-        reference = _policy_reference_from_legacy_path(candidate)
-        if reference is None:
+        mapped_reference = _policy_reference_from_legacy_path(candidate)
+        if mapped_reference is None:
             continue
-        identity = (reference["policy_id"], reference["variant"])
+        identity = (mapped_reference["policy_id"], mapped_reference["variant"])
         if identity in seen:
             continue
         seen.add(identity)
-        resolved.append(reference)
+        resolved.append(mapped_reference)
     if not resolved:
         raise ValueError(
             "Registry file "
@@ -2618,6 +2962,77 @@ def _extract_registry_references(
             "Expected explicit content.references or legacy block/fragment/prompt/tone paths."
         )
     return resolved
+
+
+def _normalize_registry_content(
+    *,
+    payload: dict[str, Any],
+    registry_path: Path,
+) -> dict[str, Any]:
+    """Return canonical registry content with normalized Layer 1 references.
+
+    The importer preserves the full registry payload for runtime selection
+    rules while injecting canonical ``policy_ref`` objects on individual
+    entries and a deduplicated top-level ``references`` list.
+    """
+    # Deep copy via JSON to avoid mutating caller-owned payload objects.
+    content = json.loads(json.dumps(payload))
+    if not isinstance(content, dict):
+        raise ValueError(f"Registry file {registry_path} must decode to an object payload.")
+
+    for entry in _iter_registry_entries(payload=content):
+        _normalize_registry_entry_policy_ref(entry=entry, registry_path=registry_path)
+
+    references = _extract_registry_references(payload=content, registry_path=registry_path)
+    content["references"] = references
+    return content
+
+
+def _iter_registry_entries(*, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Yield all registry row objects from ``entries`` and ``slots`` lists."""
+    rows: list[dict[str, Any]] = []
+    entries = payload.get("entries")
+    if isinstance(entries, list):
+        rows.extend(item for item in entries if isinstance(item, dict))
+
+    slots = payload.get("slots")
+    if isinstance(slots, dict):
+        for slot_rows in slots.values():
+            if isinstance(slot_rows, list):
+                rows.extend(item for item in slot_rows if isinstance(item, dict))
+    return rows
+
+
+def _normalize_registry_entry_policy_ref(*, entry: dict[str, Any], registry_path: Path) -> None:
+    """Normalize one registry entry into canonical ``policy_ref`` form.
+
+    Legacy path fields are removed once converted so DB runtime consumers do
+    not rely on filesystem paths.
+    """
+    existing_ref = entry.get("policy_ref")
+    if isinstance(existing_ref, dict):
+        normalized_existing = _normalize_reference_entries(
+            references=[existing_ref],
+            policy_type="registry",
+        )[0]
+        entry["policy_ref"] = normalized_existing
+    else:
+        for key in ("block_path", "fragment_path", "prompt_path", "tone_profile_path"):
+            legacy_path = entry.get(key)
+            if not isinstance(legacy_path, str) or not legacy_path.strip():
+                continue
+            reference = _policy_reference_from_legacy_path(legacy_path.strip())
+            if reference is None:
+                raise ValueError(
+                    f"Registry file {registry_path} entry field {key!r} has unmappable path: "
+                    f"{legacy_path!r}"
+                )
+            entry["policy_ref"] = reference
+            break
+
+    # Remove legacy path fields after canonical policy_ref normalization.
+    for key in ("block_path", "fragment_path", "prompt_path", "tone_profile_path"):
+        entry.pop(key, None)
 
 
 def _normalize_reference_entries(*, references: Any, policy_type: str) -> list[dict[str, str]]:
@@ -2653,6 +3068,21 @@ def _collect_legacy_path_fields_from_entries(entries: list[Any]) -> list[str]:
             if isinstance(raw_value, str) and raw_value.strip():
                 values.append(raw_value.strip())
     return values
+
+
+def _collect_policy_refs_from_entries(entries: list[Any]) -> list[dict[str, str]]:
+    """Return normalized policy_ref values from one list of registry row objects."""
+    references: list[dict[str, str]] = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        policy_ref = item.get("policy_ref")
+        if not isinstance(policy_ref, dict):
+            continue
+        references.extend(
+            _normalize_reference_entries(references=[policy_ref], policy_type="registry")
+        )
+    return references
 
 
 def _policy_reference_from_legacy_path(path_value: str) -> dict[str, str] | None:
@@ -2698,6 +3128,7 @@ def _policy_reference_from_legacy_path(path_value: str) -> dict[str, str] | None
 def _is_policy_variant_unchanged(
     *,
     existing_row: dict[str, Any] | None,
+    schema_version: str = _POLICY_SCHEMA_VERSION_V1,
     policy_version: int,
     status: str,
     content: dict[str, Any],
@@ -2707,12 +3138,53 @@ def _is_policy_variant_unchanged(
         return False
 
     return (
-        str(existing_row["schema_version"]) == _POLICY_SCHEMA_VERSION_V1
+        str(existing_row["schema_version"]) == schema_version
         and int(existing_row["policy_version"]) == policy_version
         and str(existing_row["status"]) == status
         and isinstance(existing_row.get("content"), dict)
         and existing_row["content"] == content
     )
+
+
+def _required_non_empty_string(*, prefix: str, row: dict[str, Any], field_name: str) -> str:
+    """Return a required non-empty string field from one artifact variant row."""
+    value = row.get(field_name)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{prefix}.{field_name} must be a non-empty string.")
+    return value.strip()
+
+
+def _required_positive_int(*, prefix: str, row: dict[str, Any], field_name: str) -> int:
+    """Return a required positive integer field from one artifact variant row."""
+    value = row.get(field_name)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError(f"{prefix}.{field_name} must be an integer >= 1.")
+    return int(value)
+
+
+def _validate_artifact_identity_fields(
+    *, prefix: str, row: dict[str, Any], identity: PolicyIdentity
+) -> None:
+    """Validate optional expanded identity fields against canonical policy_id."""
+    checks = (
+        ("policy_type", identity.policy_type),
+        ("namespace", identity.namespace),
+        ("policy_key", identity.policy_key),
+    )
+    for field_name, expected_value in checks:
+        if field_name not in row:
+            continue
+        actual_value = row.get(field_name)
+        if not isinstance(actual_value, str) or actual_value.strip() != expected_value:
+            raise ValueError(
+                f"{prefix}.{field_name} must match policy_id-derived value {expected_value!r}."
+            )
+
+
+def _compute_artifact_hash(*, artifact: dict[str, Any]) -> str:
+    """Compute deterministic artifact hash excluding the self-hash field."""
+    payload_without_hash = {k: v for k, v in artifact.items() if k != "artifact_hash"}
+    return str(compute_payload_hash(payload_without_hash))
 
 
 def _parse_policy_id(policy_id: str) -> PolicyIdentity:
@@ -2824,6 +3296,10 @@ def _validate_policy_type_content(
 
     if identity.policy_type in _LAYER2_POLICY_TYPES:
         errors.extend(_validate_layer2_references(content=content))
+        if identity.policy_type == "descriptor_layer":
+            descriptor_text = content.get("text")
+            if not isinstance(descriptor_text, str) or not descriptor_text.strip():
+                errors.append("descriptor_layer content.text must be a non-empty string")
         return errors
 
     errors.append(
@@ -3018,6 +3494,10 @@ def _materialize_publish_artifact(
         client_profile=client_profile,
         manifest=manifest,
     )
+    variants = _build_export_variants(
+        items=normalized_manifest["items"],
+    )
+    variants_hash = str(compute_payload_hash({"variants": variants}))
     artifact_payload: dict[str, Any] = {
         "export_schema_version": _POLICY_EXPORT_SCHEMA_VERSION,
         "policy_authority": "mud_server",
@@ -3028,8 +3508,10 @@ def _materialize_publish_artifact(
         "items_hash": normalized_manifest["items_hash"],
         "item_count": normalized_manifest["item_count"],
         "items": normalized_manifest["items"],
+        "variants_hash": variants_hash,
+        "variants": variants,
     }
-    artifact_hash = str(compute_payload_hash(artifact_payload))
+    artifact_hash = _compute_artifact_hash(artifact=artifact_payload)
     artifact_payload["artifact_hash"] = artifact_hash
 
     artifact_path = _publish_artifact_path(
@@ -3037,10 +3519,29 @@ def _materialize_publish_artifact(
         client_profile=client_profile,
         manifest_hash=str(normalized_manifest["manifest_hash"]),
     )
+    latest_path = artifact_path.parent / _POLICY_EXPORT_LATEST_FILENAME
     try:
         artifact_path.parent.mkdir(parents=True, exist_ok=True)
         artifact_path.write_text(
             json.dumps(artifact_payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        latest_payload = {
+            "policy_authority": "mud_server",
+            "mirror_mode": "non_authoritative",
+            "world_id": world_id,
+            "scope": _scope_segment(client_profile),
+            "client_profile": client_profile or None,
+            "manifest_hash": normalized_manifest["manifest_hash"],
+            "items_hash": normalized_manifest["items_hash"],
+            "variants_hash": variants_hash,
+            "item_count": normalized_manifest["item_count"],
+            "artifact_hash": artifact_hash,
+            "artifact_file": artifact_path.name,
+            "artifact_path": str(artifact_path),
+        }
+        latest_path.write_text(
+            json.dumps(latest_payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
             encoding="utf-8",
         )
     except Exception as exc:
@@ -3052,15 +3553,106 @@ def _materialize_publish_artifact(
     return {
         "artifact_hash": artifact_hash,
         "artifact_path": str(artifact_path),
+        "latest_path": str(latest_path),
     }
 
 
 def _publish_artifact_path(*, world_id: str, client_profile: str, manifest_hash: str) -> Path:
-    """Return filesystem path for one deterministic publish artifact."""
-    world_root = _resolve_world_root_path(world_id)
+    """Return filesystem path for one deterministic publish artifact.
+
+    Artifacts are written to a dedicated, non-authoritative exchange repository
+    layout:
+
+    ``worlds/<world_id>/<scope>/publish_<manifest_hash>.json``
+    """
+    export_root = _resolve_policy_export_root()
     scope_segment = _scope_segment(client_profile)
     filename = f"publish_{manifest_hash}.json"
-    return world_root / _POLICY_EXPORT_DIRNAME / scope_segment / filename
+    return export_root / _POLICY_EXPORT_WORLD_DIRNAME / world_id / scope_segment / filename
+
+
+def _build_export_variants(*, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build canonical variant payload list for import/export round-trips.
+
+    Each exported variant includes full policy content so downstream import can
+    reconstruct canonical DB state without reading world policy files.
+    """
+    variants: list[dict[str, Any]] = []
+    for item in items:
+        policy_id = str(item.get("policy_id", ""))
+        variant = str(item.get("variant", ""))
+        policy_row = policy_repo.get_policy(policy_id=policy_id, variant=variant)
+        if policy_row is None:
+            # Backward compatibility path for legacy publish rows where the
+            # manifest item exists but the referenced policy row is no longer
+            # present. We keep artifact generation non-fatal so historical
+            # publish runs remain inspectable.
+            variants.append(
+                {
+                    "policy_id": policy_id,
+                    "policy_type": str(item.get("policy_type", "")),
+                    "namespace": str(item.get("namespace", "")),
+                    "policy_key": str(item.get("policy_key", "")),
+                    "variant": variant,
+                    "schema_version": str(item.get("schema_version", _POLICY_SCHEMA_VERSION_V1)),
+                    "policy_version": int(item.get("policy_version", 1) or 1),
+                    "status": str(item.get("status", "candidate")),
+                    "content": {},
+                    "content_hash": str(item.get("content_hash", "")),
+                    "updated_at": str(item.get("updated_at", "")),
+                    "updated_by": "unknown",
+                    "materialized": False,
+                }
+            )
+            continue
+        variants.append(
+            {
+                "policy_id": str(policy_row["policy_id"]),
+                "policy_type": str(policy_row["policy_type"]),
+                "namespace": str(policy_row["namespace"]),
+                "policy_key": str(policy_row["policy_key"]),
+                "variant": str(policy_row["variant"]),
+                "schema_version": str(policy_row["schema_version"]),
+                "policy_version": int(policy_row["policy_version"]),
+                "status": str(policy_row["status"]),
+                "content": dict(policy_row["content"]),
+                "content_hash": str(policy_row["content_hash"]),
+                "updated_at": str(policy_row["updated_at"]),
+                "updated_by": str(policy_row["updated_by"]),
+                "materialized": True,
+            }
+        )
+    variants.sort(
+        key=lambda row: (
+            str(row.get("policy_type", "")),
+            str(row.get("namespace", "")),
+            str(row.get("policy_key", "")),
+            str(row.get("variant", "")),
+        )
+    )
+    return variants
+
+
+def _resolve_policy_export_root() -> Path:
+    """Resolve absolute root for policy publish mirror artifacts.
+
+    Resolution order:
+
+    1. ``MUD_POLICY_EXPORTS_ROOT`` environment variable when set.
+    2. Sibling repository default: ``<workspace>/pipe-works-world-policies``.
+
+    Relative paths are resolved against ``PROJECT_ROOT`` so local development
+    and CI runs remain deterministic.
+    """
+    configured_root = os.getenv(_POLICY_EXPORT_ROOT_ENV, "").strip()
+    if configured_root:
+        root = Path(configured_root)
+    else:
+        root = PROJECT_ROOT.parent / _POLICY_EXPORT_REPO_NAME
+
+    if not root.is_absolute():
+        root = PROJECT_ROOT / root
+    return root
 
 
 def _resolve_world_root_path(world_id: str) -> Path:

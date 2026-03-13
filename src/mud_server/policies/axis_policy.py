@@ -1,8 +1,9 @@
 """Axis policy loader and validator for world packages.
 
-This module loads world-specific axis definitions and threshold mappings
-from policy files. It validates required components and produces a summary
-report that can be logged or shown in admin tooling.
+This module resolves world axis definitions/threshold mappings and validates
+required components. Manifest-defined axis assets are authoritative whenever a
+manifest is present; otherwise canonical axis assets are read from
+``policies/axis/*.yaml``.
 """
 
 from __future__ import annotations
@@ -61,16 +62,13 @@ class AxisPolicyLoader:
         """
         policy_root = self._worlds_root / world_id / "policies"
 
-        # Default to legacy flat-path loading.
-        axes_payload = self._read_yaml(policy_root / "axes.yaml")
-        thresholds_payload = self._read_yaml(policy_root / "thresholds.yaml")
+        # Default to canonical axis-path loading when manifest is absent.
+        axes_payload = self._read_yaml(policy_root / "axis" / "axes.yaml")
+        thresholds_payload = self._read_yaml(policy_root / "axis" / "thresholds.yaml")
         manifest_missing: list[str] = []
 
-        # Prefer manifest-defined axis assets when available.
-        #
-        # TODO(refactor-cleanup): remove after manifest migration complete.
-        # The compatibility branch below keeps legacy worlds running while
-        # manifest-backed packages are being rolled out incrementally.
+        # Manifest-defined axis assets are authoritative when manifest exists.
+        # We intentionally do not fall back to non-manifest axis paths in this mode.
         manifest_path = policy_root / "manifest.yaml"
         if manifest_path.exists():
             manifest_loader = PolicyManifestLoader(worlds_root=self._worlds_root)
@@ -83,15 +81,17 @@ class AxisPolicyLoader:
             if isinstance(manifest_axes, dict):
                 axes_payload = manifest_axes
             else:
+                axes_payload = {}
                 manifest_missing.append(
-                    "manifest axis payload missing; fell back to policies/axes.yaml"
+                    "manifest axis payload missing or invalid: axis.active_bundle"
                 )
 
             if isinstance(manifest_thresholds, dict):
                 thresholds_payload = manifest_thresholds
             else:
+                thresholds_payload = {}
                 manifest_missing.append(
-                    "manifest threshold payload missing; fell back to policies/thresholds.yaml"
+                    "manifest threshold payload missing or invalid: axis.active_bundle"
                 )
 
         # Extract axis names plus their ordering/threshold definitions.

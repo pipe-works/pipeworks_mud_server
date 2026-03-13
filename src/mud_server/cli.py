@@ -8,6 +8,7 @@ Provides CLI commands for server management:
 - import-layer2-policies: Backfill descriptor/registry legacy policies into Layer 2 DB rows
 - import-tone-prompt-policies: Backfill tone-profile/prompt legacy policies into Layer 1 DB rows
 - import-world-policies: Backfill all legacy policy-like files into canonical policy DB rows
+- import-policy-artifact: Import a published artifact into canonical policy DB rows
 - run: Start the MUD server (API and web UI)
 
 Usage:
@@ -18,6 +19,7 @@ Usage:
     mud-server import-layer2-policies [--world-id WORLD_ID]
     mud-server import-tone-prompt-policies [--world-id WORLD_ID]
     mud-server import-world-policies [--world-id WORLD_ID]
+    mud-server import-policy-artifact --artifact-path PATH
     mud-server run [--port PORT] [--host HOST]
 
 Environment Variables:
@@ -552,6 +554,85 @@ def cmd_import_world_policies(args: argparse.Namespace) -> int:
     return 1 if summary.error_count > 0 else 0
 
 
+def cmd_import_policy_artifact(args: argparse.Namespace) -> int:
+    """Import one publish artifact into canonical DB policy state."""
+    import json
+    from pathlib import Path
+
+    from mud_server.db import facade as database
+    from mud_server.services import policy_service
+
+    artifact_path = Path(str(args.artifact_path)).expanduser()
+    actor = (args.actor or "").strip() or "policy-importer"
+    activate = bool(args.activate)
+
+    try:
+        artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        print(f"Artifact file not found: {artifact_path}", file=sys.stderr)
+        return 1
+    except json.JSONDecodeError as exc:
+        print(
+            f"Artifact file is not valid JSON: {artifact_path} ({exc})",
+            file=sys.stderr,
+        )
+        return 1
+    except OSError as exc:
+        print(f"Failed to read artifact file {artifact_path}: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        database.init_database(skip_superuser=True)
+        summary = policy_service.import_published_artifact(
+            artifact=artifact_payload,
+            actor=actor,
+            activate=activate,
+        )
+    except policy_service.PolicyServiceError as exc:
+        print(f"Artifact import failed [{exc.code}]: {exc.detail}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"Artifact import failed: {exc}", file=sys.stderr)
+        return 1
+
+    scope_label = (
+        summary.world_id
+        if not summary.client_profile
+        else (f"{summary.world_id}:{summary.client_profile}")
+    )
+    print(
+        "Artifact import summary: "
+        f"scope={scope_label} item_count={summary.item_count} "
+        f"imported={summary.imported_count} updated={summary.updated_count} "
+        f"skipped={summary.skipped_count} errors={summary.error_count}"
+    )
+    if summary.activate:
+        print(
+            "Activation summary: "
+            f"activated={summary.activated_count} "
+            f"unchanged={summary.activation_skipped_count}"
+        )
+    print(
+        "Artifact hashes: "
+        f"manifest_hash={summary.manifest_hash} "
+        f"items_hash={summary.items_hash} "
+        f"variants_hash={summary.variants_hash} "
+        f"artifact_hash={summary.artifact_hash}"
+    )
+    error_entries = [entry for entry in summary.entries if entry.action == "error"]
+    if error_entries:
+        print("Import errors:", file=sys.stderr)
+        for entry in error_entries:
+            policy_ref = (
+                "<unknown>"
+                if not entry.policy_id or not entry.variant
+                else f"{entry.policy_id}:{entry.variant}"
+            )
+            print(f"- {policy_ref}: {entry.detail}", file=sys.stderr)
+        return 1
+    return 0
+
+
 # ============================================================================
 # SERVER PROCESS FUNCTIONS
 # ============================================================================
@@ -916,6 +997,36 @@ def main() -> int:
     )
     import_world_parser.set_defaults(activate=True)
     import_world_parser.set_defaults(func=cmd_import_world_policies)
+
+    import_artifact_parser = subparsers.add_parser(
+        "import-policy-artifact",
+        help="Import one publish artifact into canonical policy DB state",
+        description=(
+            "Ingest a deterministic publish artifact JSON file and upsert canonical "
+            "policy variants into the SQLite control plane. Optionally applies "
+            "activation pointers for the artifact scope."
+        ),
+    )
+    import_artifact_parser.add_argument(
+        "--artifact-path",
+        type=str,
+        required=True,
+        help="Filesystem path to the publish_<manifest_hash>.json artifact file.",
+    )
+    import_artifact_parser.add_argument(
+        "--actor",
+        type=str,
+        default="policy-importer",
+        help="Actor value used for updated_by / activated_by audit fields.",
+    )
+    import_artifact_parser.add_argument(
+        "--no-activate",
+        action="store_false",
+        dest="activate",
+        help="Import variants only; do not apply activation pointers from artifact variants.",
+    )
+    import_artifact_parser.set_defaults(activate=True)
+    import_artifact_parser.set_defaults(func=cmd_import_policy_artifact)
 
     # run command
     run_parser = subparsers.add_parser(

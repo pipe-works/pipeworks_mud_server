@@ -147,6 +147,14 @@ class PolicyPublishRequest(BaseModel):
     actor: str | None = None
 
 
+class PolicyImportRequest(BaseModel):
+    """Request payload for importing one publish artifact into canonical DB."""
+
+    artifact: dict[str, Any]
+    actor: str | None = None
+    activate: bool = True
+
+
 class PolicyPublishManifestItemResponse(BaseModel):
     """One policy variant row in publish manifest payload."""
 
@@ -179,6 +187,7 @@ class PolicyPublishArtifactResponse(BaseModel):
 
     artifact_hash: str
     artifact_path: str
+    latest_path: str
 
 
 class PolicyPublishResponse(BaseModel):
@@ -199,3 +208,32 @@ class PolicyPublishRunResponse(BaseModel):
     created_at: str
     manifest: PolicyPublishManifestResponse
     artifact: PolicyPublishArtifactResponse
+
+
+class PolicyImportEntryResponse(BaseModel):
+    """One import outcome row for artifact ingestion."""
+
+    policy_id: str | None
+    variant: str | None
+    action: str
+    detail: str
+
+
+class PolicyImportResponse(BaseModel):
+    """API response for artifact import into canonical policy state."""
+
+    world_id: str
+    client_profile: str | None
+    activate: bool
+    item_count: int
+    imported_count: int
+    updated_count: int
+    skipped_count: int
+    error_count: int
+    activated_count: int
+    activation_skipped_count: int
+    manifest_hash: str
+    items_hash: str
+    artifact_hash: str
+    variants_hash: str
+    entries: list[PolicyImportEntryResponse]

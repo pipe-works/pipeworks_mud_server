@@ -249,9 +249,11 @@ def promote_world_policy_bundle_draft(
     thresholds_payload = build_thresholds_yaml_payload(payload)
     resolution_payload = build_resolution_yaml_payload(payload)
 
-    write_yaml(policies_dir / "axes.yaml", axes_payload)
-    write_yaml(policies_dir / "thresholds.yaml", thresholds_payload)
-    write_yaml(policies_dir / "resolution.yaml", resolution_payload)
+    axis_dir = policies_dir / "axis"
+    axis_dir.mkdir(parents=True, exist_ok=True)
+    write_yaml(axis_dir / "axes.yaml", axes_payload)
+    write_yaml(axis_dir / "thresholds.yaml", thresholds_payload)
+    write_yaml(axis_dir / "resolution.yaml", resolution_payload)
     reload_world_axis_engine(world, world_data)
 
     return LabPolicyBundleDraftPromoteResponse(

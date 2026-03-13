@@ -105,7 +105,7 @@ class ResolutionGrammar:
 
 
 def load_resolution_grammar(world_root: Path) -> ResolutionGrammar:
-    """Load and validate ``policies/resolution.yaml`` from *world_root*.
+    """Load and validate ``policies/axis/resolution.yaml`` from *world_root*.
 
     The YAML file is parsed once at world startup.  The returned
     :class:`ResolutionGrammar` is immutable and safe to store on the
@@ -114,26 +114,26 @@ def load_resolution_grammar(world_root: Path) -> ResolutionGrammar:
 
     Args:
         world_root: Root directory of the world package.  The grammar file is
-                    expected at ``<world_root>/policies/resolution.yaml``.
+                    expected at ``<world_root>/policies/axis/resolution.yaml``.
 
     Returns:
         A fully-constructed, immutable :class:`ResolutionGrammar`.
 
     Raises:
-        FileNotFoundError: If ``policies/resolution.yaml`` does not exist
+        FileNotFoundError: If ``policies/axis/resolution.yaml`` does not exist
                            under *world_root*.
         ValueError:        On schema validation failure — missing required keys,
                            unrecognised resolver names, missing channel
                            multipliers, or non-numeric magnitude values.
     """
-    grammar_path = world_root / "policies" / "resolution.yaml"
+    grammar_path = world_root / "policies" / "axis" / "resolution.yaml"
     if not grammar_path.exists():
         raise FileNotFoundError(f"Resolution grammar not found: {grammar_path}")
 
     with grammar_path.open() as fh:
         raw = yaml.safe_load(fh)
 
-    return parse_resolution_grammar_payload(raw=raw, source="resolution.yaml")
+    return parse_resolution_grammar_payload(raw=raw, source="axis/resolution.yaml")
 
 
 def parse_resolution_grammar_payload(*, raw: object, source: str) -> ResolutionGrammar:

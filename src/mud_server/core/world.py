@@ -239,7 +239,7 @@ class World:
 
         # Axis resolution engine — initialised to None here; populated by
         # _load_from_zones once it has parsed world.json and loaded the
-        # resolution grammar from policies/resolution.yaml.
+        # resolution grammar from canonical policy activation state.
         self._axis_engine: AxisEngine | None = None
 
         # Load world data from JSON files

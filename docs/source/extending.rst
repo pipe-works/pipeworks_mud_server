@@ -290,7 +290,7 @@ All game logic should be:
 Store configuration in data files, not code:
 
 * World definitions (``data/worlds/<world_id>/world.json``)
-* Resolution grammar (``policies/resolution.yaml``)
+* Resolution grammar (``policies/axis/resolution.yaml``)
 * Translation prompt (``policies/ic_prompt.txt``)
 * Environment variables for server config
 * Database for runtime state only
@@ -344,7 +344,7 @@ To add a new resolver algorithm:
           "my_resolver":     my_resolver,   # ← add here
       }
 
-3. Reference it from any world's ``policies/resolution.yaml``:
+3. Reference it from any world's ``policies/axis/resolution.yaml``:
 
    .. code-block:: yaml
 

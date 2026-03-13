@@ -68,9 +68,9 @@ as server-side drafts.
 
 The canonical files are still:
 
-* ``policies/axes.yaml``
-* ``policies/thresholds.yaml``
-* ``policies/resolution.yaml``
+* ``policies/axis/axes.yaml``
+* ``policies/axis/thresholds.yaml``
+* ``policies/axis/resolution.yaml``
 
 Promotion of a policy bundle draft:
 

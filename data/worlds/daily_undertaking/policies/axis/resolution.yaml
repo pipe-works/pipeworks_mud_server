@@ -32,7 +32,7 @@
 #     Health regenerates via the world tick system.
 #     TODO(tick-system): wire regen rate here when the tick system is built.
 
-version: "1.0"
+version: '1.0'
 
 interactions:
 
@@ -47,8 +47,8 @@ interactions:
     #          physical cost.  Visibility is a future candidate axis for yell.
     # whisper: quieter, lower stakes — reduced dominance and lower cost.
     channel_multipliers:
-      say:     1.0
-      yell:    1.5
+      say: 1.0
+      yell: 1.5
       whisper: 0.5
 
     # ── Minimum gap threshold ────────────────────────────────────────────────

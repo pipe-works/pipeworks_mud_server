@@ -9,6 +9,7 @@ Tests cover:
 """
 
 import argparse
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -1033,6 +1034,143 @@ def test_main_import_world_policies_routes_command(monkeypatch) -> None:
     """Main parser should route import-world-policies to the command handler."""
     monkeypatch.setattr("mud_server.cli.cmd_import_world_policies", lambda args: 0)
     with patch("sys.argv", ["mud-server", "import-world-policies"]):
+        assert cli.main() == 0
+
+
+# ============================================================================
+# IMPORT-POLICY-ARTIFACT COMMAND TESTS
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_cmd_import_policy_artifact_success(monkeypatch, tmp_path: Path) -> None:
+    """Artifact import command should return 0 when import succeeds without errors."""
+    artifact_path = tmp_path / "publish_hash.json"
+    artifact_path.write_text(
+        json.dumps(
+            {
+                "world_id": "pipeworks_web",
+                "client_profile": None,
+                "manifest_hash": "manifest-1",
+                "items_hash": "items-1",
+                "variants_hash": "variants-1",
+                "artifact_hash": "artifact-1",
+                "variants": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured_kwargs: dict[str, object] = {}
+
+    def _fake_import(**kwargs):
+        captured_kwargs.update(kwargs)
+        return SimpleNamespace(
+            world_id="pipeworks_web",
+            client_profile="",
+            activate=True,
+            item_count=0,
+            imported_count=0,
+            updated_count=0,
+            skipped_count=0,
+            error_count=0,
+            activated_count=0,
+            activation_skipped_count=0,
+            manifest_hash="manifest-1",
+            items_hash="items-1",
+            variants_hash="variants-1",
+            artifact_hash="artifact-1",
+            entries=[],
+        )
+
+    monkeypatch.setattr("mud_server.db.database.init_database", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "mud_server.services.policy_service.import_published_artifact", _fake_import
+    )
+
+    args = argparse.Namespace(
+        artifact_path=str(artifact_path),
+        actor="importer",
+        activate=True,
+    )
+    assert cli.cmd_import_policy_artifact(args) == 0
+    assert captured_kwargs == {
+        "artifact": {
+            "world_id": "pipeworks_web",
+            "client_profile": None,
+            "manifest_hash": "manifest-1",
+            "items_hash": "items-1",
+            "variants_hash": "variants-1",
+            "artifact_hash": "artifact-1",
+            "variants": [],
+        },
+        "actor": "importer",
+        "activate": True,
+    }
+
+
+@pytest.mark.unit
+def test_cmd_import_policy_artifact_returns_nonzero_when_file_missing() -> None:
+    """Artifact import command should fail when the JSON file does not exist."""
+    args = argparse.Namespace(
+        artifact_path="/tmp/does-not-exist-publish.json",
+        actor="importer",
+        activate=True,
+    )
+    assert cli.cmd_import_policy_artifact(args) == 1
+
+
+@pytest.mark.unit
+def test_cmd_import_policy_artifact_returns_nonzero_when_errors(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Artifact import command should return non-zero when summary includes errors."""
+    artifact_path = tmp_path / "publish_hash.json"
+    artifact_path.write_text(
+        json.dumps({"world_id": "pipeworks_web", "variants": []}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("mud_server.db.database.init_database", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "mud_server.services.policy_service.import_published_artifact",
+        lambda **kwargs: SimpleNamespace(
+            world_id="pipeworks_web",
+            client_profile="",
+            activate=True,
+            item_count=1,
+            imported_count=0,
+            updated_count=0,
+            skipped_count=0,
+            error_count=1,
+            activated_count=0,
+            activation_skipped_count=0,
+            manifest_hash="manifest-1",
+            items_hash="items-1",
+            variants_hash="variants-1",
+            artifact_hash="artifact-1",
+            entries=[
+                SimpleNamespace(
+                    policy_id="species_block:image.blocks.species:goblin",
+                    variant="v1",
+                    action="error",
+                    detail="validation failed",
+                )
+            ],
+        ),
+    )
+
+    args = argparse.Namespace(
+        artifact_path=str(artifact_path),
+        actor="importer",
+        activate=True,
+    )
+    assert cli.cmd_import_policy_artifact(args) == 1
+
+
+@pytest.mark.unit
+def test_main_import_policy_artifact_routes_command(monkeypatch) -> None:
+    """Main parser should route import-policy-artifact to the command handler."""
+    monkeypatch.setattr("mud_server.cli.cmd_import_policy_artifact", lambda args: 0)
+    with patch("sys.argv", ["mud-server", "import-policy-artifact", "--artifact-path", "/tmp/a"]):
         assert cli.main() == 0
 
 
