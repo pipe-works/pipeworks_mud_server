@@ -290,10 +290,10 @@ All game logic should be:
 Store configuration in data files, not code:
 
 * World definitions (``data/worlds/<world_id>/world.json``)
-* Resolution grammar (``policies/axis/resolution.yaml``)
-* Translation prompt (``policies/ic_prompt.txt``)
+* Canonical axis policy payloads (``axis_bundle`` in policy DB)
+* Canonical translation prompts (``prompt`` policies in policy DB)
 * Environment variables for server config
-* Database for runtime state only
+* Database for runtime state and canonical policy authority
 
 Enabling Subsystems Per World
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -344,7 +344,7 @@ To add a new resolver algorithm:
           "my_resolver":     my_resolver,   # ← add here
       }
 
-3. Reference it from any world's ``policies/axis/resolution.yaml``:
+3. Reference it from an active ``axis_bundle.content.resolution`` payload:
 
    .. code-block:: yaml
 

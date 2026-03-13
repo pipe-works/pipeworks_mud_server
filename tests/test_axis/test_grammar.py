@@ -7,16 +7,14 @@ for missing files and invalid YAML content.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 import yaml
 
-from mud_server.axis.grammar import (
-    AxisRuleConfig,
-    ChatGrammar,
-    ResolutionGrammar,
-    load_resolution_grammar,
-)
+import mud_server.axis.grammar as grammar_module
+from mud_server.axis.grammar import AxisRuleConfig, ChatGrammar, ResolutionGrammar
+from mud_server.axis.legacy_file_loader import load_resolution_grammar
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -49,6 +47,11 @@ _VALID_GRAMMAR_DICT: dict = {
         }
     },
 }
+
+
+def test_canonical_grammar_module_is_payload_only() -> None:
+    """Canonical grammar parser module should not expose disk loader helpers."""
+    assert not hasattr(grammar_module, "load_resolution_grammar")
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +125,9 @@ class TestLoadResolutionGrammarHappyPath:
     def test_grammar_is_immutable(self, tmp_path):
         world_root = _write_grammar(tmp_path, _VALID_GRAMMAR_DICT)
         grammar = load_resolution_grammar(world_root)
+        grammar_any = cast(Any, grammar)
         with pytest.raises((TypeError, AttributeError)):
-            grammar.version = "2.0"
+            grammar_any.version = "2.0"
 
     def test_real_pipeworks_web_grammar_file_is_absent(self):
         """``pipeworks_web`` runtime is DB-backed and has no required grammar file on disk."""

@@ -19,7 +19,7 @@ Key properties:
 - **Atomic mutations**: event insert + delta insert + score update happen in
   a single DB transaction.
 - **World-defined policy**: axes, ordering, thresholds, and resolution
-  grammar all come from world policy files — nothing is hard-coded.
+  grammar come from canonical DB policy objects — nothing is hard-coded.
 - **Snapshots are caches**: JSON snapshots exist for UI/debugging only and
   are never used to resolve mechanics.
 - **Ledger first**: the JSONL ``chat.mechanical_resolution`` event is
@@ -31,56 +31,25 @@ Key properties:
    See :doc:`ledger` for the full JSONL ledger specification and event
    envelope format.
 
-World Policy Files
-------------------
+Canonical Policy Objects (DB)
+-----------------------------
 
-Policy files live in each world package::
+Axis runtime configuration is resolved from canonical policy activation state:
 
-   data/worlds/<world_id>/policies/
-     axes.yaml           ← axis registry (names, labels, ordinal ordering)
-     thresholds.yaml     ← float score → label mappings
-     resolution.yaml     ← chat resolver grammar  ← NEW
-     ic_prompt.txt       ← translation system prompt template  ← NEW
+1. ``manifest_bundle`` selects the active axis bundle id/version.
+2. ``axis_bundle`` provides ``axes``, ``thresholds``, and ``resolution`` payloads.
+3. ``World._init_axis_engine`` parses ``axis_bundle.content.resolution`` into
+   immutable grammar dataclasses.
 
-Example ``axes.yaml``:
-
-.. code-block:: yaml
-
-   version: 0.1.0
-   axes:
-     demeanor:
-       values: [resentful, guarded, neutral, proud, commanding]
-       ordering:
-         type: ordinal
-         values: [resentful, guarded, neutral, proud, commanding]
-     health:
-       values: [incapacitated, wounded, scarred, hale, vigorous]
-       ordering:
-         type: ordinal
-         values: [incapacitated, wounded, scarred, hale, vigorous]
-
-Example ``thresholds.yaml``:
-
-.. code-block:: yaml
-
-   version: 0.1.0
-   axes:
-     demeanor:
-       values:
-         resentful:  { min: 0.0,  max: 0.19 }
-         guarded:    { min: 0.20, max: 0.39 }
-         neutral:    { min: 0.40, max: 0.59 }
-         proud:      { min: 0.60, max: 0.79 }
-         commanding: { min: 0.80, max: 1.0  }
+World package ``policies/*`` files are no longer runtime authority.
 
 Resolution Grammar
 ------------------
 
 The resolution grammar is the machine-readable ruleset that controls
 what happens to each axis when two characters interact via chat.  It
-lives at ``data/worlds/<world_id>/policies/axis/resolution.yaml`` and is
-loaded once at world startup by
-:func:`~mud_server.axis.grammar.load_resolution_grammar`.
+lives in canonical DB policy content at ``axis_bundle.content.resolution`` and
+is parsed by :func:`~mud_server.axis.grammar.parse_resolution_grammar_payload`.
 
 Full example:
 
@@ -114,9 +83,9 @@ Full example:
 
 **Design rules:**
 
-* Every axis defined in ``axes.yaml`` must have an entry in the
-  grammar.  ``no_effect`` is the explicit no-op for axes not involved
-  in a given interaction type.
+* Every axis defined in the active ``axis_bundle.content.axes`` payload must
+  have an entry in the grammar. ``no_effect`` is the explicit no-op for axes
+  not involved in a given interaction type.
 * New stimulus types (environmental, physical, economic) add new
   top-level keys under ``interactions`` without modifying existing
   grammar blocks.
@@ -300,8 +269,10 @@ startup.  It:
 
 1. Checks ``world_data["axis_engine"]["enabled"]`` (default: ``False``)
 2. Calls ``verify_world_ledger(world_id)`` for a startup integrity check
-3. Loads ``policies/axis/resolution.yaml`` via ``load_resolution_grammar``
-4. Instantiates ``AxisEngine(world_id=..., grammar=...)``
+3. Resolves effective canonical ``axis_bundle`` via policy activation
+4. Parses ``axis_bundle.content.resolution`` via
+   ``parse_resolution_grammar_payload``
+5. Instantiates ``AxisEngine(world_id=..., grammar=...)``
 
 If any step fails, ``_axis_engine`` is set to ``None`` and an ERROR is
 logged.  The world starts normally; chat interactions degrade gracefully
@@ -327,9 +298,9 @@ This is emitted at startup to confirm world readiness.
 Registry Seeding
 ----------------
 
-On startup, the engine mirrors world policy files into the axis registry
-tables (``axis`` and ``axis_value``). This makes the database a queryable
-reflection of the policy while keeping policy files as the source of truth.
+On startup, the engine mirrors canonical axis policy objects into axis registry
+tables (``axis`` and ``axis_value``). This keeps a queryable runtime projection
+while preserving canonical policy authority in policy tables + activations.
 
 Event Application
 -----------------
