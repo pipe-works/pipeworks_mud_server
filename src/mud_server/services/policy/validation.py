@@ -248,6 +248,12 @@ def _validate_policy_type_content(
             errors.append("clothing_block content.text must be a non-empty string")
         return errors
 
+    if identity.policy_type == "image_block":
+        image_text = content.get("text")
+        if not isinstance(image_text, str) or not image_text.strip():
+            errors.append("image_block content.text must be a non-empty string")
+        return errors
+
     if identity.policy_type == "prompt":
         prompt_text = content.get("text")
         if not isinstance(prompt_text, str) or not prompt_text.strip():
@@ -282,8 +288,9 @@ def _validate_policy_type_content(
 
     errors.append(
         "Validation/writes currently support policy_type values: "
-        "'species_block', 'clothing_block', 'prompt', 'tone_profile', "
-        "'axis_bundle', 'manifest_bundle', 'descriptor_layer', 'registry'."
+        "'image_block', 'species_block', 'clothing_block', 'prompt', "
+        "'tone_profile', 'axis_bundle', 'manifest_bundle', "
+        "'descriptor_layer', 'registry'."
     )
     return errors
 

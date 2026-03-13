@@ -8,6 +8,7 @@ reduces drift across validation, activation, publish, and import logic.
 from __future__ import annotations
 
 _SUPPORTED_POLICY_TYPES = {
+    "image_block",
     "species_block",
     "clothing_block",
     "registry",
@@ -19,6 +20,7 @@ _SUPPORTED_POLICY_TYPES = {
 }
 
 _LAYER1_POLICY_TYPES = {
+    "image_block",
     "species_block",
     "clothing_block",
     "prompt",

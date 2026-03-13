@@ -46,6 +46,56 @@ def test_validate_upsert_and_get_policy_roundtrip(test_db) -> None:
 
 @pytest.mark.unit
 @pytest.mark.db
+def test_image_block_validate_upsert_and_get_policy_roundtrip(test_db) -> None:
+    """Image blocks should validate, persist, and resolve through canonical APIs."""
+    policy_id = "image_block:image.blocks.pose:standing_front"
+
+    validation = policy_service.validate_policy_variant(
+        policy_id=policy_id,
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="draft",
+        content={"text": "Subject is front-facing with neutral stance."},
+        validated_by="tester",
+    )
+    assert validation.is_valid is True
+
+    saved = policy_service.upsert_policy_variant(
+        policy_id=policy_id,
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="draft",
+        content={"text": "Subject is front-facing with neutral stance."},
+        updated_by="tester",
+    )
+    assert saved["policy_id"] == policy_id
+    assert saved["policy_type"] == "image_block"
+
+    fetched = policy_service.get_policy(policy_id=policy_id, variant="v1")
+    assert fetched["content"]["text"] == "Subject is front-facing with neutral stance."
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_image_block_validation_rejects_empty_text(test_db) -> None:
+    """Image block schema should require non-empty ``content.text`` strings."""
+    invalid = policy_service.validate_policy_variant(
+        policy_id="image_block:image.blocks.pose:standing_front",
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="draft",
+        content={"text": "   "},
+        validated_by="tester",
+    )
+    assert invalid.is_valid is False
+    assert "image_block content.text must be a non-empty string" in invalid.errors
+
+
+@pytest.mark.unit
+@pytest.mark.db
 def test_layer2_reference_validation_rejects_non_layer1_reference(test_db) -> None:
     """Layer 2 payloads should reject references to non-Layer-1 policy types."""
     invalid = policy_service.validate_policy_variant(
@@ -64,6 +114,39 @@ def test_layer2_reference_validation_rejects_non_layer1_reference(test_db) -> No
     )
     assert invalid.is_valid is False
     assert any("must reference a Layer 1 policy type" in err for err in invalid.errors)
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_layer2_reference_validation_accepts_image_block_reference(test_db) -> None:
+    """Layer 2 references should accept canonical ``image_block`` Layer 1 ids."""
+    image_policy_id = "image_block:image.blocks.pose:standing_front"
+    policy_service.upsert_policy_variant(
+        policy_id=image_policy_id,
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="active",
+        content={"text": "Front-facing stance."},
+        updated_by="tester",
+    )
+
+    valid = policy_service.validate_policy_variant(
+        policy_id="descriptor_layer:image.descriptors:id_card",
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="candidate",
+        content={
+            "text": "Descriptor text.",
+            "references": [
+                {"policy_id": image_policy_id, "variant": "v1"},
+            ],
+        },
+        validated_by="tester",
+    )
+    assert valid.is_valid is True
+    assert valid.errors == []
 
 
 @pytest.mark.unit
@@ -267,6 +350,7 @@ def test_artifact_import_orders_layer1_before_layer2_reference_validation(test_d
     """
     world_id = constants.DEFAULT_WORLD_ID
     species_policy_id = "species_block:image.blocks.species:goblin"
+    image_policy_id = "image_block:image.blocks.pose:standing_front"
     descriptor_policy_id = "descriptor_layer:image.descriptors:id_card"
 
     artifact_payload = {
@@ -287,8 +371,20 @@ def test_artifact_import_orders_layer1_before_layer2_reference_validation(test_d
                     "text": "Descriptor text.",
                     "references": [
                         {"policy_id": species_policy_id, "variant": "v1"},
+                        {"policy_id": image_policy_id, "variant": "v1"},
                     ],
                 },
+            },
+            {
+                "policy_id": image_policy_id,
+                "policy_type": "image_block",
+                "namespace": "image.blocks.pose",
+                "policy_key": "standing_front",
+                "variant": "v1",
+                "schema_version": "1.0",
+                "policy_version": 1,
+                "status": "active",
+                "content": {"text": "Image block text."},
             },
             {
                 "policy_id": species_policy_id,
@@ -311,10 +407,11 @@ def test_artifact_import_orders_layer1_before_layer2_reference_validation(test_d
     )
 
     assert imported.error_count == 0
-    assert imported.imported_count == 2
+    assert imported.imported_count == 3
 
     descriptor_row = policy_service.get_policy(policy_id=descriptor_policy_id, variant="v1")
     assert descriptor_row["content"]["references"][0]["policy_id"] == species_policy_id
+    assert descriptor_row["content"]["references"][1]["policy_id"] == image_policy_id
 
 
 @pytest.mark.unit
