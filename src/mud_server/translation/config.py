@@ -76,9 +76,6 @@ class TranslationLayerConfig:
         prompt_policy_id:     Canonical prompt policy id selector used for
                               runtime resolution (for example
                               ``prompt:translation.prompts.ic:default``).
-        prompt_template_path: Legacy path selector (relative to world root)
-                              retained as an optional migration hint when
-                              ``prompt_policy_id`` is not configured.
         active_axes:          Subset of axis names to include in the
                               character profile sent to the LLM.  An empty
                               list means "all axes that exist for this
@@ -98,7 +95,6 @@ class TranslationLayerConfig:
     strict_mode: bool
     max_output_chars: int
     prompt_policy_id: str | None
-    prompt_template_path: str | None
     active_axes: list[str]
     deterministic: bool
 
@@ -127,10 +123,8 @@ class TranslationLayerConfig:
         prompt_policy_id = (
             str(raw_prompt_policy_id).strip() if raw_prompt_policy_id is not None else ""
         )
-        raw_template_path = data.get("prompt_template_path")
-        prompt_template_path = (
-            str(raw_template_path).strip() if raw_template_path is not None else ""
-        )
+        # ``prompt_template_path`` is intentionally ignored in canonical
+        # runtime mode. Prompt selection is policy-id based only.
         return cls(
             enabled=bool(data.get("enabled", False)),
             model=str(data.get("model", "gemma2:2b")),
@@ -140,7 +134,6 @@ class TranslationLayerConfig:
             strict_mode=bool(data.get("strict_mode", True)),
             max_output_chars=int(data.get("max_output_chars", 280)),
             prompt_policy_id=prompt_policy_id or "prompt:translation.prompts.ic:default",
-            prompt_template_path=prompt_template_path or None,
             active_axes=list(data.get("active_axes", [])),
             deterministic=bool(data.get("deterministic", False)),
         )
@@ -161,7 +154,6 @@ class TranslationLayerConfig:
             strict_mode=True,
             max_output_chars=280,
             prompt_policy_id="prompt:translation.prompts.ic:default",
-            prompt_template_path=None,
             active_axes=[],
             deterministic=False,
         )

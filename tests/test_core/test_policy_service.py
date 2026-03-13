@@ -149,7 +149,6 @@ def test_resolve_effective_prompt_template_requires_policy_selector_when_ambiguo
                 world_id=constants.DEFAULT_WORLD_ID, client_profile=""
             ),
             preferred_policy_id=None,
-            preferred_template_path="policies/translation/prompts/ic/default_v1.txt",
         )
     assert error.value.code == "POLICY_EFFECTIVE_PROMPT_AMBIGUOUS"
 
@@ -158,7 +157,6 @@ def test_resolve_effective_prompt_template_requires_policy_selector_when_ambiguo
             world_id=constants.DEFAULT_WORLD_ID, client_profile=""
         ),
         preferred_policy_id=p1,
-        preferred_template_path=None,
     )
     assert resolved["policy_id"] == p1
 

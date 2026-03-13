@@ -23,17 +23,9 @@ def resolve_effective_prompt_template(
     *,
     scope: ActivationScope,
     preferred_policy_id: str | None = None,
-    preferred_template_path: str | None,
 ) -> dict[str, str]:
-    """Resolve effective canonical ``prompt`` policy for one scope.
-
-    ``preferred_template_path`` is accepted for backward signature
-    compatibility only and is intentionally ignored now that legacy path-based
-    selectors are removed.
-    """
+    """Resolve effective canonical ``prompt`` policy for one scope."""
     ensure_world_exists(scope.world_id)
-
-    _ = preferred_template_path
 
     selected_policy_id_hint: str | None = None
     if preferred_policy_id:

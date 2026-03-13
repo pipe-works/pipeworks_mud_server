@@ -18,8 +18,8 @@ import pytest
 from mud_server.config import use_test_database
 from mud_server.core.engine import GameEngine
 from mud_server.db import database
-from mud_server.policies import AxisPolicyValidationReport
 from mud_server.services import policy_service
+from mud_server.services.policy.types import AxisPolicyValidationReport
 
 
 @pytest.mark.unit

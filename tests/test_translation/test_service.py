@@ -92,7 +92,6 @@ def _make_service(tmp_path: Path, *, deterministic=False) -> OOCToICTranslationS
     cfg = _make_config(
         enabled=True,
         deterministic=deterministic,
-        prompt_template_path="policies/ic_prompt.txt",
     )
     service = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
     service._prompt_template = (
@@ -109,7 +108,7 @@ def _make_service_with_profile_summary_template(
     Use this helper in tests that need to confirm ``{{profile_summary}}``
     is resolved by translate() before reaching the renderer.
     """
-    cfg = _make_config(enabled=True, prompt_template_path="policies/ic_prompt.txt")
+    cfg = _make_config(enabled=True)
     service = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
     service._prompt_template = (
         "PROFILE:\n{{profile_summary}}\nMODE: {{channel}}\nMESSAGE: {{ooc_message}}"
@@ -666,7 +665,6 @@ class TestPromptTemplate:
         """If canonical prompt resolution fails, built-in fallback is used."""
         cfg = _make_config(
             enabled=True,
-            prompt_template_path="policies/nonexistent.txt",
         )
         with patch(
             "mud_server.services.policy_service.resolve_effective_prompt_template",
@@ -677,7 +675,7 @@ class TestPromptTemplate:
 
     def test_custom_template_loaded(self, tmp_path):
         """A canonical prompt policy text is loaded and stored verbatim."""
-        cfg = _make_config(enabled=True, prompt_template_path="policies/ic_prompt.txt")
+        cfg = _make_config(enabled=True)
         with patch(
             "mud_server.services.policy_service.resolve_effective_prompt_template",
             return_value={
@@ -697,7 +695,6 @@ class TestPromptTemplate:
         cfg = _make_config(
             enabled=True,
             prompt_policy_id="prompt:translation.prompts.ic:custom",
-            prompt_template_path=None,
         )
         with patch(
             "mud_server.services.policy_service.resolve_effective_prompt_template",
@@ -715,7 +712,6 @@ class TestPromptTemplate:
         assert mock_resolve.call_count == 1
         kwargs = mock_resolve.call_args.kwargs
         assert kwargs["preferred_policy_id"] == "prompt:translation.prompts.ic:custom"
-        assert kwargs["preferred_template_path"] is None
 
 
 # ── TestSystemPromptRendering ─────────────────────────────────────────────────
@@ -1057,7 +1053,6 @@ class TestTranslateWithAxes:
         cfg = _make_config(
             enabled=True,
             active_axes=axes,
-            prompt_template_path="policies/ic_prompt.txt",
         )
         service = OOCToICTranslationService(world_id=WORLD_ID, config=cfg, world_root=tmp_path)
         service._prompt_template = (

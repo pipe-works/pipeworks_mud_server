@@ -81,8 +81,8 @@ class LabPromptFile(BaseModel):
         filename:  World-relative prompt path under ``policies/`` (for example
                    ``"ic_prompt.txt"`` or ``"translation/prompts/ic/default_v1.txt"``).
         content:   Full text content of the file.
-        is_active: ``True`` if this file is the world's configured
-                   ``prompt_template_path``.
+        is_active: ``True`` if this file is selected as active in the
+                   corresponding lab flow.
     """
 
     filename: str
@@ -202,7 +202,8 @@ class LabPromptDraftPromoteResponse(BaseModel):
         world_id: World that owns the promoted prompt.
         canonical_name: Canonical prompt file stem created by the promotion.
         canonical_path: World-relative path of the created canonical prompt.
-        active_prompt_path: Updated ``translation_layer.prompt_template_path``.
+        active_prompt_path: Legacy file-path field retained for compatibility
+            with removed draft-route responses.
     """
 
     name: str

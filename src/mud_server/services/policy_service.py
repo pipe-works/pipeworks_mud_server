@@ -165,13 +165,11 @@ def resolve_effective_prompt_template(
     *,
     scope: ActivationScope,
     preferred_policy_id: str | None = None,
-    preferred_template_path: str | None,
 ) -> dict[str, str]:
     """Resolve effective canonical prompt template from DB activation state."""
     return _resolve_effective_prompt_template(
         scope=scope,
         preferred_policy_id=preferred_policy_id,
-        preferred_template_path=preferred_template_path,
     )
 
 

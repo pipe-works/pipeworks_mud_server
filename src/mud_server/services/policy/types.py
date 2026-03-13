@@ -12,6 +12,26 @@ from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
+class AxisPolicyValidationReport:
+    """Canonical axis-policy validation report used during engine bootstrap.
+
+    This report shape is retained for bootstrap logging and diagnostics after
+    legacy file-loader removal. Payloads are built from canonical DB policy
+    objects (manifest/axis bundle activations), not from world policy files.
+    """
+
+    world_id: str
+    axes: list[str]
+    ordering_present: list[str]
+    ordering_definitions: dict[str, Any]
+    thresholds_present: list[str]
+    thresholds_definitions: dict[str, Any]
+    missing_components: list[str]
+    policy_hash: str
+    version: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class PolicyIdentity:
     """Parsed canonical policy identity tuple.
 
