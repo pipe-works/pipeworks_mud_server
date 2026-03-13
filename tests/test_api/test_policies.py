@@ -61,6 +61,18 @@ def _prompt_payload(
     }
 
 
+def _image_block_payload(
+    *, text: str, policy_version: int = 1, status: str = "draft"
+) -> dict[str, object]:
+    """Build one canonical ``image_block`` request body."""
+    return {
+        "schema_version": "1.0",
+        "policy_version": policy_version,
+        "status": status,
+        "content": {"text": text},
+    }
+
+
 def _tone_profile_payload(
     *,
     prompt_block: str,
@@ -178,6 +190,52 @@ def test_species_policy_validation_rejects_empty_text(test_client, db_with_users
     payload = upsert_response.json()
     assert payload["code"] == "POLICY_VALIDATION_ERROR"
     assert "species_block content.text must be a non-empty string" in payload["detail"]
+
+
+@pytest.mark.api
+def test_image_block_policy_validate_and_upsert_flow(test_client, db_with_users) -> None:
+    """Image block Layer 1 objects should validate and persist through unified routes."""
+    session_id = _session_id_for("testadmin")
+    policy_id = "image_block:image.blocks.pose:standing_front"
+    encoded_id = quote(policy_id, safe="")
+
+    validate_response = test_client.post(
+        f"/api/policies/{encoded_id}/validate",
+        params={"session_id": session_id, "variant": "v1"},
+        json=_image_block_payload(text="Subject is front-facing with neutral stance."),
+    )
+    assert validate_response.status_code == 200
+    assert validate_response.json()["is_valid"] is True
+
+    upsert_response = test_client.put(
+        f"/api/policies/{encoded_id}/variants/v1",
+        params={"session_id": session_id},
+        json=_image_block_payload(text="Subject is front-facing with neutral stance."),
+    )
+    assert upsert_response.status_code == 200
+    payload = upsert_response.json()
+    assert payload["policy_type"] == "image_block"
+    assert payload["namespace"] == "image.blocks.pose"
+    assert payload["policy_key"] == "standing_front"
+    assert payload["content"]["text"] == "Subject is front-facing with neutral stance."
+
+
+@pytest.mark.api
+def test_image_block_policy_rejects_empty_text(test_client, db_with_users) -> None:
+    """Image block validation should reject blank canonical text payloads."""
+    session_id = _session_id_for("testadmin")
+    policy_id = "image_block:image.blocks.pose:standing_front"
+    encoded_id = quote(policy_id, safe="")
+
+    upsert_response = test_client.put(
+        f"/api/policies/{encoded_id}/variants/v1",
+        params={"session_id": session_id},
+        json=_image_block_payload(text="   "),
+    )
+    assert upsert_response.status_code == 422
+    payload = upsert_response.json()
+    assert payload["code"] == "POLICY_VALIDATION_ERROR"
+    assert "image_block content.text must be a non-empty string" in payload["detail"]
 
 
 @pytest.mark.api

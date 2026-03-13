@@ -272,14 +272,15 @@ def _import_priority_for_policy_row(row: dict[str, Any]) -> int:
         return 99
     policy_type = policy_id.split(":", 1)[0].strip()
     priority_by_type = {
-        "species_block": 10,
-        "clothing_block": 20,
-        "prompt": 30,
-        "tone_profile": 40,
-        "axis_bundle": 50,
-        "manifest_bundle": 60,
-        "descriptor_layer": 70,
-        "registry": 80,
+        "image_block": 10,
+        "species_block": 20,
+        "clothing_block": 30,
+        "prompt": 40,
+        "tone_profile": 50,
+        "axis_bundle": 60,
+        "manifest_bundle": 70,
+        "descriptor_layer": 80,
+        "registry": 90,
     }
     return int(priority_by_type.get(policy_type, 99))
 
