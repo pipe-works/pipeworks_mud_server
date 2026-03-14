@@ -29,6 +29,7 @@ from mud_server.services.policy.activation import set_policy_activation as _set_
 from mud_server.services.policy.artifact_import import (
     import_published_artifact as _import_published_artifact,
 )
+from mud_server.services.policy.constants import _SUPPORTED_POLICY_TYPES, _SUPPORTED_STATUSES
 from mud_server.services.policy.errors import PolicyServiceError as _PolicyServiceError
 from mud_server.services.policy.publish import get_publish_run as _get_publish_run
 from mud_server.services.policy.publish import publish_scope as _publish_scope
@@ -78,6 +79,21 @@ def list_policies(
 def get_policy(*, policy_id: str, variant: str | None) -> dict[str, Any]:
     """Get one canonical policy variant row by id and optional variant."""
     return _get_policy(policy_id=policy_id, variant=variant)
+
+
+def get_policy_capabilities(*, role: str) -> dict[str, Any]:
+    """Return canonical policy API capability metadata for an authorized role.
+
+    The caller is responsible for session validation and enforcing that only
+    admin/superuser roles can access policy APIs. This helper keeps the
+    capability payload deterministic for UI clients.
+    """
+    return {
+        "authorized": True,
+        "role": role,
+        "allowed_policy_types": sorted(_SUPPORTED_POLICY_TYPES),
+        "allowed_statuses": sorted(_SUPPORTED_STATUSES),
+    }
 
 
 def validate_policy_variant(

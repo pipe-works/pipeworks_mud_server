@@ -18,6 +18,7 @@ from mud_server.api.models_policy import (
     PolicyActivationEntryResponse,
     PolicyActivationListResponse,
     PolicyActivationRequest,
+    PolicyCapabilitiesResponse,
     PolicyImportEntryResponse,
     PolicyImportRequest,
     PolicyImportResponse,
@@ -37,6 +38,9 @@ from mud_server.services.policy_service import (
 )
 from mud_server.services.policy_service import (
     get_policy as service_get_policy,
+)
+from mud_server.services.policy_service import (
+    get_policy_capabilities as service_get_policy_capabilities,
 )
 from mud_server.services.policy_service import (
     get_publish_run as service_get_publish_run,
@@ -105,6 +109,12 @@ def router(_engine: GameEngine) -> APIRouter:
             current pilot endpoints do not require direct engine access.
     """
     api = APIRouter(tags=["policy"])
+
+    @api.get("/api/policy-capabilities", response_model=PolicyCapabilitiesResponse)
+    async def get_policy_capabilities(session_id: str) -> Any:
+        """Return canonical policy API capabilities for current authorized session."""
+        _user_id, _username, role = _validate_policy_session_admin_or_superuser(session_id)
+        return PolicyCapabilitiesResponse.model_validate(service_get_policy_capabilities(role=role))
 
     @api.get("/api/policies", response_model=PolicyListResponse)
     async def list_policies(
