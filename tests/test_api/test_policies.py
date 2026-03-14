@@ -111,6 +111,13 @@ def test_policy_routes_require_admin_or_superuser_role(
     assert upsert_response.status_code == 403
     assert "admin or superuser" in upsert_response.json()["detail"]
 
+    capabilities_response = test_client.get(
+        "/api/policy-capabilities",
+        params={"session_id": session_id},
+    )
+    assert capabilities_response.status_code == 403
+    assert "admin or superuser" in capabilities_response.json()["detail"]
+
 
 @pytest.mark.api
 def test_policy_routes_allow_superuser_role(test_client, db_with_users) -> None:
@@ -119,6 +126,31 @@ def test_policy_routes_allow_superuser_role(test_client, db_with_users) -> None:
     list_response = test_client.get("/api/policies", params={"session_id": session_id})
     assert list_response.status_code == 200
     assert isinstance(list_response.json().get("items"), list)
+
+
+@pytest.mark.api
+def test_policy_capabilities_returns_authorized_contract(test_client, db_with_users) -> None:
+    """Capabilities endpoint should return canonical policy type/status metadata."""
+    session_id = _session_id_for("testadmin")
+    response = test_client.get("/api/policy-capabilities", params={"session_id": session_id})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["authorized"] is True
+    assert payload["role"] == "admin"
+    assert payload["allowed_policy_types"] == sorted(
+        [
+            "image_block",
+            "species_block",
+            "clothing_block",
+            "registry",
+            "prompt",
+            "descriptor_layer",
+            "tone_profile",
+            "axis_bundle",
+            "manifest_bundle",
+        ]
+    )
+    assert payload["allowed_statuses"] == sorted(["draft", "candidate", "active", "archived"])
 
 
 @pytest.mark.api

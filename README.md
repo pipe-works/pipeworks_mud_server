@@ -279,6 +279,7 @@ the Policy Workbench and other clients.
 
 Canonical authoring path (DB-first):
 
+- `GET /api/policy-capabilities`
 - `GET /api/policies`
 - `GET /api/policies/{policy_id}`
 - `POST /api/policies/{policy_id}/validate`

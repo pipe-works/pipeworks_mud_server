@@ -58,6 +58,15 @@ class PolicyListResponse(BaseModel):
     items: list[PolicyObjectResponse]
 
 
+class PolicyCapabilitiesResponse(BaseModel):
+    """Capability metadata for authorized policy API sessions."""
+
+    authorized: bool
+    role: str
+    allowed_policy_types: list[str]
+    allowed_statuses: list[str]
+
+
 class PolicyValidateRequest(BaseModel):
     """Request body for policy variant validation.
 
