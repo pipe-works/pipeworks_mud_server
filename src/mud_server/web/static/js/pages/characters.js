@@ -385,10 +385,10 @@ async function renderCharactersDashboard(root, { api, session }) {
    */
   const load = async () => {
     const [charactersResponse, usersResponse, worldsResponse, locationsResponse] = await Promise.all([
-      api.getTableRows(sessionId, 'characters', 3000),
-      api.getTableRows(sessionId, 'users', 2000),
+      api.getAllTableRows(sessionId, 'characters'),
+      api.getAllTableRows(sessionId, 'users'),
       api.getTableRows(sessionId, 'worlds', 300),
-      api.getTableRows(sessionId, 'character_locations', 3000),
+      api.getAllTableRows(sessionId, 'character_locations'),
     ]);
 
     allCharacters = rowsToObjects(charactersResponse.columns, charactersResponse.rows).filter(

@@ -247,9 +247,9 @@ async function renderAccountsDashboard(root, { api, session }) {
     const [accountsResponse, charactersResponse, worldsResponse, worldPermsResponse] =
       await Promise.all([
         api.getPlayers(sessionId),
-        api.getTableRows(sessionId, 'characters', 2000),
+        api.getAllTableRows(sessionId, 'characters'),
         api.getTableRows(sessionId, 'worlds', 300),
-        api.getTableRows(sessionId, 'world_permissions', 2000),
+        api.getAllTableRows(sessionId, 'world_permissions'),
       ]);
 
     allAccounts = Array.isArray(accountsResponse.players) ? accountsResponse.players : [];

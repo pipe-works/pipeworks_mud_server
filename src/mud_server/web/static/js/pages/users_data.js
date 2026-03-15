@@ -53,10 +53,10 @@ async function loadUsersList({ api, sessionId }) {
  */
 async function loadUsersMetadata({ api, sessionId }) {
   const [charactersResp, worldsResp, permissionsResp, locationsResp] = await Promise.all([
-    api.getTableRows(sessionId, 'characters', 1000),
+    api.getAllTableRows(sessionId, 'characters'),
     api.getTableRows(sessionId, 'worlds', 200),
-    api.getTableRows(sessionId, 'world_permissions', 1000),
-    api.getTableRows(sessionId, 'character_locations', 1000),
+    api.getAllTableRows(sessionId, 'world_permissions'),
+    api.getAllTableRows(sessionId, 'character_locations'),
   ]);
 
   const worldRows = rowsToObjects(worldsResp.columns, worldsResp.rows);
