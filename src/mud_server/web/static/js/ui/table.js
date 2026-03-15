@@ -4,6 +4,8 @@
  * Simple HTML table renderer for admin lists.
  */
 
+import { formatDisplayValue } from './value.js';
+
 /**
  * Render a table from headers and rows.
  *
@@ -15,7 +17,7 @@ function renderTable(headers, rows) {
   const headerHtml = headers.map((h) => `<th>${h}</th>`).join('');
   const rowHtml = rows
     .map((row) => {
-      const cells = row.map((cell) => `<td>${cell}</td>`).join('');
+      const cells = row.map((cell) => `<td>${formatDisplayValue(cell)}</td>`).join('');
       return `<tr>${cells}</tr>`;
     })
     .join('');

@@ -10,6 +10,7 @@
  */
 
 import { showToast } from '../ui/toasts.js';
+import { formatDisplayValue } from '../ui/value.js';
 
 /**
  * Convert a database table payload (columns + row arrays) to object rows.
@@ -38,7 +39,7 @@ function escapeHtml(value) {
   if (value === null || value === undefined) {
     return '';
   }
-  return String(value)
+  return formatDisplayValue(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -56,7 +57,7 @@ function formatDate(value) {
   if (!value) {
     return '—';
   }
-  return String(value);
+  return formatDisplayValue(value);
 }
 
 /**
@@ -69,7 +70,7 @@ function formatRole(role) {
   if (!role) {
     return 'Unknown';
   }
-  const raw = String(role);
+  const raw = formatDisplayValue(role);
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 

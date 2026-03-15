@@ -8,6 +8,7 @@
 
 import { renderTable } from '../ui/table.js';
 import { showToast } from '../ui/toasts.js';
+import { formatDisplayValue } from '../ui/value.js';
 
 /**
  * Convert table payload rows into object rows.
@@ -36,7 +37,7 @@ function escapeHtml(value) {
   if (value === null || value === undefined) {
     return '';
   }
-  return String(value)
+  return formatDisplayValue(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -54,7 +55,7 @@ function formatDate(value) {
   if (!value) {
     return '—';
   }
-  return String(value);
+  return formatDisplayValue(value);
 }
 
 /**

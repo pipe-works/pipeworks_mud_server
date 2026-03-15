@@ -10,6 +10,7 @@
  */
 
 import { showToast } from '../ui/toasts.js';
+import { formatDisplayValue } from '../ui/value.js';
 
 /**
  * Convert table payload rows into object rows.
@@ -38,7 +39,7 @@ function escapeHtml(value) {
   if (value === null || value === undefined) {
     return '';
   }
-  return String(value)
+  return formatDisplayValue(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -56,7 +57,7 @@ function formatDate(value) {
   if (!value) {
     return '—';
   }
-  return String(value);
+  return formatDisplayValue(value);
 }
 
 /**
@@ -82,7 +83,7 @@ function formatEventTypeLabel(eventType) {
   if (!eventType) {
     return 'Event';
   }
-  return String(eventType)
+  return formatDisplayValue(eventType)
     .replace(/[_-]+/g, ' ')
     .trim()
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -96,7 +97,7 @@ function formatEventTypeLabel(eventType) {
  */
 function buildAxisEventSummary(event) {
   const description =
-    event?.event_type_description && String(event.event_type_description).trim();
+    event?.event_type_description && formatDisplayValue(event.event_type_description).trim();
   if (description) {
     return description;
   }
@@ -104,7 +105,7 @@ function buildAxisEventSummary(event) {
   const metadata = event?.metadata || {};
   const summary = metadata.summary || metadata.reason || metadata.message || '';
   if (summary) {
-    return String(summary);
+    return formatDisplayValue(summary);
   }
 
   const deltas = Array.isArray(event?.deltas) ? event.deltas : [];
