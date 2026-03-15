@@ -127,7 +127,9 @@ Package Layout
     │   │   ├── game.py         # Commands, chat, status, heartbeat
     │   │   ├── auth.py         # Login, logout, session selection
     │   │   ├── admin.py        # Admin dashboard + management routes
-    │   │   ├── lab.py          # Axis Descriptor Lab canonical draft APIs
+    │   │   ├── lab.py          # Axis Descriptor Lab diagnostics + prompt compile APIs
+    │   │   ├── policies.py     # Canonical policy CRUD/activation/publish/import APIs
+    │   │   ├── policy.py       # Canonical policy hash snapshot API
     │   │   └── register.py     # Route assembly helper
     │   ├── auth.py             # DB-backed sessions with TTL
     │   ├── password.py         # bcrypt hashing via passlib
@@ -283,7 +285,8 @@ Located in ``src/mud_server/translation/``:
   from ``world.json``.
 
 See :doc:`translation_layer` for the full service contract and
-prompt template format. See :doc:`lab_artifact_editor` for the server-backed draft and promotion workflow exposed to the Axis Descriptor Lab.
+prompt template format. See :doc:`lab_artifact_editor` for the DB-first
+Axis Descriptor Lab diagnostics and prompt compilation workflow.
 
 Event Bus Architecture
 ~~~~~~~~~~~~~~~~~~~~~~

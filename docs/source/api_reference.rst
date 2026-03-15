@@ -220,6 +220,42 @@ Removed (breaking change):
 * ``/api/lab/world-prompts/*``
 * ``/api/lab/world-policy-bundle/*``
 
+Canonical Policy APIs
+~~~~~~~~~~~~~~~~~~~~~
+
+These endpoints provide the DB-first policy control plane. All require
+admin or superuser session scope.
+
+* ``GET /api/policy-capabilities`` - Return allowed policy types/statuses for current role
+* ``GET /api/policies`` - List canonical policy variants with optional filters
+* ``GET /api/policies/{policy_id}`` - Get one policy variant (optional ``variant`` query)
+* ``POST /api/policies/{policy_id}/validate`` - Validate a policy variant payload
+* ``PUT /api/policies/{policy_id}/variants/{variant}`` - Validate and upsert a variant
+* ``POST /api/policy-activations`` - Set one activation pointer for world/client scope
+* ``GET /api/policy-activations`` - List activation pointers (effective overlay by default)
+* ``POST /api/policy-publish`` - Publish deterministic manifest/artifact metadata
+* ``GET /api/policy-publish/{publish_run_id}`` - Fetch one persisted publish run
+* ``POST /api/policy-import`` - Import one publish artifact payload into canonical DB state
+* ``GET /api/policy/hash-snapshot`` - Return deterministic world-scope hash snapshot from effective activations
+
+Publish request example:
+
+.. code-block:: json
+
+    {
+      "world_id": "pipeworks_web",
+      "client_profile": null
+    }
+
+Import request example:
+
+.. code-block:: json
+
+    {
+      "artifact": { "...": "publish_manifest_payload" },
+      "activate": true
+    }
+
 Pipeline Generation
 ~~~~~~~~~~~~~~~~~~~
 

@@ -299,7 +299,7 @@ deterministic mode is silently skipped.
 Per-World Enable/Disable
 ------------------------
 
-.. code-block:: json
+.. code-block:: text
 
    {"translation_layer": {"enabled": true}}    ← pipeworks_web (test world)
    {"translation_layer": {"enabled": false}}   ← daily_undertaking (production)

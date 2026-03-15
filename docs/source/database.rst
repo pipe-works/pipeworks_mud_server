@@ -182,6 +182,88 @@ The ASCII diagram below reflects the current SQLite schema in ``data/mud.db``.
     | NN  value              TEXT      |
     +----------------------------------+
 
+
+    +----------------------------------+
+    | policy_item                      |
+    +----------------------------------+
+    | PK  policy_id          TEXT      |
+    | NN  policy_type        TEXT      |
+    | NN  namespace          TEXT      |
+    | NN  policy_key         TEXT      |
+    | NN  created_at         TEXT      | DEFAULT CURRENT_TIMESTAMP
+    | UNI(policy_type, namespace, policy_key)
+    +----------------------------------+
+
+
+    +----------------------------------+
+    | policy_variant                   |
+    +----------------------------------+
+    | PK  id                 INTEGER   |
+    | NN  policy_id          TEXT      | FK -> policy_item.policy_id (ON DELETE CASCADE)
+    | NN  variant            TEXT      |
+    | NN  schema_version     TEXT      |
+    | NN  policy_version     INTEGER   |
+    | NN  status             TEXT      | CHECK IN (draft, candidate, active, archived)
+    | NN  content_json       TEXT      |
+    | NN  content_hash       TEXT      |
+    | NN  updated_at         TEXT      |
+    | NN  updated_by         TEXT      |
+    | UNI(policy_id, variant)
+    +----------------------------------+
+
+
+    +----------------------------------+
+    | policy_activation                |
+    +----------------------------------+
+    | PK  world_id           TEXT      | FK -> worlds.id (ON DELETE CASCADE)
+    | PK  client_profile     TEXT      | DEFAULT ''
+    | PK  policy_id          TEXT      | FK -> policy_item.policy_id (ON DELETE CASCADE)
+    | NN  variant            TEXT      | FK -> policy_variant(policy_id, variant)
+    | NN  activated_at       TEXT      |
+    | NN  activated_by       TEXT      |
+    |     rollback_of_activation_id INTEGER |
+    +----------------------------------+
+
+
+    +----------------------------------+
+    | policy_validation_run            |
+    +----------------------------------+
+    | PK  id                 INTEGER   |
+    | NN  policy_id          TEXT      |
+    | NN  variant            TEXT      |
+    | NN  is_valid           INTEGER   | CHECK IN (0, 1)
+    | NN  errors_json        TEXT      | DEFAULT '[]'
+    | NN  validated_at       TEXT      |
+    | NN  validated_by       TEXT      |
+    +----------------------------------+
+
+
+    +----------------------------------+
+    | policy_audit_event               |
+    +----------------------------------+
+    | PK  id                 INTEGER   |
+    | NN  event_type         TEXT      |
+    |     world_id           TEXT      |
+    | NN  client_profile     TEXT      | DEFAULT ''
+    |     policy_id          TEXT      |
+    |     variant            TEXT      |
+    | NN  actor              TEXT      |
+    | NN  event_payload_json TEXT      | DEFAULT '{}'
+    | NN  created_at         TEXT      |
+    +----------------------------------+
+
+
+    +----------------------------------+
+    | policy_publish_run               |
+    +----------------------------------+
+    | PK  id                 INTEGER   |
+    | NN  world_id           TEXT      | FK -> worlds.id (ON DELETE CASCADE)
+    | NN  client_profile     TEXT      | DEFAULT ''
+    | NN  actor              TEXT      |
+    | NN  manifest_json      TEXT      |
+    | NN  created_at         TEXT      |
+    +----------------------------------+
+
 Notes
 -----
 
@@ -198,6 +280,9 @@ Notes
   in-world sessions must set both and match character ownership/world.
 - Axis state is tracked in **normalized tables** (``axis``, ``axis_value``,
   ``character_axis_score``) with an **event ledger** (``event*`` tables).
+- Canonical policy control-plane state lives in ``policy_*`` tables.
+  Runtime policy reads use effective ``policy_activation`` pointers rather than
+  world package files.
 - ``world_permissions`` stores invite-style access grants. Open-world access is
   policy-driven from config and may not require a row in this table.
 - Hot-path indexes are intentionally maintained for world-scoped session activity,

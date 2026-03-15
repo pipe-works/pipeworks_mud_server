@@ -68,7 +68,7 @@ Envelope Format
 
 Every JSONL line is a self-contained JSON object:
 
-.. code-block:: json
+.. code-block:: text
 
    {
      "event_id":       "a3f91c9e2d4b5e6f...",

@@ -55,11 +55,17 @@ Operational Flow (DB-Only)
 
       mud-server init-db
 
-2. Import canonical artifact into DB (optional activation in same step):
+2. Import canonical artifact into DB (activation is enabled by default):
 
    .. code-block:: bash
 
-      mud-server import-policy-artifact --artifact-path /path/to/artifact.json --activate
+      mud-server import-policy-artifact --artifact-path /path/to/artifact.json
+
+   To import without applying activation pointers:
+
+   .. code-block:: bash
+
+      mud-server import-policy-artifact --artifact-path /path/to/artifact.json --no-activate
 
 3. Verify effective activation pointers:
 
@@ -93,7 +99,7 @@ Operational Flow (DB-Only)
 
       curl -s -X POST "http://127.0.0.1:8000/api/policy-publish?session_id=<sid>" \
         -H "Content-Type: application/json" \
-        -d '{"scope":"pipeworks_web"}'
+        -d '{"world_id":"pipeworks_web"}'
 
 Artifacts are exchange outputs and should be committed in
 ``pipe-works-world-policies``. They are not runtime authority.
