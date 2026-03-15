@@ -7,27 +7,24 @@ DB state selected by Layer 3 activation pointers.
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any
 
 from pipeworks_ipc import compute_payload_hash
 
-from mud_server.config import PROJECT_ROOT
 from mud_server.db import policy_repo
 
 from .activation import resolve_effective_policy_activations
 from .constants import (
     _POLICY_EXPORT_LATEST_FILENAME,
-    _POLICY_EXPORT_REPO_NAME,
-    _POLICY_EXPORT_ROOT_ENV,
     _POLICY_EXPORT_SCHEMA_VERSION,
     _POLICY_EXPORT_WORLD_DIRNAME,
     _POLICY_SCHEMA_VERSION_V1,
 )
 from .errors import PolicyServiceError
 from .hashing import compute_artifact_hash
+from .paths import resolve_policy_export_root
 from .types import ActivationScope
 from .utils import ensure_world_exists, now_iso
 
@@ -222,7 +219,14 @@ def _materialize_publish_artifact(
         client_profile=client_profile,
         manifest_hash=str(normalized_manifest["manifest_hash"]),
     )
+    export_root = resolve_policy_export_root()
     latest_path = artifact_path.parent / _POLICY_EXPORT_LATEST_FILENAME
+    artifact_path_for_latest = str(artifact_path)
+    try:
+        artifact_path_for_latest = str(artifact_path.relative_to(export_root))
+    except ValueError:
+        # Keep absolute fallback if artifact path is not under export root.
+        artifact_path_for_latest = str(artifact_path)
 
     try:
         artifact_path.parent.mkdir(parents=True, exist_ok=True)
@@ -242,7 +246,7 @@ def _materialize_publish_artifact(
             "item_count": normalized_manifest["item_count"],
             "artifact_hash": artifact_hash,
             "artifact_file": artifact_path.name,
-            "artifact_path": str(artifact_path),
+            "artifact_path": artifact_path_for_latest,
         }
         latest_path.write_text(
             json.dumps(latest_payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
@@ -333,17 +337,10 @@ def _resolve_policy_export_root() -> Path:
 
     Resolution order:
     1. ``MUD_POLICY_EXPORTS_ROOT`` environment variable
-    2. sibling repo default ``pipe-works-world-policies``
+    2. sibling repo near active working repo
+    3. sibling repo near ``PROJECT_ROOT`` default
     """
-    configured_root = os.getenv(_POLICY_EXPORT_ROOT_ENV, "").strip()
-    if configured_root:
-        root = Path(configured_root)
-    else:
-        root = PROJECT_ROOT.parent / _POLICY_EXPORT_REPO_NAME
-
-    if not root.is_absolute():
-        root = PROJECT_ROOT / root
-    return root
+    return resolve_policy_export_root()
 
 
 def _scope_segment(client_profile: str) -> str:
