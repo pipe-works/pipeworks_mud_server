@@ -3,7 +3,7 @@
 import os
 import signal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from mud_server.api.auth import validate_session_for_game, validate_session_with_permission
 from mud_server.api.models import (
@@ -209,12 +209,17 @@ def router(engine: GameEngine) -> APIRouter:
         return DatabaseSchemaResponse(tables=tables)
 
     @api.get("/admin/database/table/{table_name}", response_model=DatabaseTableRowsResponse)
-    async def get_database_table_rows(session_id: str, table_name: str, limit: int = 100):
+    async def get_database_table_rows(
+        session_id: str,
+        table_name: str,
+        limit: int = Query(default=100, ge=1, le=1000),
+        offset: int = Query(default=0, ge=0),
+    ):
         """Get rows from a specific database table (Admin only)."""
         _, _username, _role = validate_session_with_permission(session_id, Permission.VIEW_LOGS)
 
         try:
-            columns, rows = database.get_table_rows(table_name, limit=limit)
+            columns, rows = database.get_table_rows(table_name, limit=limit, offset=offset)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 

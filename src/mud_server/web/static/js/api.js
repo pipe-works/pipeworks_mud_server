@@ -136,9 +136,14 @@ class ApiClient {
   /**
    * Fetch table rows for admin views.
    */
-  async getTableRows(sessionId, tableName, limit = 100) {
-    const params = new URLSearchParams({ session_id: sessionId, limit: `${limit}` });
-    return this.fetcher(`/admin/database/table/${tableName}?${params.toString()}`);
+  async getTableRows(sessionId, tableName, limit = 100, offset = 0) {
+    const safeTableName = encodeURIComponent(tableName);
+    const params = new URLSearchParams({
+      session_id: sessionId,
+      limit: `${limit}`,
+      offset: `${offset}`,
+    });
+    return this.fetcher(`/admin/database/table/${safeTableName}?${params.toString()}`);
   }
 
   /**

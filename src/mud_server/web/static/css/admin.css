@@ -629,7 +629,101 @@
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   10. TABS
+   10. DATABASE BROWSER
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.tables-browser-layout {
+  grid-template-columns: minmax(300px, 0.9fr) minmax(0, 2.1fr);
+  align-items: stretch;
+}
+
+.tables-list-card,
+.tables-data-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 730px;
+}
+
+.tables-list-card .table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.tables-list-table {
+  margin-top: var(--sp-2);
+}
+
+.tables-list-table td:first-child {
+  font-family: var(--font-mono);
+}
+
+.tables-browser-toolbar {
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.tables-browser-status {
+  font-size: var(--text-xs);
+  color: var(--col-text-muted);
+  letter-spacing: 0.02em;
+}
+
+.tables-browser-controls {
+  display: inline-flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.tables-page-size-control {
+  min-width: 130px;
+}
+
+.tables-page-size {
+  min-width: 120px;
+}
+
+.tables-data-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.tables-data-table {
+  margin-top: var(--sp-2);
+  min-width: 100%;
+  width: max-content;
+}
+
+.tables-data-table th,
+.tables-data-table td {
+  vertical-align: top;
+}
+
+.tables-row-index {
+  min-width: 64px;
+  color: var(--col-text-muted);
+  font-family: var(--font-mono);
+}
+
+.tables-data-cell {
+  max-width: 320px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.table-cell-null {
+  font-style: italic;
+  color: var(--col-text-muted);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   11. TABS
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .tab-card {
@@ -692,7 +786,7 @@
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   11. TAGS & STATUS
+   12. TAGS & STATUS
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .tag-list {
@@ -733,7 +827,7 @@
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   12. CHARACTER MANAGEMENT
+   13. CHARACTER MANAGEMENT
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .character-actions {
@@ -767,7 +861,7 @@
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   13. AXIS STATE & EVENTS
+   14. AXIS STATE & EVENTS
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .axis-state-select select {
@@ -867,7 +961,7 @@
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   14. SCHEMA VISUALIZATION
+   15. SCHEMA VISUALIZATION
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .schema-layout {
@@ -954,7 +1048,7 @@
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   15. TOAST NOTIFICATIONS
+   16. TOAST NOTIFICATIONS
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .toast-container {
@@ -994,7 +1088,7 @@
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   16. UTILITIES
+   17. UTILITIES
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .noscript {
@@ -1004,7 +1098,7 @@
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   17. RESPONSIVE
+   18. RESPONSIVE
    ═══════════════════════════════════════════════════════════════════════════ */
 
 @media (max-width: 1100px) {
@@ -1047,6 +1141,11 @@
 
   .dashboard-table-card,
   .dashboard-detail-card {
+    height: auto;
+  }
+
+  .tables-list-card,
+  .tables-data-card {
     height: auto;
   }
 }

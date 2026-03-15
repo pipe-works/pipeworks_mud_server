@@ -112,7 +112,11 @@ def get_schema_map() -> list[dict[str, Any]]:
         _raise_read_error("admin.get_schema_map", exc)
 
 
-def get_table_rows(table_name: str, limit: int = 100) -> tuple[list[str], list[list[Any]]]:
+def get_table_rows(
+    table_name: str,
+    limit: int = 100,
+    offset: int = 0,
+) -> tuple[list[str], list[list[Any]]]:
     """Return column names and row values for a table.
 
     Raises:
@@ -130,7 +134,10 @@ def get_table_rows(table_name: str, limit: int = 100) -> tuple[list[str], list[l
             cursor.execute(f"PRAGMA table_info({quoted_table})")
             columns = [row[1] for row in cursor.fetchall()]
 
-            cursor.execute(f"SELECT * FROM {quoted_table} LIMIT ?", (limit,))  # nosec B608
+            cursor.execute(
+                f"SELECT * FROM {quoted_table} LIMIT ? OFFSET ?",  # nosec B608
+                (limit, offset),
+            )
             rows = [list(row) for row in cursor.fetchall()]
 
             return columns, rows
@@ -140,7 +147,7 @@ def get_table_rows(table_name: str, limit: int = 100) -> tuple[list[str], list[l
         _raise_read_error(
             "admin.get_table_rows",
             exc,
-            details=f"table_name={table_name!r}, limit={limit}",
+            details=f"table_name={table_name!r}, limit={limit}, offset={offset}",
         )
 
 
