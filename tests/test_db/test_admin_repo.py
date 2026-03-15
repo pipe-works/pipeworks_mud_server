@@ -26,6 +26,16 @@ def test_get_table_rows_invalid_table_raises(test_db):
         admin_repo.get_table_rows("does_not_exist")
 
 
+def test_get_table_rows_supports_limit_and_offset(test_db, db_with_users):
+    """Row browsing should support offset-based paging semantics."""
+    _columns, first_page = admin_repo.get_table_rows("users", limit=1, offset=0)
+    _columns, second_page = admin_repo.get_table_rows("users", limit=1, offset=1)
+
+    assert len(first_page) == 1
+    assert len(second_page) == 1
+    assert first_page[0] != second_page[0]
+
+
 def test_get_all_users_detailed_reports_online_worlds(test_db, db_with_users):
     """Detailed users query should report online account and in-world flags."""
     testplayer_id = database.get_user_id("testplayer")

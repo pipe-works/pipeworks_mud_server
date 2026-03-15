@@ -216,6 +216,57 @@ def test_admin_view_table_rows_as_admin(test_client, test_db, temp_db_path, db_w
 
 @pytest.mark.admin
 @pytest.mark.api
+def test_admin_view_table_rows_supports_offset_paging(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Admin table-row endpoint should support limit/offset paging."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        first_page = test_client.get(
+            "/admin/database/table/users",
+            params={"session_id": session_id, "limit": 1, "offset": 0},
+        )
+        second_page = test_client.get(
+            "/admin/database/table/users",
+            params={"session_id": session_id, "limit": 1, "offset": 1},
+        )
+
+        assert first_page.status_code == 200
+        assert second_page.status_code == 200
+
+        first_rows = first_page.json()["rows"]
+        second_rows = second_page.json()["rows"]
+        assert len(first_rows) == 1
+        assert len(second_rows) == 1
+        assert first_rows[0] != second_rows[0]
+
+
+@pytest.mark.admin
+@pytest.mark.api
+def test_admin_view_table_rows_rejects_negative_offset(
+    test_client, test_db, temp_db_path, db_with_users
+):
+    """Negative paging offsets should be rejected by request validation."""
+    with use_test_database(temp_db_path):
+        login_response = test_client.post(
+            "/login", json={"username": "testadmin", "password": TEST_PASSWORD}
+        )
+        session_id = login_response.json()["session_id"]
+
+        response = test_client.get(
+            "/admin/database/table/users",
+            params={"session_id": session_id, "limit": 10, "offset": -1},
+        )
+
+        assert response.status_code == 422
+
+
+@pytest.mark.admin
+@pytest.mark.api
 def test_admin_view_table_rows_invalid_table(test_client, test_db, temp_db_path, db_with_users):
     """Test invalid table returns 404 for admins."""
     with use_test_database(temp_db_path):
