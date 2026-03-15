@@ -6,6 +6,8 @@ that removed legacy file-import APIs are no longer exposed.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from mud_server.db import constants
@@ -304,7 +306,8 @@ def test_resolve_effective_axis_bundle_happy_path(test_db) -> None:
 @pytest.mark.db
 def test_publish_and_artifact_import_roundtrip(test_db, monkeypatch, tmp_path) -> None:
     """Publish artifact should roundtrip through import into canonical state."""
-    monkeypatch.setenv("MUD_POLICY_EXPORTS_ROOT", str(tmp_path / "exports"))
+    export_root = tmp_path / "exports"
+    monkeypatch.setenv("MUD_POLICY_EXPORTS_ROOT", str(export_root))
 
     world_id = constants.DEFAULT_WORLD_ID
     scope = policy_service.ActivationScope(world_id=world_id, client_profile="")
@@ -330,6 +333,13 @@ def test_publish_and_artifact_import_roundtrip(test_db, monkeypatch, tmp_path) -
     artifact_path = published["artifact"]["artifact_path"]
     with open(artifact_path, encoding="utf-8") as handle:
         artifact_payload = __import__("json").load(handle)
+    latest_payload = __import__("json").loads(
+        Path(published["artifact"]["latest_path"]).read_text(encoding="utf-8")
+    )
+
+    latest_artifact_path = Path(str(latest_payload["artifact_path"]))
+    assert not latest_artifact_path.is_absolute()
+    assert (export_root / latest_artifact_path).exists()
 
     imported = policy_service.import_published_artifact(
         artifact=artifact_payload,

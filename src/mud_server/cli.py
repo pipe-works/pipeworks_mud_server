@@ -25,6 +25,7 @@ import argparse
 import getpass
 import os
 import sys
+from pathlib import Path
 
 
 def get_superuser_credentials_from_env() -> tuple[str, str] | None:
@@ -144,16 +145,11 @@ def _import_registered_world_artifacts_for_init(
         Number of failed world imports.
     """
     import json
-    from pathlib import Path
 
-    from mud_server.config import PROJECT_ROOT
     from mud_server.core.world_registry import WorldRegistry
     from mud_server.services import policy_service
-    from mud_server.services.policy.constants import (
-        _POLICY_EXPORT_REPO_NAME,
-        _POLICY_EXPORT_ROOT_ENV,
-        _POLICY_EXPORT_WORLD_DIRNAME,
-    )
+    from mud_server.services.policy.constants import _POLICY_EXPORT_WORLD_DIRNAME
+    from mud_server.services.policy.paths import resolve_policy_export_root
 
     if world_ids is None:
         registry = WorldRegistry()
@@ -165,14 +161,7 @@ def _import_registered_world_artifacts_for_init(
     else:
         selected_world_ids = [str(world_id).strip() for world_id in world_ids]
 
-    configured_root = os.environ.get(_POLICY_EXPORT_ROOT_ENV, "").strip()
-    export_root = (
-        Path(configured_root)
-        if configured_root
-        else (PROJECT_ROOT.parent / _POLICY_EXPORT_REPO_NAME)
-    )
-    if not export_root.is_absolute():
-        export_root = (PROJECT_ROOT / export_root).resolve()
+    export_root = resolve_policy_export_root()
 
     failures = 0
     for world_id in selected_world_ids:
@@ -193,12 +182,11 @@ def _import_registered_world_artifacts_for_init(
 
         try:
             latest_payload = json.loads(latest_path.read_text(encoding="utf-8"))
-            artifact_path_value = str(latest_payload.get("artifact_path", "")).strip()
-            if not artifact_path_value:
-                raise ValueError("latest.json is missing artifact_path.")
-            artifact_path = Path(artifact_path_value)
-            if not artifact_path.is_absolute():
-                artifact_path = (export_root / artifact_path).resolve()
+            artifact_path = _resolve_artifact_path_from_latest_payload(
+                latest_payload=latest_payload,
+                export_root=export_root,
+                latest_path=latest_path,
+            )
             artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
             summary = policy_service.import_published_artifact(
                 artifact=artifact_payload,
@@ -228,6 +216,47 @@ def _import_registered_world_artifacts_for_init(
             failures += summary.error_count
 
     return failures
+
+
+def _resolve_artifact_path_from_latest_payload(
+    *,
+    latest_payload: dict[str, object],
+    export_root: Path,
+    latest_path: Path,
+) -> Path:
+    """Resolve one artifact file path from ``latest.json`` payload fields."""
+
+    artifact_path_value = str(latest_payload.get("artifact_path", "")).strip()
+    artifact_file = str(latest_payload.get("artifact_file", "")).strip()
+    candidates: list[Path] = []
+
+    if artifact_path_value:
+        payload_path = Path(artifact_path_value)
+        if payload_path.is_absolute():
+            candidates.append(payload_path)
+            candidates.append((latest_path.parent / payload_path.name).resolve())
+        else:
+            candidates.append((export_root / payload_path).resolve())
+            candidates.append((latest_path.parent / payload_path).resolve())
+
+    if artifact_file:
+        candidates.append((latest_path.parent / artifact_file).resolve())
+
+    deduped_candidates: list[Path] = []
+    for candidate in candidates:
+        if candidate not in deduped_candidates:
+            deduped_candidates.append(candidate)
+
+    for candidate in deduped_candidates:
+        if candidate.exists():
+            return candidate
+
+    if not deduped_candidates:
+        raise ValueError("latest.json is missing artifact_path/artifact_file.")
+    raise FileNotFoundError(
+        "latest.json artifact pointer does not resolve to an existing file: "
+        + ", ".join(str(path) for path in deduped_candidates)
+    )
 
 
 def _sync_world_catalog_from_packages_for_init() -> list[str]:

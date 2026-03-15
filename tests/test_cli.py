@@ -162,6 +162,61 @@ def test_import_registered_world_artifacts_for_init_skips_missing_latest(
 
 
 @pytest.mark.unit
+def test_import_registered_world_artifacts_for_init_resolves_stale_absolute_pointer(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Bootstrap should recover when latest.json contains stale absolute paths."""
+    export_root = tmp_path / "exports"
+    latest_path = export_root / "worlds" / "pipeworks_web" / "world" / "latest.json"
+    artifact_path = export_root / "worlds" / "pipeworks_web" / "world" / "publish_deadbeef.json"
+    latest_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_payload: dict[str, Any] = {
+        "world_id": "pipeworks_web",
+        "client_profile": None,
+        "variants": [],
+        "artifact_hash": "",
+    }
+    artifact_path.write_text(json.dumps(artifact_payload), encoding="utf-8")
+    latest_path.write_text(
+        json.dumps(
+            {
+                "artifact_path": "/Users/example/old-machine/worlds/pipeworks_web/world/publish_deadbeef.json",
+                "artifact_file": "publish_deadbeef.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("MUD_POLICY_EXPORTS_ROOT", str(export_root))
+    monkeypatch.setattr(
+        "mud_server.core.world_registry.WorldRegistry",
+        lambda: SimpleNamespace(list_worlds=lambda include_inactive: [{"id": "pipeworks_web"}]),
+    )
+
+    captured: dict[str, Any] = {}
+
+    def _fake_import(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            imported_count=1,
+            updated_count=0,
+            skipped_count=0,
+            error_count=0,
+            activated_count=1,
+            activation_skipped_count=0,
+        )
+
+    monkeypatch.setattr(
+        "mud_server.services.policy_service.import_published_artifact", _fake_import
+    )
+
+    failures = cli._import_registered_world_artifacts_for_init(actor="bootstrap")
+    assert failures == 0
+    assert captured["artifact"]["world_id"] == "pipeworks_web"
+
+
+@pytest.mark.unit
 @pytest.mark.db
 def test_sync_world_catalog_from_packages_for_init_upserts_discovered_worlds(
     test_db, monkeypatch, tmp_path: Path
