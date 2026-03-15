@@ -132,8 +132,8 @@ async function renderTombstonesDashboard(root, { api, session }) {
    */
   const load = async () => {
     const [usersResponse, charactersResponse, worldsResponse] = await Promise.all([
-      api.getTableRows(sessionId, 'users', 4000),
-      api.getTableRows(sessionId, 'characters', 4000),
+      api.getAllTableRows(sessionId, 'users'),
+      api.getAllTableRows(sessionId, 'characters'),
       api.getTableRows(sessionId, 'worlds', 300),
     ]);
 

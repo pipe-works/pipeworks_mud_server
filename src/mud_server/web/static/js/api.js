@@ -138,12 +138,47 @@ class ApiClient {
    */
   async getTableRows(sessionId, tableName, limit = 100, offset = 0) {
     const safeTableName = encodeURIComponent(tableName);
+    const requestedLimit = Number(limit);
+    const safeLimit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 1000)
+      : 100;
+    const requestedOffset = Number(offset);
+    const safeOffset = Number.isFinite(requestedOffset) ? Math.max(Math.trunc(requestedOffset), 0) : 0;
     const params = new URLSearchParams({
       session_id: sessionId,
-      limit: `${limit}`,
-      offset: `${offset}`,
+      limit: `${safeLimit}`,
+      offset: `${safeOffset}`,
     });
     return this.fetcher(`/admin/database/table/${safeTableName}?${params.toString()}`);
+  }
+
+  /**
+   * Fetch all rows for a table using paged requests.
+   */
+  async getAllTableRows(sessionId, tableName, pageSize = 1000) {
+    const boundedPageSize = Math.min(Math.max(Math.trunc(Number(pageSize) || 1000), 1), 1000);
+    const allRows = [];
+    let columns = [];
+    let offset = 0;
+
+    while (true) {
+      const response = await this.getTableRows(sessionId, tableName, boundedPageSize, offset);
+      if (!columns.length) {
+        columns = Array.isArray(response.columns) ? response.columns : [];
+      }
+      const pageRows = Array.isArray(response.rows) ? response.rows : [];
+      allRows.push(...pageRows);
+      if (pageRows.length < boundedPageSize) {
+        break;
+      }
+      offset += pageRows.length;
+    }
+
+    return {
+      table: tableName,
+      columns,
+      rows: allRows,
+    };
   }
 
   /**
