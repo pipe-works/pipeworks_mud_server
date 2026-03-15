@@ -15,6 +15,13 @@
 * Canonical policy import/bootstrap path is now artifact-only (`mud-server import-policy-artifact`).
 * Runtime policy authority remains DB activation + variant state; world policy files are not runtime authority.
 
+## [0.5.6](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.5.5...mud_server-v0.5.6) (2026-03-15)
+
+
+### Bug Fixes
+
+* **web:** render structured admin values without object coercion ([#242](https://github.com/pipe-works/pipeworks_mud_server/issues/242)) ([33b4625](https://github.com/pipe-works/pipeworks_mud_server/commit/33b4625db8e5aaad1c704d7e05743bbaf637038e))
+
 ## [0.5.5](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.5.4...mud_server-v0.5.5) (2026-03-15)
 
 
