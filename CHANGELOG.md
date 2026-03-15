@@ -15,6 +15,18 @@
 * Canonical policy import/bootstrap path is now artifact-only (`mud-server import-policy-artifact`).
 * Runtime policy authority remains DB activation + variant state; world policy files are not runtime authority.
 
+## [0.5.7](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.5.6...mud_server-v0.5.7) (2026-03-15)
+
+
+### Bug Fixes
+
+* **web:** paginate admin table fetches to avoid 422 limits ([#244](https://github.com/pipe-works/pipeworks_mud_server/issues/244)) ([f5b9ae7](https://github.com/pipe-works/pipeworks_mud_server/commit/f5b9ae798b77f5c19be07a423db6c4d02326a980))
+
+
+### Documentation
+
+* **policy:** sync sphinx docs with canonical policy runtime ([#246](https://github.com/pipe-works/pipeworks_mud_server/issues/246)) ([1bc5351](https://github.com/pipe-works/pipeworks_mud_server/commit/1bc535143c204ca259f8761da3550a08d583a23e))
+
 ## [0.5.6](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.5.5...mud_server-v0.5.6) (2026-03-15)
 
 
