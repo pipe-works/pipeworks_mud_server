@@ -39,7 +39,14 @@ Initialize Database
 
 This creates the SQLite database with required tables. If ``MUD_ADMIN_USER``
 and ``MUD_ADMIN_PASSWORD`` are set and no users exist, ``init-db`` also
-bootstraps the superuser.
+attempts superuser bootstrap.
+
+By default, ``init-db`` also bootstraps canonical policy artifacts for
+discovered worlds using ``latest.json`` pointers from the policy export repo
+(``pipe-works-world-policies``). To control this behavior:
+
+* Set ``MUD_POLICY_EXPORTS_ROOT`` to an explicit export-repo root path.
+* Use ``mud-server init-db --skip-policy-import`` to skip bootstrap import.
 
 Create Superuser
 ~~~~~~~~~~~~~~~~
@@ -158,9 +165,25 @@ To create your own world:
 
 1. Create ``data/worlds/<world_id>/world.json``.
 2. Add one or more zone files under ``data/worlds/<world_id>/zones/``.
-3. Initialize DB and import canonical policy artifacts into SQLite policy tables.
-4. Activate policy variants for the target world scope.
-5. Restart the server so the world package is loaded.
+3. Initialize DB:
+
+   .. code-block:: bash
+
+      mud-server init-db
+
+4. Import canonical policy artifact for the world (if needed):
+
+   .. code-block:: bash
+
+      mud-server import-policy-artifact --artifact-path /abs/path/publish_<manifest_hash>.json
+
+5. Verify effective activation for the world scope:
+
+   .. code-block:: bash
+
+      curl -s "http://127.0.0.1:8000/api/policy-activations?scope=<world_id>&effective=true&session_id=<sid>"
+
+6. Restart the server so the world package is loaded.
 
 No code changes are required.
 
@@ -351,6 +374,9 @@ Optional configuration:
    * - ``MUD_ADMIN_PASSWORD``
      - (none)
      - Superuser password for create-superuser or init-db bootstrap
+   * - ``MUD_POLICY_EXPORTS_ROOT``
+     - (auto-resolved)
+     - Override root path used by ``init-db`` artifact bootstrap + publish/import flows
    * - ``MUD_REQUEST_TIMEOUT``
      - ``30``
      - HTTP request timeout (seconds) for TUI
@@ -408,8 +434,17 @@ The ``mud-server`` CLI provides these commands:
 .. code-block:: text
 
     mud-server init-db           Initialize database schema
+    mud-server import-policy-artifact  Import one canonical publish artifact
     mud-server create-superuser  Create a superuser account
     mud-server run               Start the server
+
+Policy bootstrap/import helpers:
+
+.. code-block:: text
+
+    mud-server init-db --skip-policy-import
+    mud-server import-policy-artifact --artifact-path /abs/path/publish_<manifest_hash>.json
+    mud-server import-policy-artifact --artifact-path /abs/path/publish_<manifest_hash>.json --no-activate
 
 The ``pipeworks-admin-tui`` CLI (requires ``[admin-tui]`` extra):
 

@@ -22,6 +22,7 @@ JSON-driven world data, and clean architecture.
    security
    admin_web_ui_mtls
    play_web_ui
+   operator_guide_api_only
    extending
    examples
 
@@ -30,6 +31,7 @@ JSON-driven world data, and clean architecture.
    :caption: Reference
 
    api_reference
+   policy_service_package_design
    Changelog <changelog>
 
 .. toctree::
