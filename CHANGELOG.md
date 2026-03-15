@@ -15,6 +15,13 @@
 * Canonical policy import/bootstrap path is now artifact-only (`mud-server import-policy-artifact`).
 * Runtime policy authority remains DB activation + variant state; world policy files are not runtime authority.
 
+## [0.5.4](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.5.3...mud_server-v0.5.4) (2026-03-15)
+
+
+### Features
+
+* **admin-web:** build tables db browser with paging ([#238](https://github.com/pipe-works/pipeworks_mud_server/issues/238)) ([ed9352f](https://github.com/pipe-works/pipeworks_mud_server/commit/ed9352ffadf43edf9a13007153700b064cca72a9))
+
 ## [0.5.3](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.5.2...mud_server-v0.5.3) (2026-03-14)
 
 
