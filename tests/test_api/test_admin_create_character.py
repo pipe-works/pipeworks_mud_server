@@ -77,7 +77,7 @@ def test_fetch_generated_name_handles_empty_base_url(monkeypatch):
 
 @pytest.mark.unit
 def test_fetch_generated_name_handles_non_200(monkeypatch):
-    """Name helper should surface upstream HTTP status failures."""
+    """Retryable HTTP statuses should be retried before surfacing failure."""
     monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", True)
     monkeypatch.setattr(
         character_provisioning.config.integrations, "namegen_base_url", "https://name.example.org"
@@ -85,12 +85,34 @@ def test_fetch_generated_name_handles_non_200(monkeypatch):
 
     fake_response = Mock(status_code=503)
     fake_response.json.return_value = {}
-    monkeypatch.setattr(character_provisioning.requests, "post", Mock(return_value=fake_response))
+    post_mock = Mock(return_value=fake_response)
+    monkeypatch.setattr(character_provisioning.requests, "post", post_mock)
 
     name, error = character_provisioning._fetch_generated_name(seed=12)
 
     assert name is None
     assert error == "Name generation API returned HTTP 503."
+    assert post_mock.call_count == 3
+
+
+@pytest.mark.unit
+def test_fetch_generated_name_does_not_retry_on_non_retryable_http_status(monkeypatch):
+    """Non-retryable HTTP statuses should fail immediately without extra calls."""
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", True)
+    monkeypatch.setattr(
+        character_provisioning.config.integrations, "namegen_base_url", "https://name.example.org"
+    )
+
+    fake_response = Mock(status_code=400)
+    fake_response.json.return_value = {}
+    post_mock = Mock(return_value=fake_response)
+    monkeypatch.setattr(character_provisioning.requests, "post", post_mock)
+
+    name, error = character_provisioning._fetch_generated_name(seed=19)
+
+    assert name is None
+    assert error == "Name generation API returned HTTP 400."
+    post_mock.assert_called_once()
 
 
 @pytest.mark.unit
@@ -149,13 +171,15 @@ def test_fetch_generated_name_handles_blank_name(monkeypatch):
 
 @pytest.mark.unit
 def test_fetch_generated_name_handles_request_exception(monkeypatch):
-    """Network-layer errors should become an availability message."""
+    """Request exceptions should retry and then map to availability errors."""
     monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", True)
     monkeypatch.setattr(
         character_provisioning.config.integrations, "namegen_base_url", "https://name.example.org"
     )
+    attempts = {"count": 0}
 
     def _boom(*_args, **_kwargs):  # noqa: ANN002,ANN003 - test double
+        attempts["count"] += 1
         raise character_provisioning.requests.exceptions.RequestException("boom")
 
     monkeypatch.setattr(character_provisioning.requests, "post", _boom)
@@ -164,6 +188,58 @@ def test_fetch_generated_name_handles_request_exception(monkeypatch):
 
     assert name is None
     assert error == "Name generation API unavailable."
+    assert attempts["count"] == 3
+
+
+@pytest.mark.unit
+def test_fetch_generated_name_retries_request_exception_then_succeeds(monkeypatch):
+    """Transient request exceptions should succeed when a later attempt succeeds."""
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", True)
+    monkeypatch.setattr(
+        character_provisioning.config.integrations, "namegen_base_url", "https://name.example.org"
+    )
+    attempts = {"count": 0}
+
+    def _post_mock(*_args, **_kwargs):  # noqa: ANN002,ANN003 - test double
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise character_provisioning.requests.exceptions.RequestException("temporary")
+        response = Mock(status_code=200)
+        response.json.return_value = {"names": ["Kira"]}
+        return response
+
+    monkeypatch.setattr(character_provisioning.requests, "post", _post_mock)
+
+    name, error = character_provisioning._fetch_generated_name(seed=72)
+
+    assert error is None
+    assert name == "Kira"
+    assert attempts["count"] == 3
+
+
+@pytest.mark.unit
+def test_fetch_generated_name_retries_retryable_http_status_then_succeeds(monkeypatch):
+    """Retryable status failures should be retried before succeeding."""
+    monkeypatch.setattr(character_provisioning.config.integrations, "namegen_enabled", True)
+    monkeypatch.setattr(
+        character_provisioning.config.integrations, "namegen_base_url", "https://name.example.org"
+    )
+    responses = [
+        Mock(status_code=503),
+        Mock(status_code=504),
+        Mock(status_code=200),
+    ]
+    responses[0].json.return_value = {}
+    responses[1].json.return_value = {}
+    responses[2].json.return_value = {"names": ["Riven"]}
+    post_mock = Mock(side_effect=responses)
+    monkeypatch.setattr(character_provisioning.requests, "post", post_mock)
+
+    name, error = character_provisioning._fetch_generated_name(seed=917)
+
+    assert error is None
+    assert name == "Riven"
+    assert post_mock.call_count == 3
 
 
 @pytest.mark.unit
