@@ -29,6 +29,11 @@ from mud_server.services.condition_axis_service import (
 
 logger = logging.getLogger(__name__)
 
+# Keep retries intentionally small to avoid extending admin provisioning latency
+# too much during degraded upstream conditions.
+_NAMEGEN_MAX_ATTEMPTS = 3
+_NAMEGEN_RETRYABLE_HTTP_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+
 
 @dataclass(slots=True)
 class CharacterProvisioningResult:
@@ -76,6 +81,14 @@ def _fetch_generated_name(
     """
     Request one name token from the external name-generation API.
 
+    Retry policy:
+        We retry only transient upstream failures:
+        1. Request-layer exceptions (timeout/connection/reset).
+        2. Retryable HTTP statuses (408/429/5xx).
+
+        We intentionally do not retry schema/validation errors because those
+        indicate contract drift rather than transient transport issues.
+
     Returns:
         Tuple ``(name, error_message)``. On success, ``error_message`` is None.
     """
@@ -98,15 +111,54 @@ def _fetch_generated_name(
         "seed": seed,
     }
 
-    try:
-        response = requests.post(
-            endpoint,
-            json=payload,
-            timeout=config.integrations.namegen_timeout_seconds,
-        )
+    last_status_code: int | None = None
+    last_request_error: Exception | None = None
+
+    for attempt in range(1, _NAMEGEN_MAX_ATTEMPTS + 1):
+        try:
+            response = requests.post(
+                endpoint,
+                json=payload,
+                timeout=config.integrations.namegen_timeout_seconds,
+            )
+        except requests.exceptions.RequestException as exc:
+            last_request_error = exc
+            if attempt < _NAMEGEN_MAX_ATTEMPTS:
+                logger.warning(
+                    "Name generation API retry attempt=%s/%s reason=request_exception error=%s",
+                    attempt,
+                    _NAMEGEN_MAX_ATTEMPTS,
+                    exc,
+                )
+                continue
+            logger.warning(
+                "Name generation API request failed after %s attempts: %s",
+                attempt,
+                exc,
+            )
+            return None, "Name generation API unavailable."
+
         if response.status_code != 200:
+            last_status_code = response.status_code
+            if (
+                response.status_code in _NAMEGEN_RETRYABLE_HTTP_STATUS_CODES
+                and attempt < _NAMEGEN_MAX_ATTEMPTS
+            ):
+                logger.warning(
+                    "Name generation API retry attempt=%s/%s reason=http_status status_code=%s",
+                    attempt,
+                    _NAMEGEN_MAX_ATTEMPTS,
+                    response.status_code,
+                )
+                continue
             return None, f"Name generation API returned HTTP {response.status_code}."
-        body = response.json()
+
+        try:
+            body = response.json()
+        except ValueError:
+            logger.warning("Name generation API returned invalid JSON.")
+            return None, "Name generation API returned invalid JSON."
+
         if not isinstance(body, dict):
             return None, "Name generation API returned a non-object payload."
         names = body.get("names")
@@ -116,12 +168,13 @@ def _fetch_generated_name(
         if not generated_name:
             return None, "Name generation API returned an empty name."
         return generated_name, None
-    except requests.exceptions.RequestException as exc:
-        logger.warning("Name generation API request failed: %s", exc)
+
+    if last_status_code is not None:
+        return None, f"Name generation API returned HTTP {last_status_code}."
+    if last_request_error is not None:
+        logger.warning("Name generation API request failed: %s", last_request_error)
         return None, "Name generation API unavailable."
-    except ValueError:
-        logger.warning("Name generation API returned invalid JSON.")
-        return None, "Name generation API returned invalid JSON."
+    return None, "Name generation API unavailable."
 
 
 def fetch_generated_full_name(seed: int) -> tuple[str | None, str | None]:
