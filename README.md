@@ -82,8 +82,8 @@ cd pipeworks_mud_server
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install package (enables mud-server CLI)
-pip install -e .
+# Install package with contributor tooling
+pip install -e ".[dev]"
 
 # Initialize database and create superuser
 mud-server init-db
@@ -97,16 +97,24 @@ schema-only setup.
 ### Running the Server
 
 ```bash
-# Start API server and admin WebUI
+# Start API server, public play UI, and admin WebUI
 mud-server run
 
 # The server will start on:
-# - API + Web UI: http://localhost:8000 (Admin UI at /admin)
+# - API root: http://127.0.0.1:8000/
+# - Public play UI: http://127.0.0.1:8000/play
+# - Admin UI: http://127.0.0.1:8000/admin
 ```
 
 Press `Ctrl+C` to stop the service.
 
-### Admin UI Security (Production)
+For host-managed deployment, bind the application to `127.0.0.1` and place it
+behind Nginx. On Luminal, the current hostname model is:
+
+- `https://pipeworks.luminal.local` -> public entry surface (redirects `/` to `/play`)
+- `https://admin.pipeworks.luminal.local` -> admin entry surface (redirects `/` to `/admin`)
+
+### Admin UI Security (Production / Host-Managed)
 
 The admin Web UI is served by the same API process at `/admin`. In production:
 
@@ -360,6 +368,9 @@ DB-only runtime semantics:
 ```bash
 # Install with development dependencies
 pip install -e ".[dev]"
+
+# Install local hooks
+pre-commit install
 ```
 
 ### Running Tests
@@ -393,6 +404,9 @@ black src/ tests/
 
 # Type check
 mypy src/ --ignore-missing-imports
+
+# Run configured local hooks
+pre-commit run --all-files
 ```
 
 ### Building Documentation
@@ -418,10 +432,11 @@ xdg-open build/html/index.html  # Linux
 # Run API server only
 python -m mud_server.api.server
 
+# Public play UI is served by the API server at /play
 # Admin WebUI is served by the API server at /admin
 
 # Check server health
-curl http://localhost:8000/health
+curl http://127.0.0.1:8000/health
 ```
 
 ### Admin TUI (Optional)
@@ -432,8 +447,16 @@ The text-based admin client is available as `pipeworks-admin-tui`:
 # Install the TUI extras
 pip install -e ".[admin-tui]"
 
-# Point at a remote server if needed
-export MUD_SERVER_URL="http://localhost:8000"
+# Point at a direct local server if needed
+export MUD_SERVER_URL="http://127.0.0.1:8000"
+pipeworks-admin-tui
+```
+
+When the service is fronted by HTTPS and Nginx, point the TUI at the canonical
+hostname instead, for example:
+
+```bash
+export MUD_SERVER_URL="https://admin.pipeworks.luminal.local"
 pipeworks-admin-tui
 ```
 
@@ -455,10 +478,14 @@ sqlite3 data/mud.db "SELECT username, role, current_room FROM players;"
 
 ```bash
 # Server configuration
-export MUD_HOST="0.0.0.0"          # Bind address
-export MUD_PORT=8000                # API port
-export MUD_SERVER_URL="http://localhost:8000"  # Admin TUI endpoint
+export MUD_HOST="127.0.0.1"                     # Bind address for host-managed deployment
+export MUD_PORT=8000                            # API port
+export MUD_SERVER_URL="http://127.0.0.1:8000"  # Direct Admin TUI endpoint
 ```
+
+For direct ad hoc development, `mud-server run` will still use its own local
+defaults if these variables are unset. For steady-state host deployment, prefer
+explicit `MUD_HOST` and `MUD_PORT` values plus HTTPS reverse proxying.
 
 ---
 
@@ -488,10 +515,11 @@ Contributions are welcome! This project is in active development.
 2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
 3. **Make your changes** with tests
 4. **Ensure tests pass** (`pytest`)
-5. **Lint and format** (`ruff check`, `black`)
-6. **Commit your changes** (`git commit -m 'Add amazing feature'`)
-7. **Push to the branch** (`git push origin feature/amazing-feature`)
-8. **Open a Pull Request**
+5. **Run hooks and linting** (`pre-commit run --all-files`)
+6. **Lint and format** (`ruff check`, `black`)
+7. **Commit your changes** (`git commit -m 'Add amazing feature'`)
+8. **Push to the branch** (`git push origin feature/amazing-feature`)
+9. **Open a Pull Request**
 
 ### Code Style
 
