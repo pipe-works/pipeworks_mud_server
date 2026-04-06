@@ -16,6 +16,8 @@ dependencies = [
     "python-socketio==5.15.1",
     "python-multipart==0.0.22",
     "aiosqlite==0.22.0",
+    "jinja2>=3.1",
+    "pydantic>=2.0",
     "requests==2.32.5",
     "passlib==1.7.4",
     "bcrypt==3.2.2",  # Must be 3.x for passlib 1.7.4 compatibility
@@ -49,11 +51,12 @@ dev = [
     "httpx>=0.28.1",
     "respx>=0.22.0",
     "textual>=0.47.0",
-    "ruff>=0.14.0",
+    "ruff>=0.5",
     "black==26.1.0",  # PINNED org-wide to prevent formatting drift
-    "mypy>=1.19.0",
+    "mypy>=1.10",
     "types-PyYAML>=6.0.12.20241230",
     "bandit[toml]>=1.7.0",
+    "pre-commit>=3.5",
 ]
 docs = [
     "myst-parser>=4.0",
@@ -152,17 +155,21 @@ module = [
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+minversion = "3.12"
 pythonpath = ["src"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 addopts = [
     "-v",
+    "-l",
     "-ra",
     "--strict-markers",
+    "-W", "default",
     "--cov=mud_server",
     "--cov-report=term-missing",
     "--cov-report=html",
@@ -190,6 +197,7 @@ omit = [
     "*/test_*.py",
     "*/__pycache__/*",
     "*/venv/*",
+    "*/env/*",
     # UI entry points (difficult to test, framework-specific)
     "*/admin_tui/app.py",
     "*/admin_tui/screens/*",
@@ -199,6 +207,7 @@ omit = [
 [tool.coverage.report]
 precision = 2
 show_missing = true
+skip_covered = false
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
