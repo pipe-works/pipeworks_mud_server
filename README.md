@@ -96,6 +96,8 @@ schema-only setup.
 
 ### Running the Server
 
+For ad hoc local development:
+
 ```bash
 # Start API server, public play UI, and admin WebUI
 mud-server run
@@ -108,11 +110,31 @@ mud-server run
 
 Press `Ctrl+C` to stop the service.
 
-For host-managed deployment, bind the application to `127.0.0.1` and place it
-behind Nginx. On Luminal, the current hostname model is:
+For host-managed deployment, bind the application to `127.0.0.1`, keep a fixed
+port, and treat nginx hostnames as the canonical entry points. On Luminal, the
+current hostname model is:
 
 - `https://pipeworks.luminal.local` -> public entry surface (redirects `/` to `/play`)
 - `https://admin.pipeworks.luminal.local` -> admin entry surface (redirects `/` to `/admin`)
+
+Minimal Luminal-style startup:
+
+```bash
+export MUD_HOST="127.0.0.1"
+export MUD_PORT=18000
+mud-server run
+```
+
+Notes:
+
+- Direct backend port access is for diagnostics; operators should browse the
+  nginx hostnames instead.
+- Automatic port fallback is useful for ad hoc local runs, but it is not the
+  desired steady-state for systemd/nginx-managed deployment.
+- If `init-db` did not import a canonical policy artifact for the default
+  world yet, startup will continue but policy-backed axis features remain
+  unavailable until you run
+  `mud-server import-policy-artifact --artifact-path <artifact.json>`.
 
 ### Admin UI Security (Production / Host-Managed)
 
@@ -329,6 +351,10 @@ DB-only runtime semantics:
      `-H "Content-Type: application/json" -d '{"scope":"<world_id>"}'`
 5. Share artifact via `pipe-works-world-policies` mirror repo; do not treat mirror files as runtime authority.
 
+For Luminal or other host-managed setups, keep the backend bound to
+`127.0.0.1:<fixed-port>` and verify operator flows through the canonical nginx
+hostnames after the DB/bootstrap steps succeed.
+
 ---
 
 ## Available Commands
@@ -485,7 +511,10 @@ export MUD_SERVER_URL="http://127.0.0.1:8000"  # Direct Admin TUI endpoint
 
 For direct ad hoc development, `mud-server run` will still use its own local
 defaults if these variables are unset. For steady-state host deployment, prefer
-explicit `MUD_HOST` and `MUD_PORT` values plus HTTPS reverse proxying.
+explicit `MUD_HOST` and `MUD_PORT` values plus HTTPS reverse proxying. On
+Luminal, that means `MUD_HOST=127.0.0.1`, a service-owned fixed `MUD_PORT`, and
+operator access via `https://pipeworks.luminal.local` and
+`https://admin.pipeworks.luminal.local` rather than the raw backend port.
 
 ---
 

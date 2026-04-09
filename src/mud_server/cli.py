@@ -675,8 +675,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     # Extract port and host configuration from parsed arguments.
     # getattr with default None handles cases where args might not have
     # these attributes (e.g., when called programmatically).
+    host = getattr(args, "host", None) or config.server.host
     api_port = getattr(args, "port", None)
-    host = getattr(args, "host", None) or os.environ.get("MUD_HOST", "0.0.0.0")  # nosec B104
 
     # ========================================================================
     # API PORT DISCOVERY (BEFORE STARTING PROCESSES)
@@ -690,7 +690,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     # 2. MUD_PORT environment variable
     # 3. Auto-discovered port in 8000-8099 range
     if api_port is None:
-        api_port = int(os.environ.get("MUD_PORT", 8000))
+        api_port = config.server.port
 
     # Find an available port (may be different from api_port if it's in use)
     actual_api_port = find_api_port(api_port, host)
@@ -701,7 +701,10 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 1
 
     if actual_api_port != api_port:
-        print(f"API port {api_port} is in use. Using port {actual_api_port} instead.")
+        print(
+            f"Preferred API port {api_port} on {host} is in use. "
+            f"Using {actual_api_port} for this run."
+        )
 
     try:
         # ================================================================

@@ -736,18 +736,41 @@ def get_config_status() -> dict:
     }
 
 
-def print_config_summary() -> None:
+def _classify_listener_mode(host: str) -> tuple[str, str]:
+    """Describe whether the resolved listener looks host-managed or direct."""
+    normalized = host.strip().lower()
+    if normalized in {"127.0.0.1", "localhost", "::1"}:
+        return (
+            "localhost-only",
+            "Canonical access should happen through a reverse-proxy hostname; direct port access is diagnostic-only.",
+        )
+    return ("network-exposed", "Direct backend port access is available on the bound interface.")
+
+
+def print_config_summary(
+    *, resolved_host: str | None = None, resolved_port: int | None = None
+) -> None:
     """Print a summary of current configuration to stdout."""
     status = get_config_status()
+    effective_host = resolved_host or config.server.host
+    effective_port = resolved_port or config.server.port
+    listener_mode, access_guidance = _classify_listener_mode(effective_host)
     print("\n" + "=" * 60)
     print("SERVER CONFIGURATION")
     print("=" * 60)
     print(f"Config file: {status['config_file_path']}")
     print(f"File exists: {status['config_file_exists']}")
     if status["using_example"]:
-        print("WARNING: Using example config (copy to server.ini for production)")
+        print(
+            "Config source: built-in defaults and environment/CLI overrides (no server.ini found)"
+        )
+        print(
+            "Note: Copy server.example.ini to config/server.ini when you want a repo-local config file."
+        )
     print("-" * 60)
-    print(f"Server:      {config.server.host}:{config.server.port}")
+    print(f"Server:      {effective_host}:{effective_port}")
+    print(f"Listener:    {listener_mode}")
+    print(f"Access:      {access_guidance}")
     print(f"Production:  {config.is_production}")
     print(f"CORS origins: {config.security.cors_origins}")
     print(f"Docs enabled: {config.docs_should_be_enabled}")

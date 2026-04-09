@@ -11,11 +11,24 @@ block the test runner and create port conflicts.
 """
 
 import argparse
+import sys
+from types import ModuleType
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
 from mud_server.cli import _run_api_server, cmd_run, main
+
+
+@pytest.fixture
+def stub_api_server_module() -> Any:
+    """Provide a lightweight API server module to avoid import-time engine setup."""
+    module: Any = ModuleType("mud_server.api.server")
+    module.start_server = lambda **kwargs: None
+    module.find_available_port = lambda port, host: port
+    return module
+
 
 # ============================================================================
 # Module-level Process Function Tests
@@ -25,16 +38,22 @@ from mud_server.cli import _run_api_server, cmd_run, main
 class TestRunApiServer:
     """Tests for the _run_api_server module-level function."""
 
-    def test_calls_start_server_with_host_and_port(self):
+    def test_calls_start_server_with_host_and_port(self, stub_api_server_module):
         """Should pass host and port to start_server."""
-        with patch("mud_server.api.server.start_server") as mock_start:
+        with (
+            patch.dict(sys.modules, {"mud_server.api.server": stub_api_server_module}),
+            patch.object(stub_api_server_module, "start_server") as mock_start,
+        ):
             _run_api_server(host="127.0.0.1", port=9000)
 
             mock_start.assert_called_once_with(host="127.0.0.1", port=9000)
 
-    def test_calls_start_server_with_none_values(self):
+    def test_calls_start_server_with_none_values(self, stub_api_server_module):
         """Should handle None values for host and port."""
-        with patch("mud_server.api.server.start_server") as mock_start:
+        with (
+            patch.dict(sys.modules, {"mud_server.api.server": stub_api_server_module}),
+            patch.object(stub_api_server_module, "start_server") as mock_start,
+        ):
             _run_api_server(host=None, port=None)
 
             mock_start.assert_called_once_with(host=None, port=None)
@@ -68,7 +87,7 @@ class TestCmdRun:
         yield db_file
         config.database.path = original_path
 
-    def test_initializes_database_if_not_exists(self, mock_args, tmp_path):
+    def test_initializes_database_if_not_exists(self, mock_args, tmp_path, stub_api_server_module):
         """Should initialize database when it doesn't exist."""
         from mud_server.config import config
 
@@ -79,8 +98,9 @@ class TestCmdRun:
         try:
             with (
                 patch("mud_server.db.database.init_database") as mock_init_db,
-                patch("mud_server.api.server.find_available_port", return_value=8000),
-                patch("mud_server.api.server.start_server"),
+                patch.dict(sys.modules, {"mud_server.api.server": stub_api_server_module}),
+                patch.object(stub_api_server_module, "find_available_port", return_value=8000),
+                patch.object(stub_api_server_module, "start_server"),
             ):
                 cmd_run(mock_args)
 
@@ -88,22 +108,24 @@ class TestCmdRun:
         finally:
             config.database.path = original_path
 
-    def test_skips_db_init_if_exists(self, mock_args, mock_db_exists):
+    def test_skips_db_init_if_exists(self, mock_args, mock_db_exists, stub_api_server_module):
         """Should not initialize database when it already exists."""
         with (
             patch("mud_server.db.database.init_database") as mock_init_db,
-            patch("mud_server.api.server.find_available_port", return_value=8000),
-            patch("mud_server.api.server.start_server"),
+            patch.dict(sys.modules, {"mud_server.api.server": stub_api_server_module}),
+            patch.object(stub_api_server_module, "find_available_port", return_value=8000),
+            patch.object(stub_api_server_module, "start_server"),
         ):
             cmd_run(mock_args)
 
             mock_init_db.assert_not_called()
 
-    def test_runs_api_server(self, mock_args, mock_db_exists):
+    def test_runs_api_server(self, mock_args, mock_db_exists, stub_api_server_module):
         """Should run API server directly."""
         with (
-            patch("mud_server.api.server.start_server") as mock_start,
-            patch("mud_server.api.server.find_available_port", return_value=9000),
+            patch.dict(sys.modules, {"mud_server.api.server": stub_api_server_module}),
+            patch.object(stub_api_server_module, "start_server") as mock_start,
+            patch.object(stub_api_server_module, "find_available_port", return_value=9000),
         ):
             mock_args.port = 9000
             mock_args.host = "127.0.0.1"
@@ -114,11 +136,48 @@ class TestCmdRun:
             mock_start.assert_called_once_with(host="127.0.0.1", port=9000, auto_discover=False)
             assert result == 0
 
-    def test_handles_keyboard_interrupt(self, mock_args, mock_db_exists, capsys):
+    def test_uses_config_host_and_port_when_args_are_unset(
+        self, mock_args, mock_db_exists, stub_api_server_module
+    ):
+        """Should honor config-derived host/port defaults during preflight."""
+        from mud_server.config import config
+
+        original_host = config.server.host
+        original_port = config.server.port
+        config.server.host = "127.0.0.1"
+        config.server.port = 18000
+
+        try:
+            with (
+                patch.dict(sys.modules, {"mud_server.api.server": stub_api_server_module}),
+                patch.object(stub_api_server_module, "start_server") as mock_start,
+                patch.object(
+                    stub_api_server_module,
+                    "find_available_port",
+                    return_value=18000,
+                ) as mock_find,
+            ):
+                result = cmd_run(mock_args)
+
+                mock_find.assert_called_once_with(18000, "127.0.0.1")
+                mock_start.assert_called_once_with(
+                    host="127.0.0.1",
+                    port=18000,
+                    auto_discover=False,
+                )
+                assert result == 0
+        finally:
+            config.server.host = original_host
+            config.server.port = original_port
+
+    def test_handles_keyboard_interrupt(
+        self, mock_args, mock_db_exists, capsys, stub_api_server_module
+    ):
         """Should handle Ctrl+C gracefully and return 0."""
         with (
-            patch("mud_server.api.server.find_available_port", return_value=8000),
-            patch("mud_server.api.server.start_server") as mock_start,
+            patch.dict(sys.modules, {"mud_server.api.server": stub_api_server_module}),
+            patch.object(stub_api_server_module, "find_available_port", return_value=8000),
+            patch.object(stub_api_server_module, "start_server") as mock_start,
         ):
             mock_start.side_effect = KeyboardInterrupt()
 
@@ -128,11 +187,14 @@ class TestCmdRun:
             captured = capsys.readouterr()
             assert "Server stopped" in captured.out
 
-    def test_handles_exception_with_error_return(self, mock_args, mock_db_exists, capsys):
+    def test_handles_exception_with_error_return(
+        self, mock_args, mock_db_exists, capsys, stub_api_server_module
+    ):
         """Should handle exceptions and return 1."""
         with (
-            patch("mud_server.api.server.find_available_port", return_value=8000),
-            patch("mud_server.api.server.start_server") as mock_start,
+            patch.dict(sys.modules, {"mud_server.api.server": stub_api_server_module}),
+            patch.object(stub_api_server_module, "find_available_port", return_value=8000),
+            patch.object(stub_api_server_module, "start_server") as mock_start,
         ):
             mock_start.side_effect = RuntimeError("Test error")
 

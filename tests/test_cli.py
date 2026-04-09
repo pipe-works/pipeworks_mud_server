@@ -19,10 +19,23 @@ import pytest
 from mud_server import cli
 
 
+@pytest.fixture
+def isolated_cli_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Keep init-db tests away from the repo's real database and backup paths."""
+    from mud_server.config import config
+
+    db_path = tmp_path / "mud.db"
+    monkeypatch.setattr(config.database, "path", str(db_path))
+    return db_path
+
+
 @pytest.mark.unit
-def test_cmd_init_db_success_uses_artifact_bootstrap() -> None:
+def test_cmd_init_db_success_uses_artifact_bootstrap(
+    isolated_cli_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`init-db` should call artifact bootstrap helper and return success."""
     args = argparse.Namespace(migrate=False, skip_policy_import=False)
+    monkeypatch.setattr("shutil.copy2", lambda *_args, **_kwargs: None)
     with patch("mud_server.db.database.init_database") as mock_init:
         with patch(
             "mud_server.cli._sync_world_catalog_from_packages_for_init",
@@ -44,9 +57,12 @@ def test_cmd_init_db_success_uses_artifact_bootstrap() -> None:
 
 
 @pytest.mark.unit
-def test_cmd_init_db_skip_policy_import() -> None:
+def test_cmd_init_db_skip_policy_import(
+    isolated_cli_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`init-db --skip-policy-import` should bypass artifact bootstrap."""
     args = argparse.Namespace(migrate=False, skip_policy_import=True)
+    monkeypatch.setattr("shutil.copy2", lambda *_args, **_kwargs: None)
     with patch("mud_server.db.database.init_database") as mock_init:
         with patch("mud_server.cli._sync_world_catalog_from_packages_for_init") as mock_sync:
             with patch(
@@ -61,9 +77,12 @@ def test_cmd_init_db_skip_policy_import() -> None:
 
 
 @pytest.mark.unit
-def test_cmd_init_db_returns_error_when_artifact_bootstrap_fails() -> None:
+def test_cmd_init_db_returns_error_when_artifact_bootstrap_fails(
+    isolated_cli_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`init-db` should return non-zero when artifact bootstrap reports failures."""
     args = argparse.Namespace(migrate=False, skip_policy_import=False)
+    monkeypatch.setattr("shutil.copy2", lambda *_args, **_kwargs: None)
     with patch("mud_server.db.database.init_database") as mock_init:
         with patch(
             "mud_server.cli._sync_world_catalog_from_packages_for_init",

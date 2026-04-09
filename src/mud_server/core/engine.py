@@ -170,7 +170,9 @@ class GameEngine:
                 }:
                     logger.warning(
                         "Axis policy bootstrap skipped for %s: no effective canonical "
-                        "axis/manifest activation was found. Run "
+                        "axis/manifest activation was found. Runtime startup continues, but "
+                        "policy-backed axis features stay unavailable until canonical state "
+                        "is imported. Run "
                         "'mud-server import-policy-artifact --artifact-path <publish_manifest.json>' "
                         "or ensure init-db artifact bootstrap has completed for world %s "
                         "before runtime startup.",

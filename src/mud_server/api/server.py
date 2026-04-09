@@ -396,7 +396,9 @@ def start_server(
     # ========================================================================
 
     # Print configuration summary at startup
-    print_config_summary()
+    resolved_host = host or config.server.host
+    resolved_port = port or config.server.port
+    print_config_summary(resolved_host=resolved_host, resolved_port=resolved_port)
 
     # Resolve host: parameter > config (which includes env var override)
     if host is None:
