@@ -225,14 +225,14 @@ class WorldSettings:
 
 @dataclass
 class IntegrationSettings:
-    """External integration settings."""
+    """Optional integration settings for provisioning and name generation."""
 
     entity_state_enabled: bool = True
     entity_state_base_url: str = "https://entity.pipe-works.org"
     entity_state_timeout_seconds: float = 3.0
     entity_state_include_prompts: bool = False
     namegen_enabled: bool = True
-    namegen_base_url: str = "https://name.api.pipe-works.org"
+    namegen_base_url: str = "https://namegen-api.luminal.local"
     namegen_timeout_seconds: float = 3.0
 
 
@@ -793,17 +793,20 @@ def print_config_summary(
     )
     print(f"Log level:   {config.logging.level}")
     print(
-        f"Entity API:  enabled={config.integrations.entity_state_enabled} "
-        f"url={config.integrations.entity_state_base_url} "
+        "Entity State: "
+        "source=local-axis-snapshot "
+        f"upstream_enabled={config.integrations.entity_state_enabled} "
+        f"upstream_url={config.integrations.entity_state_base_url} "
         f"timeout={config.integrations.entity_state_timeout_seconds}s"
     )
     print(
-        f"Name API:    enabled={config.integrations.namegen_enabled} "
+        f"Namegen:     enabled={config.integrations.namegen_enabled} "
         f"url={config.integrations.namegen_base_url} "
         f"timeout={config.integrations.namegen_timeout_seconds}s"
     )
     print(
         f"Translation: enabled={config.ollama_translation.enabled} "
+        "provider=host-ollama "
         f"url={config.ollama_translation.base_url} "
         f"timeout={config.ollama_translation.timeout_seconds}s"
     )

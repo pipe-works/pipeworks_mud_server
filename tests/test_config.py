@@ -185,8 +185,10 @@ def test_world_policy_ini_overrides():
 
 @pytest.mark.unit
 def test_print_config_summary_includes_entity_api_line(capsys):
-    """Config summary should include the entity integration diagnostics line."""
+    """Config summary should include integration diagnostics lines."""
     print_config_summary()
     output = capsys.readouterr().out
-    assert "Entity API:" in output
-    assert "Name API:" in output
+    assert "Entity State:" in output
+    assert "source=local-axis-snapshot" in output
+    assert "Namegen:" in output
+    assert "provider=host-ollama" in output
