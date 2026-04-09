@@ -228,7 +228,7 @@ class IntegrationSettings:
     """Optional integration settings for provisioning and name generation."""
 
     entity_state_enabled: bool = True
-    entity_state_base_url: str = "https://entity.pipe-works.org"
+    entity_state_base_url: str = "https://entity-state-api.luminal.local"
     entity_state_timeout_seconds: float = 3.0
     entity_state_include_prompts: bool = False
     namegen_enabled: bool = True
