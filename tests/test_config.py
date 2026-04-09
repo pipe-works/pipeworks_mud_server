@@ -69,7 +69,7 @@ def test_entity_integration_ini_overrides():
         {
             "integrations": {
                 "entity_state_enabled": "true",
-                "entity_state_base_url": "https://entity.pipe-works.org",
+                "entity_state_base_url": "https://entity-state-api.luminal.local",
                 "entity_state_timeout_seconds": "4.25",
                 "entity_state_include_prompts": "false",
             }
@@ -80,7 +80,7 @@ def test_entity_integration_ini_overrides():
     _load_from_ini(parser, cfg)
 
     assert cfg.integrations.entity_state_enabled is True
-    assert cfg.integrations.entity_state_base_url == "https://entity.pipe-works.org"
+    assert cfg.integrations.entity_state_base_url == "https://entity-state-api.luminal.local"
     assert cfg.integrations.entity_state_timeout_seconds == 4.25
     assert cfg.integrations.entity_state_include_prompts is False
 

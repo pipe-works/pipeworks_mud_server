@@ -408,7 +408,7 @@ Optional configuration:
      - ``true``
      - Enable entity-state generation during ``/register-guest``
    * - ``MUD_ENTITY_STATE_BASE_URL``
-     - ``https://entity.pipe-works.org``
+     - ``https://entity-state-api.luminal.local``
      - Entity-state API base URL used by guest onboarding
    * - ``MUD_ENTITY_STATE_TIMEOUT_SECONDS``
      - ``3.0``
