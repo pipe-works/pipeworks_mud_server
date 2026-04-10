@@ -356,7 +356,7 @@ DB-only runtime semantics:
 4. Publish/export deterministic artifact:
    - `curl -s -X POST "http://127.0.0.1:8000/api/policy-publish?session_id=<sid>"`
      `-H "Content-Type: application/json" -d '{"scope":"<world_id>"}'`
-5. Share artifact via `pipe-works-world-policies` mirror repo; do not treat mirror files as runtime authority.
+5. Share artifact via `pipe-works-world-policies` artifact exchange repo; do not treat exported files as runtime authority.
 
 For Luminal or other host-managed setups, keep the backend bound to
 `127.0.0.1:<fixed-port>` and verify operator flows through the canonical nginx
