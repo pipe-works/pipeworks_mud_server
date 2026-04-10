@@ -43,196 +43,204 @@
 
 ---
 
-## What is PipeWorks MUD Server?
+## Overview
 
-A **generic, extensible MUD (Multi-User Dungeon) server** for building text-based multiplayer
-games. Built with modern Python tooling, this server provides the technical foundation for
-creating interactive fiction worlds with:
+PipeWorks MUD Server is the live PipeWorks multiplayer runtime. It is a
+FastAPI-based service with a first-party admin WebUI, SQLite-backed canonical
+state, and DB-first policy/bootstrap flows.
 
-- **Deterministic game mechanics** - Reproducible outcomes for testing and replay
-- **JSON-driven world data** - Define rooms, items, and connections without code changes
-- **Modern web interface** - First-party admin WebUI with clean UX
-- **REST API backend** - FastAPI server for high performance
-- **Role-based access control** - Built-in auth and permission system
-- **Modular architecture** - Clean separation between client, server, and game logic
+The current host model matters:
 
-**Use it to build:** Fantasy MUDs, sci-fi adventures, educational games, procedural narratives,
-or any text-based multiplayer experience.
+- source code lives in the repo checkout
+- the live service runs under `systemd`
+- the canonical runtime DB should live outside the repo checkout
+- policy bootstrap imports canonical publish artifacts from
+  `pipe-works-world-policies`
+
+The repo still supports ad hoc local development, but the host-managed Luminal
+model is now the important reference point for operational work.
 
 **[Read the full documentation](https://pipeworks-mud-server.readthedocs.io/)**
 
----
+## Current Luminal Shape
+
+On `luminal.local`, the current steady-state runtime looks like this:
+
+- repo root:
+  - `/srv/work/pipeworks/repos/pipeworks_mud_server`
+- venv:
+  - `/srv/work/pipeworks/venvs/pw-mud-server`
+- runtime DB:
+  - `/srv/work/pipeworks/runtime/pipeworks_mud_server/mud.db`
+- policy export root:
+  - `/srv/work/pipeworks/repos/pipe-works-world-policies`
+- systemd unit:
+  - `pipeworks-dev.service`
+- backend bind:
+  - `127.0.0.1:18000`
+- canonical browser entry points:
+  - `https://pipeworks.luminal.local`
+  - `https://admin.pipeworks.luminal.local`
+
+This is the mental model to prefer when working on the repo:
+
+- repo checkout is not the runtime DB home
+- `systemd` owns steady-state serving
+- operators run explicit bootstrap/admin commands against the same venv and DB
 
 ## Quick Start
 
-### Prerequisites
+### Repo-Local Development
 
-- Python 3.12 or 3.13
-- pip (Python package manager)
-- Git
-
-### Installation
+For ad hoc local development, the repo still supports a simple in-checkout
+workflow:
 
 ```bash
-# Clone the repository
 git clone https://github.com/pipe-works/pipeworks_mud_server.git
 cd pipeworks_mud_server
-
-# Create and activate virtual environment
 python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install package with contributor tooling
+source venv/bin/activate
 pip install -e ".[dev]"
-
-# Initialize database and create superuser
 mud-server init-db
-mud-server create-superuser  # Follow prompts to create admin account
+mud-server create-superuser
+mud-server run
 ```
 
-`mud-server init-db` now bootstraps canonical policy objects/activations for
-the configured default world. Use `--skip-policy-import` only when you need a
-schema-only setup.
+That path is fine for local experimentation. It is not the canonical Luminal
+host-managed operating model.
 
-### Running the Server
+### Luminal Host-Managed Bootstrap
 
-For ad hoc local development:
+For Luminal, prefer:
+
+1. create or reuse the dedicated venv
+2. initialize the runtime DB at its explicit absolute path
+3. create the first superuser interactively
+4. let the live service run under `systemd`
+5. access the app through nginx hostnames, not the raw backend port
+
+Keep the exact Luminal bootstrap procedure in your local operations docs. This
+repo README only summarizes the model.
+
+## Runtime Model
+
+### DB-First Authority
+
+Canonical runtime state is DB-first.
+
+- SQLite is the runtime authority for players, sessions, world catalog rows,
+  policy variants, and policy activation state.
+- Published artifact files are import/bootstrap inputs, not runtime authority.
+- `data/worlds/<world_id>/policies/**` legacy files are no longer a canonical
+  runtime source.
+
+### Policy Bootstrap
+
+`mud-server init-db` now does more than schema creation:
+
+- initializes the schema
+- syncs the world catalog from world packages on disk
+- bootstraps canonical artifact imports for discovered worlds unless
+  `--skip-policy-import` is used
+
+Artifact discovery for host-managed runs should be explicit. When bootstrap is
+expected to discover artifacts from `pipe-works-world-policies`, either:
+
+- run `init-db` from the `pipeworks_mud_server` repo root, or
+- set `MUD_POLICY_EXPORTS_ROOT=/srv/work/pipeworks/repos/pipe-works-world-policies`
+
+so discovery does not depend on an unrelated current working directory.
+
+### Superuser Bootstrap
+
+The preferred Luminal pattern is interactive:
+
+1. `/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server init-db`
+2. `/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server create-superuser`
+
+The CLI also supports environment-driven creation via `MUD_ADMIN_USER` and
+`MUD_ADMIN_PASSWORD`, but that is better treated as an automation path than the
+default operator workflow.
+
+## Running The Service
+
+### Ad Hoc Local Run
 
 ```bash
-# Start API server, public play UI, and admin WebUI
 mud-server run
-
-# The server will start on:
-# - API root: http://127.0.0.1:8000/
-# - Public play UI: http://127.0.0.1:8000/play
-# - Admin UI: http://127.0.0.1:8000/admin
 ```
 
-Press `Ctrl+C` to stop the service.
+By default this is convenient for local iteration. It can auto-discover a free
+port if the preferred one is already in use.
 
-For host-managed deployment, bind the application to `127.0.0.1`, keep a fixed
-port, and treat nginx hostnames as the canonical entry points. On Luminal, the
-current hostname model is:
+### Host-Managed Run
 
-- `https://pipeworks.luminal.local` -> public entry surface (redirects `/` to `/play`)
-- `https://admin.pipeworks.luminal.local` -> admin entry surface (redirects `/` to `/admin`)
+For host-managed deployment:
 
-Minimal Luminal-style startup:
+- bind to `127.0.0.1`
+- keep a fixed port
+- use an explicit absolute runtime DB path
+- front the service with nginx
+
+Example environment:
 
 ```bash
 export MUD_HOST="127.0.0.1"
 export MUD_PORT=18000
-mud-server run
+export MUD_DB_PATH="/srv/work/pipeworks/runtime/pipeworks_mud_server/mud.db"
+export MUD_POLICY_EXPORTS_ROOT="/srv/work/pipeworks/repos/pipe-works-world-policies"
+/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server run
 ```
 
 Notes:
 
-- Direct backend port access is for diagnostics; operators should browse the
-  nginx hostnames instead.
-- Automatic port fallback is useful for ad hoc local runs, but it is not the
-  desired steady-state for systemd/nginx-managed deployment.
-- If `init-db` did not import a canonical policy artifact for the default
-  world yet, startup will continue but policy-backed axis features remain
-  unavailable until you run
-  `mud-server import-policy-artifact --artifact-path <artifact.json>`.
+- direct backend port access is diagnostic-only
+- the live service should not rely on repo-local `data/mud.db`
+- automatic port fallback is acceptable for ad hoc runs, not for systemd steady
+  state
 
-### Admin UI Security (Production / Host-Managed)
+## Canonical Commands
 
-The admin Web UI is served by the same API process at `/admin`. In production:
-
-- Run behind Nginx and bind the API to `127.0.0.1`.
-- Expose the admin UI on a separate admin domain.
-- Protect the admin domain with mTLS or an IP allowlist.
-
-See `docs/source/admin_web_ui_mtls.rst` for a full mTLS deployment guide.
-
-### Creating a Superuser
-
-**Interactive** (recommended):
+### Initialize Schema And Bootstrap Canonical Artifacts
 
 ```bash
-mud-server create-superuser
-# Enter username and password when prompted
+/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server init-db
 ```
 
-### Canonical Artifact Import (DB-First)
+Use `--skip-policy-import` only when you intentionally want schema creation
+without artifact bootstrap.
 
-Canonical policy state is now imported from deterministic publish artifacts.
-Legacy file-import commands were removed.
+### Create The First Superuser
 
 ```bash
-mud-server import-policy-artifact --artifact-path /abs/path/publish_<manifest_hash>.json
+/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server create-superuser
 ```
 
-Use `--no-activate` to import/update variants without applying activation
+### Import One Canonical Policy Artifact
+
+```bash
+/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server import-policy-artifact --artifact-path /abs/path/publish_<manifest_hash>.json
+```
+
+Use `--no-activate` to import or update variants without applying activation
 pointers from the artifact.
 
-### Breaking Changes: Legacy Import Command Removal
+### Removed Legacy Commands
 
-The following commands were removed:
+These older commands were deliberately removed:
 
-1. `import-species-policies`
-2. `import-layer2-policies`
-3. `import-tone-prompt-policies`
-4. `import-world-policies`
+- `import-species-policies`
+- `import-layer2-policies`
+- `import-tone-prompt-policies`
+- `import-world-policies`
 
-Replacement command:
+Replacement:
 
-1. `import-policy-artifact --artifact-path ...`
+- `mud-server import-policy-artifact --artifact-path ...`
 
-### Migration Note (Legacy Files)
+## Worlds
 
-`data/worlds/<world_id>/policies/**` files are no longer a runtime or bootstrap
-authority. Canonical runtime reads DB activation + variant state only. Legacy
-files should be treated as historical content artifacts unless explicitly
-converted into publish artifacts.
-
-### Command Replacement Table
-
-| Removed Command | Replacement |
-|---|---|
-| `mud-server import-species-policies --world-id <world>` | `mud-server import-policy-artifact --artifact-path <publish_*.json>` |
-| `mud-server import-layer2-policies --world-id <world>` | `mud-server import-policy-artifact --artifact-path <publish_*.json>` |
-| `mud-server import-tone-prompt-policies --world-id <world>` | `mud-server import-policy-artifact --artifact-path <publish_*.json>` |
-| `mud-server import-world-policies --world-id <world>` | `mud-server import-policy-artifact --artifact-path <publish_*.json>` |
-
----
-
-## Features
-
-### Implemented
-
-- **FastAPI REST API** - High-performance backend (port 8000)
-- **Admin WebUI** - First-party dashboard served from the API (`/admin`)
-- **SQLite Database** - Player state, sessions, and chat persistence
-- **Authentication System** - Password-based auth with bcrypt hashing
-- **Role-Based Access Control (RBAC)** - 4 user types (Player, WorldBuilder, Admin, Superuser)
-- **Room Navigation** - Directional movement between connected rooms
-- **Inventory System** - Pick up and drop items in rooms
-- **Multi-Channel Chat** - Room-based `say`, area-wide `yell`, targeted `whisper`
-- **JSON World Definition** - Data-driven room and item configuration
-- **Ollama Integration** - AI model management interface (admin/superuser only)
-- **Modular Client Architecture** - Clean API/UI separation with high test coverage
-
-### Design Philosophy
-
-**Programmatic Authority:**
-
-- All game logic and state is deterministic and code-driven
-- Game mechanics are reproducible and testable
-- No LLM involvement in authoritative systems (state, logic, resolution)
-
-**Extensibility First:**
-
-- World data is JSON-driven (swap worlds without code changes)
-- Commands are extensible (add new actions without server rewrites)
-- Modular architecture supports plugins and custom mechanics
-
----
-
-## Creating Your Own World
-
-The MUD server is **fully data-driven**. Worlds now live under `data/worlds/<world_id>/` as self-contained packages:
+World packages are still filesystem-backed and versioned in the repo:
 
 ```text
 data/worlds/<world_id>/
@@ -296,16 +304,15 @@ And the zone data lives separately in `zones/<zone>.json`:
 }
 ```
 
-No server code changes are required when you add a new world package or tune
-its policies. The server loads the world from disk and the axis engine and
-translation layer read canonical runtime policy state from DB activation
-mappings. World `policies/*` files are import/bootstrap sources and artifact
-exchange outputs, not runtime authority.
+No server code changes are required when you add or tune a world package. The
+server loads world packages from disk, while canonical policy runtime state is
+resolved from DB activation mappings rather than legacy world `policies/*`
+files.
 
-## Axis Descriptor Lab Integration
+## Policy And Lab Integration
 
-The mud server is now the canonical source of truth for policy objects used by
-the Policy Workbench and other clients.
+The mud server is the canonical runtime source for policy-aware clients such as
+the Policy Workbench and related lab tooling.
 
 Canonical authoring path (DB-first):
 
@@ -338,7 +345,7 @@ DB-only runtime semantics:
 - runtime reads use effective activations, not world `policies/*` files
 - world policy files are migration/import inputs or exchange artifacts only
 
-### DB-Only Operator Runbook
+### DB-Only Operator Flow
 
 1. Initialize DB schema and baseline world catalog:
    - `mud-server init-db`
@@ -354,36 +361,6 @@ DB-only runtime semantics:
 For Luminal or other host-managed setups, keep the backend bound to
 `127.0.0.1:<fixed-port>` and verify operator flows through the canonical nginx
 hostnames after the DB/bootstrap steps succeed.
-
----
-
-## Available Commands
-
-### Movement
-
-- `north` / `n`, `south` / `s`, `east` / `e`, `west` / `w`
-- `up` / `u`, `down` / `d`
-
-### Observation
-
-- `look` / `l` - Observe your current surroundings
-- `inventory` / `inv` / `i` - Check your inventory
-
-### Items
-
-- `pickup <item>` / `get <item>` - Pick up an item from the room
-- `drop <item>` - Drop an item from your inventory
-
-### Communication
-
-- `say <message>` - Speak to others in the same room
-- `yell <message>` - Shout to nearby areas
-- `whisper <username> <message>` - Send a private message
-
-### Utility
-
-- `who` - See all players online
-- `help` - Show help information
 
 ---
 
@@ -489,15 +466,29 @@ pipeworks-admin-tui
 ### Database Management
 
 ```bash
-# Reset database (deletes all player data)
+# Repo-local reset for ad hoc development
 rm data/mud.db && mud-server init-db
-mud-server create-superuser  # Create admin after reset
+mud-server create-superuser
 
-# View database schema
+# Repo-local inspection
 sqlite3 data/mud.db ".schema"
-
-# Query players
 sqlite3 data/mud.db "SELECT username, role, current_room FROM players;"
+```
+
+For host-managed Luminal work, use the runtime DB path explicitly instead:
+
+```bash
+export MUD_DB_PATH="/srv/work/pipeworks/runtime/pipeworks_mud_server/mud.db"
+export MUD_POLICY_EXPORTS_ROOT="/srv/work/pipeworks/repos/pipe-works-world-policies"
+
+# Fresh bootstrap against the canonical runtime DB path
+cd /srv/work/pipeworks/repos/pipeworks_mud_server
+/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server init-db
+/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server create-superuser
+/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server import-policy-artifact --artifact-path /abs/path/publish_<manifest_hash>.json
+
+# Inspect the runtime DB directly if needed
+/srv/work/pipeworks/venvs/pw-mud-server/bin/python -c "import sqlite3; conn = sqlite3.connect('$MUD_DB_PATH'); print(conn.execute(\"SELECT username, role FROM users\").fetchall()); conn.close()"
 ```
 
 ### Environment Variables
@@ -506,58 +497,32 @@ sqlite3 data/mud.db "SELECT username, role, current_room FROM players;"
 # Server configuration
 export MUD_HOST="127.0.0.1"                     # Bind address for host-managed deployment
 export MUD_PORT=8000                            # API port
+export MUD_DB_PATH="/abs/path/to/mud.db"        # Absolute runtime DB path for host-managed deployment
+export MUD_POLICY_EXPORTS_ROOT="/abs/path/to/pipe-works-world-policies"
 export MUD_SERVER_URL="http://127.0.0.1:8000"  # Direct Admin TUI endpoint
 ```
 
 For direct ad hoc development, `mud-server run` will still use its own local
 defaults if these variables are unset. For steady-state host deployment, prefer
-explicit `MUD_HOST` and `MUD_PORT` values plus HTTPS reverse proxying. On
-Luminal, that means `MUD_HOST=127.0.0.1`, a service-owned fixed `MUD_PORT`, and
+explicit `MUD_HOST`, `MUD_PORT`, and `MUD_DB_PATH` values plus HTTPS reverse
+proxying. On Luminal, that means `MUD_HOST=127.0.0.1`, a service-owned fixed
+`MUD_PORT`, a runtime DB under `/srv/work/pipeworks/runtime/pipeworks_mud_server/`,
 operator access via `https://pipeworks.luminal.local` and
 `https://admin.pipeworks.luminal.local` rather than the raw backend port.
 
----
+## CI And Contribution
 
-## Continuous Integration
+Every push and pull request runs the normal Python quality gates, including
+tests, Ruff, Black, mypy, docs, and security-oriented checks.
 
-Every push and pull request runs:
+For normal repo work:
 
-- Fast matrix tests on Python 3.12 and 3.13
-- Full coverage suite on Python 3.12
-- Code linting with Ruff
-- Formatting check with Black
-- Type checking with mypy
-- Coverage reporting to Codecov
-- Secret scanning with gitleaks
-- Security scanning with Bandit and Trivy
-- Documentation build with Sphinx
+1. create a feature branch
+2. make the change with tests when appropriate
+3. run the relevant local checks
+4. open a PR
 
----
-
-## Contributing
-
-Contributions are welcome! This project is in active development.
-
-### Development Process
-
-1. **Fork the repository**
-2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
-3. **Make your changes** with tests
-4. **Ensure tests pass** (`pytest`)
-5. **Run hooks and linting** (`pre-commit run --all-files`)
-6. **Lint and format** (`ruff check`, `black`)
-7. **Commit your changes** (`git commit -m 'Add amazing feature'`)
-8. **Push to the branch** (`git push origin feature/amazing-feature`)
-9. **Open a Pull Request**
-
-### Code Style
-
-- Follow PEP 8 (enforced by Black)
-- Use type hints (checked by mypy)
-- Write docstrings for public functions
-- See [CLAUDE.md](CLAUDE.md) for architecture guidelines
-
----
+See [CLAUDE.md](CLAUDE.md) for repo-specific architecture guidance.
 
 ## License
 

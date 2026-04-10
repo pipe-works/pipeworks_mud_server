@@ -775,6 +775,7 @@ def print_config_summary(
     print(f"CORS origins: {config.security.cors_origins}")
     print(f"Docs enabled: {config.docs_should_be_enabled}")
     print(f"Database:    {config.database.absolute_path}")
+    print(f"Worlds root: {config.worlds.worlds_root}")
     print(f"Session TTL: {config.session.ttl_minutes} minutes")
     print(f"Sliding Exp: {config.session.sliding_expiration}")
     print(f"Multi-Session: {config.session.allow_multiple_sessions}")
