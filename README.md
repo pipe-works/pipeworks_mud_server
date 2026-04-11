@@ -1,542 +1,262 @@
+[![CI](https://github.com/pipe-works/pipeworks_mud_server/actions/workflows/ci.yml/badge.svg)](https://github.com/pipe-works/pipeworks_mud_server/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/pipe-works/pipeworks_mud_server/branch/main/graph/badge.svg)](https://codecov.io/gh/pipe-works/pipeworks_mud_server)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 # PipeWorks MUD Server
 
-> **A deterministic, procedural multiplayer text game engine for building accountable interactive fiction worlds.**
+PipeWorks MUD Server is the canonical multiplayer runtime in the PipeWorks
+ecosystem. It provides the FastAPI API surface, the browser admin and play
+surfaces, the SQLite-backed canonical runtime state, and the bootstrap/import
+flows that turn published policy artifacts into active runtime behavior.
 
-<!-- markdownlint-disable MD013 -->
-[![CI][ci-badge]][ci-url]
-[![Documentation][docs-badge]][docs-url]
-[![codecov][codecov-badge]][codecov-url]
-[![Python 3.12+][python-badge]][python-url]
-[![License: GPL v3][license-badge]][license-url]
-[![Code style: black][black-badge]][black-url]
-[![Ruff][ruff-badge]][ruff-url]
+## PipeWorks Workspace
 
-<!-- markdownlint-disable-next-line MD013 -->
-[ci-badge]: https://github.com/pipe-works/pipeworks_mud_server/actions/workflows/ci.yml/badge.svg
-<!-- markdownlint-disable-next-line MD013 -->
-[ci-url]: https://github.com/pipe-works/pipeworks_mud_server/actions/workflows/ci.yml
-<!-- markdownlint-disable-next-line MD013 -->
-[docs-badge]: https://readthedocs.org/projects/pipeworks-mud-server/badge/?version=latest
-<!-- markdownlint-disable-next-line MD013 -->
-[docs-url]: https://pipeworks-mud-server.readthedocs.io/en/latest/?badge=latest
-<!-- markdownlint-disable-next-line MD013 -->
-[codecov-badge]: https://codecov.io/gh/pipe-works/pipeworks_mud_server/branch/main/graph/badge.svg
-<!-- markdownlint-disable-next-line MD013 -->
-[codecov-url]: https://codecov.io/gh/pipe-works/pipeworks_mud_server
-<!-- markdownlint-disable-next-line MD013 -->
-[python-badge]: https://img.shields.io/badge/python-3.12+-blue.svg
-<!-- markdownlint-disable-next-line MD013 -->
-[python-url]: https://www.python.org/downloads/
-<!-- markdownlint-disable-next-line MD013 -->
-[license-badge]: https://img.shields.io/badge/License-GPLv3-blue.svg
-<!-- markdownlint-disable-next-line MD013 -->
-[license-url]: https://www.gnu.org/licenses/gpl-3.0
-<!-- markdownlint-disable-next-line MD013 -->
-[black-badge]: https://img.shields.io/badge/code%20style-black-000000.svg
-<!-- markdownlint-disable-next-line MD013 -->
-[black-url]: https://github.com/psf/black
-<!-- markdownlint-disable-next-line MD013 -->
-[ruff-badge]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json
-<!-- markdownlint-disable-next-line MD013 -->
-[ruff-url]: https://github.com/astral-sh/ruff
-<!-- markdownlint-enable MD013 -->
+These repositories are designed to live inside a shared PipeWorks workspace
+rooted at `/srv/work/pipeworks`.
 
----
+- `repos/` contains source checkouts only.
+- `venvs/` contains per-project virtual environments such as `pw-mud-server`.
+- `runtime/` contains mutable runtime state such as databases, exports, session
+  files, and caches.
+- `logs/` contains service-owned log output when a project writes logs outside
+  the process manager.
+- `config/` contains workspace-level configuration files that should not be
+  treated as source.
+- `bin/` contains optional workspace helper scripts.
+- `home/` is reserved for workspace-local user data when a project needs it.
 
-## Overview
+Across the PipeWorks ecosphere, the rule is simple: keep source in `repos/`,
+keep mutable state outside the repo checkout, and use explicit paths between
+repos when one project depends on another.
 
-PipeWorks MUD Server is the live PipeWorks multiplayer runtime. It is a
-FastAPI-based service with a first-party admin WebUI, SQLite-backed canonical
-state, and DB-first policy/bootstrap flows.
+## What This Repo Owns
 
-The current host model matters:
+This repository is the source of truth for:
 
-- source code lives in the repo checkout
-- the live service runs under `systemd`
-- the canonical runtime DB should live outside the repo checkout
-- policy bootstrap imports canonical publish artifacts from
-  `pipe-works-world-policies`
+- the `mud-server` CLI and `pipeworks-admin-tui` entry points
+- the FastAPI API server and browser-served admin/play UIs
+- canonical runtime storage in SQLite
+- world package loading from `data/worlds/`
+- policy artifact import, activation, and runtime policy APIs
+- game logic, session/auth flows, event materialization, and translation
+  orchestration
 
-The repo still supports ad hoc local development, but the host-managed Luminal
-model is now the important reference point for operational work.
+This repository does not own:
 
-**[Read the full documentation](https://pipeworks-mud-server.readthedocs.io/)**
-
-## Current Luminal Shape
-
-On `luminal.local`, the current steady-state runtime looks like this:
-
-- repo root:
-  - `/srv/work/pipeworks/repos/pipeworks_mud_server`
-- venv:
-  - `/srv/work/pipeworks/venvs/pw-mud-server`
-- runtime DB:
-  - `/srv/work/pipeworks/runtime/pipeworks_mud_server/mud.db`
-- policy export root:
-  - `/srv/work/pipeworks/repos/pipe-works-world-policies`
-- systemd unit:
-  - `pipeworks-dev.service`
-- backend bind:
-  - `127.0.0.1:18000`
-- canonical browser entry points:
-  - `https://pipeworks.luminal.local`
-  - `https://admin.pipeworks.luminal.local`
-
-This is the mental model to prefer when working on the repo:
-
-- repo checkout is not the runtime DB home
-- `systemd` owns steady-state serving
-- operators run explicit bootstrap/admin commands against the same venv and DB
-
-## Quick Start
-
-### Repo-Local Development
-
-For ad hoc local development, the repo still supports a simple in-checkout
-workflow:
-
-```bash
-git clone https://github.com/pipe-works/pipeworks_mud_server.git
-cd pipeworks_mud_server
-python3 -m venv venv
-source venv/bin/activate
-pip install -e ".[dev]"
-mud-server init-db
-mud-server create-superuser
-mud-server run
-```
-
-That path is fine for local experimentation. It is not the canonical Luminal
-host-managed operating model.
-
-### Luminal Host-Managed Bootstrap
-
-For Luminal, prefer:
-
-1. create or reuse the dedicated venv
-2. initialize the runtime DB at its explicit absolute path
-3. create the first superuser interactively
-4. let the live service run under `systemd`
-5. access the app through nginx hostnames, not the raw backend port
-
-Keep the exact Luminal bootstrap procedure in your local operations docs. This
-repo README only summarizes the model.
+- published policy artifacts as a distribution format
+- name-generation corpus and lexicon authoring
+- non-authoritative lab tooling such as Axis Descriptor Lab
 
 ## Runtime Model
 
-### DB-First Authority
+The server is DB-first.
 
-Canonical runtime state is DB-first.
+- SQLite is the canonical runtime store for accounts, sessions, world catalog
+  rows, policy variants, and policy activation state.
+- Published artifacts from `pipe-works-world-policies` are import/bootstrap
+  inputs, not runtime authority.
+- World packages remain filesystem-backed under `data/worlds/<world_id>/`.
+- LLM-backed translation is non-authoritative flavour output and does not become
+  source of truth.
 
-- SQLite is the runtime authority for players, sessions, world catalog rows,
-  policy variants, and policy activation state.
-- Published artifact files are import/bootstrap inputs, not runtime authority.
-- `data/worlds/<world_id>/policies/**` legacy files are no longer a canonical
-  runtime source.
+The server also maintains a JSONL event ledger. At present, that ledger still
+resolves to repo-local `data/ledger/` paths in code. The workspace examples
+below therefore externalize the runtime DB while documenting the current
+ledger-path limitation honestly.
 
-### Policy Bootstrap
+## Repository Layout
 
-`mud-server init-db` now does more than schema creation:
+- `src/mud_server/api/` FastAPI app, route registration, auth, and schemas
+- `src/mud_server/core/` game engine, world loading, and event flow
+- `src/mud_server/db/` SQLite schema and repository layer
+- `src/mud_server/services/policy/` policy import, publish, and path resolution
+- `src/mud_server/translation/` OOC to IC translation orchestration
+- `src/mud_server/admin_tui/` optional terminal admin client
+- `src/mud_server/web/` browser UI templates and static assets
+- `data/worlds/` versioned world packages loaded by the server
+- `examples/` example clients and usage material
+- `docs/` Sphinx documentation
+- `tests/` pytest suite
 
-- initializes the schema
-- syncs the world catalog from world packages on disk
-- bootstraps canonical artifact imports for discovered worlds unless
-  `--skip-policy-import` is used
+## Quick Start
 
-Artifact discovery for host-managed runs should be explicit. When bootstrap is
-expected to discover artifacts from `pipe-works-world-policies`, either:
+### Requirements
 
-- run `init-db` from the `pipeworks_mud_server` repo root, or
-- set `MUD_POLICY_EXPORTS_ROOT=/srv/work/pipeworks/repos/pipe-works-world-policies`
+- Python `>=3.12`
+- Git access to the private `pipeworks-ipc` dependency referenced in
+  `pyproject.toml`
+- a PipeWorks workspace rooted at `/srv/work/pipeworks`
+- `pipe-works-world-policies` checked out if you want canonical policy bootstrap
 
-so discovery does not depend on an unrelated current working directory.
+### Install
 
-### Superuser Bootstrap
-
-The preferred Luminal pattern is interactive:
-
-1. `/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server init-db`
-2. `/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server create-superuser`
-
-The CLI also supports environment-driven creation via `MUD_ADMIN_USER` and
-`MUD_ADMIN_PASSWORD`, but that is better treated as an automation path than the
-default operator workflow.
-
-## Running The Service
-
-### Ad Hoc Local Run
+From the repo root:
 
 ```bash
-mud-server run
+python3 -m venv /srv/work/pipeworks/venvs/pw-mud-server
+/srv/work/pipeworks/venvs/pw-mud-server/bin/pip install -e ".[dev]"
 ```
 
-By default this is convenient for local iteration. It can auto-discover a free
-port if the preferred one is already in use.
-
-### Host-Managed Run
-
-For host-managed deployment:
-
-- bind to `127.0.0.1`
-- keep a fixed port
-- use an explicit absolute runtime DB path
-- front the service with nginx
-
-Example environment:
+If you also want the terminal admin client:
 
 ```bash
-export MUD_HOST="127.0.0.1"
+/srv/work/pipeworks/venvs/pw-mud-server/bin/pip install -e ".[dev,admin-tui]"
+```
+
+### Bootstrap Canonical Runtime State
+
+The canonical runtime DB should live outside the repo checkout:
+
+```bash
+export MUD_DB_PATH=/srv/work/pipeworks/runtime/pipeworks_mud_server/mud.db
+export MUD_POLICY_EXPORTS_ROOT=/srv/work/pipeworks/repos/pipe-works-world-policies
+export MUD_WORLDS_ROOT=/srv/work/pipeworks/repos/pipeworks_mud_server/data/worlds
+
+/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server init-db
+/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server create-superuser
+```
+
+`init-db` does more than schema creation. It also syncs the world catalog and,
+unless `--skip-policy-import` is supplied, imports canonical world artifacts
+using `latest.json` pointers from the policy export repo.
+
+### Run The Server
+
+```bash
+export MUD_HOST=127.0.0.1
 export MUD_PORT=18000
-export MUD_DB_PATH="/srv/work/pipeworks/runtime/pipeworks_mud_server/mud.db"
-export MUD_POLICY_EXPORTS_ROOT="/srv/work/pipeworks/repos/pipe-works-world-policies"
+export MUD_DB_PATH=/srv/work/pipeworks/runtime/pipeworks_mud_server/mud.db
+export MUD_POLICY_EXPORTS_ROOT=/srv/work/pipeworks/repos/pipe-works-world-policies
+export MUD_WORLDS_ROOT=/srv/work/pipeworks/repos/pipeworks_mud_server/data/worlds
+
 /srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server run
 ```
 
-Notes:
+Default browser entry points for that example are:
 
-- direct backend port access is diagnostic-only
-- the live service should not rely on repo-local `data/mud.db`
-- automatic port fallback is acceptable for ad hoc runs, not for systemd steady
-  state
+- `http://127.0.0.1:18000/`
+- `http://127.0.0.1:18000/admin`
+- `http://127.0.0.1:18000/play`
 
-## Canonical Commands
+## Core Commands
 
-### Initialize Schema And Bootstrap Canonical Artifacts
+Initialize schema and import canonical world artifacts:
 
 ```bash
 /srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server init-db
 ```
 
-Use `--skip-policy-import` only when you intentionally want schema creation
-without artifact bootstrap.
+Skip artifact import if you only want schema bootstrap:
 
-### Create The First Superuser
+```bash
+/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server init-db --skip-policy-import
+```
+
+Create the first superuser interactively:
 
 ```bash
 /srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server create-superuser
 ```
 
-### Import One Canonical Policy Artifact
+Import one published policy artifact explicitly:
 
 ```bash
-/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server import-policy-artifact --artifact-path /abs/path/publish_<manifest_hash>.json
+/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server import-policy-artifact \
+  --artifact-path /srv/work/pipeworks/repos/pipe-works-world-policies/worlds/<world_id>/<scope>/publish_<manifest_hash>.json
 ```
 
-Use `--no-activate` to import or update variants without applying activation
-pointers from the artifact.
+Run the optional terminal admin client:
 
-### Removed Legacy Commands
+```bash
+MUD_SERVER_URL=http://127.0.0.1:18000 \
+/srv/work/pipeworks/venvs/pw-mud-server/bin/pipeworks-admin-tui
+```
 
-These older commands were deliberately removed:
+## Configuration
 
-- `import-species-policies`
-- `import-layer2-policies`
-- `import-tone-prompt-policies`
-- `import-world-policies`
+Configuration resolves in this order:
 
-Replacement:
+1. environment variables
+2. `config/server.ini` in the repo
+3. built-in defaults
 
-- `mud-server import-policy-artifact --artifact-path ...`
+The most important runtime variables for workspace-backed development are:
 
-## Worlds
+- `MUD_DB_PATH` for the canonical SQLite database path
+- `MUD_POLICY_EXPORTS_ROOT` for the policy export repo root
+- `MUD_WORLDS_ROOT` for the world package root
+- `MUD_HOST` and `MUD_PORT` for the API bind address
+- `MUD_NAMEGEN_BASE_URL` for name-generation integration
+- `MUD_ENTITY_STATE_BASE_URL` for entity-state integration
+- `MUD_TRANSLATION_OLLAMA_URL` for translation rendering
 
-World packages are still filesystem-backed and versioned in the repo:
+The repo still ships `config/server.example.ini` and repo-local defaults, but
+workspace-backed runs should prefer explicit environment variables or a
+workspace-managed config copy under `/srv/work/pipeworks/config/`.
+
+## World Packages
+
+World packages remain versioned in this repo:
 
 ```text
 data/worlds/<world_id>/
 ├── world.json
-├── zones/
-│   └── <zone>.json
+└── zones/
+    └── <zone>.json
 ```
 
-A minimal world package looks like this:
+`world.json` enables or disables runtime subsystems for that world, including
+translation and axis-engine behavior. Policy activation state itself is not read
+from world files; it is resolved from canonical policy rows in SQLite.
 
-```json
-{
-  "name": "My World",
-  "description": "A custom world package.",
-  "version": "0.1.0",
-  "default_spawn": {"zone": "my_world", "room": "spawn"},
-  "zones": ["my_world"],
-  "global_items": {},
-  "translation_layer": {
-    "enabled": true,
-    "model": "gemma2:2b",
-    "prompt_policy_id": "prompt:translation.prompts.ic:default",
-    "active_axes": ["demeanor", "health"]
-  },
-  "axis_engine": {"enabled": true}
-}
-```
+## Ecosystem Integrations
 
-`prompt_policy_id` is the authoritative runtime selector for translation
-templates from canonical policy activation state.
-
-And the zone data lives separately in `zones/<zone>.json`:
-
-```json
-{
-  "id": "my_world",
-  "name": "My World",
-  "rooms": {
-    "spawn": {
-      "id": "spawn",
-      "name": "Spawn Zone",
-      "description": "A central gathering point.",
-      "exits": {"north": "library"},
-      "items": []
-    },
-    "library": {
-      "id": "library",
-      "name": "Ancient Library",
-      "description": "Dusty books line the shelves.",
-      "exits": {"south": "spawn"},
-      "items": ["dusty_book"]
-    }
-  },
-  "items": {
-    "dusty_book": {
-      "id": "dusty_book",
-      "name": "dusty book",
-      "description": "A leather-bound tome with faded gold lettering."
-    }
-  }
-}
-```
-
-No server code changes are required when you add or tune a world package. The
-server loads world packages from disk, while canonical policy runtime state is
-resolved from DB activation mappings rather than legacy world `policies/*`
-files.
-
-## Policy And Lab Integration
-
-The mud server is the canonical runtime source for policy-aware clients such as
-the Policy Workbench and related lab tooling.
-
-Canonical authoring path (DB-first):
-
-- `GET /api/policy-capabilities`
-- `GET /api/policies`
-- `GET /api/policies/{policy_id}`
-- `POST /api/policies/{policy_id}/validate`
-- `PUT /api/policies/{policy_id}/variants/{variant}`
-- `POST /api/policy-activations`
-- `GET /api/policy-activations`
-- `POST /api/policy-publish`
-
-Lab integration endpoints (DB-first, runtime-safe):
-
-- `GET /api/lab/worlds`
-- `GET /api/lab/world-config/{world_id}`
-- `GET /api/lab/world-image-policy-bundle/{world_id}`
-- `POST /api/lab/compile-image-prompt`
-- `POST /api/lab/translate`
-
-Legacy lab file-authoring routes (`/api/lab/world-prompts/*`,
-`/api/lab/world-policy-bundle/*`) have been removed as a deliberate breaking
-change. Canonical runtime state now comes only from SQLite policy tables plus
-Layer 3 activation pointers.
-
-DB-only runtime semantics:
-
-- `policy_variant.status` tracks workflow state (`draft/candidate/active/archived`)
-- `policy_activation` selects effective runtime variants by scope
-- runtime reads use effective activations, not world `policies/*` files
-- world policy files are migration/import inputs or exchange artifacts only
-
-### DB-Only Operator Flow
-
-1. Initialize DB schema and baseline world catalog:
-   - `mud-server init-db`
-2. Import canonical policy artifact into DB:
-   - `mud-server import-policy-artifact --artifact-path <artifact.json> --activate`
-3. Verify effective activation state:
-   - `curl -s "http://127.0.0.1:8000/api/policy-activations?scope=<world_id>&effective=true&session_id=<sid>"`
-4. Publish/export deterministic artifact:
-   - `curl -s -X POST "http://127.0.0.1:8000/api/policy-publish?session_id=<sid>"`
-     `-H "Content-Type: application/json" -d '{"scope":"<world_id>"}'`
-5. Share artifact via `pipe-works-world-policies` artifact exchange repo; do not treat exported files as runtime authority.
-
-For Luminal or other host-managed setups, keep the backend bound to
-`127.0.0.1:<fixed-port>` and verify operator flows through the canonical nginx
-hostnames after the DB/bootstrap steps succeed.
-
----
+- `pipe-works-world-policies`
+  Canonical published artifact source for bootstrap and explicit import flows.
+- `pipeworks-policy-workbench`
+  Authoring and inspection client for the server's canonical policy APIs.
+- `pipeworks_axis_descriptor_lab`
+  Non-authoritative inspection surface that proxies selected mud-server APIs.
+- `pipeworks-namegen-api`
+  Optional runtime integration for generated naming flows.
+- `pipeworks_entity_state_generation`
+  Optional runtime integration for structured entity-state generation.
 
 ## Development
 
-### Setup
+Run the main local checks from the repo root:
 
 ```bash
-# Install with development dependencies
-pip install -e ".[dev]"
-
-# Install local hooks
-pre-commit install
+/srv/work/pipeworks/venvs/pw-mud-server/bin/pytest
+/srv/work/pipeworks/venvs/pw-mud-server/bin/ruff check src tests
+/srv/work/pipeworks/venvs/pw-mud-server/bin/black --check src tests
+/srv/work/pipeworks/venvs/pw-mud-server/bin/mypy src
 ```
 
-### Running Tests
+Build the docs locally:
 
 ```bash
-# Run all tests with coverage
-pytest
-
-# Run specific test file
-pytest tests/test_api/test_auth.py -v
-
-# Run tests matching pattern
-pytest -k "test_login"
-
-# Skip coverage for faster iteration
-pytest --no-cov
+/srv/work/pipeworks/venvs/pw-mud-server/bin/pip install -e ".[docs]"
+make -C docs html
 ```
 
-### API Notes
+## Documentation
 
-- `register_routes` moved to `mud_server.api.routes.register` (the package root no longer re-exports it).
+Additional documentation lives in `docs/source/`, including:
 
-### Code Quality
+- `getting_started.rst`
+- `architecture.rst`
+- `api_reference.rst`
+- `security.rst`
+- `translation_layer.rst`
 
-```bash
-# Lint
-ruff check src/ tests/
+Published docs:
 
-# Format
-black src/ tests/
-
-# Type check
-mypy src/ --ignore-missing-imports
-
-# Run configured local hooks
-pre-commit run --all-files
-```
-
-### Building Documentation
-
-Documentation is built with [Sphinx](https://www.sphinx-doc.org/) and hosted on [ReadTheDocs](https://pipeworks-mud-server.readthedocs.io/).
-
-```bash
-# Install docs dependencies
-pip install -e ".[docs]"
-
-# Build HTML documentation locally
-cd docs
-make html
-
-# View in browser
-open build/html/index.html  # macOS
-xdg-open build/html/index.html  # Linux
-```
-
-### Running Components Separately
-
-```bash
-# Run API server only
-python -m mud_server.api.server
-
-# Public play UI is served by the API server at /play
-# Admin WebUI is served by the API server at /admin
-
-# Check server health
-curl http://127.0.0.1:8000/health
-```
-
-### Admin TUI (Optional)
-
-The text-based admin client is available as `pipeworks-admin-tui`:
-
-```bash
-# Install the TUI extras
-pip install -e ".[admin-tui]"
-
-# Point at a direct local server if needed
-export MUD_SERVER_URL="http://127.0.0.1:8000"
-pipeworks-admin-tui
-```
-
-When the service is fronted by HTTPS and Nginx, point the TUI at the canonical
-hostname instead, for example:
-
-```bash
-export MUD_SERVER_URL="https://admin.pipeworks.luminal.local"
-pipeworks-admin-tui
-```
-
-### Database Management
-
-```bash
-# Repo-local reset for ad hoc development
-rm data/mud.db && mud-server init-db
-mud-server create-superuser
-
-# Repo-local inspection
-sqlite3 data/mud.db ".schema"
-sqlite3 data/mud.db "SELECT username, role, current_room FROM players;"
-```
-
-For host-managed Luminal work, use the runtime DB path explicitly instead:
-
-```bash
-export MUD_DB_PATH="/srv/work/pipeworks/runtime/pipeworks_mud_server/mud.db"
-export MUD_POLICY_EXPORTS_ROOT="/srv/work/pipeworks/repos/pipe-works-world-policies"
-
-# Fresh bootstrap against the canonical runtime DB path
-cd /srv/work/pipeworks/repos/pipeworks_mud_server
-/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server init-db
-/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server create-superuser
-/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server import-policy-artifact --artifact-path /abs/path/publish_<manifest_hash>.json
-
-# Inspect the runtime DB directly if needed
-/srv/work/pipeworks/venvs/pw-mud-server/bin/python -c "import sqlite3; conn = sqlite3.connect('$MUD_DB_PATH'); print(conn.execute(\"SELECT username, role FROM users\").fetchall()); conn.close()"
-```
-
-### Environment Variables
-
-```bash
-# Server configuration
-export MUD_HOST="127.0.0.1"                     # Bind address for host-managed deployment
-export MUD_PORT=8000                            # API port
-export MUD_DB_PATH="/abs/path/to/mud.db"        # Absolute runtime DB path for host-managed deployment
-export MUD_POLICY_EXPORTS_ROOT="/abs/path/to/pipe-works-world-policies"
-export MUD_SERVER_URL="http://127.0.0.1:8000"  # Direct Admin TUI endpoint
-```
-
-For direct ad hoc development, `mud-server run` will still use its own local
-defaults if these variables are unset. For steady-state host deployment, prefer
-explicit `MUD_HOST`, `MUD_PORT`, and `MUD_DB_PATH` values plus HTTPS reverse
-proxying. On Luminal, that means `MUD_HOST=127.0.0.1`, a service-owned fixed
-`MUD_PORT`, a runtime DB under `/srv/work/pipeworks/runtime/pipeworks_mud_server/`,
-operator access via `https://pipeworks.luminal.local` and
-`https://admin.pipeworks.luminal.local` rather than the raw backend port.
-
-## CI And Contribution
-
-Every push and pull request runs the normal Python quality gates, including
-tests, Ruff, Black, mypy, docs, and security-oriented checks.
-
-For normal repo work:
-
-1. create a feature branch
-2. make the change with tests when appropriate
-3. run the relevant local checks
-4. open a PR
-
-See [CLAUDE.md](CLAUDE.md) for repo-specific architecture guidance.
+- <https://pipeworks-mud-server.readthedocs.io/>
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
-
----
-
-## Links
-
-- **Documentation**: [ReadTheDocs](https://pipeworks-mud-server.readthedocs.io/)
-- **Repository**: [GitHub](https://github.com/pipe-works/pipeworks_mud_server)
-- **Issue Tracker**: [GitHub Issues](https://github.com/pipe-works/pipeworks_mud_server/issues)
-- **Developer Guide**: [CLAUDE.md](CLAUDE.md)
-
----
-
-**PipeWorks MUD Server** - *A foundation for building deterministic, procedural interactive fiction worlds.*
+[GPL-3.0-or-later](LICENSE)
