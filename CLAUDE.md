@@ -175,6 +175,28 @@ When implementing planned features:
 See `docs/the_undertaking_articulation.md` for full design philosophy and
 `docs/undertaking_code_examples.md` for implementation patterns.
 
+## Hosted Service Posture
+
+The Luminal host-managed service runs as `pipeworks-dev.service`.  Templates
+live in `deploy/`:
+
+- `deploy/systemd/pipeworks-dev.service` — authoritative unit template
+- `deploy/env/mud-server.env.example` — annotated env var reference
+- `deploy/nginx/admin.pipeworks.luminal.local` — nginx reverse-proxy config
+
+Key points for a new host rollout:
+
+- The systemd unit sets all config via inline `Environment=` lines — there is no
+  separate `/etc/pipeworks/mud-server/` INI file yet.
+- `MUD_NAMEGEN_BASE_URL` must be the **backend port** (`http://127.0.0.1:8360`),
+  not the nginx front door.  Service-to-service calls must bypass HTTPS to avoid
+  TLS certificate verification failures from inside the service sandbox.
+- `MUD_NAMEGEN_PACKAGE_ID` is currently hardcoded in
+  `src/mud_server/services/character_provisioning.py`.  On a new host, import
+  the namegen-lexicon run data via `POST /api/import-from-run` on the namegen-api
+  and confirm the resulting package id matches the hardcoded value.
+- If a change affects hosted-service assumptions, also update `deploy/`.
+
 ## pipe-works Organization Standards
 
 This repository follows pipe-works organization standards.

@@ -102,7 +102,7 @@ def _fetch_generated_name(
     endpoint = f"{base_url}/api/generate"
     payload = {
         "class_key": class_key,
-        "package_id": 1,
+        "package_id": 2,
         "syllable_key": "all",
         "generation_count": 1,
         "unique_only": True,

@@ -1,0 +1,28 @@
+server {
+    listen 80;
+    server_name admin.pipeworks.luminal.local;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name admin.pipeworks.luminal.local;
+
+    ssl_certificate     /etc/nginx/certs/admin.pipeworks.luminal.local.pem;
+    ssl_certificate_key /etc/nginx/certs/admin.pipeworks.luminal.local-key.pem;
+
+    access_log /var/log/nginx/admin.pipeworks.luminal.local.access.log;
+    error_log  /var/log/nginx/admin.pipeworks.luminal.local.error.log;
+
+    include /etc/nginx/snippets/security-headers.conf;
+    include /etc/nginx/snippets/proxy-common.conf;
+    include /etc/nginx/snippets/proxy-timeouts.conf;
+
+    location = / {
+        return 302 https://admin.pipeworks.luminal.local/admin;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:18000;
+    }
+}

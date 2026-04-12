@@ -51,7 +51,7 @@ def test_fetch_generated_name_returns_payload_for_valid_response(monkeypatch):
         "https://name.example.org/api/generate",
         json={
             "class_key": "first_name",
-            "package_id": 1,
+            "package_id": 2,
             "syllable_key": "all",
             "generation_count": 1,
             "unique_only": True,

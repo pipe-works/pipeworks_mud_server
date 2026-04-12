@@ -77,6 +77,7 @@ ledger-path limitation honestly.
 - `src/mud_server/admin_tui/` optional terminal admin client
 - `src/mud_server/web/` browser UI templates and static assets
 - `data/worlds/` versioned world packages loaded by the server
+- `deploy/` checked-in deployment templates (systemd unit, env reference, nginx)
 - `examples/` example clients and usage material
 - `docs/` Sphinx documentation
 - `tests/` pytest suite
@@ -196,6 +197,36 @@ The most important runtime variables for workspace-backed development are:
 The repo still ships `config/server.example.ini` and repo-local defaults, but
 workspace-backed runs should prefer explicit environment variables or a
 workspace-managed config copy under `/srv/work/pipeworks/config/`.
+
+## Hosted Service Posture
+
+For hosted service use the expected bind is driven by external environment
+variables set in the systemd unit.
+
+Current Luminal-oriented host-managed posture:
+
+- bind host `127.0.0.1`
+- bind port `18000`
+- nginx front door at `https://admin.pipeworks.luminal.local`
+- `MUD_NAMEGEN_BASE_URL` must point to the **backend port directly**
+  (`http://127.0.0.1:8360`) rather than the nginx front door — service-to-service
+  calls within the host must not go through HTTPS to avoid TLS certificate
+  verification failures
+
+Do not treat the repo-local defaults as the hosted-service truth.
+
+### Deploy Templates
+
+Checked-in templates for the Luminal posture live under `deploy/`:
+
+- `deploy/systemd/pipeworks-dev.service` — systemd unit with all `Environment=`
+  lines that must be set on a new host
+- `deploy/env/mud-server.env.example` — annotated reference for every recognised
+  environment variable
+- `deploy/nginx/admin.pipeworks.luminal.local` — nginx reverse-proxy config
+
+Treat those as checked-in templates. Machine-specific rollout state (TLS certs,
+runtime DB, policy exports) lives outside the repo.
 
 ## World Packages
 
