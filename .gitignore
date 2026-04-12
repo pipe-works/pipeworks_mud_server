@@ -150,6 +150,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+# Deploy templates must be tracked even though env/ is ignored above.
+!deploy/env/
 
 # Spyder project settings
 .spyderproject

@@ -1,0 +1,20 @@
+[Unit]
+Description=PipeWorks development service
+After=network.target
+
+[Service]
+Type=simple
+User=pipeworks
+Group=pipeworks
+WorkingDirectory=/srv/work/pipeworks/repos/pipeworks_mud_server
+Environment=MUD_HOST=127.0.0.1
+Environment=MUD_PORT=18000
+Environment=MUD_DB_PATH=/srv/work/pipeworks/runtime/pipeworks_mud_server/mud.db
+Environment=MUD_POLICY_EXPORTS_ROOT=/srv/work/pipeworks/repos/pipe-works-world-policies
+Environment=MUD_NAMEGEN_BASE_URL=http://127.0.0.1:8360
+ExecStart=/srv/work/pipeworks/venvs/pw-mud-server/bin/mud-server run
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
