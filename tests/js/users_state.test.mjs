@@ -98,6 +98,44 @@ test('resolveSelectedUser keeps valid selection and falls back when missing', ()
   assert.equal(fallback.selectedUser.id, 10);
 });
 
+test('sortUsers respects characters sort direction', () => {
+  const users = [
+    { username: 'alpha', role: 'player', is_active: true, is_online_account: false, is_online_in_world: false, character_count: 3, last_login: null },
+    { username: 'zeta', role: 'player', is_active: true, is_online_account: false, is_online_in_world: false, character_count: 1, last_login: null },
+  ];
+
+  const asc = sortUsers(users, { key: 'characters', direction: 'asc' });
+  assert.deepEqual(
+    asc.map((entry) => entry.character_count),
+    [1, 3]
+  );
+
+  const desc = sortUsers(users, { key: 'characters', direction: 'desc' });
+  assert.deepEqual(
+    desc.map((entry) => entry.character_count),
+    [3, 1]
+  );
+});
+
+test('sortUsers respects last_login sort direction', () => {
+  const users = [
+    { username: 'alpha', role: 'player', is_active: true, is_online_account: false, is_online_in_world: false, character_count: 0, last_login: '2026-01-01T00:00:00Z' },
+    { username: 'zeta', role: 'player', is_active: true, is_online_account: false, is_online_in_world: false, character_count: 0, last_login: '2026-03-01T00:00:00Z' },
+  ];
+
+  const asc = sortUsers(users, { key: 'last_login', direction: 'asc' });
+  assert.deepEqual(
+    asc.map((entry) => entry.username),
+    ['alpha', 'zeta']
+  );
+
+  const desc = sortUsers(users, { key: 'last_login', direction: 'desc' });
+  assert.deepEqual(
+    desc.map((entry) => entry.username),
+    ['zeta', 'alpha']
+  );
+});
+
 test('buildWorldOptions sorts by id and selection resolver keeps valid world id', () => {
   const worldsById = new Map([
     ['z_world', 'Zed'],

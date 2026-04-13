@@ -33,6 +33,12 @@ function sortUsers(users, sortState) {
     } else if (key === 'online') {
       aVal = (a.is_online_account ? 1 : 0) + (a.is_online_in_world ? 1 : 0);
       bVal = (b.is_online_account ? 1 : 0) + (b.is_online_in_world ? 1 : 0);
+    } else if (key === 'characters') {
+      aVal = Number(a.character_count || 0);
+      bVal = Number(b.character_count || 0);
+    } else if (key === 'last_login') {
+      aVal = a.last_login ? Date.parse(a.last_login) : 0;
+      bVal = b.last_login ? Date.parse(b.last_login) : 0;
     }
 
     if (aVal < bVal) {

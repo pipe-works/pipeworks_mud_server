@@ -4,7 +4,7 @@
  * Table-region render helpers for the admin Users page.
  */
 
-import { escapeHtml, formatRole } from './users_render_shared.js';
+import { escapeHtml, formatDate, formatRole } from './users_render_shared.js';
 
 function buildOnlineStatus(user) {
   const accountClass = user.is_online_account ? 'is-online' : 'is-offline';
@@ -63,6 +63,8 @@ function buildUsersTable(users, sortState, selectedUserId) {
     { label: 'Role', key: 'role' },
     { label: 'Online', key: 'online' },
     { label: 'Active', key: 'active' },
+    { label: 'Characters', key: 'characters' },
+    { label: 'Last Login', key: 'last_login' },
     { label: 'Actions', key: null },
   ];
 
@@ -93,6 +95,8 @@ function buildUsersTable(users, sortState, selectedUserId) {
             formatRole(user.role),
             buildOnlineStatus(user),
             user.is_active ? 'Yes' : 'No',
+            Number(user.character_count || 0),
+            escapeHtml(formatDate(user.last_login)),
             buildActionButtons(user.username),
           ]
             .map((cell) => `<td>${cell}</td>`)

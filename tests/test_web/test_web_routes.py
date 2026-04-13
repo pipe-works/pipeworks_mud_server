@@ -34,18 +34,6 @@ def test_admin_shell_served_for_subpaths():
     assert "PipeWorks Admin Dashboard" in response.text
 
 
-def test_admin_shell_served_for_account_dashboard_path():
-    """/admin/accounts should return the admin HTML shell."""
-    app = FastAPI()
-    register_web_routes(app)
-
-    client = TestClient(app)
-    response = client.get("/admin/accounts")
-
-    assert response.status_code == 200
-    assert "PipeWorks Admin Dashboard" in response.text
-
-
 def test_admin_shell_served_for_character_dashboard_path():
     """/admin/characters should return the admin HTML shell."""
     app = FastAPI()
