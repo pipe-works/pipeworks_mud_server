@@ -15,6 +15,30 @@
 * Canonical policy import/bootstrap path is now artifact-only (`mud-server import-policy-artifact`).
 * Runtime policy authority remains DB activation + variant state; world policy files are not runtime authority.
 
+## [0.5.9](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.5.8...mud_server-v0.5.9) (2026-04-13)
+
+
+### Features
+
+* **admin:** merge accounts page into users, add characters and last-login columns ([f7d5795](https://github.com/pipe-works/pipeworks_mud_server/commit/f7d5795f84f953e29af62ef204be36c4d3da656b))
+* **admin:** merge accounts page into users, add characters and last-login columns ([33235c1](https://github.com/pipe-works/pipeworks_mud_server/commit/33235c1d59af8df18492a7c84fe9cc7c93f5b17a))
+* **deploy:** add deploy templates and fix namegen integration for new host ([#260](https://github.com/pipe-works/pipeworks_mud_server/issues/260)) ([ecdb403](https://github.com/pipe-works/pipeworks_mud_server/commit/ecdb4036ceb09fc8807c27ff25e6cd1d1e8a0add))
+
+
+### Bug Fixes
+
+* **cli:** tighten startup diagnostics and isolate tests ([6140f06](https://github.com/pipe-works/pipeworks_mud_server/commit/6140f0600857bfa9eae52cec26a084f298c6a1ee))
+* **config:** align mud runtime integrations with luminal ([#253](https://github.com/pipe-works/pipeworks_mud_server/issues/253)) ([303f897](https://github.com/pipe-works/pipeworks_mud_server/commit/303f897b3663e69b9bcfb4f4239144dcbdf0dcb6))
+* **deploy:** add entity-state backend URL and document service-to-service TLS pattern ([4b13b51](https://github.com/pipe-works/pipeworks_mud_server/commit/4b13b5144c45a8f27dc28ddbdb8fc5b0e36234a9))
+* **deploy:** add entity-state backend URL and document service-to-service TLS pattern ([f11602d](https://github.com/pipe-works/pipeworks_mud_server/commit/f11602d29b1cb9bedfa65d30ad36b42d6ac55603))
+
+
+### Documentation
+
+* clarify artifact exchange repo wording ([7ce74a0](https://github.com/pipe-works/pipeworks_mud_server/commit/7ce74a0dc1e38e20a8d4b49ac1679021b57faa8d))
+* clarify artifact exchange repo wording ([1d5582b](https://github.com/pipe-works/pipeworks_mud_server/commit/1d5582b3d272d4d8d901ffd61cb413a34a9ff087))
+* **mud-server:** align runtime db bootstrap guidance ([2b4c112](https://github.com/pipe-works/pipeworks_mud_server/commit/2b4c112a7a9082e6171b7b40c885d7b24e9e279b))
+
 ## [0.5.8](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.5.7...mud_server-v0.5.8) (2026-03-21)
 
 
