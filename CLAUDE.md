@@ -188,9 +188,15 @@ Key points for a new host rollout:
 
 - The systemd unit sets all config via inline `Environment=` lines — there is no
   separate `/etc/pipeworks/mud-server/` INI file yet.
-- `MUD_NAMEGEN_BASE_URL` must be the **backend port** (`http://127.0.0.1:8360`),
-  not the nginx front door.  Service-to-service calls must bypass HTTPS to avoid
-  TLS certificate verification failures from inside the service sandbox.
+- Internal service-to-service calls must use backend ports, not nginx hostnames.
+  The mkcert CA is not trusted by the Python `requests` SSL context inside the
+  service process, so HTTPS calls to `*.luminal.local` URLs will fail with a
+  certificate verification error.  Set both:
+  - `MUD_NAMEGEN_BASE_URL=http://127.0.0.1:8360`
+  - `MUD_ENTITY_STATE_BASE_URL=http://127.0.0.1:8390`
+  The `server.ini` values (`https://namegen-api.luminal.local` and
+  `https://entity-state-api.luminal.local`) are correct for browser-initiated
+  access but must be overridden in the systemd unit for service-to-service use.
 - `MUD_NAMEGEN_PACKAGE_ID` is currently hardcoded in
   `src/mud_server/services/character_provisioning.py`.  On a new host, import
   the namegen-lexicon run data via `POST /api/import-from-run` on the namegen-api
