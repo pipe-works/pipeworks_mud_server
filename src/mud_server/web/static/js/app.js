@@ -8,7 +8,6 @@ import { ApiClient, Session } from './api.js';
 import { renderLogin } from './pages/login.js';
 import { renderDashboard } from './pages/dashboard.js';
 import { renderUsers } from './pages/users.js';
-import { renderAccountsDashboard } from './pages/accounts.js';
 import { renderCharactersDashboard } from './pages/characters.js';
 import { renderTombstonesDashboard } from './pages/tombstones.js';
 import { renderSessions } from './pages/sessions.js';
@@ -28,7 +27,6 @@ const ROUTES = {
   '/admin': renderDashboard,
   '/admin/': renderDashboard,
   '/admin/users': renderUsers,
-  '/admin/accounts': renderAccountsDashboard,
   '/admin/characters': renderCharactersDashboard,
   '/admin/tombstones': renderTombstonesDashboard,
   '/admin/sessions': renderSessions,
