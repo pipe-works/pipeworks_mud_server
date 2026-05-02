@@ -11,6 +11,7 @@ _SUPPORTED_POLICY_TYPES = {
     "image_block",
     "species_block",
     "clothing_block",
+    "location",
     "registry",
     "prompt",
     "descriptor_layer",
@@ -23,6 +24,7 @@ _LAYER1_POLICY_TYPES = {
     "image_block",
     "species_block",
     "clothing_block",
+    "location",
     "prompt",
     "tone_profile",
 }

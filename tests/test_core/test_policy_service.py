@@ -98,6 +98,122 @@ def test_image_block_validation_rejects_empty_text(test_db) -> None:
 
 @pytest.mark.unit
 @pytest.mark.db
+def test_location_validate_upsert_and_get_policy_roundtrip(test_db) -> None:
+    """Locations should validate, persist, and resolve through canonical APIs."""
+    policy_id = "location:image.locations.environment:cozy_inn"
+
+    validation = policy_service.validate_policy_variant(
+        policy_id=policy_id,
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="draft",
+        content={"text": "A warm timber-beamed inn lit by hearth firelight."},
+        validated_by="tester",
+    )
+    assert validation.is_valid is True
+
+    saved = policy_service.upsert_policy_variant(
+        policy_id=policy_id,
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="draft",
+        content={"text": "A warm timber-beamed inn lit by hearth firelight."},
+        updated_by="tester",
+    )
+    assert saved["policy_id"] == policy_id
+    assert saved["policy_type"] == "location"
+
+    fetched = policy_service.get_policy(policy_id=policy_id, variant="v1")
+    assert fetched["content"]["text"] == "A warm timber-beamed inn lit by hearth firelight."
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_location_validation_rejects_empty_text(test_db) -> None:
+    """Location schema should require non-empty ``content.text`` strings."""
+    invalid = policy_service.validate_policy_variant(
+        policy_id="location:image.locations.environment:cozy_inn",
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="draft",
+        content={"text": "   "},
+        validated_by="tester",
+    )
+    assert invalid.is_valid is False
+    assert "location content.text must be a non-empty string" in invalid.errors
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_location_validation_rejects_non_string_text(test_db) -> None:
+    """Location schema should reject non-string ``content.text`` values."""
+    invalid = policy_service.validate_policy_variant(
+        policy_id="location:image.locations.environment:cozy_inn",
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="draft",
+        content={"text": 42},
+        validated_by="tester",
+    )
+    assert invalid.is_valid is False
+    assert "location content.text must be a non-empty string" in invalid.errors
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_location_validation_rejects_missing_text(test_db) -> None:
+    """Location schema should reject payloads with no ``content.text`` field."""
+    invalid = policy_service.validate_policy_variant(
+        policy_id="location:image.locations.environment:cozy_inn",
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="draft",
+        content={"description": "missing canonical text field"},
+        validated_by="tester",
+    )
+    assert invalid.is_valid is False
+    assert "location content.text must be a non-empty string" in invalid.errors
+
+
+@pytest.mark.unit
+@pytest.mark.db
+def test_layer2_reference_validation_accepts_location_reference(test_db) -> None:
+    """Layer 2 references should accept canonical ``location`` Layer 1 ids."""
+    location_policy_id = "location:image.locations.environment:cozy_inn"
+    policy_service.upsert_policy_variant(
+        policy_id=location_policy_id,
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="active",
+        content={"text": "A warm timber-beamed inn lit by hearth firelight."},
+        updated_by="tester",
+    )
+
+    valid = policy_service.validate_policy_variant(
+        policy_id="descriptor_layer:image.descriptors:tavern_scene",
+        variant="v1",
+        schema_version="1.0",
+        policy_version=1,
+        status="candidate",
+        content={
+            "text": "Descriptor text.",
+            "references": [
+                {"policy_id": location_policy_id, "variant": "v1"},
+            ],
+        },
+        validated_by="tester",
+    )
+    assert valid.is_valid is True
+
+
+@pytest.mark.unit
+@pytest.mark.db
 def test_layer2_reference_validation_rejects_non_layer1_reference(test_db) -> None:
     """Layer 2 payloads should reject references to non-Layer-1 policy types."""
     invalid = policy_service.validate_policy_variant(

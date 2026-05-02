@@ -142,6 +142,7 @@ def test_policy_capabilities_returns_authorized_contract(test_client, db_with_us
             "image_block",
             "species_block",
             "clothing_block",
+            "location",
             "registry",
             "prompt",
             "descriptor_layer",
