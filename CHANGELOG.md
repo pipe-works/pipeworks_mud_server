@@ -15,6 +15,15 @@
 * Canonical policy import/bootstrap path is now artifact-only (`mud-server import-policy-artifact`).
 * Runtime policy authority remains DB activation + variant state; world policy files are not runtime authority.
 
+## [0.5.10](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.5.9...mud_server-v0.5.10) (2026-05-04)
+
+
+### Features
+
+* **policy:** add slot_kinds field to policy responses ([#265](https://github.com/pipe-works/pipeworks_mud_server/issues/265)) ([7888684](https://github.com/pipe-works/pipeworks_mud_server/commit/788868463352011ed88bf1f073d64a4cd0f0c207))
+* **policy:** register canonical `location` policy type ([0c53210](https://github.com/pipe-works/pipeworks_mud_server/commit/0c5321041a046457c1b4071aa37cdcba782dbff3))
+* **policy:** register canonical `location` policy type ([703f0ba](https://github.com/pipe-works/pipeworks_mud_server/commit/703f0badb599028e814c47efb3ef94eed7e1ac83))
+
 ## [0.5.9](https://github.com/pipe-works/pipeworks_mud_server/compare/mud_server-v0.5.8...mud_server-v0.5.9) (2026-04-13)
 
 
