@@ -50,6 +50,7 @@ class PolicyObjectResponse(BaseModel):
     content_hash: str
     updated_at: str
     updated_by: str
+    slot_kinds: list[str]
 
 
 class PolicyListResponse(BaseModel):

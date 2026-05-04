@@ -76,6 +76,40 @@ def _error_response(error: PolicyServiceError) -> JSONResponse:
     return JSONResponse(status_code=error.status_code, content=error.to_response_payload())
 
 
+def _derive_slot_kinds(row: dict[str, Any]) -> list[str]:
+    """Derive the slot_kinds list surfaced by ``PolicyObjectResponse``.
+
+    Authors may set ``content.slot_kinds`` on snippet policies to control which
+    prompt-composer slot kinds the snippet is eligible for. When omitted, the
+    snippet defaults to its own ``namespace`` so existing policies remain
+    pickable without policy-author migration.
+    """
+    content = row.get("content") if isinstance(row, dict) else None
+    if isinstance(content, dict):
+        raw = content.get("slot_kinds")
+        if isinstance(raw, list):
+            seen: set[str] = set()
+            cleaned: list[str] = []
+            for item in raw:
+                if not isinstance(item, str):
+                    continue
+                stripped = item.strip()
+                if not stripped or stripped in seen:
+                    continue
+                seen.add(stripped)
+                cleaned.append(stripped)
+            if cleaned:
+                return cleaned
+    namespace = str(row.get("namespace") or "").strip()
+    return [namespace] if namespace else []
+
+
+def _to_policy_object_response(row: dict[str, Any]) -> PolicyObjectResponse:
+    """Build a ``PolicyObjectResponse`` with the derived ``slot_kinds`` field."""
+    enriched = {**row, "slot_kinds": _derive_slot_kinds(row)}
+    return PolicyObjectResponse.model_validate(enriched)
+
+
 def _normalize_activation_response(row: dict[str, Any]) -> PolicyActivationEntryResponse:
     """Normalize service-layer activation rows to API response shape."""
     return PolicyActivationEntryResponse(
@@ -129,9 +163,7 @@ def router(_engine: GameEngine) -> APIRouter:
             rows = service_list_policies(
                 policy_type=policy_type, namespace=namespace, status=status
             )
-            return PolicyListResponse(
-                items=[PolicyObjectResponse.model_validate(row) for row in rows]
-            )
+            return PolicyListResponse(items=[_to_policy_object_response(row) for row in rows])
         except PolicyServiceError as error:
             return _error_response(error)
 
@@ -145,7 +177,7 @@ def router(_engine: GameEngine) -> APIRouter:
         _validate_policy_session_admin_or_superuser(session_id)
         try:
             row = service_get_policy(policy_id=policy_id, variant=variant)
-            return PolicyObjectResponse.model_validate(row)
+            return _to_policy_object_response(row)
         except PolicyServiceError as error:
             return _error_response(error)
 
@@ -206,7 +238,7 @@ def router(_engine: GameEngine) -> APIRouter:
                 content=payload.content,
                 updated_by=updated_by,
             )
-            return PolicyObjectResponse.model_validate(row)
+            return _to_policy_object_response(row)
         except PolicyServiceError as error:
             return _error_response(error)
 
