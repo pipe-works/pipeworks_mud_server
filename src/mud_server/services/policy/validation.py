@@ -224,6 +224,30 @@ def _validate_common_fields(
     return errors
 
 
+def _validate_slot_kinds_field(content: dict[str, Any]) -> list[str]:
+    """Validate the optional ``content.slot_kinds`` snippet metadata field.
+
+    The field is optional. When present it must be a non-empty list whose
+    entries are non-empty strings after stripping. This metadata is consumed by
+    the image-generator prompt composer to scope which snippets a given slot
+    kind is allowed to pick. Snippets without the field default to the
+    snippet's own namespace at API serialization time.
+    """
+    if "slot_kinds" not in content:
+        return []
+    raw = content.get("slot_kinds")
+    if not isinstance(raw, list):
+        return ["content.slot_kinds must be a list of strings when present"]
+    if len(raw) == 0:
+        return ["content.slot_kinds must not be empty when present"]
+    cleaned: list[str] = []
+    for index, entry in enumerate(raw):
+        if not isinstance(entry, str) or not entry.strip():
+            return [f"content.slot_kinds[{index}] must be a non-empty string"]
+        cleaned.append(entry.strip())
+    return []
+
+
 def _validate_policy_type_content(
     *, identity: PolicyIdentity, content: dict[str, Any]
 ) -> list[str]:
@@ -232,7 +256,7 @@ def _validate_policy_type_content(
     Canonical authoring currently supports Layer 1 and Layer 2 families used by
     runtime and publish flows.
     """
-    errors: list[str] = []
+    errors: list[str] = list(_validate_slot_kinds_field(content))
 
     if identity.policy_type == _SPECIES_PILOT_POLICY_TYPE:
         if identity.namespace != _SPECIES_PILOT_NAMESPACE:

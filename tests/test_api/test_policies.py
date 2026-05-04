@@ -845,3 +845,97 @@ def test_policy_routes_map_service_errors_to_canonical_payloads(
     )
     assert import_response.status_code == 409
     assert import_response.json()["code"] == "POLICY_TEST_ERROR"
+
+
+@pytest.mark.api
+def test_policy_response_slot_kinds_defaults_to_namespace(test_client, db_with_users) -> None:
+    """Policy responses should default ``slot_kinds`` to ``[namespace]`` when unset."""
+    session_id = _session_id_for("testadmin")
+    policy_id = "species_block:image.blocks.species:goblin"
+    encoded_id = quote(policy_id, safe="")
+
+    upsert_response = test_client.put(
+        f"/api/policies/{encoded_id}/variants/v1",
+        params={"session_id": session_id},
+        json=_species_payload(text="A canonical goblin species description."),
+    )
+    assert upsert_response.status_code == 200
+    assert upsert_response.json()["slot_kinds"] == ["image.blocks.species"]
+
+    get_response = test_client.get(
+        f"/api/policies/{encoded_id}",
+        params={"session_id": session_id, "variant": "v1"},
+    )
+    assert get_response.status_code == 200
+    assert get_response.json()["slot_kinds"] == ["image.blocks.species"]
+
+    list_response = test_client.get(
+        "/api/policies",
+        params={"session_id": session_id, "policy_type": "species_block"},
+    )
+    assert list_response.status_code == 200
+    items = list_response.json()["items"]
+    assert items
+    assert items[0]["slot_kinds"] == ["image.blocks.species"]
+
+
+@pytest.mark.api
+def test_policy_response_slot_kinds_uses_authored_value(test_client, db_with_users) -> None:
+    """Authored ``content.slot_kinds`` should be surfaced verbatim (cleaned/deduped)."""
+    session_id = _session_id_for("testadmin")
+    policy_id = "tone_profile:image.tone_profiles:ledger_engraving"
+    encoded_id = quote(policy_id, safe="")
+
+    payload = {
+        "schema_version": "1.0",
+        "policy_version": 1,
+        "status": "draft",
+        "content": {
+            "prompt_block": "Etched ledger lines, dense ink, period engraving.",
+            "slot_kinds": ["atmosphere", " atmosphere ", "lighting"],
+        },
+    }
+
+    upsert_response = test_client.put(
+        f"/api/policies/{encoded_id}/variants/v1",
+        params={"session_id": session_id},
+        json=payload,
+    )
+    assert upsert_response.status_code == 200
+    assert upsert_response.json()["slot_kinds"] == ["atmosphere", "lighting"]
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    "bad_value, expected_fragment",
+    [
+        ("not-a-list", "must be a list"),
+        ([], "must not be empty"),
+        ([""], "must be a non-empty string"),
+        (["ok", 7], "must be a non-empty string"),
+    ],
+)
+def test_policy_validation_rejects_malformed_slot_kinds(
+    test_client, db_with_users, bad_value, expected_fragment
+) -> None:
+    """Malformed ``content.slot_kinds`` values should fail validation with 422."""
+    session_id = _session_id_for("testadmin")
+    policy_id = "species_block:image.blocks.species:goblin"
+    encoded_id = quote(policy_id, safe="")
+
+    payload = {
+        "schema_version": "1.0",
+        "policy_version": 1,
+        "status": "draft",
+        "content": {
+            "text": "A canonical goblin species description.",
+            "slot_kinds": bad_value,
+        },
+    }
+    upsert_response = test_client.put(
+        f"/api/policies/{encoded_id}/variants/v1",
+        params={"session_id": session_id},
+        json=payload,
+    )
+    assert upsert_response.status_code == 422
+    assert expected_fragment in upsert_response.json()["detail"]
